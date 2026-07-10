@@ -1,0 +1,14 @@
+node_modules/
+.env
+.env.local
+.env*.local
+dist/
+.next/
+out/
+*.log
+.DS_Store
+
+# ข้อมูลธุรกิจ/PII จากชีตเดิม — ห้ามขึ้น git
+*.xlsx
+# build cache ของ TypeScript
+*.tsbuildinfo

@@ -1,0 +1,42 @@
+name: Pancake Sync
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # ทุก 15 นาที → fast (ออเดอร์ + แชทวันนี้ + บทสนทนา + ออนไลน์)
+    - cron: '5 * * * *'      # ทุกชั่วโมง (นาทีที่ 5) → hourly (แอด + รายชื่อแอดมิน + สถิติแอดมิน)
+    - cron: '0 19 * * *'     # 19:00 UTC = 02:00 ไทย → daily (เก็บตกเมื่อวาน + ลบข้อมูลเก่า)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'sync mode (fast | hourly | daily)'
+        default: 'fast'
+
+# ถ้ารอบก่อนยังไม่จบ ให้รอ (กันชนกัน)
+concurrency:
+  group: pancake-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run sync
+        env:
+          POS_API_KEY: ${{ secrets.POS_API_KEY }}
+          POS_SHOP_ID: ${{ secrets.POS_SHOP_ID }}
+          PANCAKE_ACCESS_TOKEN: ${{ secrets.PANCAKE_ACCESS_TOKEN }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          MODE="${{ github.event.inputs.mode || 'fast' }}"
+          if [ "${{ github.event.schedule }}" = "5 * * * *" ]; then MODE=hourly; fi
+          if [ "${{ github.event.schedule }}" = "0 19 * * *" ]; then MODE=daily; fi
+          echo "mode = $MODE"
+          npm run sync -- "$MODE"
