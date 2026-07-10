@@ -42,7 +42,7 @@ const Views: Record<string, ViewModule> = {
 };
 
 const VIEW_META: Record<string, { title: string; sub: string }> = {
-  dashboard:  { title: 'Dashboard', sub: 'ภาพรวมแชทวันนี้ — ข้อมูลจริงจาก Pancake (sync ทุก 10 นาที)' },
+  dashboard:  { title: 'Dashboard', sub: 'ภาพรวมแชทวันนี้ — ข้อมูลจริงจาก Pancake (sync ทุก 15 นาที)' },
   sales:      { title: 'Sales Dashboard', sub: 'ยอดขาย Facebook / LINE จาก Pancake POS' },
   contentads: { title: 'Content & Ads Performance', sub: 'แอดที่กำลังยิง + คำแนะนำจากตัวเลขจริง' },
   admins:     { title: 'Admin Management', sub: 'รายชื่อแอดมิน • สถานะออนไลน์ • สิทธิ์' },
