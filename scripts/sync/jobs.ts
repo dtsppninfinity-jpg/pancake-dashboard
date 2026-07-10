@@ -111,6 +111,8 @@ export async function syncAds(): Promise<string> {
   } catch { /* ไม่มีชื่อแคมเปญก็ใช้ id แทนได้ */ }
   const ads = await posFetchAds(10);
   const rows = ads.map((a) => mapAd(a, campaigns));
+  // กันข้อมูลหาย: ถ้า API คืนว่าง (ล่ม/ไม่มีสิทธิ์ชั่วคราว) อย่าเขียนทับตาราง ads ด้วยของว่าง
+  if (!rows.length) return 'ads: 0 แอด (ข้ามการเขียนทับ — คงข้อมูลเดิม)';
   await replaceTable('ads', rows, 'ad_id');
   return `ads: ${rows.length} แอด`;
 }

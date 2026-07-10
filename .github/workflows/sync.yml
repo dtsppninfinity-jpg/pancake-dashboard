@@ -1,10 +1,11 @@
 name: Pancake Sync
 
 on:
+  # ตัวขับหลักคือ cron-job.org (ยิง workflow_dispatch mode=fast ทุก 15 นาที)
+  # cron ด้านล่างเป็น backup เผื่อ cron-job.org ล่ม — fast จัดการงาน hourly/daily เองผ่าน sync_state
+  # (ไม่มี cron แยกสำหรับ hourly/daily แล้ว เพื่อกันทำงานซ้ำซ้อนกับ self-schedule)
   schedule:
     - cron: '2,17,32,47 * * * *'  # ~ทุก 15 นาที → fast (เลี่ยงนาที :00/:15/:30/:45 ที่ GitHub แออัด/ดีเลย์บ่อย)
-    - cron: '5 * * * *'      # ทุกชั่วโมง (นาทีที่ 5) → hourly (แอด + รายชื่อแอดมิน + สถิติแอดมิน)
-    - cron: '0 19 * * *'     # 19:00 UTC = 02:00 ไทย → daily (เก็บตกเมื่อวาน + ลบข้อมูลเก่า)
   workflow_dispatch:
     inputs:
       mode:
@@ -36,7 +37,5 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           MODE="${{ github.event.inputs.mode || 'fast' }}"
-          if [ "${{ github.event.schedule }}" = "5 * * * *" ]; then MODE=hourly; fi
-          if [ "${{ github.event.schedule }}" = "0 19 * * *" ]; then MODE=daily; fi
           echo "mode = $MODE"
           npm run sync -- "$MODE"
