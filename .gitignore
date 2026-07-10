@@ -12,3 +12,6 @@ out/
 *.xlsx
 # build cache ของ TypeScript
 *.tsbuildinfo
+
+# Vercel CLI project linkage
+.vercel
