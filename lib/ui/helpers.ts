@@ -11,6 +11,11 @@ export async function serverCall<T = any>(fn: string, params?: unknown): Promise
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(params || {}),
   });
+  if (r.status === 401) {
+    // session หมดอายุ / ยังไม่ล็อกอิน → เด้งไปหน้า login
+    if (typeof window !== 'undefined') window.location.href = '/login';
+    throw new Error('unauthorized');
+  }
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
