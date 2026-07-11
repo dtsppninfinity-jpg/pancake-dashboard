@@ -6,8 +6,9 @@
 
 import {
   serverCall, esc, fmtNum, THB, kFmt, pctFmt, relTime,
-  toast, openModal, closeModal, showLoading, showError, downloadCSV,
+  toast, openModal, closeModal, showError, downloadCSV,
 } from '@/lib/ui/helpers';
+import { contentadsSkel } from '@/lib/ui/skeletons';
 
 let lastData: any = null;
 const filter = { q: '', status: '', account: '', rank: 'revenue' };
@@ -450,7 +451,7 @@ function fetchFresh(container: HTMLElement, background: boolean): void {
       toast('⚠️ โหลดข้อมูลแอดใหม่ไม่สำเร็จ — แสดงข้อมูลเดิมไปก่อน');
     } else {
       showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', function () {
-        showLoading(container);
+        container.innerHTML = contentadsSkel();
         fetchFresh(container, false);
       });
     }
@@ -463,7 +464,7 @@ export const contentads = {
       render(container, lastData);
       fetchFresh(container, true);
     } else {
-      showLoading(container);
+      container.innerHTML = contentadsSkel();
       fetchFresh(container, false);
     }
   },

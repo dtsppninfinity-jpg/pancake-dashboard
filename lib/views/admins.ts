@@ -13,9 +13,9 @@ import {
   closeModal,
   toast,
   showError,
-  showLoading,
   downloadCSV,
 } from '@/lib/ui/helpers';
+import { adminsSkel } from '@/lib/ui/skeletons';
 
 /* ---------------- types ---------------- */
 
@@ -372,7 +372,7 @@ function fetchData(container: HTMLElement, silent: boolean): void {
       toast('⚠️ รีเฟรชข้อมูลแอดมินไม่สำเร็จ: ' + msg);
     } else {
       showError(container, msg, function () {
-        showLoading(container);
+        container.innerHTML = adminsSkel();
         fetchData(container, false);
       });
     }
@@ -387,7 +387,7 @@ export const admins = {
       render(container);
       fetchData(container, true); /* อัปเดตเบื้องหลัง */
     } else {
-      showLoading(container);
+      container.innerHTML = adminsSkel();
       fetchData(container, false);
     }
   },

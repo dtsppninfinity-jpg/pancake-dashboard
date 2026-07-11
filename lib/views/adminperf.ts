@@ -17,7 +17,6 @@ import {
   bindRangeControls,
   toast,
   showError,
-  showLoading,
   downloadCSV,
   type RangeState,
 } from '@/lib/ui/helpers';
@@ -27,6 +26,7 @@ import {
   computeScore,
   type MetricConfig,
 } from '@/lib/scoring';
+import { adminperfSkel } from '@/lib/ui/skeletons';
 
 /* ---------- types ---------- */
 
@@ -464,7 +464,7 @@ function fetchData(container: HTMLElement, background: boolean): void {
       toast('⚠️ โหลดข้อมูล Ranking ใหม่ไม่สำเร็จ');
     } else {
       showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', function () {
-        showLoading(container);
+        container.innerHTML = adminperfSkel();
         fetchData(container, false);
       });
     }
@@ -485,7 +485,7 @@ async function loadConfig(): Promise<void> {
 /** เรียกเมื่อ range/channel เปลี่ยน — ข้อมูลเดิมใช้ไม่ได้แล้ว */
 function refetch(container: HTMLElement): void {
   lastData = null;
-  showLoading(container);
+  container.innerHTML = adminperfSkel();
   fetchData(container, false);
 }
 
@@ -498,7 +498,7 @@ export const adminperf = {
       render(container, lastData);              // แสดงจากแคชทันที
       fetchData(container, true);               // แล้วดึงข้อมูลใหม่เบื้องหลัง
     } else {
-      showLoading(container);
+      container.innerHTML = adminperfSkel();
       fetchData(container, false);
     }
   },

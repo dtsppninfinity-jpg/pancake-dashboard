@@ -6,9 +6,10 @@
 
 import {
   serverCall, esc, fmtNum, pctFmt, platformIcon, avatarHtml,
-  showLoading, showError, toast,
+  showError, toast,
 } from '@/lib/ui/helpers';
 import { svgWeekBars, svgDonut, hbarRows } from '@/lib/ui/charts';
+import { dashboardSkel, dashboardBodySkel } from '@/lib/ui/skeletons';
 
 /* ---------------- data types (apiDashboard) ---------------- */
 
@@ -270,7 +271,7 @@ function bindChips(container: HTMLElement): void {
         b.classList.toggle('active', (b.getAttribute('data-ch') || '') === channel);
       });
       const body = container.querySelector<HTMLElement>('#dash-body');
-      if (body) showLoading(body);
+      if (body) body.innerHTML = dashboardBodySkel();
       fetchAndRender(container);
     });
   });
@@ -308,7 +309,7 @@ export const dashboard = {
       render(container, lastData);      // แสดงจาก cache ทันที
       fetchAndRender(container);        // แล้วดึงข้อมูลใหม่เบื้องหลัง
     } else {
-      showLoading(container);
+      container.innerHTML = dashboardSkel();
       fetchAndRender(container);
     }
   },

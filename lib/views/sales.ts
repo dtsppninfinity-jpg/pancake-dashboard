@@ -14,12 +14,12 @@ import {
   pctFmt,
   rangeControlsHtml,
   bindRangeControls,
-  showLoading,
   showError,
   toast,
   downloadCSV,
 } from '@/lib/ui/helpers';
 import { svgHourlyLine, miniBars } from '@/lib/ui/charts';
+import { salesSkel } from '@/lib/ui/skeletons';
 
 declare global {
   // app-core (JsCommon) แนบ App / VIEW_META ไว้บน global — view อ้างถึงตรงๆ (ห้าม import กัน cycle)
@@ -314,7 +314,7 @@ function bindEvents(container: HTMLElement): void {
 
 /** filter เปลี่ยน (ทุก param เป็น server-side ตาม contract) → โหลดจาก server ใหม่ */
 function refetch(container: HTMLElement): void {
-  showLoading(container);
+  container.innerHTML = salesSkel();
   fetchAndRender(container, true);
 }
 
@@ -408,7 +408,7 @@ export const sales = {
       render(container, lastData);
       fetchAndRender(container, false);
     } else {
-      showLoading(container);
+      container.innerHTML = salesSkel();
       fetchAndRender(container, true);
     }
   },

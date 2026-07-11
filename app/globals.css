@@ -496,6 +496,22 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
   animation: spin .8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- skeleton loading ---------- */
+:root { --skel: #212a44; --skel-shine: rgba(255, 255, 255, 0.06); }
+:root[data-theme="light"] { --skel: #e3e8f1; --skel-shine: rgba(255, 255, 255, 0.7); }
+.skel {
+  position: relative; overflow: hidden;
+  background: var(--skel); border-radius: 7px;
+}
+.skel::after {
+  content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent 0, var(--skel-shine) 50%, transparent 100%);
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes skel-shimmer { to { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .skel::after { animation: none; } }
+
 .error-box {
   background: var(--red-soft); border: 1px solid var(--red); border-radius: 12px;
   padding: 16px; color: var(--text); font-size: 13px;
