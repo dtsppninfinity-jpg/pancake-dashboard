@@ -199,9 +199,12 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       svgHourlyLine(hourly, hourlyPrev) +
       legend +
     '</div>' +
-    '<div class="card">' +
-      '<h3>🏪 ข้อมูลธุรกิจวันนี้</h3>' +
-      '<div class="card-sub">ยอดจริงของวันนี้ — ไม่เปลี่ยนตามตัวกรองด้านบน</div>' +
+    '<div class="card sr-live">' +
+      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px">' +
+        '<h3 style="margin:0">🏪 ธุรกิจวันนี้</h3>' +
+        '<span class="badge live-now">LIVE วันนี้</span>' +
+      '</div>' +
+      '<div class="card-sub">ตัวเลขจริงของ<b>วันนี้</b>แบบเรียลไทม์ — <b>ไม่ขึ้นกับตัวกรอง 📅 ด้านบน</b></div>' +
       '<div class="sr-green" style="font-size:26px;font-weight:800;letter-spacing:-0.5px">' + THB(today.revenue || 0) + '</div>' +
       '<div style="font-size:12px;color:var(--text-3)">' + fmtNum(today.orders || 0) + ' ออเดอร์วันนี้</div>' +
       miniBars(todayHourly) +
