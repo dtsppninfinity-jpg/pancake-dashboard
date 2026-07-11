@@ -6,7 +6,7 @@
 
 import {
   serverCall, esc, fmtNum, pctFmt, platformIcon, avatarHtml,
-  showError, toast,
+  showError, toast, tagColor,
 } from '@/lib/ui/helpers';
 import { svgWeekBars, svgDonut, hbarRows } from '@/lib/ui/charts';
 import { dashboardSkel, dashboardBodySkel } from '@/lib/ui/skeletons';
@@ -83,6 +83,7 @@ const CHANNELS: { key: string; label: string }[] = [
   { key: '', label: 'ทั้งหมด' },
   { key: 'facebook', label: '📘 Facebook' },
   { key: 'line', label: '🟢 LINE OA' },
+  { key: 'comment', label: '💭 คอมเมนต์' }, // มุมมองเฉพาะคอมเมนต์ (ทุก platform)
 ];
 
 /* ---------------- ชิ้นส่วน HTML ---------------- */
@@ -105,17 +106,30 @@ function statCard(icon: string, iconCls: string, label: string, valueHtml: strin
     '</div></div>';
 }
 
-function statGridHtml(k: Kpis): string {
+function statGridHtml(k: Kpis, donut?: DonutData): string {
   const waiting = Number(k.waiting) || 0;
+  const d: DonutData = donut || {};
+  const ai = Number(d.ai) || 0;
+  const convBase = (Number(d.replied) || 0) + ai + (Number(d.waiting) || 0);
+  const aiPct = convBase ? Math.round((ai / convBase) * 100) : 0;
+  const commentMode = channel === 'comment';
   const cards: string[] = [];
-  cards.push(statCard('💬', 'purple', 'บทสนทนาใหม่วันนี้', fmtNum(k.convsToday),
-    'ข้อความลูกค้า ' + fmtNum(k.custMsgs) + ' • 📞 เบอร์ใหม่ ' + fmtNum(k.phones)));
+  if (commentMode) {
+    // มุมคอมเมนต์: ตัวเลขแรกคือ "จำนวนคอมเมนต์" ไม่ใช่บทสนทนา — ป้ายต้องตรงความหมาย
+    cards.push(statCard('💭', 'purple', 'คอมเมนต์จากลูกค้าวันนี้', fmtNum(k.custMsgs),
+      'เพจตอบคอมเมนต์ ' + fmtNum(k.pageReplies) + ' ครั้ง'));
+  } else {
+    cards.push(statCard('💬', 'purple', 'บทสนทนาใหม่วันนี้', fmtNum(k.convsToday),
+      'ข้อความลูกค้า ' + fmtNum(k.custMsgs) + ' • 📞 เบอร์ใหม่ ' + fmtNum(k.phones)));
+  }
   cards.push(statCard('📤', 'green', 'การตอบกลับของเพจ', fmtNum(k.pageReplies),
     '<b class="up">' + esc(pctFmt(k.replyRate)) + '</b> ของบทสนทนาได้รับการตอบ'));
+  cards.push(statCard('🤖', 'purple', 'ตอบอัตโนมัติ (24 ชม.)', fmtNum(ai),
+    convBase ? '<b class="up">' + aiPct + '%</b> ของบทสนทนา 24 ชม.' : 'ยังไม่มีข้อมูล'));
   cards.push(statCard('👤', 'amber', 'รอแอดมินตอบ', fmtNum(k.waiting),
     waiting > 0 ? '<b class="warn">ต้องการความสนใจ</b>' : 'ไม่มีงานค้าง'));
   cards.push(statCard('🆕', 'blue', 'ลูกค้าใหม่วันนี้', fmtNum(k.newCustomers),
-    'จากทุกเพจที่ sync'));
+    commentMode ? 'ทุกช่องทางรวมกัน (แยกเฉพาะคอมเมนต์ไม่ได้)' : 'จากทุกเพจที่ sync'));
   return '<div class="stat-grid">' + cards.join('') + '</div>';
 }
 
@@ -175,7 +189,8 @@ function tagsCardHtml(tags?: TagItem[]): string {
   let body: string;
   if (tags && tags.length) {
     body = '<div class="tag-cloud">' + tags.map((t) => {
-      return '<span class="chip">' + esc(t.name) +
+      return '<span class="chip"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;' +
+        'background:' + tagColor(t.name) + ';margin-right:5px;vertical-align:middle"></span>' + esc(t.name) +
         ' <b style="opacity:.65">×' + fmtNum(t.count) + '</b></span>';
     }).join('') + '</div>';
   } else {
@@ -215,16 +230,23 @@ function attentionCardHtml(attention?: AttentionItem[]): string {
   let body: string;
   if (attention && attention.length) {
     body = attention.slice(0, 30).map((a) => {
-      return '<div class="attn-item">' +
+      const mins = Number(a.waitMins) || 0;
+      const urgent = mins >= 60; // รอเกิน 1 ชม. = ด่วน
+      // เปิดแชทนี้ใน Pancake web (แท็บใหม่) — id บทสนทนา = "{pageId}_{เลขแชท}"
+      const pancakeUrl = 'https://pancake.vn/' + encodeURIComponent(String(a.pageId || '')) +
+        '?c_id=' + encodeURIComponent(String(a.id || ''));
+      return '<div class="attn-item' + (urgent ? ' urgent' : '') + '">' +
         avatarHtml(a.id, a.customer) +
         '<div class="attn-body">' +
         '<div class="attn-name">' + esc(a.customer || '-') +
         ' <span>' + platformIcon(a.platform) + '</span>' +
+        (urgent ? ' <span class="badge urgent">🔥 ด่วน</span>' : '') +
         ' <span class="badge admin">' + esc(waitLabel(a.waitMins)) + '</span></div>' +
         '<div class="attn-snippet">' + esc(a.snippet || '') + '</div>' +
         '</div>' +
         '<div style="text-align:right;flex-shrink:0">' +
-        '<span class="badge admin">👤 รอแอดมิน</span>' +
+        '<a class="btn-mini" href="' + esc(pancakeUrl) + '" target="_blank" rel="noopener" ' +
+          'title="เปิดแชทนี้ใน Pancake (แท็บใหม่)">↗ เปิดใน Pancake</a>' +
         '<div style="font-size:10.5px;color:var(--text-3);margin-top:4px">' + esc(a.pageName || '') + '</div>' +
         '</div></div>';
     }).join('');
@@ -233,13 +255,13 @@ function attentionCardHtml(attention?: AttentionItem[]): string {
   }
   return '<div class="card">' +
     '<h3>🔔 แชทที่รอแอดมินตอบ</h3>' +
-    '<div class="card-sub">เรียงจากรอนานที่สุด — เปิดตอบใน Pancake</div>' +
+    '<div class="card-sub">เรียงจากรอนานที่สุด — คลิก ↗ เพื่อเปิดตอบใน Pancake</div>' +
     body + '</div>';
 }
 
 function bodyHtml(data: DashData): string {
   const k = (data && data.kpis) || {};
-  return statGridHtml(k) +
+  return statGridHtml(k, data.donut) +
     '<div class="dash-row">' +
       weekCardHtml(data.week) +
       donutCardHtml(k, data.donut) +

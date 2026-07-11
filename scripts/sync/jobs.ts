@@ -41,15 +41,23 @@ export async function syncOrders(): Promise<string> {
   return `orders: ${raw.length} รายการ (upsert ${n})`;
 }
 
-/** Backfill ออเดอร์ย้อนหลัง (GitHub Actions ไม่มีลิมิต 6 นาที → ทำรวดเดียวได้เลย) */
+/**
+ * Backfill ออเดอร์ย้อนหลัง (GitHub Actions ไม่มีลิมิต 6 นาที → ทำรวดเดียวได้เลย)
+ * slice ทีละ 2 วัน + เพดาน 120 หน้า (12,000 ออเดอร์/slice) — ทีมทำ ~2,800/วัน
+ * ⚠️ ห้ามกลับไปใช้ slice 7 วัน + 50 หน้า (5,000 cap) — เคยทำข้อมูล 1-4 ก.ค. 2026 หายเงียบๆ มาแล้ว
+ */
 export async function syncOrdersBackfill(days = 30): Promise<string> {
   requireCredentials();
   const map = await platformByPage();
   let count = 0;
-  for (let start = days; start > 0; start -= 7) {
+  for (let start = days; start > 0; start -= 2) {
     const since = daysAgo(start);
-    const until = start - 7 <= 0 ? new Date(Date.now() + 3600 * 1000) : daysAgo(start - 7);
-    const raw = await posFetchOrders(since, until, 50);
+    const until = start - 2 <= 0 ? new Date(Date.now() + 3600 * 1000) : daysAgo(start - 2);
+    const raw = await posFetchOrders(since, until, 120);
+    if (raw.length >= 12000) {
+      // ชนเพดาน = มีข้อมูลถูกตัดแน่นอน — ฟ้องดังๆ ดีกว่าเงียบ
+      throw new Error(`backfill slice ${since.toISOString().slice(0, 10)} ชนเพดาน 12,000 ออเดอร์ — ลด slice ให้เล็กลง`);
+    }
     const rows = raw.map((o) => mapOrder(o, map));
     await upsertRows('orders', rows, 'id');
     count += raw.length;
@@ -119,11 +127,30 @@ export async function syncAds(): Promise<string> {
 
 /* ---------------- ADMINS (roster + online) ---------------- */
 
+/**
+ * บันทึกการเปลี่ยนสถานะออนไลน์ลง admin_online_log (ให้หน้า Admin คำนวณ
+ * "ออนไลน์ X ชม. / หาย Y นาที" ของจริง) — non-fatal: ตารางยังไม่ถูกสร้างก็ไม่ล้ม sync
+ */
+async function logOnlineChanges(rows: { user_id: string; is_online: boolean }[]): Promise<string> {
+  if (!rows.length) return '';
+  try {
+    const now = new Date().toISOString();
+    const { error } = await supabase.from('admin_online_log').insert(
+      rows.map((r) => ({ user_id: String(r.user_id), is_online: !!r.is_online, changed_at: now }))
+    );
+    if (error) throw error;
+    return ` | log ${rows.length} จุด`;
+  } catch (e: any) {
+    return ` | log ไม่สำเร็จ: ${String(e.message || e).slice(0, 80)}`;
+  }
+}
+
 export async function syncAdminsRoster(): Promise<string> {
   requireCredentials();
   const { pages, tokens } = await loadPagesWithTokens();
   const byUser: Record<string, any> = {};
   const errors: string[] = [];
+  const failedPages: string[] = []; // เพจที่ดึงพลาดรอบนี้ — ห้ามตัดสินว่าคนของเพจนั้นออฟไลน์/หายไป
   let okPages = 0;
 
   for (const p of pages) {
@@ -147,7 +174,10 @@ export async function syncAdminsRoster(): Promise<string> {
         const perms = u.page_permissions && u.page_permissions.permissions;
         if (perms && perms.length && !rec.permissions) rec.permissions = perms.join(', ').slice(0, 300);
       }
-    } catch (e: any) { errors.push(`${p.name}: ${e.message}`); }
+    } catch (e: any) {
+      errors.push(`${p.name}: ${e.message}`);
+      failedPages.push(String(p.name || p.page_id));
+    }
     await sleep(150);
   }
 
@@ -192,8 +222,61 @@ export async function syncAdminsRoster(): Promise<string> {
       avatar_url: r.avatar_url, updated_at: now,
     };
   });
-  await replaceTable('admins', rows, 'user_id');
+
+  // สถานะเดิม (อ่านทั้งแถว — ใช้ทั้งเทียบ flip, กันเพจล้ม และ carry-forward คนที่หายชั่วคราว)
+  const { data: prevRows, error: prevErr } = await supabase.from('admins').select('*');
+  const prevList: any[] | null = prevErr ? null : (prevRows || []);
+  const newIds: Record<string, boolean> = {};
+  rows.forEach((r) => { newIds[r.user_id] = true; });
+  const rowById: Record<string, any> = {};
+  rows.forEach((r) => { rowById[r.user_id] = r; });
+
+  if (prevList) {
+    const touchesFailed = (pr: any) =>
+      failedPages.length > 0 && failedPages.some((fp) => String(pr.pages || '').includes(fp));
+    for (const pr of prevList) {
+      const uid = String(pr.user_id);
+      if (!newIds[uid]) {
+        // หายจาก roster ใหม่ — ถ้าเพจของเขาดึงพลาดรอบนี้ ให้คงแถวเดิมไว้ (กันหลุดจากระบบชั่วคราว)
+        if (touchesFailed(pr)) {
+          const kept = { ...pr, updated_at: now };
+          rows.push(kept);
+          newIds[uid] = true;
+          rowById[uid] = kept;
+        }
+      } else if (pr.is_online === true && rowById[uid].is_online !== true && touchesFailed(pr)) {
+        // เดิมออนไลน์ แต่รอบนี้สัญญาณหายเพราะเพจล้ม — คงออนไลน์ไว้ (guard เดียวกับ syncOnlineStatus)
+        rowById[uid].is_online = true;
+      }
+    }
+  }
+
+  // flip สถานะออนไลน์ (เทียบได้ต่อเมื่ออ่าน prev สำเร็จ — ห้ามเทียบกับ baseline ว่าง เดี๋ยว log มั่ว)
+  let flips: { user_id: string; is_online: boolean }[] = [];
+  if (prevList) {
+    const prevOnline: Record<string, boolean> = {};
+    prevList.forEach((r: any) => { prevOnline[String(r.user_id)] = r.is_online === true; });
+    flips = rows.filter((r) => (prevOnline[r.user_id] || false) !== (r.is_online === true))
+      .map((r) => ({ user_id: r.user_id, is_online: r.is_online === true }));
+    // คนที่เคยออนไลน์แล้วหายจาก roster จริงๆ (ถูกถอดจากทุกเพจ) → ปิด log เป็นออฟไลน์
+    prevList.forEach((pr: any) => {
+      const uid = String(pr.user_id);
+      if (pr.is_online === true && !newIds[uid]) flips.push({ user_id: uid, is_online: false });
+    });
+  }
+
+  // เขียนแบบไม่ให้ตารางว่าง: upsert ก่อน แล้วค่อยลบแถวที่ไม่อยู่แล้ว
+  // (replaceTable เดิม delete-ทั้งตาราง-แล้ว-insert → มีจังหวะที่หน้าเว็บเห็นตารางว่าง)
+  await upsertRows('admins', rows, 'user_id');
+  if (rows.length) {
+    const keep = rows.map((r) => '"' + String(r.user_id).replace(/"/g, '') + '"').join(',');
+    const { error: delErr } = await supabase.from('admins').delete().not('user_id', 'in', '(' + keep + ')');
+    if (delErr) errors.push(`ลบแถวเก่า: ${delErr.message}`);
+  }
+
   let msg = `admins: ${rows.length} คน`;
+  msg += await logOnlineChanges(flips);
+  if (prevErr) msg += ' | อ่านสถานะเดิมพลาด (ข้าม log รอบนี้)';
   if (errors.length) msg += ` | ผิดพลาด: ${errors.slice(0, 3).join('; ')}`;
   return msg;
 }
@@ -234,6 +317,7 @@ export async function syncOnlineStatus(): Promise<string> {
 
   if (changed.length) await upsertRows('admins', changed, 'user_id');
   let msg = `online status: เปลี่ยน ${changed.length} คน (${Object.keys(online).length} ออนไลน์)`;
+  msg += await logOnlineChanges(changed.map((r: any) => ({ user_id: r.user_id, is_online: r.is_online })));
   if (failedPages.length) msg += ` | ดึงพลาด ${failedPages.length} เพจ`;
   return msg;
 }
@@ -297,5 +381,9 @@ export async function prune(): Promise<string> {
   removed += await deleteOlder('chat_hourly', 'date', cutDate(RETENTION_DAYS.CHAT_HOURLY));
   removed += await deleteOlder('conversations', 'updated_at', cutIso(RETENTION_DAYS.CONVERSATIONS));
   removed += await deleteOlder('admin_chat_daily', 'date', cutDate(RETENTION_DAYS.ADMIN_CHAT_DAILY));
+  // ตารางใหม่ อาจยังไม่ถูกสร้าง — ข้ามได้โดยไม่ให้งาน prune ทั้งก้อนล้ม
+  try {
+    removed += await deleteOlder('admin_online_log', 'changed_at', cutIso(RETENTION_DAYS.ADMIN_ONLINE_LOG));
+  } catch { /* ยังไม่มีตาราง admin_online_log */ }
   return `ลบข้อมูลเก่า ${removed} แถว`;
 }

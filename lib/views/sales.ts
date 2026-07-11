@@ -17,8 +17,9 @@ import {
   showError,
   toast,
   downloadCSV,
+  downloadXLS,
 } from '@/lib/ui/helpers';
-import { svgHourlyLine, miniBars } from '@/lib/ui/charts';
+import { svgHourlyLine, miniBars, bindChartTips, hideChartTip } from '@/lib/ui/charts';
 import { salesSkel } from '@/lib/ui/skeletons';
 
 declare global {
@@ -129,9 +130,13 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         rangeControlsHtml(state, 'sr') +
         '<select class="input" id="sr-compare">' +
           '<option value="prev"' + (state.compare === 'prev' ? ' selected' : '') + '>เปรียบเทียบช่วงก่อนหน้า</option>' +
+          '<option value="prev7"' + (state.compare === 'prev7' ? ' selected' : '') + '>เทียบก่อนหน้า 7 วัน</option>' +
+          '<option value="prev30"' + (state.compare === 'prev30' ? ' selected' : '') + '>เทียบก่อนหน้า 30 วัน</option>' +
           '<option value="none"' + (state.compare === 'none' ? ' selected' : '') + '>ไม่เปรียบเทียบ</option>' +
         '</select>' +
+        '<button class="btn" id="sr-reload" title="โหลดข้อมูลใหม่">⟳</button>' +
         '<button class="btn" id="sr-csv">📄 CSV</button>' +
+        '<button class="btn" id="sr-xls" title="ไฟล์ Excel เปิดแล้วภาษาไทยไม่เพี้ยน">📊 Excel</button>' +
       '</div>' +
     '</div>';
 
@@ -296,6 +301,15 @@ function bindEvents(container: HTMLElement): void {
   const csvBtn = container.querySelector('#sr-csv');
   if (csvBtn) csvBtn.addEventListener('click', exportCsv);
 
+  const xlsBtn = container.querySelector('#sr-xls');
+  if (xlsBtn) xlsBtn.addEventListener('click', exportXls);
+
+  const reloadBtn = container.querySelector('#sr-reload');
+  if (reloadBtn) reloadBtn.addEventListener('click', function () {
+    toast('⟳ กำลังโหลดข้อมูลใหม่...');
+    refetch(container);
+  });
+
   container.querySelectorAll('[data-ch]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       const key = btn.getAttribute('data-ch') || '';
@@ -311,12 +325,15 @@ function bindEvents(container: HTMLElement): void {
       App.switchView(btn.getAttribute('data-goview')!);
     });
   });
+
+  bindChartTips(container); // ทูลทิป hover ของกราฟยอดขายรายชั่วโมง
 }
 
 /* ---------------- fetch ---------------- */
 
 /** filter เปลี่ยน (ทุก param เป็น server-side ตาม contract) → โหลดจาก server ใหม่ */
 function refetch(container: HTMLElement): void {
+  hideChartTip(); // กราฟกำลังถูกแทนด้วย skeleton — ซ่อนทูลทิปที่อาจค้างอยู่ (pointerleave ไม่ยิงเมื่อ node ถูกลบ)
   container.innerHTML = salesSkel();
   fetchAndRender(container, true);
 }
@@ -333,6 +350,7 @@ function fetchAndRender(container: HTMLElement, blocking: boolean): void {
     if (seq !== reqSeq) return;
     const msg = (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ';
     if (blocking) {
+      hideChartTip(); // กราฟถูกแทนด้วยกล่อง error — ซ่อนทูลทิปที่อาจค้าง
       showError(container, msg, function () { refetch(container); });
     } else {
       toast('⚠ รีเฟรชข้อมูลไม่สำเร็จ — แสดงข้อมูลเดิมไว้ก่อน');
@@ -343,9 +361,20 @@ function fetchAndRender(container: HTMLElement, blocking: boolean): void {
 /* ---------------- CSV export ---------------- */
 
 function exportCsv(): void {
+  const rows = buildReportRows();
+  if (rows) downloadCSV(rows, 'sales-report-' + state.preset);
+}
+
+function exportXls(): void {
+  const rows = buildReportRows();
+  if (rows) downloadXLS(rows, 'sales-report-' + state.preset, 'Sales Report');
+}
+
+/** แถวรายงานชุดเดียว ใช้ทั้ง CSV และ Excel */
+function buildReportRows(): unknown[][] | null {
   if (!lastData) {
     toast('ยังไม่มีข้อมูลสำหรับ export');
-    return;
+    return null;
   }
   const d = lastData;
   const k = d.kpis || {};
@@ -399,7 +428,7 @@ function exportCsv(): void {
     ]);
   });
 
-  downloadCSV(rows, 'sales-report-' + state.preset);
+  return rows;
 }
 
 /* ---------------- register view ---------------- */

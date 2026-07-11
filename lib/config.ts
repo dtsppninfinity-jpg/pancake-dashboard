@@ -18,7 +18,7 @@ export const EXCLUDED_STATUSES = [4, 5, 6, 7, 15];
 export const NEED_CHECK_STATUSES = [0, 17];
 
 /** เก็บข้อมูลย้อนหลังกี่วันในแต่ละตาราง (งาน prune รายวันจะลบที่เก่ากว่านี้) */
-export const RETENTION_DAYS = { ORDERS: 95, CHAT_HOURLY: 60, CONVERSATIONS: 14, ADMIN_CHAT_DAILY: 60 };
+export const RETENTION_DAYS = { ORDERS: 95, CHAT_HOURLY: 60, CONVERSATIONS: 14, ADMIN_CHAT_DAILY: 60, ADMIN_ONLINE_LOG: 35 };
 
 /** credentials อ่านจาก environment (ตั้งใน .env.local หรือ GitHub Secrets) */
 export const cfg = {

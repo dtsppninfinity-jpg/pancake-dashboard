@@ -7,6 +7,7 @@
    ============================================================ */
 
 import { serverCall, esc, relTime, toast } from '@/lib/ui/helpers';
+import { hideChartTip } from '@/lib/ui/charts';
 import { dashboard } from '@/lib/views/dashboard';
 import { sales } from '@/lib/views/sales';
 import { contentads } from '@/lib/views/contentads';
@@ -122,6 +123,7 @@ const App = {
 
   switchView(view: string): void {
     if (!VIEW_META[view]) return;
+    hideChartTip(); // กันทูลทิปกราฟ (body singleton) ค้างลอยข้ามหน้าเมื่อสลับ view ด้วยคีย์บอร์ด
     this.state.view = view;
     document.querySelectorAll('.nav-item').forEach(function (b) {
       b.classList.toggle('active', b.getAttribute('data-view') === view);

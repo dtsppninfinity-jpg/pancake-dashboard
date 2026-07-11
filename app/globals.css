@@ -358,7 +358,7 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 16px; padding: 16px;
 }
-.admin-card.off { opacity: .55; border-style: dashed; }
+.admin-card.off { border-style: dashed; }
 .admin-head { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
 .avatar {
   width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
@@ -531,6 +531,140 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 .hint-box {
   background: var(--surface-2); border: 1px solid var(--border); border-left: 4px solid var(--primary);
   border-radius: 10px; padding: 10px 14px; font-size: 12px; color: var(--text-2); margin: 10px 0;
+}
+
+/* แชทรอนานเกิน 1 ชม. — คาดแดงซ้ายให้สะดุดตา */
+.attn-item.urgent { border-left: 3px solid var(--red); background: var(--red-soft); border-radius: 8px; }
+a.btn-mini { text-decoration: none; display: inline-block; }
+
+/* ---------- Admin Management: ปุ่มจัดการบนการ์ด + ตั้งค่า ---------- */
+/* หรี่เฉพาะส่วนข้อมูล — แถวปุ่มคงชัด (opacity ลูกหักล้าง opacity แม่ไม่ได้ จึงหรี่รายส่วนแทน) */
+.admin-card.off { filter: grayscale(.35); }
+.admin-card.off .admin-head,
+.admin-card.off .page-stats,
+.admin-card.off .page-status-row { opacity: .55; }
+.admin-actions {
+  display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border);
+}
+.admin-actions .btn-mini { white-space: nowrap; }
+.admin-actions .ad-status-sel {
+  width: auto; padding: 4px 6px; font-size: 11px; border-radius: 8px;
+}
+.adm-form {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0 4px;
+}
+.adm-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+.adm-field > span { color: var(--text-3); font-size: 11.5px; font-weight: 600; }
+@media (max-width: 720px) { .adm-form { grid-template-columns: 1fr; } }
+.perm-cb { width: 15px; height: 15px; accent-color: var(--primary); cursor: pointer; }
+.perm-cb:disabled { cursor: not-allowed; opacity: .4; }
+
+/* ============================================================
+   chart tooltip ("holder") — การ์ดลอยตอน hover จุดในกราฟเส้น
+   opaque --surface (สไตล์ Linear/Vercel), เข้าธีมอัตโนมัติผ่าน token
+   ผูกด้วย bindChartTips() ใน lib/ui/charts.ts — วางที่ <body> ครั้งเดียว
+   ============================================================ */
+.chart-tip {
+  position: fixed; left: 0; top: 0; z-index: 9999;
+  pointer-events: none;                       /* ไม่กินอีเวนต์เมาส์ของตัวเอง */
+  box-sizing: border-box;
+  min-width: 154px; max-width: 252px;
+  padding: 9px 11px 10px;
+  background: var(--surface);                 /* ทึบเต็ม — ลุคคมชัด */
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);   /* ~10px คมกว่าการ์ดปกติ */
+  box-shadow: 0 8px 24px -6px rgba(3,7,18,.55), 0 2px 6px -2px rgba(3,7,18,.42);
+  color: var(--text);
+  font-family: inherit; font-size: 12px; line-height: 1.35; font-weight: 500;
+  letter-spacing: -.01em;
+  opacity: 0;
+  transform: translateY(3px) scale(.98);
+  transform-origin: var(--caret-x, 50%) 100%; /* โตขึ้นจากตำแหน่งลูกศร */
+  transition: opacity .12s ease, transform .14s cubic-bezier(.16,1,.3,1);
+  will-change: transform, opacity;
+}
+.chart-tip.is-on { opacity: 1; transform: translateY(0) scale(1); }
+.chart-tip.flip { transform-origin: var(--caret-x, 50%) 0; }          /* การ์ดอยู่ใต้เคอร์เซอร์ */
+.chart-tip.flip:not(.is-on) { transform: translateY(-3px) scale(.98); }
+
+.chart-tip .ct-head { display: flex; align-items: center; gap: 6px; }
+.chart-tip .ct-dot {
+  flex: none; width: 7px; height: 7px; border-radius: 2px;
+  background: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft);
+}
+.chart-tip .ct-title {
+  font-size: 11px; font-weight: 600; color: var(--text-3);
+  letter-spacing: .01em; white-space: nowrap;
+}
+.chart-tip .ct-value {
+  margin-top: 5px;
+  font-size: 18px; font-weight: 800; line-height: 1.1;
+  letter-spacing: -.02em; color: var(--text);
+  font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
+}
+.chart-tip .ct-foot { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
+.chart-tip.is-bare .ct-foot { display: none; }        /* ปิดการเปรียบเทียบ → ซ่อนแถวล่าง */
+.chart-tip .ct-pill {
+  flex: none; display: inline-flex; align-items: center; gap: 3px;
+  padding: 2px 6px; border-radius: 6px;
+  font-size: 11px; font-weight: 700; line-height: 1; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.chart-tip .ct-pill.up   { background: var(--green-soft); color: var(--green); }
+.chart-tip .ct-pill.down { background: var(--red-soft);   color: var(--red);   }
+.chart-tip .ct-pill.flat { background: var(--track);      color: var(--text-3);}
+.chart-tip .ct-cmp {
+  min-width: 0; font-size: 10.5px; color: var(--text-3); line-height: 1.3;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.chart-tip .ct-cmp[hidden] { display: none; }
+
+/* ลูกศร: สี่เหลี่ยมหมุน 45° โชว์เฉพาะ 2 ขอบด้านนอก ต่อเส้นขอบการ์ดเนียนๆ */
+.chart-tip .ct-caret {
+  position: absolute; left: var(--caret-x, 50%); margin-left: -5px;
+  width: 9px; height: 9px; background: var(--surface);
+  transform: rotate(45deg);
+  bottom: -5px;                                       /* ค่าเริ่มต้น: การ์ดอยู่เหนือเคอร์เซอร์ */
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  border-bottom-right-radius: 2px;
+}
+.chart-tip.flip .ct-caret {                           /* การ์ดอยู่ใต้ → ลูกศรชี้ขึ้น */
+  bottom: auto; top: -5px;
+  border: 0;
+  border-left: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  border-top-left-radius: 2px; border-bottom-right-radius: 0;
+}
+:root[data-theme="light"] .chart-tip {
+  box-shadow: 0 8px 24px -6px rgba(15,23,42,.16), 0 2px 6px -2px rgba(15,23,42,.10);
+}
+@media (prefers-reduced-motion: reduce) {
+  .chart-tip { transition: opacity .1s linear; transform: none !important; }
+  .chart-tip.is-on { transform: none !important; }
+  .chart-tip.flip:not(.is-on) { transform: none !important; }
+}
+
+/* ---- เส้นไกด์ตั้ง + จุดโฟกัส วาดใน SVG (สเกลตาม viewBox อัตโนมัติ) ---- */
+.chart-svg .ch-cross { pointer-events: none; opacity: 0; transition: opacity .12s ease; }
+.chart-svg.tip-active .ch-cross { opacity: 1; }
+.chart-svg .ch-line-g,
+.chart-svg .ch-dot-g { transition: transform .12s cubic-bezier(.22,.61,.36,1); }
+.chart-svg .ch-cross-line {
+  stroke: var(--primary); stroke-width: 1; stroke-dasharray: 3 4;
+  stroke-linecap: round; opacity: .5;
+}
+.chart-svg .ch-halo { fill: var(--primary); opacity: .16; }
+.chart-svg .ch-ring { fill: var(--surface); stroke: var(--primary); stroke-width: 2.5; }
+.chart-svg .ch-dot  { fill: var(--primary); }
+.chart-svg .ch-hit  { cursor: crosshair; }
+:root[data-theme="light"] .chart-svg .ch-cross-line { opacity: .6; }
+@media (prefers-reduced-motion: reduce) {
+  .chart-svg .ch-cross,
+  .chart-svg .ch-line-g,
+  .chart-svg .ch-dot-g { transition: none; }
 }
 
 /* ---------- responsive ---------- */

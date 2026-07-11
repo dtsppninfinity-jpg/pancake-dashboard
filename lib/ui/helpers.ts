@@ -155,6 +155,45 @@ export function downloadCSV(rows: unknown[][], filename?: string): void {
   toast('📄 Export CSV แล้ว');
 }
 
+/**
+ * สร้างไฟล์ .xls (ตาราง HTML ที่ Excel เปิดได้ตรงๆ — วิธีเดียวกับ mockup)
+ * ข้อดีกว่า CSV: ไทยไม่เพี้ยนแน่นอน + ตัวเลขจัด format ได้ | escape ทุก cell กัน HTML injection
+ */
+export function downloadXLS(rows: unknown[][], filename?: string, sheetName?: string): void {
+  const body = rows.map((r, ri) => {
+    const tag = ri === 0 ? 'th' : 'td';
+    return '<tr>' + r.map((c) => {
+      const s = String(c === undefined || c === null ? '' : c);
+      // เซลล์เป็น "ตัวเลข" ต่อเมื่อ caller ส่ง number จริงมาเท่านั้น — string ทุกตัวบังคับ text
+      // (กัน Excel ทำ id ยาวๆ เพี้ยนเป็น 1.2E+17: FB ad_id 16-18 หลักเกิน precision 15 หลักของ Excel)
+      const isNumeric = typeof c === 'number' && isFinite(c);
+      const style = isNumeric ? '' : ' style="mso-number-format:\'\\@\'"';
+      return '<' + tag + style + '>' + esc(s) + '</' + tag + '>';
+    }).join('') + '</tr>';
+  }).join('');
+  const html = '<html xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8">' +
+    '<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>' +
+    '<x:Name>' + esc(sheetName || 'Report') + '</x:Name>' +
+    '<x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>' +
+    '</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->' +
+    '</head><body><table border="1">' + body + '</table></body></html>';
+  const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (filename || 'export') + '.xls';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('📊 Export Excel แล้ว');
+}
+
+/** สีประจำแท็ก/ชื่อ — hash ชื่อ → HSL คงที่ (ชื่อเดิมได้สีเดิมเสมอ ทุกหน้า) */
+export function tagColor(name: unknown): string {
+  const s = String(name || '');
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return 'hsl(' + (h % 360) + ', 62%, 52%)';
+}
+
 /* ---------------- range controls (ใช้ร่วมกันหลายหน้า) ---------------- */
 
 export interface RangeState {

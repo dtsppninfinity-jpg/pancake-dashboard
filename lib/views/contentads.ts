@@ -6,7 +6,7 @@
 
 import {
   serverCall, esc, fmtNum, THB, kFmt, pctFmt, relTime,
-  toast, openModal, closeModal, showError, downloadCSV,
+  toast, openModal, closeModal, showError, downloadCSV, downloadXLS,
 } from '@/lib/ui/helpers';
 import { contentadsSkel } from '@/lib/ui/skeletons';
 
@@ -21,6 +21,7 @@ const STATUS_OPTIONS = [
   { key: 'losing', label: '📉 Losing' },
   { key: 'watch', label: '👀 Watch' },
   { key: 'active', label: '▶ Active' },
+  { key: 'organic', label: '🌱 Organic (ไม่ใช้งบ)' }, // แถวที่ไม่มี spend — เดิมกรองหาไม่ได้เลย (บั๊ก)
   { key: 'paused', label: '⏸ Paused' },
 ];
 
@@ -114,6 +115,12 @@ function computeProblems(it: any): any[] {
   const roas = nullable(it.roas);
   const cpo = nullable(it.costPerOrder);
   const close = nullable(it.closeRate);
+  const age = nullable(it.ageDays);
+  if (age !== null && age > 30 && it.status && it.status.key !== 'paused' && spend > 0) {
+    probs.push({ icon: '🥱', label: 'คอนเทนต์ล้า (ยิงมานาน)',
+      why: 'แอดนี้รันมาแล้ว ' + fmtNum(age) + ' วัน — ครีเอทีฟเดิมมักล้าหลัง 30 วัน ควรเตรียมตัวใหม่',
+      sev: 'medium' });
+  }
   if (cpo !== null && cpo > 400) {
     probs.push({ icon: '💸', label: 'Cost ต่อออเดอร์สูงเกินกำหนด',
       why: 'Cost/Order ' + THB(cpo) + ' เกินเพดาน ฿400', sev: 'high' });
@@ -175,7 +182,12 @@ function openAnalysis(data: any, adId: any): void {
     '<span class="badge ' + esc(st.cls || 'neutral') + '">' + esc(st.label || '-') + '</span>' +
     urgBadge +
     '<span class="badge neutral">' + THB(num(item.spend)) + ' → ' + THB(num(item.revenue)) +
-    ' (ROAS ' + roasStr(item.roas) + ')</span></div>';
+    ' (ROAS ' + roasStr(item.roas) + ')</span>' +
+    (nullable(item.ageDays) !== null
+      ? '<span class="badge neutral">🗓 อายุ ' + fmtNum(num(item.ageDays)) + ' วัน</span>' : '') +
+    (item.topSeller
+      ? '<span class="badge ai">🧑‍💼 ปิดขายมากสุด: ' + esc(item.topSeller) + '</span>' : '') +
+    '</div>';
 
   html += '<div style="font-weight:700;font-size:13px;margin:12px 0 4px">⚠️ ปัญหาที่พบ</div>';
   if (!probs.length) {
@@ -215,10 +227,22 @@ function csvVal(v: any): any {
 }
 
 function exportCSV(data: any): void {
+  const rows = buildExportRows(data);
+  if (rows) downloadCSV(rows, 'content-ads');
+}
+
+function exportXLS(data: any): void {
+  const rows = buildExportRows(data);
+  if (rows) downloadXLS(rows, 'content-ads', 'Content & Ads');
+}
+
+/** แถวรายงานชุดเดียว ใช้ทั้ง CSV และ Excel */
+function buildExportRows(data: any): any[][] | null {
   const list = filteredItems(data);
-  if (!list.length) { toast('ไม่มีข้อมูลให้ export'); return; }
+  if (!list.length) { toast('ไม่มีข้อมูลให้ export'); return null; }
   const rows: any[][] = [[
-    '#', 'ชื่อแอด', 'Ad ID', 'แคมเปญ', 'บัญชีแอด', 'มาร์เก็ตติ้ง', 'สถานะ',
+    '#', 'ชื่อแอด', 'Ad ID', 'แคมเปญ', 'Ad Set', 'บัญชีแอด', 'มาร์เก็ตติ้ง', 'สถานะ',
+    'อายุ (วัน)', 'แอดมินปิดขายมากสุด',
     'Spend', 'Impressions', 'Reach', 'คลิก', 'CTR', 'แชท', 'Cost/แชท',
     'ออเดอร์สร้าง', 'ออเดอร์ส่งแล้ว', 'ออเดอร์', 'ยอดขาย', 'ROAS', 'Cost/Order',
     '% ปิด', 'อัปเดตล่าสุด',
@@ -226,8 +250,9 @@ function exportCSV(data: any): void {
   list.forEach(function (it, i) {
     rows.push([
       i + 1,
-      csvVal(it.name), csvVal(it.adId), csvVal(it.campaign), csvVal(it.account),
+      csvVal(it.name), csvVal(it.adId), csvVal(it.campaign), csvVal(it.adsetId), csvVal(it.account),
       csvVal(it.marketer), (it.status && it.status.label) || '',
+      csvVal(nullable(it.ageDays)), csvVal(it.topSeller),
       num(it.spend), num(it.impressions), num(it.reach), num(it.clicks),
       csvVal(nullable(it.ctr)), num(it.msgs), csvVal(nullable(it.costPerMsg)),
       num(it.orderCreated), num(it.orderShipped), num(it.orders), num(it.revenue),
@@ -236,7 +261,7 @@ function exportCSV(data: any): void {
       String(it.updatedAt || '').replace('T', ' '),
     ]);
   });
-  downloadCSV(rows, 'content-ads');
+  return rows;
 }
 
 /* ---------------- render: controls ---------------- */
@@ -257,6 +282,7 @@ function controlsHtml(items: any[]): string {
     }).join('') + '</select>';
   h += '<span class="spacer"></span>';
   h += '<button class="btn" id="ca-csv" title="Export รายการที่กรอง/เรียงแล้วทั้งหมด">📄 CSV</button>';
+  h += '<button class="btn" id="ca-xls" title="ไฟล์ Excel เปิดแล้วภาษาไทยไม่เพี้ยน">📊 Excel</button>';
   h += '</div>';
   return h;
 }
@@ -341,8 +367,11 @@ function cardHtml(it: any, rank: number): string {
       ? ' <span class="chip" style="padding:2px 10px;font-size:10.5px">' + esc(it.campaign) + '</span>'
       : '') +
     '</div>';
-  h += '<div class="ca-sub">' + esc(line1) + '</div>';
-  h += '<div class="ca-sub">Ad ' + esc(it.adId) + ' • อัปเดต ' + esc(relTime(it.updatedAt)) + '</div>';
+  h += '<div class="ca-sub">' + esc(line1) +
+    (it.topSeller ? ' • 🧑‍💼 ปิดขายมากสุด: ' + esc(it.topSeller) : '') + '</div>';
+  h += '<div class="ca-sub">Ad ' + esc(it.adId) +
+    (nullable(it.ageDays) !== null ? ' • อายุ ' + fmtNum(num(it.ageDays)) + ' วัน' : '') +
+    ' • อัปเดต ' + esc(relTime(it.updatedAt)) + '</div>';
   h += '</div>';
 
   h += '<div class="ca-nums">';
@@ -432,6 +461,9 @@ function bind(container: HTMLElement, data: any): void {
 
   const csv = container.querySelector('#ca-csv');
   if (csv) csv.addEventListener('click', function () { exportCSV(current()); });
+
+  const xls = container.querySelector('#ca-xls');
+  if (xls) xls.addEventListener('click', function () { exportXLS(current()); });
 
   container.querySelectorAll('[data-ca-view]').forEach(function (btn) {
     btn.addEventListener('click', function () {

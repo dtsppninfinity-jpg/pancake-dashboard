@@ -26,6 +26,7 @@ import {
   computeScore,
   type MetricConfig,
 } from '@/lib/scoring';
+import { hbarRows } from '@/lib/ui/charts';
 import { adminperfSkel } from '@/lib/ui/skeletons';
 
 /* ---------- types ---------- */
@@ -51,6 +52,8 @@ interface PerfRow {
 interface PerfData {
   rangeLabel: string;
   rows: PerfRow[];
+  team?: { total?: number; online?: number; offline?: number; disabled?: number };
+  newCustomers?: number;
 }
 
 interface PerfState extends RangeState {
@@ -204,6 +207,61 @@ function controlsHtml(data: PerfData | null): string {
     '</div>';
 }
 
+/* ---------- HTML: KPI ทีมรวม + เปรียบเทียบตอบ ---------- */
+
+function pgsItem(val: string | number, label: string, cls: string): string {
+  return '<div class="pgs-item' + (cls ? ' ' + cls : '') + '">' +
+    '<b>' + val + '</b><span>' + esc(label) + '</span></div>';
+}
+
+function kpiStripHtml(data: PerfData | null): string {
+  const rows = (data && data.rows) || [];
+  const team = (data && data.team) || {};
+  const chatsSum = rows.reduce(function (s, r) { return s + (Number(r.chats) || 0); }, 0);
+  const repliesSum = rows.reduce(function (s, r) { return s + (Number(r.replies) || 0); }, 0);
+  // Response เฉลี่ยทีม (เฉพาะคนที่มีค่า)
+  const resps = rows.filter(function (r) { return r.avgRespMins !== null && r.avgRespMins !== undefined; });
+  const avgResp = resps.length
+    ? Math.round(resps.reduce(function (s, r) { return s + Number(r.avgRespMins); }, 0) / resps.length * 10) / 10
+    : null;
+  // ตอบเร็วสุด — นับเฉพาะคนที่ตอบเยอะพอ (กันคนตอบ 2 ข้อความแล้วชนะ)
+  let fastest: PerfRow | null = null;
+  rows.forEach(function (r) {
+    if ((Number(r.replies) || 0) < 20 || r.avgRespMins === null || r.avgRespMins === undefined) return;
+    if (!fastest || Number(r.avgRespMins) < Number(fastest.avgRespMins)) fastest = r;
+  });
+  // TS ไม่ track การ assign ใน callback — ต้อง assert กลับเป็น PerfRow | null
+  const f = fastest as PerfRow | null;
+  const disabledN = Number(team.disabled) || 0;
+  return '<div class="pg-summary">' +
+    pgsItem(fmtNum(team.total || 0), 'แอดมินทั้งหมด', '') +
+    pgsItem(fmtNum(team.online || 0), 'ออนไลน์', 'ok') +
+    pgsItem(fmtNum(team.offline || 0), 'ออฟไลน์', '') +
+    pgsItem(fmtNum(disabledN), 'ปิดใช้งาน', disabledN > 0 ? 'warn' : '') +
+    pgsItem(fmtNum(chatsSum), 'แชทในช่วงนี้', '') +
+    pgsItem(fmtNum(repliesSum), 'ข้อความที่ตอบ', '') +
+    pgsItem(avgResp === null ? '—' : avgResp + ' น.', 'Response เฉลี่ย', '') +
+    pgsItem(f ? esc(String(f.name).slice(0, 10)) : '—',
+      'ตอบเร็วสุด' + (f ? ' (' + f.avgRespMins + ' น.)' : ''), f ? 'ok' : '') +
+    pgsItem(fmtNum((data && data.newCustomers) || 0), 'ลูกค้าใหม่ (ทีมรวม)', '') +
+  '</div>';
+}
+
+function replyCompareHtml(data: PerfData | null): string {
+  const rows = ((data && data.rows) || [])
+    .filter(function (r) { return (Number(r.replies) || 0) > 0; })
+    .slice()
+    .sort(function (a, b) { return (Number(b.replies) || 0) - (Number(a.replies) || 0); })
+    .slice(0, 10)
+    .map(function (r) { return { label: String(r.name || '-'), value: Number(r.replies) || 0 }; });
+  if (!rows.length) return '';
+  return '<div class="card" style="margin-bottom:14px">' +
+    '<h3>📊 เปรียบเทียบข้อความที่ตอบ (Top 10)</h3>' +
+    '<div class="card-sub">รวมตอบแชท + คอมเมนต์ ในช่วงเวลาที่เลือก</div>' +
+    hbarRows(rows, { empty: 'ยังไม่มีข้อมูล' }) +
+  '</div>';
+}
+
 /* ---------- HTML: แผงปรับเกณฑ์ ---------- */
 
 function panelRowHtml(c: MetricConfig): string {
@@ -312,7 +370,9 @@ function rankingHtml(data: PerfData | null): string {
 function render(container: HTMLElement, data: PerfData | null): void {
   container.innerHTML =
     controlsHtml(data) +
+    kpiStripHtml(data) +
     panelHtml() +
+    replyCompareHtml(data) +
     '<div id="rk-ranking">' + rankingHtml(data) + '</div>';
   bindEvents(container);
 }

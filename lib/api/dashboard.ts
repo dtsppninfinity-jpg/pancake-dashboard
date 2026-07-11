@@ -59,6 +59,8 @@ function dayOfWeekBkk_(d: Date): number {
 
 export async function apiDashboard(params?: { channel?: string }): Promise<any> {
   const channel = (params && params.channel) || '';
+  // โหมดพิเศษ: channel='comment' = มุมมองเฉพาะคอมเมนต์ (ทุก platform, นับคู่ *_comment_count)
+  const commentMode = channel === 'comment';
   const todayStr = fmtDateBkk(new Date());
 
   // อ่าน chat_hourly แค่ 7 วันล่าสุด (ลดจำนวนแถว) — วนจนครบ กัน 1000-row cap
@@ -73,22 +75,27 @@ export async function apiDashboard(params?: { channel?: string }): Promise<any> 
     'key'
   );
   const chat = chatRows.filter((r: any) => {
+    if (commentMode) return true; // มุมคอมเมนต์ = ทุก platform
     if (channel && platformChannel_(r.platform) !== channel) return false;
     return true;
   });
 
-  // KPI วันนี้
+  // KPI วันนี้ (โหมดคอมเมนต์นับเฉพาะคู่ *_comment_count)
   const k = { convsToday: 0, custMsgs: 0, newCustomers: 0, pageReplies: 0, phones: 0 };
   const weekMap: Record<string, { total: number; replied: number }> = {}; // date -> {total, replied}
   chat.forEach((r: any) => {
     const dateStr = toDateStr_(r.date);
-    const total = toNum_(r.customer_inbox_count) + toNum_(r.customer_comment_count);
-    const replied = toNum_(r.page_inbox_count) + toNum_(r.page_comment_count);
+    const total = commentMode
+      ? toNum_(r.customer_comment_count)
+      : toNum_(r.customer_inbox_count) + toNum_(r.customer_comment_count);
+    const replied = commentMode
+      ? toNum_(r.page_comment_count)
+      : toNum_(r.page_inbox_count) + toNum_(r.page_comment_count);
     if (!weekMap[dateStr]) weekMap[dateStr] = { total: 0, replied: 0 };
     weekMap[dateStr].total += total;
     weekMap[dateStr].replied += replied;
     if (dateStr === todayStr) {
-      k.convsToday += toNum_(r.new_inbox_count);
+      k.convsToday += commentMode ? toNum_(r.customer_comment_count) : toNum_(r.new_inbox_count);
       k.custMsgs += total;
       k.newCustomers += toNum_(r.new_customer_count);
       k.pageReplies += replied;
@@ -122,6 +129,7 @@ export async function apiDashboard(params?: { channel?: string }): Promise<any> 
   );
   const convs = convRows.filter((c: any) => {
     if (!convInWindow_(c, cutoff)) return false;
+    if (commentMode) return String(c.type || '').toUpperCase() === 'COMMENT';
     if (channel && platformChannel_(c.platform) !== channel) return false;
     return true;
   });

@@ -121,11 +121,19 @@ function resolveRange_(params: any): Range {
       label = 'วันนี้';
   }
   const span = end.getTime() - start.getTime();
+  // ช่วงเปรียบเทียบ: 'prev' = เลื่อนถอยเท่าช่วงที่เลือก | 'prev7'/'prev30' = เลื่อนถอย 7/30 วันตรงๆ
+  // (เช่น "วันนี้ + เทียบก่อน 7 วัน" = เทียบกับวันเดียวกันสัปดาห์ก่อน)
+  // clamp ไม่ให้เลื่อนน้อยกว่าความยาวช่วง — ไม่งั้นหน้าต่างเทียบซ้อนกับช่วงที่เลือกเอง เทรนด์เพี้ยน
+  // (เลือก 30 วัน + เทียบก่อน 7 วัน → ถอยเท่าช่วงแทน = เทียบช่วงก่อนหน้าปกติ)
+  let shiftMs = span;
+  if (p.compare === 'prev7') shiftMs = Math.max(7 * 86400000, span);
+  else if (p.compare === 'prev30') shiftMs = Math.max(30 * 86400000, span);
+  const prevStart = new Date(start.getTime() - shiftMs);
   return {
     start,
     end,
-    prevStart: new Date(start.getTime() - span),
-    prevEnd: new Date(start.getTime()),
+    prevStart,
+    prevEnd: new Date(prevStart.getTime() + span),
     label,
   };
 }

@@ -13,6 +13,8 @@ interface OrderRow {
   ad_id: string | number | null;
   total_price: number | string | null;
   status: number | string | null;
+  seller_name?: string | null;
+  creator_name?: string | null;
 }
 
 interface AdRow {
@@ -20,6 +22,9 @@ interface AdRow {
   name?: string | null;
   campaign_name?: string | null;
   campaign_id?: string | number | null;
+  adset_id?: string | number | null;
+  created_time?: string | null;
+  start_time?: string | null;
   ad_account_name?: string | null;
   status?: string | null;
   effective_status?: string | null;
@@ -40,11 +45,13 @@ export async function apiContentAds(_params?: unknown) {
   // ยอดขายที่ผูกกับแต่ละ ad_id (จากออเดอร์ทั้งชีต ~90 วัน)
   // กรอง ad_id ที่ไม่ว่างใน query เพื่อลดจำนวนแถว แล้วค่อยรวมยอดใน JS ตาม logic เดิม
   const orders = await fetchAll<OrderRow>(() =>
-    db.from('orders').select('ad_id,total_price,status').not('ad_id', 'is', null).not('inserted_at', 'is', null)
+    db.from('orders').select('ad_id,total_price,status,seller_name,creator_name')
+      .not('ad_id', 'is', null).not('inserted_at', 'is', null)
   );
 
   const revByAd: Record<string, number> = {};
   const cntByAd: Record<string, number> = {};
+  const sellerByAd: Record<string, Record<string, number>> = {}; // ใครปิดขายจากแอดนี้บ้าง (นับออเดอร์)
   orders.forEach(function (o) {
     const status = toNum_(o.status);
     const excluded = EXCLUDED_STATUSES.indexOf(status) >= 0;
@@ -52,11 +59,25 @@ export async function apiContentAds(_params?: unknown) {
     const id = String(o.ad_id);
     revByAd[id] = (revByAd[id] || 0) + toNum_(o.total_price);
     cntByAd[id] = (cntByAd[id] || 0) + 1;
+    const seller = String(o.seller_name || o.creator_name || '').trim();
+    if (seller) {
+      if (!sellerByAd[id]) sellerByAd[id] = {};
+      sellerByAd[id][seller] = (sellerByAd[id][seller] || 0) + 1;
+    }
   });
+
+  /** แอดมินที่ปิดขายมากสุดของแอด — "ชื่อ (n)" หรือ '' เมื่อไม่มี */
+  function topSeller_(adId: string): string {
+    const m = sellerByAd[adId];
+    if (!m) return '';
+    let best = '', bestN = 0;
+    Object.keys(m).forEach(function (k) { if (m[k] > bestN) { bestN = m[k]; best = k; } });
+    return best ? best + ' (' + bestN + ')' : '';
+  }
 
   const ads = await fetchAll<AdRow>(() =>
     db.from('ads').select(
-      'ad_id,name,campaign_name,campaign_id,ad_account_name,status,effective_status,spend,impressions,reach,clicks,ctr,msgs_started,cost_per_msg,order_created,order_shipped,marketer_name,updated_at'
+      'ad_id,name,campaign_name,campaign_id,adset_id,ad_account_name,status,effective_status,spend,impressions,reach,clicks,ctr,msgs_started,cost_per_msg,order_created,order_shipped,marketer_name,created_time,start_time,updated_at'
     ),
     'ad_id'
   );
@@ -83,12 +104,24 @@ export async function apiContentAds(_params?: unknown) {
     else if ((roas !== null && roas < 1.5) || (costPerOrder !== null && costPerOrder > 400)) status = { key: 'needs_fix', label: '🛠 Needs Fix', cls: 'admin' };
     else if (msgs > 30 && closeRate !== null && closeRate < 10) status = { key: 'watch', label: '👀 Watch', cls: 'info' };
     else if (spend > 0) status = { key: 'active', label: '▶ Active', cls: 'ai' };
-    else status = { key: 'organic', label: '▶ Active (Organic)', cls: 'neutral' };
+    else if (active) status = { key: 'organic', label: '▶ Active (Organic)', cls: 'neutral' };
+    else status = { key: 'paused', label: '⏸ Paused', cls: 'neutral' }; // ไม่ active + ไม่มี spend = หยุดแล้ว ไม่ใช่ organic
+
+    // อายุคอนเทนต์ (วัน) จากวันที่สร้าง/เริ่มยิงแอด — null เมื่อไม่มีข้อมูลเวลา
+    const createdRaw = a.created_time || a.start_time || null;
+    let ageDays: number | null = null;
+    if (createdRaw) {
+      const ct = new Date(String(createdRaw)).getTime();
+      if (!isNaN(ct)) ageDays = Math.max(0, Math.floor((Date.now() - ct) / 86400000));
+    }
 
     return {
       adId: adId,
       name: String(a.name || ''),
       campaign: String(a.campaign_name || a.campaign_id || ''),
+      adsetId: String(a.adset_id || ''),
+      ageDays: ageDays,
+      topSeller: topSeller_(adId),
       account: String(a.ad_account_name || ''),
       effStatus: effStatus,
       active: active,

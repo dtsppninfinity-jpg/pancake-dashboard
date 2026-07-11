@@ -151,6 +151,14 @@ export async function apiAdminPerf(params: any) {
     'user_id'
   );
 
+  // คนที่ถูก "ปิดใช้งาน" ในหน้า Admin Management → ไม่เข้า ranking
+  // (ตาราง admin_settings อาจยังไม่ถูกสร้าง → ถือว่าเปิดใช้งานทุกคน)
+  const disabledIds: Record<string, boolean> = {};
+  try {
+    const { data: st } = await db.from('admin_settings').select('user_id,enabled');
+    (st || []).forEach((s: any) => { if (s.enabled === false) disabledIds[String(s.user_id)] = true; });
+  } catch { /* ยังไม่มีตาราง */ }
+
   const pageNames: Record<string, string> = {};
   const pageRows = await fetchAll<any>(() => db.from('pages').select('page_id,name'), 'page_id');
   pageRows.forEach((p) => {
@@ -168,6 +176,16 @@ export async function apiAdminPerf(params: any) {
       .lte('date', chatTo),
     'key'
   );
+
+  // ลูกค้าใหม่รวมทีมในช่วง (จาก chat_hourly — ระดับเพจ ไม่มีรายแอดมิน)
+  // ไม่ catch: ตาราง chat_hourly มีแน่นอน — error จริง (503/timeout) ต้องดังให้หน้าเว็บโชว์ retry
+  // ไม่ใช่แสดง "0" เนียนๆ เหมือนเป็นข้อมูลจริง
+  let newCustomers = 0;
+  const nc = await fetchAll<any>(() =>
+    db.from('chat_hourly').select('date,new_customer_count').gte('date', chatFrom).lte('date', chatTo),
+    'key'
+  );
+  nc.forEach((c: any) => { newCustomers += toNum_(c.new_customer_count); });
 
   // ยอดขายในช่วง group ตาม seller
   const bySeller: Record<string, any> = {}; // key = pos_user_id หรือ 'name:xxx'
@@ -240,9 +258,27 @@ export async function apiAdminPerf(params: any) {
   // รวมเป็นแถว ranking: เริ่มจากแอดมินทุกคนในตาราง admins แล้วเติมยอด
   let rows: any[] = [];
   const usedSellerKeys: Record<string, boolean> = {};
+
+  // กัน "seller ผี": คนที่ถูกปิดใช้งานแล้วหลุดจาก roster (ออกจากทีม) จะไม่มีแถวใน admins
+  // → mark seller key จาก snapshot ใน admin_settings ไว้ก่อน ไม่ให้ยอดเก่าโผล่กลับเข้า ranking
+  // (คอลัมน์ snapshot มาจาก migration v2 — ถ้ายังไม่มี query จะ error ก็ข้ามส่วนนี้ไป)
+  {
+    const { data: snaps, error } = await db
+      .from('admin_settings')
+      .select('user_id,enabled,pos_user_id,snap_name');
+    if (!error) {
+      (snaps || []).forEach((s: any) => {
+        if (s.enabled !== false) return;
+        if (s.pos_user_id) usedSellerKeys[String(s.pos_user_id)] = true;
+        if (s.snap_name) usedSellerKeys['name:' + String(s.snap_name)] = true;
+      });
+    }
+  }
+
   adminRows.forEach((a) => {
     const posId = String(a.pos_user_id || '');
     const name = String(a.name || '');
+    const disabled = disabledIds[String(a.user_id)] === true;
     const parts: any[] = [];
     if (posId && bySeller[posId]) {
       parts.push(bySeller[posId]);
@@ -252,6 +288,7 @@ export async function apiAdminPerf(params: any) {
       parts.push(bySeller['name:' + name]);
       usedSellerKeys['name:' + name] = true;
     }
+    if (disabled) return; // mark key แล้วค่อยข้าม — กันยอดขายของคนปิดใช้งานโผล่กลับมาเป็นแถว seller ซ้ำ
     const sale = mergeSales(parts);
     const chat = chatByUser[String(a.user_id)];
     const revenue = sale ? sale.revenue : 0;
@@ -297,5 +334,13 @@ export async function apiAdminPerf(params: any) {
   // ตัดคนที่ไม่มีทั้งยอดขายและแชทออก (ให้เหลือรายการที่มีความหมาย)
   rows = rows.filter((x) => x.revenue > 0 || x.orders > 0 || x.chats > 0 || x.replies > 0);
 
-  return { rangeLabel: r.label, rows: rows };
+  // สรุปทีม (นับจากตาราง admins + settings — คนปิดใช้งานแยกช่อง ไม่นับใน online/offline)
+  const team = {
+    total: adminRows.length,
+    disabled: adminRows.filter((a) => disabledIds[String(a.user_id)]).length,
+    online: adminRows.filter((a) => !disabledIds[String(a.user_id)] && toBool_(a.is_online)).length,
+    offline: adminRows.filter((a) => !disabledIds[String(a.user_id)] && !toBool_(a.is_online)).length,
+  };
+
+  return { rangeLabel: r.label, rows: rows, team: team, newCustomers: newCustomers };
 }
