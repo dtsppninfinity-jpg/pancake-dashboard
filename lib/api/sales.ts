@@ -138,19 +138,33 @@ function resolveRange_(params: any): Range {
   };
 }
 
+/** items_json อาจเป็น jsonb (array แล้ว) หรือ string — คืน array เสมอ */
+function parseItems_(v: any): any[] {
+  if (Array.isArray(v)) return v;
+  try {
+    return JSON.parse(String(v || '[]'));
+  } catch (e) {
+    return [];
+  }
+}
+
 /* ---------------- โหลดออเดอร์ (เฉพาะช่วงที่ต้องใช้) ---------------- */
+
+// ช่วงเปรียบเทียบใช้แค่ยอดรวม → คอลัมน์เบา | ช่วงปัจจุบันต้องทำ Top เพจ/สินค้า → เพิ่ม page+items
+// (แยกกันเพื่อไม่ให้ payload บวม: items_json ของช่วง prev 30 วันไม่มีใครใช้)
+const LIGHT_COLS = 'inserted_at,status,status_name,total_price,customer_id,ad_id,platform';
+const FULL_COLS = LIGHT_COLS + ',page_id,account_name,items_json';
 
 /**
  * อ่านออเดอร์จาก Postgres แปลงชนิดข้อมูลให้พร้อมใช้ (แถวละ object)
- * กรอง inserted_at >= prevStart เพื่อลดจำนวนแถว (cur/prev/today อยู่ในช่วงนี้ทั้งหมด)
+ * untilIso = null → ไม่จำกัดขอบบน (ถึงปัจจุบัน)
  */
-async function loadOrders_(sinceIso: string): Promise<Row[]> {
-  const rows = await fetchAll<Row>(() =>
-    db
-      .from('orders')
-      .select('inserted_at,status,status_name,total_price,customer_id,ad_id,platform')
-      .gte('inserted_at', sinceIso)
-  );
+async function loadOrders_(sinceIso: string, untilIso: string | null, cols: string): Promise<Row[]> {
+  const rows = await fetchAll<Row>(() => {
+    let q = db.from('orders').select(cols).gte('inserted_at', sinceIso);
+    if (untilIso) q = q.lt('inserted_at', untilIso);
+    return q;
+  });
   return rows
     .map((o) => {
       o._at = toDate_(o.inserted_at);
@@ -172,8 +186,25 @@ export async function apiSales(params: any) {
   const channel = (params && params.channel) || '';
   const compare = (params && params.compare) !== 'none';
 
-  // orders ทั้งหมดที่อาจใช้อยู่ในช่วง [prevStart, now] → กรองที่ query
-  const orders = await loadOrders_(r.prevStart.toISOString());
+  // orders ทั้งหมดที่อาจใช้ → กรองที่ query แยก 3 ก้อนกัน payload บวม:
+  //   [prevStart, start)   คอลัมน์เบา (ช่วงเปรียบเทียบ)
+  //   [start, end+1s)      คอลัมน์เต็ม (ทำ Top เพจ/สินค้า — จำกัดขอบบนตามช่วงที่เลือก
+  //                        ไม่งั้น custom range ในอดีตจะลาก items_json หลายเดือนมาทิ้ง)
+  //   [วันนี้ 00:00, now)  คอลัมน์เบา เฉพาะเมื่อช่วงที่เลือกจบก่อนวันนี้ (การ์ด "ธุรกิจวันนี้" ใช้)
+  const startIso = r.start.toISOString();
+  const endExclusiveIso = new Date(r.end.getTime() + 1000).toISOString(); // inRange_ รวม r.end — บวก 1 วิกันแถวตรงขอบหลุด
+  const todayStartForFetch = startOfDayBkk(new Date());
+  const needTodayChunk = r.end.getTime() < todayStartForFetch.getTime();
+  const [prevRows, curRows, todayChunk] = await Promise.all([
+    r.prevStart.getTime() < r.start.getTime()
+      ? loadOrders_(r.prevStart.toISOString(), startIso, LIGHT_COLS)
+      : Promise.resolve([] as Row[]),
+    loadOrders_(startIso, endExclusiveIso, FULL_COLS),
+    needTodayChunk
+      ? loadOrders_(todayStartForFetch.toISOString(), null, LIGHT_COLS)
+      : Promise.resolve([] as Row[]),
+  ]);
+  const orders = prevRows.concat(curRows, todayChunk);
 
   function matchChannel(o: Row): boolean {
     return !channel || orderChannel_(o) === channel;
@@ -290,6 +321,71 @@ export async function apiSales(params: any) {
     })
     .filter((s) => s.key !== 'other' || s.orders > 0);
 
+  // ---- Top เพจ / Top สินค้า ของช่วงที่เลือก (ใช้ทั้ง hbar บนหน้า + drilldown modal) ----
+  const pageNames: Record<string, string> = {};
+  {
+    const pageRows = await fetchAll<Row>(() => db.from('pages').select('page_id,name'), 'page_id');
+    pageRows.forEach((p) => { pageNames[String(p.page_id)] = String(p.name || ''); });
+  }
+
+  function topAgg(list: Row[]) {
+    const pages: Record<string, { revenue: number; orders: number }> = {};
+    const products: Record<string, { qty: number; value: number; orders: number }> = {};
+    list.forEach((o) => {
+      const pg = pageNames[String(o.page_id || '')] || String(o.account_name || '') || 'ไม่ระบุเพจ';
+      if (!pages[pg]) pages[pg] = { revenue: 0, orders: 0 };
+      pages[pg].revenue += o.total_price;
+      pages[pg].orders++;
+      parseItems_(o.items_json).forEach((it: any) => {
+        const nm = String((it && it.name) || '').trim();
+        if (!nm) return;
+        const qty = toNum_(it.qty) || 1;
+        if (!products[nm]) products[nm] = { qty: 0, value: 0, orders: 0 };
+        products[nm].qty += qty;
+        products[nm].value += toNum_(it.price) * qty; // มูลค่าตามราคาขาย (ประมาณ — ไม่หักส่วนลดท้ายบิล)
+        products[nm].orders++;
+      });
+    });
+    return {
+      pages: Object.keys(pages)
+        .map((nm) => ({ name: nm, revenue: Math.round(pages[nm].revenue), orders: pages[nm].orders }))
+        .sort((a, b) => b.revenue - a.revenue)
+        .slice(0, 10),
+      products: Object.keys(products)
+        .map((nm) => ({ name: nm, qty: products[nm].qty, value: Math.round(products[nm].value), orders: products[nm].orders }))
+        .sort((a, b) => (b.value - a.value) || (b.qty - a.qty))
+        .slice(0, 10),
+    };
+  }
+
+  const top = {
+    all: topAgg(cur),
+    facebook: topAgg(cur.filter((o) => orderChannel_(o) === 'facebook')),
+    line: topAgg(cur.filter((o) => orderChannel_(o) === 'line')),
+  };
+
+  // ---- ลูกค้าเก่า (เคยซื้อภายใน 95 วันก่อนช่วงที่เลือก) — นับฝั่ง Postgres ผ่าน RPC ----
+  // RPC ยังไม่ถูกสร้าง (migration ไม่ได้รัน) → คืน null ให้หน้าเว็บแสดง "—" ไม่ใช่เลขปลอม
+  let returning: { total: number; returning: number; pct: number | null } | null = null;
+  {
+    const lookback = new Date(r.start.getTime() - 95 * 86400000);
+    const { data: rc, error: rcErr } = await db.rpc('sales_returning_customers', {
+      p_start: r.start.toISOString(),
+      p_end: r.end.toISOString(),
+      p_lookback: lookback.toISOString(),
+      p_channel: channel,
+      p_excluded: EXCLUDED_STATUSES,
+    });
+    if (!rcErr && rc) {
+      const row = Array.isArray(rc) ? rc[0] : rc;
+      if (row) {
+        const total = toNum_(row.total_customers);
+        const ret = toNum_(row.returning_customers);
+        returning = { total, returning: ret, pct: total ? Math.round((ret / total) * 1000) / 10 : null };
+      }
+    }
+  }
+
   // สถานะออเดอร์ในช่วง (รวมที่ถูก exclude ด้วย เพื่อให้เห็นยกเลิก/ตีกลับ)
   const statusCount: Record<string, number> = {};
   orders
@@ -392,6 +488,8 @@ export async function apiSales(params: any) {
       hourly: hourlyBuckets(todayOrders),
     },
     sources: sources,
+    top: top,
+    returning: returning,
     statusBreakdown: Object.keys(statusCount)
       .map((nm) => {
         return { name: nm, count: statusCount[nm] };

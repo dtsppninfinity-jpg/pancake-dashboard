@@ -18,8 +18,10 @@ import {
   toast,
   downloadCSV,
   downloadXLS,
+  openModal,
+  closeModal,
 } from '@/lib/ui/helpers';
-import { svgHourlyLine, miniBars, bindChartTips, hideChartTip } from '@/lib/ui/charts';
+import { svgHourlyLine, miniBars, hbarRows, bindChartTips, hideChartTip } from '@/lib/ui/charts';
 import { salesSkel } from '@/lib/ui/skeletons';
 
 declare global {
@@ -49,10 +51,29 @@ interface SalesData {
   sources?: any[];
   statusBreakdown?: any[];
   alerts?: any[];
+  top?: any;        // { all|facebook|line: { pages: [...], products: [...] } }
+  returning?: any;  // { total, returning, pct } | null (null = ยังไม่รัน migration)
 }
 
 let lastData: SalesData | null = null;
 const state: SalesState = { preset: 'today', from: '', to: '', channel: '', compare: 'prev' };
+
+/* ---------------- app settings (margin% — เก็บบนเซิร์ฟเวอร์ ใช้ร่วมทั้งทีม) ---------------- */
+
+interface AppSettingsView { marginPct: number; slaMins: number; }
+let appSettings: AppSettingsView | null = null;
+
+async function loadAppSettings(): Promise<void> {
+  if (appSettings) return;
+  try {
+    const res = await serverCall<{ settings: AppSettingsView }>('apiAppSettings', {});
+    if (res && res.settings) appSettings = res.settings;
+  } catch (e) { /* ใช้ค่า default ไปก่อน — เปิดหน้าครั้งถัดไปจะลองโหลดใหม่ */ }
+}
+
+function marginPct(): number {
+  return appSettings ? Number(appSettings.marginPct) : 30;
+}
 
 const CH_LABELS: Record<string, string> = { '': '🌐 ทั้งหมด', 'facebook': '📘 Facebook', 'line': '🟢 LINE OA' };
 
@@ -177,7 +198,19 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     chBoxHtml('line', ln) +
   '</div>';
 
-  /* --- 4. KPI strip 6 ช่อง --- */
+  /* --- 4. KPI strip 8 ช่อง --- */
+  const m = marginPct();
+  const profit = Math.round((Number(k.revenue) || 0) * m / 100);
+  const rr = d.returning;
+  const retTile = rr
+    ? '<div class="tile" title="ลูกค้าในช่วงที่เลือกที่เคยซื้อภายใน 95 วันก่อนหน้า — ' +
+        esc(fmtNum(rr.returning) + ' จาก ' + fmtNum(rr.total) + ' คน') + '">🔁 ลูกค้าเก่า (95 วัน)<b>' +
+        fmtNum(rr.returning) +
+        (rr.pct !== null && rr.pct !== undefined
+          ? ' <span style="font-size:11px;font-weight:600;color:var(--text-3)">(' + rr.pct + '%)</span>'
+          : '') +
+      '</b></div>'
+    : '<div class="tile" title="ต้องรัน SQL migration (db/migrations/2026-07-11-sprint2.sql) ใน Supabase ก่อน">🔁 ลูกค้าเก่า (95 วัน)<b>—</b></div>';
   html += '<div class="sr-strip">' +
     tileHtml('💰 รายได้', THB(k.revenue || 0)) +
     tileHtml('🛒 ออเดอร์', fmtNum(k.orders || 0)) +
@@ -185,6 +218,10 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     tileHtml('💵 เฉลี่ย/ออเดอร์', THB(k.avgOrder || 0)) +
     tileHtml('🎯 % ปิดการขาย', pctFmt(k.closeRate)) +
     tileHtml('💬 บทสนทนาใหม่', fmtNum(k.newConvs || 0)) +
+    '<div class="tile tile-click" id="sr-margin-tile" title="กำไรประมาณการ = รายได้ × margin ' + m +
+      '% (ตัวเลขประมาณ ไม่ใช่กำไรจริง) — คลิกเพื่อตั้งค่า margin">💚 กำไรประมาณ (' + m + '%) ⚙<b>' +
+      THB(profit) + '</b></div>' +
+    retTile +
   '</div>';
 
   /* --- 5. main: กราฟรายชั่วโมง + ข้อมูลธุรกิจวันนี้ --- */
@@ -221,6 +258,37 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         fmtNum(today.needCheck || 0) + '</b></div>' +
     '</div>' +
   '</div>';
+
+  /* --- 5.5 Top 10 สินค้า / เพจ (ตามช่องทางที่กรองอยู่) --- */
+  const topCh = d.top ? (state.channel ? d.top[state.channel] : d.top.all) : null;
+  if (topCh) {
+    const prodRows = (topCh.products || []).map(function (p: any) {
+      return {
+        label: p.name,
+        value: p.value || p.qty,
+        display: p.value ? THB(p.value) : fmtNum(p.qty) + ' ชิ้น',
+      };
+    });
+    const pageRows = (topCh.pages || []).map(function (p: any) {
+      return { label: p.name, value: p.revenue, display: THB(p.revenue) };
+    });
+    html += '<div class="sr-bottom">' +
+      '<div class="card">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+          '<h3>📦 สินค้าขายดี Top 10</h3>' +
+          '<button class="btn-mini" id="sr-drill">🔍 ดูรายละเอียด</button>' +
+        '</div>' +
+        '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] +
+          ' — มูลค่า = ราคาขาย × จำนวน (ยังไม่หักส่วนลดท้ายบิล)</div>' +
+        '<div class="hbar-wide">' + hbarRows(prodRows, { empty: 'ยังไม่มีข้อมูลสินค้าในช่วงนี้' }) + '</div>' +
+      '</div>' +
+      '<div class="card">' +
+        '<h3>📄 เพจยอดขายดี Top 10</h3>' +
+        '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] + ' — เรียงตามรายได้</div>' +
+        '<div class="hbar-wide">' + hbarRows(pageRows, { empty: 'ยังไม่มีออเดอร์ในช่วงนี้' }) + '</div>' +
+      '</div>' +
+    '</div>';
+  }
 
   /* --- 6. bottom: แหล่งที่มา + แจ้งเตือน --- */
   const srcRows = sources.map(function (s: any) {
@@ -326,7 +394,118 @@ function bindEvents(container: HTMLElement): void {
     });
   });
 
+  const drillBtn = container.querySelector('#sr-drill');
+  if (drillBtn) drillBtn.addEventListener('click', openDrill);
+
+  const marginTile = container.querySelector('#sr-margin-tile');
+  if (marginTile) marginTile.addEventListener('click', function () { openMarginEditor(container); });
+
   bindChartTips(container); // ทูลทิป hover ของกราฟยอดขายรายชั่วโมง
+}
+
+/* ---------------- drilldown modal (Top 5 เพจ / สินค้า ต่อช่องทาง) ---------------- */
+
+function drillBodyHtml(chKey: string): string {
+  const d = lastData || {};
+  const top = d.top || {};
+  const t = (chKey ? top[chKey] : top.all) || { pages: [], products: [] };
+  const chs = d.channels || {};
+  const c = (chKey ? chs[chKey] : chs.all) || {};
+  const sum = '<div class="pill-grid" style="margin-bottom:12px">' +
+    '<span class="chip">💰 ' + THB(c.revenue || 0) + '</span>' +
+    '<span class="chip">🛒 ' + fmtNum(c.orders || 0) + ' ออเดอร์</span>' +
+    '<span class="chip">👥 ' + fmtNum(c.customers || 0) + ' ลูกค้า</span>' +
+  '</div>';
+  const pages = t.pages || [];
+  const products = t.products || [];
+  const pageTbl = pages.length
+    ? '<div class="table-scroll"><table class="tbl"><thead><tr>' +
+        '<th>#</th><th>เพจ</th><th>รายได้</th><th>ออเดอร์</th></tr></thead><tbody>' +
+      pages.slice(0, 5).map(function (p: any, i: number) {
+        return '<tr><td>' + (i + 1) + '</td><td>' + esc(p.name) + '</td><td>' + THB(p.revenue) +
+          '</td><td>' + fmtNum(p.orders) + '</td></tr>';
+      }).join('') + '</tbody></table></div>'
+    : '<div class="empty-note">ยังไม่มีออเดอร์ในช่วงนี้</div>';
+  const prodTbl = products.length
+    ? '<div class="table-scroll"><table class="tbl"><thead><tr>' +
+        '<th>#</th><th>สินค้า</th><th>จำนวน</th><th>มูลค่า*</th><th>ในกี่ออเดอร์</th></tr></thead><tbody>' +
+      products.slice(0, 5).map(function (p: any, i: number) {
+        return '<tr><td>' + (i + 1) + '</td><td>' + esc(p.name) + '</td><td>' + fmtNum(p.qty) +
+          '</td><td>' + (p.value ? THB(p.value) : '-') + '</td><td>' + fmtNum(p.orders) + '</td></tr>';
+      }).join('') + '</tbody></table></div>'
+    : '<div class="empty-note">ยังไม่มีข้อมูลสินค้าในช่วงนี้</div>';
+  return sum +
+    '<h4 style="margin:8px 0 6px">📄 Top 5 เพจ</h4>' + pageTbl +
+    '<h4 style="margin:14px 0 6px">📦 Top 5 สินค้า</h4>' + prodTbl +
+    '<div style="font-size:11px;color:var(--text-3);margin-top:10px">' +
+      '*มูลค่าสินค้า = ราคาขาย × จำนวน (ยังไม่หักส่วนลดท้ายบิล — รายได้จริงดูที่ระดับออเดอร์)</div>';
+}
+
+function openDrill(): void {
+  if (!lastData || !lastData.top) { toast('ยังไม่มีข้อมูลสำหรับดูรายละเอียด'); return; }
+  let ch = state.channel;
+  const chips = ['', 'facebook', 'line'].map(function (k) {
+    return '<button class="filter-btn' + (ch === k ? ' active' : '') + '" data-drill-ch="' + k + '">' +
+      CH_LABELS[k] + '</button>';
+  }).join('');
+  openModal(
+    '<div class="modal-head"><h3>🔍 รายละเอียดยอดขาย — ' + esc(lastData.rangeLabel || '') + '</h3>' +
+      '<button class="modal-close">✕</button></div>' +
+    '<div class="conv-filters" style="margin-bottom:12px">' + chips + '</div>' +
+    '<div id="drill-body">' + drillBodyHtml(ch) + '</div>'
+  );
+  const root = document.getElementById('modal-root')!;
+  root.querySelectorAll('[data-drill-ch]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      ch = btn.getAttribute('data-drill-ch') || '';
+      root.querySelectorAll('[data-drill-ch]').forEach(function (b) {
+        b.classList.toggle('active', b.getAttribute('data-drill-ch') === ch);
+      });
+      const body = root.querySelector('#drill-body');
+      if (body) body.innerHTML = drillBodyHtml(ch);
+    });
+  });
+}
+
+/* ---------------- margin editor (กำไรประมาณการ) ---------------- */
+
+function openMarginEditor(container: HTMLElement): void {
+  openModal(
+    '<div class="modal-head"><h3>⚙️ ตั้งค่า margin กำไรประมาณการ</h3>' +
+      '<button class="modal-close">✕</button></div>' +
+    '<div style="font-size:12.5px;color:var(--text-2);margin-bottom:12px">' +
+      'กำไรประมาณการ = รายได้ × margin% — เป็น<b>ตัวเลขประมาณ</b>ไว้ดูแนวโน้ม ไม่ใช่กำไรจริงจากบัญชี<br>' +
+      'ค่านี้เก็บบนเซิร์ฟเวอร์ — ตั้งครั้งเดียว ทุกคนในทีมเห็นเหมือนกัน</div>' +
+    '<div style="display:flex;align-items:center;gap:8px">' +
+      '<input type="number" class="input" id="margin-input" min="0" max="95" step="0.5" value="' +
+        marginPct() + '" style="width:110px"><span>%</span>' +
+    '</div>' +
+    '<div class="modal-actions">' +
+      '<button class="btn" id="margin-cancel">ยกเลิก</button>' +
+      '<button class="btn primary" id="margin-save">💾 บันทึก</button>' +
+    '</div>'
+  );
+  const root = document.getElementById('modal-root')!;
+  const cancel = root.querySelector('#margin-cancel');
+  if (cancel) cancel.addEventListener('click', closeModal);
+  const save = root.querySelector('#margin-save') as HTMLButtonElement | null;
+  if (save) save.addEventListener('click', function () {
+    const inp = root.querySelector('#margin-input') as HTMLInputElement | null;
+    const v = inp ? Number(inp.value) : NaN;
+    if (!isFinite(v) || v < 0 || v > 95) { toast('⚠️ margin ต้องอยู่ระหว่าง 0-95%'); return; }
+    save.disabled = true;
+    serverCall<{ settings: AppSettingsView }>('apiAppSettings', { settings: { marginPct: v } })
+      .then(function (res) {
+        if (res && res.settings) appSettings = res.settings;
+        closeModal();
+        toast('💾 ตั้ง margin ' + marginPct() + '% แล้ว — ทุกคนเห็นค่าเดียวกัน');
+        if (lastData) render(container, lastData);
+      })
+      .catch(function () {
+        save.disabled = false;
+        toast('⚠️ บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
+      });
+  });
 }
 
 /* ---------------- fetch ---------------- */
@@ -397,6 +576,8 @@ function buildReportRows(): unknown[][] | null {
   rows.push(['ยอดขายจากแอด', Math.round(Number(k.adRevenue) || 0)]);
   rows.push(['บทสนทนาใหม่', Number(k.newConvs) || 0]);
   rows.push(['ออเดอร์ที่ต้องตรวจ', Number(k.needCheck) || 0]);
+  rows.push(['กำไรประมาณการ (margin ' + marginPct() + '%)', Math.round((Number(k.revenue) || 0) * marginPct() / 100)]);
+  rows.push(['ลูกค้าเก่า (เคยซื้อใน 95 วัน)', d.returning ? Number(d.returning.returning) || 0 : '-']);
   rows.push(['เทียบช่วงก่อนหน้า — รายได้ (%)', (t.revenue === null || t.revenue === undefined) ? '-' : t.revenue]);
   rows.push(['เทียบช่วงก่อนหน้า — ออเดอร์ (%)', (t.orders === null || t.orders === undefined) ? '-' : t.orders]);
   rows.push([]);
@@ -428,6 +609,23 @@ function buildReportRows(): unknown[][] | null {
     ]);
   });
 
+  // Top 10 สินค้า/เพจ ตามช่องทางที่กรองอยู่
+  const topT = d.top ? (state.channel ? d.top[state.channel] : d.top.all) : null;
+  if (topT) {
+    rows.push([]);
+    rows.push(['— Top 10 สินค้า (' + (CH_LABELS[state.channel] || 'ทั้งหมด') + ') —']);
+    rows.push(['อันดับ', 'สินค้า', 'จำนวน (ชิ้น)', 'มูลค่าตามราคาขาย', 'อยู่ในกี่ออเดอร์']);
+    (topT.products || []).forEach(function (p: any, i: number) {
+      rows.push([i + 1, p.name || '', Number(p.qty) || 0, Number(p.value) || 0, Number(p.orders) || 0]);
+    });
+    rows.push([]);
+    rows.push(['— Top 10 เพจ —']);
+    rows.push(['อันดับ', 'เพจ', 'รายได้', 'ออเดอร์']);
+    (topT.pages || []).forEach(function (p: any, i: number) {
+      rows.push([i + 1, p.name || '', Number(p.revenue) || 0, Number(p.orders) || 0]);
+    });
+  }
+
   return rows;
 }
 
@@ -435,6 +633,7 @@ function buildReportRows(): unknown[][] | null {
 
 export const sales = {
   load: async (container: HTMLElement, force: boolean): Promise<void> => {
+    await loadAppSettings(); // margin% สำหรับ tile กำไรประมาณการ (cache แล้วไม่ยิงซ้ำ)
     if (lastData && !force) {
       // มี cache → แสดงทันที แล้วดึงข้อมูลใหม่เบื้องหลัง
       render(container, lastData);

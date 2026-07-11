@@ -15,3 +15,6 @@ out/
 
 # Vercel CLI project linkage
 .vercel
+
+# โฟลเดอร์ mirror ของ Claude Code (ซ้ำกับ .claude/skills) — ไม่ต้องขึ้น git
+.agents/

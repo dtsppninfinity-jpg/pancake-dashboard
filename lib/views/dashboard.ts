@@ -8,7 +8,7 @@ import {
   serverCall, esc, fmtNum, pctFmt, platformIcon, avatarHtml,
   showError, toast, tagColor,
 } from '@/lib/ui/helpers';
-import { svgWeekBars, svgDonut, hbarRows } from '@/lib/ui/charts';
+import { svgWeekBars, svgDonut, hbarRows, bindChartTips, hideChartTip } from '@/lib/ui/charts';
 import { dashboardSkel, dashboardBodySkel } from '@/lib/ui/skeletons';
 
 /* ---------------- data types (apiDashboard) ---------------- */
@@ -69,6 +69,7 @@ interface DashData {
   donut?: DonutData;
   byType?: ByTypeItem[];
   byPage?: ByPageItem[];
+  commentByPage?: ByPageItem[];
   tags?: TagItem[];
   attention?: AttentionItem[];
 }
@@ -216,6 +217,19 @@ function byPageCardHtml(byPage?: ByPageItem[]): string {
     hbarRows(items, { cls: 'blue', empty: 'ยังไม่มีข้อมูล' }) + '</div>';
 }
 
+function commentByPageCardHtml(commentByPage?: ByPageItem[]): string {
+  const items = (commentByPage || []).map((p) => {
+    return {
+      label: platformIcon(p.platform) + ' ' + String(p.name || '-'),
+      value: Number(p.count) || 0,
+    };
+  });
+  return '<div class="card">' +
+    '<h3>💭 คอมเมนต์แยกตามเพจ (วันนี้)</h3>' +
+    '<div class="card-sub">เพจที่ลูกค้าคอมเมนต์เยอะที่สุด (top 8) — จากสถิติรายชั่วโมงจริง</div>' +
+    hbarRows(items, { empty: 'วันนี้ยังไม่มีคอมเมนต์' }) + '</div>';
+}
+
 function waitLabel(mins: number | undefined): string {
   const m2 = Math.max(0, Math.round(Number(mins) || 0));
   if (m2 >= 60) {
@@ -270,8 +284,9 @@ function bodyHtml(data: DashData): string {
       byTypeCardHtml(data.byType) +
       tagsCardHtml(data.tags) +
     '</div>' +
-    '<div class="dash-row single">' +
+    '<div class="dash-row">' +
       byPageCardHtml(data.byPage) +
+      commentByPageCardHtml(data.commentByPage) +
     '</div>' +
     '<div class="dash-row single">' +
       attentionCardHtml(data.attention) +
@@ -292,6 +307,7 @@ function bindChips(container: HTMLElement): void {
       wrap.querySelectorAll('[data-ch]').forEach((b) => {
         b.classList.toggle('active', (b.getAttribute('data-ch') || '') === channel);
       });
+      hideChartTip(); // กราฟกำลังถูกแทนด้วย skeleton — ซ่อนทูลทิปที่อาจค้าง
       const body = container.querySelector<HTMLElement>('#dash-body');
       if (body) body.innerHTML = dashboardBodySkel();
       fetchAndRender(container);
@@ -302,6 +318,7 @@ function bindChips(container: HTMLElement): void {
 function render(container: HTMLElement, data?: DashData | null): void {
   container.innerHTML = chipRowHtml() + '<div id="dash-body">' + bodyHtml(data || {}) + '</div>';
   bindChips(container);
+  bindChartTips(container); // ทูลทิป hover ของกราฟแท่ง 7 วัน
 }
 
 function fetchAndRender(container: HTMLElement): void {
@@ -316,6 +333,7 @@ function fetchAndRender(container: HTMLElement): void {
       // มีข้อมูลเดิมแสดงอยู่ — แจ้งเตือนเฉยๆ ไม่ทำลายหน้า
       toast('⚠️ โหลดข้อมูลใหม่ไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
     } else {
+      hideChartTip(); // หน้าเปลี่ยนเป็นกล่อง error — ซ่อนทูลทิปที่อาจค้าง
       showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', () => {
         dashboard.load(container, true);
       });

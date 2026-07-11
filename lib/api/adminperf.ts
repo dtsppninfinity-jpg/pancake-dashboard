@@ -8,6 +8,7 @@ import {
   parsePancakeTime,
   startOfDayBkk,
 } from '@/lib/config';
+import { getAppSettings } from '@/lib/api/appsettings';
 
 /* ---------------- utilities (พอร์ตจาก WebApi.gs) ---------------- */
 
@@ -154,9 +155,13 @@ export async function apiAdminPerf(params: any) {
   // คนที่ถูก "ปิดใช้งาน" ในหน้า Admin Management → ไม่เข้า ranking
   // (ตาราง admin_settings อาจยังไม่ถูกสร้าง → ถือว่าเปิดใช้งานทุกคน)
   const disabledIds: Record<string, boolean> = {};
+  const groupsById: Record<string, string> = {}; // กลุ่มสินค้าที่ตั้งไว้ (ใช้เป็น filter ฝั่ง client)
   try {
-    const { data: st } = await db.from('admin_settings').select('user_id,enabled');
-    (st || []).forEach((s: any) => { if (s.enabled === false) disabledIds[String(s.user_id)] = true; });
+    const { data: st } = await db.from('admin_settings').select('user_id,enabled,product_groups');
+    (st || []).forEach((s: any) => {
+      if (s.enabled === false) disabledIds[String(s.user_id)] = true;
+      if (s.product_groups) groupsById[String(s.user_id)] = String(s.product_groups);
+    });
   } catch { /* ยังไม่มีตาราง */ }
 
   const pageNames: Record<string, string> = {};
@@ -177,15 +182,55 @@ export async function apiAdminPerf(params: any) {
     'key'
   );
 
-  // ลูกค้าใหม่รวมทีมในช่วง (จาก chat_hourly — ระดับเพจ ไม่มีรายแอดมิน)
+  // ลูกค้าใหม่รวมทีม + ปริมาณลูกค้าทักรายชั่วโมง (จาก chat_hourly — ระดับเพจ ไม่มีรายแอดมิน)
   // ไม่ catch: ตาราง chat_hourly มีแน่นอน — error จริง (503/timeout) ต้องดังให้หน้าเว็บโชว์ retry
   // ไม่ใช่แสดง "0" เนียนๆ เหมือนเป็นข้อมูลจริง
   let newCustomers = 0;
+  const teamHourly: number[] = [];
+  for (let i = 0; i < 24; i++) teamHourly.push(0);
   const nc = await fetchAll<any>(() =>
-    db.from('chat_hourly').select('date,new_customer_count').gte('date', chatFrom).lte('date', chatTo),
+    db.from('chat_hourly')
+      .select('date,hour,platform,new_customer_count,customer_inbox_count')
+      .gte('date', chatFrom).lte('date', chatTo),
     'key'
   );
-  nc.forEach((c: any) => { newCustomers += toNum_(c.new_customer_count); });
+  nc.forEach((c: any) => {
+    if (channel && platformChannel_(c.platform) !== channel) return;
+    newCustomers += toNum_(c.new_customer_count);
+    const h = toNum_(c.hour);
+    if (h >= 0 && h <= 23) teamHourly[h] += toNum_(c.customer_inbox_count);
+  });
+
+  // แชทค้าง/รอตอบ "ตอนนี้" (24 ชม.ล่าสุด — ไม่ขึ้นกับช่วงเวลาที่เลือก) + SLA proxy
+  // ใช้กติกาเดียวกับหน้า Admin Management: active = ถูกมอบหมาย, overSla = ลูกค้ารอเกินเกณฑ์
+  const appSettings = await getAppSettings();
+  const slaMins = appSettings.slaMins;
+  const activeByName: Record<string, number> = {};
+  const waitingByName: Record<string, number> = {};
+  const overSlaByName: Record<string, number> = {};
+  let overSlaTotal = 0;
+  {
+    const cutoffIso = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const slaCutoff = Date.now() - slaMins * 60000;
+    const convRows = await fetchAll<any>(() =>
+      db.from('conversations').select('waiting,updated_at,assignees,platform').gte('updated_at', cutoffIso)
+    );
+    convRows.forEach((c: any) => {
+      // เคารพ filter ช่องทางเหมือน KPI อื่นบนหน้าเดียวกัน (chat_hourly/orders กรองอยู่แล้ว)
+      if (channel && platformChannel_(c.platform) !== channel) return;
+      const upd = toDate_(c.updated_at);
+      const isWaiting = toBool_(c.waiting);
+      const isOverSla = isWaiting && !!upd && upd.getTime() <= slaCutoff;
+      if (isOverSla) overSlaTotal++;
+      String(c.assignees || '').split(',').forEach((nm: string) => {
+        nm = nm.trim();
+        if (!nm) return;
+        activeByName[nm] = (activeByName[nm] || 0) + 1;
+        if (isWaiting) waitingByName[nm] = (waitingByName[nm] || 0) + 1;
+        if (isOverSla) overSlaByName[nm] = (overSlaByName[nm] || 0) + 1;
+      });
+    });
+  }
 
   // ยอดขายในช่วง group ตาม seller
   const bySeller: Record<string, any> = {}; // key = pos_user_id หรือ 'name:xxx'
@@ -309,6 +354,10 @@ export async function apiAdminPerf(params: any) {
       topProduct: sale ? topKey(sale.products) : '',
       topPage: sale ? topKey(sale.pages) : '',
       lastOrderAt: (sale && sale.lastOrderAt) ? fmtDateTime_(new Date(sale.lastOrderAt)) : '',
+      productGroups: groupsById[String(a.user_id)] || '',
+      activeNow: activeByName[name] || 0,   // แชทที่ดูแล (ถูกมอบหมาย) ตอนนี้ 24 ชม. — ไม่ขึ้นกับช่วงที่เลือก
+      waitingNow: waitingByName[name] || 0, // แชทที่ลูกค้ารอตอบตอนนี้ (= "แชทค้าง" ตัวจริง)
+      overSla: overSlaByName[name] || 0,    // แชทรอเกินเกณฑ์ SLA ตอนนี้ (proxy)
     });
   });
 
@@ -328,11 +377,16 @@ export async function apiAdminPerf(params: any) {
       topProduct: topKey(s.products),
       topPage: topKey(s.pages),
       lastOrderAt: s.lastOrderAt ? fmtDateTime_(new Date(s.lastOrderAt)) : '',
+      productGroups: '',
+      activeNow: activeByName[s.name] || 0,
+      waitingNow: waitingByName[s.name] || 0,
+      overSla: overSlaByName[s.name] || 0,
     });
   });
 
-  // ตัดคนที่ไม่มีทั้งยอดขายและแชทออก (ให้เหลือรายการที่มีความหมาย)
-  rows = rows.filter((x) => x.revenue > 0 || x.orders > 0 || x.chats > 0 || x.replies > 0);
+  // ตัดคนที่ไม่มีทั้งยอดขาย แชท และงานที่ถืออยู่ตอนนี้ออก (ให้เหลือรายการที่มีความหมาย)
+  // activeNow ต้องนับด้วย — คนถือแชทค้าง/เกิน SLA แต่ยังไม่ตอบ/ไม่ขายวันนี้ คือคนที่ต้องเห็นที่สุด
+  rows = rows.filter((x) => x.revenue > 0 || x.orders > 0 || x.chats > 0 || x.replies > 0 || x.activeNow > 0);
 
   // สรุปทีม (นับจากตาราง admins + settings — คนปิดใช้งานแยกช่อง ไม่นับใน online/offline)
   const team = {
@@ -342,5 +396,13 @@ export async function apiAdminPerf(params: any) {
     offline: adminRows.filter((a) => !disabledIds[String(a.user_id)] && !toBool_(a.is_online)).length,
   };
 
-  return { rangeLabel: r.label, rows: rows, team: team, newCustomers: newCustomers };
+  return {
+    rangeLabel: r.label,
+    rows: rows,
+    team: team,
+    newCustomers: newCustomers,
+    teamHourly: teamHourly,   // ลูกค้าทักรายชั่วโมง (รวมทุกวันในช่วง, กรอง channel แล้ว)
+    overSlaTotal: overSlaTotal, // แชทรอเกินเกณฑ์ SLA ตอนนี้ (นับ conversation ไม่ซ้ำ)
+    slaMins: slaMins,
+  };
 }

@@ -11,10 +11,20 @@ function toNum_(v: unknown): number {
 
 interface OrderRow {
   ad_id: string | number | null;
+  post_id?: string | null;
+  page_id?: string | null;
   total_price: number | string | null;
   status: number | string | null;
   seller_name?: string | null;
   creator_name?: string | null;
+  items_json?: unknown;
+  inserted_at?: string | null;
+}
+
+/** items_json อาจเป็น jsonb (array แล้ว) หรือ string — คืน array เสมอ */
+function parseItems_(v: unknown): any[] {
+  if (Array.isArray(v)) return v;
+  try { return JSON.parse(String(v || '[]')); } catch (e) { return []; }
 }
 
 interface AdRow {
@@ -45,13 +55,22 @@ export async function apiContentAds(_params?: unknown) {
   // ยอดขายที่ผูกกับแต่ละ ad_id (จากออเดอร์ทั้งชีต ~90 วัน)
   // กรอง ad_id ที่ไม่ว่างใน query เพื่อลดจำนวนแถว แล้วค่อยรวมยอดใน JS ตาม logic เดิม
   const orders = await fetchAll<OrderRow>(() =>
-    db.from('orders').select('ad_id,total_price,status,seller_name,creator_name')
-      .not('ad_id', 'is', null).not('inserted_at', 'is', null)
+    db.from('orders').select('ad_id,page_id,total_price,status,seller_name,creator_name,items_json')
+      .not('ad_id', 'is', null).neq('ad_id', '').not('inserted_at', 'is', null)
   );
+
+  // ชื่อเพจ (ให้ dropdown "ทุกเพจ" ใช้ชื่อจริงแทน page_id)
+  const pageNames: Record<string, string> = {};
+  {
+    const pageRows = await fetchAll<any>(() => db.from('pages').select('page_id,name'), 'page_id');
+    pageRows.forEach(function (p: any) { pageNames[String(p.page_id)] = String(p.name || ''); });
+  }
 
   const revByAd: Record<string, number> = {};
   const cntByAd: Record<string, number> = {};
   const sellerByAd: Record<string, Record<string, number>> = {}; // ใครปิดขายจากแอดนี้บ้าง (นับออเดอร์)
+  const pageByAd: Record<string, Record<string, number>> = {};   // แอดนี้ยอดมาจากเพจไหนบ้าง (นับออเดอร์)
+  const prodByAd: Record<string, Record<string, number>> = {};   // สินค้าที่ขายผ่านแอดนี้ (นับชิ้น)
   orders.forEach(function (o) {
     const status = toNum_(o.status);
     const excluded = EXCLUDED_STATUSES.indexOf(status) >= 0;
@@ -64,7 +83,33 @@ export async function apiContentAds(_params?: unknown) {
       if (!sellerByAd[id]) sellerByAd[id] = {};
       sellerByAd[id][seller] = (sellerByAd[id][seller] || 0) + 1;
     }
+    const pid = String(o.page_id || '');
+    if (pid) {
+      if (!pageByAd[id]) pageByAd[id] = {};
+      pageByAd[id][pid] = (pageByAd[id][pid] || 0) + 1;
+    }
+    parseItems_(o.items_json).forEach(function (it: any) {
+      const nm = String((it && it.name) || '').trim();
+      if (!nm) return;
+      if (!prodByAd[id]) prodByAd[id] = {};
+      prodByAd[id][nm] = (prodByAd[id][nm] || 0) + (toNum_(it.qty) || 1);
+    });
   });
+
+  /** key ที่มีค่ามากสุดใน map — '' เมื่อไม่มี */
+  function topKey_(m: Record<string, number> | undefined): string {
+    if (!m) return '';
+    let best = '', bestN = 0;
+    Object.keys(m).forEach(function (k) { if (m[k] > bestN) { bestN = m[k]; best = k; } });
+    return best;
+  }
+
+  /** รายชื่อสินค้าของแอด เรียงตามจำนวนชิ้น (สูงสุด 5 ชื่อ — ใช้กรอง + โชว์บนการ์ด) */
+  function topProducts_(adId: string): string[] {
+    const m = prodByAd[adId];
+    if (!m) return [];
+    return Object.keys(m).sort(function (a, b) { return m[b] - m[a]; }).slice(0, 5);
+  }
 
   /** แอดมินที่ปิดขายมากสุดของแอด — "ชื่อ (n)" หรือ '' เมื่อไม่มี */
   function topSeller_(adId: string): string {
@@ -115,6 +160,7 @@ export async function apiContentAds(_params?: unknown) {
       if (!isNaN(ct)) ageDays = Math.max(0, Math.floor((Date.now() - ct) / 86400000));
     }
 
+    const topPageId = topKey_(pageByAd[adId]);
     return {
       adId: adId,
       name: String(a.name || ''),
@@ -122,6 +168,10 @@ export async function apiContentAds(_params?: unknown) {
       adsetId: String(a.adset_id || ''),
       ageDays: ageDays,
       topSeller: topSeller_(adId),
+      pageId: topPageId,
+      pageName: pageNames[topPageId] || '',
+      products: topProducts_(adId),
+      organicPost: false,
       account: String(a.ad_account_name || ''),
       effStatus: effStatus,
       active: active,
@@ -144,6 +194,71 @@ export async function apiContentAds(_params?: unknown) {
       updatedAt: String(a.updated_at || '')
     };
   });
+
+  // ---- แถว Organic: ออเดอร์ที่ผูกโพสต์ (post_id) แต่ไม่ได้มาจากแอด ----
+  // revenue/orders เป็นของจริง — spend/คลิก/แชทของโพสต์ไม่มีข้อมูล (ไม่ใช่ 0) หน้าเว็บโชว์ "-"
+  const organicOrders = await fetchAll<OrderRow>(() =>
+    db.from('orders').select('post_id,page_id,total_price,status,seller_name,creator_name,inserted_at')
+      .not('post_id', 'is', null).neq('post_id', '')
+      .or('ad_id.is.null,ad_id.eq.')
+      .not('inserted_at', 'is', null)
+  );
+  const byPost: Record<string, {
+    revenue: number; orders: number;
+    pages: Record<string, number>; sellers: Record<string, number>; lastAt: string;
+  }> = {};
+  organicOrders.forEach(function (o) {
+    const status = toNum_(o.status);
+    if (EXCLUDED_STATUSES.indexOf(status) >= 0) return;
+    const pid = String(o.post_id || '');
+    if (!pid) return;
+    if (!byPost[pid]) byPost[pid] = { revenue: 0, orders: 0, pages: {}, sellers: {}, lastAt: '' };
+    const p = byPost[pid];
+    p.revenue += toNum_(o.total_price);
+    p.orders++;
+    const pg = String(o.page_id || '');
+    if (pg) p.pages[pg] = (p.pages[pg] || 0) + 1;
+    const seller = String(o.seller_name || o.creator_name || '').trim();
+    if (seller) p.sellers[seller] = (p.sellers[seller] || 0) + 1;
+    const at = String(o.inserted_at || '');
+    if (at > p.lastAt) p.lastAt = at;
+  });
+  const organicItems: any[] = Object.keys(byPost)
+    .map(function (pid) {
+      const p = byPost[pid];
+      const pageId = topKey_(p.pages);
+      const pageName = pageNames[pageId] || '';
+      const sellerTop = topKey_(p.sellers);
+      // post_id รูปแบบ {page_id}_{post} — โชว์ท้าย id พอให้แยกโพสต์ได้ (เราไม่มีข้อความโพสต์)
+      const shortId = pid.indexOf('_') >= 0 ? pid.slice(pid.indexOf('_') + 1) : pid;
+      return {
+        adId: 'post:' + pid,
+        name: (pageName || 'ไม่ระบุเพจ') + ' — โพสต์ …' + shortId.slice(-8),
+        campaign: 'Organic (ไม่ใช้งบแอด)',
+        adsetId: '',
+        ageDays: null as number | null,
+        topSeller: sellerTop ? sellerTop + ' (' + p.sellers[sellerTop] + ')' : '',
+        pageId: pageId,
+        pageName: pageName,
+        products: [] as string[],
+        organicPost: true,
+        account: '',
+        effStatus: '',
+        active: false,
+        spend: 0, impressions: 0, reach: 0, clicks: 0, ctr: 0,
+        msgs: 0, costPerMsg: 0, orderCreated: 0, orderShipped: 0,
+        orders: p.orders,
+        revenue: Math.round(p.revenue),
+        roas: null as number | null,
+        costPerOrder: null as number | null,
+        closeRate: null as number | null,
+        marketer: '',
+        status: { key: 'organic', label: '🌱 Organic (โพสต์)', cls: 'neutral' },
+        updatedAt: p.lastAt,
+      };
+    })
+    .sort(function (a, b) { return b.revenue - a.revenue; })
+    .slice(0, 50); // กันหน้าบวม — เฉพาะโพสต์ทำยอดสูงสุด 50 โพสต์ (ที่เหลือดูใน CSV ไม่ได้ — บอกใน note)
 
   // Alert rules (ปรับจาก mockup ให้ใช้ข้อมูลจริงที่มี)
   const alerts: Array<{
@@ -207,7 +322,7 @@ export async function apiContentAds(_params?: unknown) {
       scale: alerts.filter(function (a) { return a.level === 'green'; }).length
     },
     alerts: alerts.slice(0, 30),
-    items: items,
-    note: 'Spend/แชท/ออเดอร์ที่สร้าง = ค่าสะสมของแอดจาก POS • ยอดขาย = ออเดอร์ใน 90 วันที่ผูก ad_id'
+    items: (items as any[]).concat(organicItems),
+    note: 'Spend/แชท/ออเดอร์ที่สร้าง = ค่าสะสมของแอดจาก POS • ยอดขาย = ออเดอร์ใน 90 วันที่ผูก ad_id • แถว 🌱 Organic = ยอดจากโพสต์ที่ไม่ได้ยิงแอด (แสดง 50 โพสต์ยอดสูงสุด)'
   };
 }

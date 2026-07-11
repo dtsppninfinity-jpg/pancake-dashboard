@@ -26,7 +26,7 @@ import {
   computeScore,
   type MetricConfig,
 } from '@/lib/scoring';
-import { hbarRows } from '@/lib/ui/charts';
+import { hbarRows, svgHourlyLine, bindChartTips, hideChartTip } from '@/lib/ui/charts';
 import { adminperfSkel } from '@/lib/ui/skeletons';
 
 /* ---------- types ---------- */
@@ -46,6 +46,10 @@ interface PerfRow {
   topProduct: string;
   topPage: string;
   lastOrderAt: string;
+  productGroups?: string;
+  activeNow?: number;   // แชทที่ดูแล (ถูกมอบหมาย) ตอนนี้ 24 ชม. — ไม่ขึ้นกับช่วงที่เลือก
+  waitingNow?: number;  // แชทที่ลูกค้ารอตอบตอนนี้ (= แชทค้างตัวจริง)
+  overSla?: number;     // แชทรอเกินเกณฑ์ SLA ตอนนี้ (proxy)
   _score?: number | null;   // คำนวณฝั่ง client
 }
 
@@ -54,6 +58,9 @@ interface PerfData {
   rows: PerfRow[];
   team?: { total?: number; online?: number; offline?: number; disabled?: number };
   newCustomers?: number;
+  teamHourly?: number[];
+  overSlaTotal?: number;
+  slaMins?: number;
 }
 
 interface PerfState extends RangeState {
@@ -61,6 +68,7 @@ interface PerfState extends RangeState {
   from: string;
   to: string;
   channel: string;
+  group: string;
   mode: string;
   panelOpen: boolean;
 }
@@ -69,7 +77,34 @@ let lastData: PerfData | null = null;
 let reqSeq = 0;
 let scoreConfig: MetricConfig[] = normalizeConfig(null);
 let configLoaded = false;
-const state: PerfState = { preset: 'today', from: '', to: '', channel: '', mode: 'overall', panelOpen: false };
+const state: PerfState = { preset: 'today', from: '', to: '', channel: '', group: '', mode: 'overall', panelOpen: false };
+
+/* ---------- filter กลุ่มสินค้า (จาก admin_settings — client-side) ---------- */
+
+function rowGroups(r: PerfRow): string[] {
+  return String(r.productGroups || '').split(',')
+    .map(function (g) { return g.trim(); })
+    .filter(function (g) { return !!g; });
+}
+
+function allGroups(data: PerfData | null): string[] {
+  const seen: Record<string, boolean> = {};
+  const out: string[] = [];
+  ((data && data.rows) || []).forEach(function (r) {
+    rowGroups(r).forEach(function (g) {
+      if (!seen[g]) { seen[g] = true; out.push(g); }
+    });
+  });
+  out.sort(function (a, b) { return a.localeCompare(b, 'th'); });
+  return out;
+}
+
+/** แถวที่ผ่าน filter กลุ่มสินค้า — ใช้เป็น input ของ KPI/hbar/ranking/CSV ทุกจุด */
+function visRows(data: PerfData | null): PerfRow[] {
+  const rows = (data && data.rows) || [];
+  if (!state.group) return rows;
+  return rows.filter(function (r) { return rowGroups(r).indexOf(state.group) >= 0; });
+}
 
 const RANK_MODES = [
   { key: 'overall', label: '🏆 Overall' },
@@ -188,6 +223,18 @@ function channelSelectHtml(): string {
   }).join('') + '</select>';
 }
 
+function groupSelectHtml(data: PerfData | null): string {
+  const groups = allGroups(data);
+  if (!groups.length) return '';
+  if (state.group && groups.indexOf(state.group) < 0) state.group = '';
+  return '<select class="input" id="rk-group">' +
+    '<option value=""' + (state.group === '' ? ' selected' : '') + '>ทุกกลุ่มสินค้า</option>' +
+    groups.map(function (g) {
+      return '<option value="' + esc(g) + '"' + (state.group === g ? ' selected' : '') + '>📦 ' +
+        esc(g) + '</option>';
+    }).join('') + '</select>';
+}
+
 function controlsHtml(data: PerfData | null): string {
   const modeBtns = RANK_MODES.map(function (m) {
     return '<button class="btn-mini' + (state.mode === m.key ? ' primary' : '') +
@@ -196,6 +243,7 @@ function controlsHtml(data: PerfData | null): string {
   return '<div class="pg-controls">' +
       rangeControlsHtml(state, 'rk') +
       channelSelectHtml() +
+      groupSelectHtml(data) +
       '<div class="spacer"></div>' +
       '<button class="btn" id="rk-csv">📄 CSV</button>' +
     '</div>' +
@@ -215,7 +263,7 @@ function pgsItem(val: string | number, label: string, cls: string): string {
 }
 
 function kpiStripHtml(data: PerfData | null): string {
-  const rows = (data && data.rows) || [];
+  const rows = visRows(data);
   const team = (data && data.team) || {};
   const chatsSum = rows.reduce(function (s, r) { return s + (Number(r.chats) || 0); }, 0);
   const repliesSum = rows.reduce(function (s, r) { return s + (Number(r.replies) || 0); }, 0);
@@ -233,6 +281,24 @@ function kpiStripHtml(data: PerfData | null): string {
   // TS ไม่ track การ assign ใน callback — ต้อง assert กลับเป็น PerfRow | null
   const f = fastest as PerfRow | null;
   const disabledN = Number(team.disabled) || 0;
+  // แชทค้างมากสุด + เกิน SLA เป็นค่า "ตอนนี้" (24 ชม.) — โชว์เฉพาะ preset วันนี้ ไม่ให้ปนกับช่วงอื่น
+  let nowItems = '';
+  if (state.preset === 'today') {
+    // "แชทค้าง" = ลูกค้ารอตอบ (waitingNow) — ไม่ใช่แชทที่ดูแลทั้งหมด (activeNow)
+    let busiest: PerfRow | null = null;
+    rows.forEach(function (r) {
+      if (!busiest || (Number(r.waitingNow) || 0) > (Number(busiest.waitingNow) || 0)) busiest = r;
+    });
+    const b = busiest as PerfRow | null;
+    const bN = b ? Number(b.waitingNow) || 0 : 0;
+    const overSlaN = Number(data && data.overSlaTotal) || 0;
+    const slaMins = Number(data && data.slaMins) || 60;
+    nowItems =
+      pgsItem(bN > 0 ? esc(String((b as PerfRow).name).slice(0, 10)) : '—',
+        'แชทค้างรอตอบมากสุดตอนนี้' + (bN > 0 ? ' (' + fmtNum(bN) + ')' : ''), bN > 0 ? 'warn' : '') +
+      // overSlaTotal เป็นยอดรวมทั้งทีม (ตาม filter ช่องทาง) — ไม่ตามตัวกรองกลุ่มสินค้า จึงติดป้ายให้ชัด
+      pgsItem(fmtNum(overSlaN), 'เกิน SLA ' + slaMins + ' น. (ทั้งทีม)', overSlaN > 0 ? 'warn' : '');
+  }
   return '<div class="pg-summary">' +
     pgsItem(fmtNum(team.total || 0), 'แอดมินทั้งหมด', '') +
     pgsItem(fmtNum(team.online || 0), 'ออนไลน์', 'ok') +
@@ -244,21 +310,35 @@ function kpiStripHtml(data: PerfData | null): string {
     pgsItem(f ? esc(String(f.name).slice(0, 10)) : '—',
       'ตอบเร็วสุด' + (f ? ' (' + f.avgRespMins + ' น.)' : ''), f ? 'ok' : '') +
     pgsItem(fmtNum((data && data.newCustomers) || 0), 'ลูกค้าใหม่ (ทีมรวม)', '') +
+    nowItems +
   '</div>';
 }
 
 function replyCompareHtml(data: PerfData | null): string {
-  const rows = ((data && data.rows) || [])
+  const rows = visRows(data)
     .filter(function (r) { return (Number(r.replies) || 0) > 0; })
     .slice()
     .sort(function (a, b) { return (Number(b.replies) || 0) - (Number(a.replies) || 0); })
     .slice(0, 10)
     .map(function (r) { return { label: String(r.name || '-'), value: Number(r.replies) || 0 }; });
   if (!rows.length) return '';
-  return '<div class="card" style="margin-bottom:14px">' +
+  return '<div class="card">' +
     '<h3>📊 เปรียบเทียบข้อความที่ตอบ (Top 10)</h3>' +
     '<div class="card-sub">รวมตอบแชท + คอมเมนต์ ในช่วงเวลาที่เลือก</div>' +
     hbarRows(rows, { empty: 'ยังไม่มีข้อมูล' }) +
+  '</div>';
+}
+
+function teamHourlyCardHtml(data: PerfData | null): string {
+  const hourly = (data && data.teamHourly) || null;
+  if (!hourly || !hourly.some(function (v) { return v > 0; })) return '';
+  const chTxt = state.channel === 'facebook' ? 'เฉพาะ 📘 Facebook'
+    : state.channel === 'line' ? 'เฉพาะ 🟢 LINE' : 'ทุกช่องทาง';
+  return '<div class="card">' +
+    '<h3>🕐 ปริมาณลูกค้าทักรายชั่วโมง (ทีมรวม)</h3>' +
+    '<div class="card-sub">' + esc((data && data.rangeLabel) || '') +
+      ' — ข้อความลูกค้าทัก (' + chTxt + ', ข้อมูลจริงจาก Pancake) • ชี้ที่จุดเพื่อดูราย ชม.</div>' +
+    svgHourlyLine(hourly.map(function (v) { return Number(v) || 0; }), null, { fmt: 'num', unit: 'ข้อความ' }) +
   '</div>';
 }
 
@@ -329,6 +409,10 @@ function rankCardHtml(r: PerfRow, idx: number): string {
   const badge = r.online
     ? '<span class="badge ai">🟢 ออนไลน์</span>'
     : '<span class="badge neutral">⚪ ออฟไลน์</span>';
+  const slaBadge = (Number(r.overSla) || 0) > 0
+    ? ' <span class="badge urgent" title="แชทที่ลูกค้ารอเกินเกณฑ์ SLA ตอนนี้ (ไม่ขึ้นกับช่วงเวลาที่เลือก)">⏰ ' +
+      esc(fmtNum(Number(r.overSla))) + '</span>'
+    : '';
   const sub1 = '🛒 ' + esc(fmtNum(r.orders)) + ' ออเดอร์ • 💬 ' + esc(fmtNum(r.chats)) +
     ' แชท • ↩ ' + esc(fmtNum(r.replies)) + ' ตอบ • 📞 ' + esc(fmtNum(r.phones)) + ' เบอร์';
   const sub2 = '📦 ' + esc(r.topProduct || '-') + ' • 📄 ' + esc(r.topPage || '-') +
@@ -344,7 +428,7 @@ function rankCardHtml(r: PerfRow, idx: number): string {
     noHtml +
     avatarHtml(r.id, r.name, r.online, 'sm') +
     '<div class="rank-mid">' +
-      '<div class="rank-name">' + esc(r.name) + ' ' + badge + ' ' + scoreBadge(r._score) + '</div>' +
+      '<div class="rank-name">' + esc(r.name) + ' ' + badge + ' ' + scoreBadge(r._score) + slaBadge + '</div>' +
       '<div class="rank-sub">' + sub1 + '</div>' +
       '<div class="rank-sub">' + sub2 + '</div>' +
     '</div>' +
@@ -357,7 +441,7 @@ function rankCardHtml(r: PerfRow, idx: number): string {
 
 /** ส่วนอันดับ (podium + list) — recompute ได้เร็วโดยไม่แตะแผงเกณฑ์ */
 function rankingHtml(data: PerfData | null): string {
-  const rows = (data && data.rows) ? data.rows : [];
+  const rows = visRows(data);
   if (!rows.length) return '<div class="empty-note">🏆 ยังไม่มีข้อมูลในช่วง/ตัวกรองนี้</div>';
   scoreRows(rows);
   const sorted = sortRows(rows, state.mode);
@@ -368,11 +452,20 @@ function rankingHtml(data: PerfData | null): string {
 /* ---------- render + events ---------- */
 
 function render(container: HTMLElement, data: PerfData | null): void {
+  // reset filter กลุ่มสินค้าที่หายไปจากข้อมูลชุดใหม่ "ก่อน" คำนวณการ์ดทุกใบ
+  // (เดิม reset อยู่ใน groupSelectHtml ซึ่งถูกเรียกทีหลัง — การ์ดบนใช้ filter ผีไปหนึ่งรอบ)
+  if (state.group && allGroups(data).indexOf(state.group) < 0) state.group = '';
+  // dash-row: hbar เปรียบเทียบ + กราฟลูกค้าทักรายชั่วโมง วางคู่กัน (เรียงเดี่ยวเมื่อจอแคบ)
+  const reply = replyCompareHtml(data);
+  const hourly = teamHourlyCardHtml(data);
+  const dashRow = (reply || hourly)
+    ? '<div class="perf-row">' + reply + hourly + '</div>'
+    : '';
   container.innerHTML =
     controlsHtml(data) +
     kpiStripHtml(data) +
     panelHtml() +
-    replyCompareHtml(data) +
+    dashRow +
     '<div id="rk-ranking">' + rankingHtml(data) + '</div>';
   bindEvents(container);
 }
@@ -400,6 +493,17 @@ function bindEvents(container: HTMLElement): void {
       refetch(container);
     });
   }
+
+  // กลุ่มสินค้า — filter ฝั่ง client → วาดใหม่ทั้งหน้า (KPI/hbar/ranking เปลี่ยนหมด)
+  const grSel = container.querySelector('#rk-group') as HTMLSelectElement | null;
+  if (grSel) {
+    grSel.addEventListener('change', function () {
+      state.group = grSel.value;
+      render(container, lastData);
+    });
+  }
+
+  bindChartTips(container); // ทูลทิป hover ของกราฟลูกค้าทักรายชั่วโมง
 
   // rank mode — เรียงฝั่ง client → อัปเดตเฉพาะอันดับ
   container.querySelectorAll('[data-rkmode]').forEach(function (btn) {
@@ -473,17 +577,20 @@ function bindEvents(container: HTMLElement): void {
 }
 
 function exportCSV(): void {
-  if (!lastData || !lastData.rows || !lastData.rows.length) {
+  const rows = visRows(lastData);
+  if (!rows.length) {
     toast('ยังไม่มีข้อมูลให้ Export');
     return;
   }
-  scoreRows(lastData.rows);
-  const sorted = sortRows(lastData.rows, state.mode);
+  scoreRows(rows);
+  const sorted = sortRows(rows, state.mode);
   const out: (string | number)[][] = [
     ['Admin Performance Ranking'],
-    ['ช่วงเวลา: ' + (lastData.rangeLabel || '-') + ' • โหมดจัดอันดับ: ' + modeLabel(state.mode)],
+    ['ช่วงเวลา: ' + (lastData!.rangeLabel || '-') + ' • โหมดจัดอันดับ: ' + modeLabel(state.mode) +
+      (state.group ? ' • กลุ่มสินค้า: ' + state.group : '')],
     ['อันดับ', 'แอดมิน', 'สถานะ', 'Overall คะแนน', 'ยอดขาย', 'ออเดอร์', 'แชทที่ดูแล', 'ข้อความที่ตอบ',
-      '% ปิดการขาย', 'ตอบเฉลี่ย(นาที)', 'เฉลี่ย/ออเดอร์', 'สินค้าขายดี', 'เพจยอดดีสุด'],
+      '% ปิดการขาย', 'ตอบเฉลี่ย(นาที)', 'เฉลี่ย/ออเดอร์', 'สินค้าขายดี', 'เพจยอดดีสุด',
+      'กลุ่มสินค้า', 'แชทที่ดูแลตอนนี้(24ชม.)', 'แชทรอตอบตอนนี้', 'เกิน SLA ตอนนี้'],
   ];
   sorted.forEach(function (r, i) {
     out.push([
@@ -500,6 +607,10 @@ function exportCSV(): void {
       Math.round(Number(r.avgOrder) || 0),
       r.topProduct || '-',
       r.topPage || '-',
+      r.productGroups || '',
+      Number(r.activeNow) || 0,
+      Number(r.waitingNow) || 0,
+      Number(r.overSla) || 0,
     ]);
   });
   downloadCSV(out, 'admin-ranking');
@@ -523,6 +634,7 @@ function fetchData(container: HTMLElement, background: boolean): void {
     if (background) {
       toast('⚠️ โหลดข้อมูล Ranking ใหม่ไม่สำเร็จ');
     } else {
+      hideChartTip(); // กราฟถูกแทนด้วยกล่อง error — ซ่อนทูลทิปที่อาจค้าง
       showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', function () {
         container.innerHTML = adminperfSkel();
         fetchData(container, false);
@@ -544,6 +656,7 @@ async function loadConfig(): Promise<void> {
 
 /** เรียกเมื่อ range/channel เปลี่ยน — ข้อมูลเดิมใช้ไม่ได้แล้ว */
 function refetch(container: HTMLElement): void {
+  hideChartTip(); // กราฟถูกแทนด้วย skeleton — ซ่อนทูลทิปที่อาจค้าง (pointerleave ไม่ยิงเมื่อ node หาย)
   lastData = null;
   container.innerHTML = adminperfSkel();
   fetchData(container, false);

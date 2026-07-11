@@ -27,6 +27,7 @@ import {
   RolePerms,
   DEFAULT_MAX_ACTIVE,
 } from '@/lib/adminconfig';
+import { computeScore, normalizeConfig, type MetricConfig } from '@/lib/scoring';
 
 /* ---------------- types ---------------- */
 
@@ -62,6 +63,7 @@ interface Admin {
   avatar?: string;
   today?: AdminToday;
   waiting?: number;
+  overSla?: number;
   active?: number;
   /* ---- ตั้งค่า (admin_settings) ---- */
   enabled?: boolean;
@@ -70,6 +72,7 @@ interface Admin {
   channels?: string;
   productGroups?: string;
   maxActive?: number;
+  maxPending?: number;
   note?: string;
   status?: string; // effective: online|away|busy|offline|disabled
   capacity?: { key: string; label: string; cls: string };
@@ -88,6 +91,7 @@ interface AdminsKpis {
   withSalesToday?: number;
   repliedToday?: number;
   waitingTotal?: number;
+  overSlaTotal?: number;
   phonesToday?: number;
 }
 
@@ -96,15 +100,50 @@ interface AdminsData {
   admins?: Admin[];
   rolePerms?: RolePerms;
   setupNeeded?: boolean;
+  slaMins?: number;
 }
 
 /* ---------------- state ---------------- */
 
 let lastData: AdminsData | null = null;
 let tab: 'cards' | 'roles' = 'cards';
-const filter = { q: '', status: '', role: '', dept: '', channel: '', cap: '' };
+const filter = { q: '', status: '', role: '', dept: '', channel: '', group: '', cap: '' };
 let saving = false;  // กันกดบันทึกซ้อน
 let dataSeq = 0;     // เพิ่มทุกครั้งที่ผู้ใช้แก้อะไรใน state — กัน refetch เบื้องหลัง (ข้อมูลเก่ากว่า) มาทับ
+
+/* ---- เกณฑ์คะแนน Overall (ชุดเดียวกับหน้า Admin Performance — โหลดครั้งเดียว) ---- */
+let scoreCfg: MetricConfig[] | null = null;
+let scoreCfgLoaded = false;
+
+async function loadScoreCfg(): Promise<void> {
+  if (scoreCfgLoaded) return;
+  try {
+    const res = await serverCall<{ config: unknown }>('apiScoreConfig', {});
+    scoreCfg = normalizeConfig(res && res.config);
+  } catch (e) {
+    scoreCfg = normalizeConfig(null); // ใช้เกณฑ์ default เมื่อโหลดไม่สำเร็จ
+  }
+  scoreCfgLoaded = true;
+}
+
+/** คะแนน Overall ของวันนี้ (เกณฑ์เดียวกับหน้า Admin Performance) — null เมื่อคิดไม่ได้ */
+function scoreOf(a: Admin): number | null {
+  if (!scoreCfg) return null;
+  const t = a.today || {};
+  const chats = Number(t.chats) || 0;
+  const orders = Number(t.orders) || 0;
+  const revenue = Number(t.revenue) || 0;
+  return computeScore({
+    revenue,
+    orders,
+    chats,
+    replies: Number(t.replies) || 0,
+    phones: Number(t.phones) || 0,
+    avgRespMins: (t.respMins === null || t.respMins === undefined) ? null : Number(t.respMins),
+    closeRate: chats ? Math.min(100, Math.round((orders / chats) * 1000) / 10) : null,
+    avgOrder: orders ? Math.round(revenue / orders) : 0,
+  }, scoreCfg).score;
+}
 
 const CH_LABEL: Record<string, string> = { both: '📘+🟢', facebook: '📘 FB', line: '🟢 LINE' };
 
@@ -179,6 +218,26 @@ function splitList(s: unknown): string[] {
   return out;
 }
 
+/** กลุ่มสินค้าของแอดมิน 1 คน (คั่นด้วย ,) */
+function groupsOf(a: Admin): string[] {
+  return String(a.productGroups || '').split(',')
+    .map(function (g) { return g.trim(); })
+    .filter(function (g) { return !!g; });
+}
+
+/** กลุ่มสินค้าทั้งหมดที่มีใครสักคนตั้งไว้ (สำหรับ filter + chip ใน modal) */
+function allGroups(): string[] {
+  const seen: Record<string, boolean> = {};
+  const out: string[] = [];
+  ((lastData && lastData.admins) || []).forEach(function (a) {
+    groupsOf(a).forEach(function (g) {
+      if (!seen[g]) { seen[g] = true; out.push(g); }
+    });
+  });
+  out.sort(function (a, b) { return a.localeCompare(b, 'th'); });
+  return out;
+}
+
 /* ---------------- persistence ---------------- */
 
 function recomputeLocal(a: Admin): void {
@@ -205,7 +264,7 @@ function saveAdmin(
   dataSeq++; // มีการแก้ state — refetch เบื้องหลังที่เริ่มก่อนหน้านี้ห้ามเอาข้อมูลมาทับ
   serverCall<any>('apiAdminSettings', { admin: { user_id: String(a.id), ...changed } }).then(function (res) {
     saving = false;
-    if (res && res.ok) { toast(okMsg); return; }
+    if (res && res.ok) { toast(res.warning ? '⚠️ ' + res.warning : okMsg); return; }
     revert();
     recomputeLocal(a);
     renderBody(container);
@@ -235,6 +294,7 @@ function matches(a: Admin): boolean {
     const ch = String(a.channels || 'both');
     if (ch !== 'both' && ch !== filter.channel) return false;
   }
+  if (filter.group && groupsOf(a).indexOf(filter.group) < 0) return false;
   if (filter.cap === 'slow') {
     const r = a.today && a.today.respMins;
     if (r === null || r === undefined || Number(r) <= 8) return false;
@@ -275,6 +335,9 @@ function cardHtml(a: Admin): string {
   const active = Number(a.active) || 0;
   const maxActive = Number(a.maxActive) || DEFAULT_MAX_ACTIVE;
   const waiting = Number(a.waiting) || 0;
+  const maxPending = Number(a.maxPending) || 0;
+  const overSla = Number(a.overSla) || 0;
+  const overPending = maxPending > 0 && waiting > maxPending;
   const groups = String(a.productGroups || '');
   const meta = (a.role ? a.role : (a.department || '—')) +
     ' • ' + (CH_LABEL[String(a.channels || 'both')] || CH_LABEL.both) +
@@ -295,10 +358,17 @@ function cardHtml(a: Admin): string {
     cellHtml(fmtNum(t.replies || 0), 'ตอบวันนี้', '') +
     cellHtml(fmtNum(active) + '/' + fmtNum(maxActive), 'แชทดูแล (24ชม.)',
       cap.key === 'full' ? 'warn' : '') +
-    cellHtml(fmtNum(waiting), 'รอตอบ', waiting > 0 ? 'warn' : '') +
+    cellHtml(fmtNum(waiting) + (maxPending > 0 ? '/' + fmtNum(maxPending) : ''),
+      'รอตอบ' + (maxPending > 0 ? ' (เพดาน)' : ''),
+      overPending || waiting > 0 ? 'warn' : '') +
     cellHtml(esc(respFmt(t.respMins)), 'ตอบเฉลี่ย', '') +
     cellHtml(fmtNum(t.orders || 0), 'ออเดอร์วันนี้', '') +
     cellHtml(esc(THB(t.revenue || 0)), 'ยอดขาย', '');
+  const slaMins = Number(lastData && lastData.slaMins) || 60;
+  const slaBadge = overSla > 0
+    ? '<span class="badge urgent" title="แชทที่ลูกค้ารอเกิน ' + slaMins +
+      ' นาที (เกณฑ์ SLA แบบ proxy จากเวลาข้อความล่าสุด)">⏰ เกิน SLA ' + fmtNum(overSla) + '</span>'
+    : '';
 
   return '<div class="admin-card' + (enabled ? '' : ' off') + '" data-admin-id="' + esc(String(a.id)) + '">' +
     '<div class="admin-head">' +
@@ -315,6 +385,7 @@ function cardHtml(a: Admin): string {
     '<div class="page-stats">' + cells + '</div>' +
     '<div class="page-status-row">' +
       onlineRow +
+      slaBadge +
       '<span style="flex:1"></span>' +
       '<span class="chip" title="' + esc(pages || 'ไม่มีเพจ') + '">📄 ' +
         esc(pages ? cut(pages, 26) : 'ไม่มีเพจ') + '</span>' +
@@ -362,10 +433,21 @@ function openSettings(a: Admin, container: HTMLElement): void {
           '<option value="facebook"' + (a.channels === 'facebook' ? ' selected' : '') + '>📘 Facebook เท่านั้น</option>' +
           '<option value="line"' + (a.channels === 'line' ? ' selected' : '') + '>🟢 LINE เท่านั้น</option>' +
         '</select></label>' +
-      '<label class="adm-field"><span>กลุ่มสินค้าที่ดูแล (คั่นด้วย , — เว้นว่าง = ทุกกลุ่ม)</span>' +
-        '<input class="input" id="adf-groups" value="' + esc(groupsVal) + '" placeholder="เช่น UN1, UN8"></label>' +
+      '<label class="adm-field" style="grid-column:1/-1"><span>กลุ่มสินค้าที่ดูแล (คั่นด้วย , — เว้นว่าง = ทุกกลุ่ม)</span>' +
+        '<input class="input" id="adf-groups" value="' + esc(groupsVal) + '" placeholder="เช่น UN1, UN8">' +
+        (allGroups().length
+          ? '<div class="pill-grid" id="adf-group-chips" style="margin:6px 0 0">' +
+            allGroups().map(function (g) {
+              const on = groupsOf(a).indexOf(g) >= 0;
+              return '<button type="button" class="filter-btn' + (on ? ' active' : '') +
+                '" data-gchip="' + esc(g) + '">' + esc(g) + '</button>';
+            }).join('') + '</div>'
+          : '') +
+      '</label>' +
       '<label class="adm-field"><span>เพดานแชทที่ดูแลพร้อมกัน (ป้าย Capacity)</span>' +
         '<input class="input" id="adf-max" type="number" min="1" max="9999" value="' + esc(String(a.maxActive || DEFAULT_MAX_ACTIVE)) + '"></label>' +
+      '<label class="adm-field"><span>เพดานแชทรอตอบ (0 = ไม่กำหนด)</span>' +
+        '<input class="input" id="adf-maxpend" type="number" min="0" max="9999" value="' + esc(String(a.maxPending || 0)) + '"></label>' +
       '<label class="adm-field" style="grid-column:1/-1"><span>โน้ต (เห็นเฉพาะทีมเรา)</span>' +
         '<input class="input" id="adf-note" value="' + esc(String(a.note || '')) + '" placeholder="เช่น ถนัดปิดการขาย LINE"></label>' +
     '</div>' +
@@ -377,6 +459,24 @@ function openSettings(a: Admin, container: HTMLElement): void {
   const $id = function (id: string) { return document.getElementById(id) as any; };
   const cancel = $id('adf-cancel');
   if (cancel) cancel.addEventListener('click', closeModal);
+
+  // chip กลุ่มสินค้า: คลิกเพื่อเพิ่ม/เอาออกจากช่องกรอก (ช่องกรอกยังพิมพ์เองได้)
+  const chipWrap = $id('adf-group-chips');
+  if (chipWrap) chipWrap.addEventListener('click', function (e: any) {
+    const btn = e.target && e.target.closest ? e.target.closest('[data-gchip]') : null;
+    if (!btn) return;
+    const g = String(btn.getAttribute('data-gchip') || '');
+    const inp = $id('adf-groups');
+    if (!g || !inp) return;
+    const cur = String(inp.value || '').split(',')
+      .map(function (x: string) { return x.trim(); })
+      .filter(function (x: string) { return !!x; });
+    const idx = cur.indexOf(g);
+    if (idx >= 0) cur.splice(idx, 1); else cur.push(g);
+    inp.value = cur.join(', ');
+    btn.classList.toggle('active', idx < 0);
+  });
+
   const save = $id('adf-save');
   if (save) save.addEventListener('click', function () {
     if (saving) {
@@ -386,7 +486,7 @@ function openSettings(a: Admin, container: HTMLElement): void {
     }
     const before = {
       role: a.role, channels: a.channels, productGroups: a.productGroups,
-      maxActive: a.maxActive, note: a.note,
+      maxActive: a.maxActive, maxPending: a.maxPending, note: a.note,
     };
     a.role = String($id('adf-role').value || '');
     a.channels = String($id('adf-channel').value || 'both');
@@ -395,13 +495,17 @@ function openSettings(a: Admin, container: HTMLElement): void {
     if (!isFinite(mx) || mx < 1) mx = DEFAULT_MAX_ACTIVE;
     if (mx > 9999) mx = 9999;
     a.maxActive = mx;
+    let mp = Math.round(Number($id('adf-maxpend').value));
+    if (!isFinite(mp) || mp < 0) mp = 0;
+    if (mp > 9999) mp = 9999;
+    a.maxPending = mp;
     a.note = String($id('adf-note').value || '').slice(0, 300);
     recomputeLocal(a);
     closeModal();
     renderBody(container);
     saveAdmin(a, {
       role: a.role, channels: a.channels, product_groups: a.productGroups,
-      max_active: a.maxActive, note: a.note,
+      max_active: a.maxActive, max_pending: a.maxPending, note: a.note,
     }, function () { Object.assign(a, before); }, container,
       '💾 บันทึกตั้งค่า "' + String(a.name) + '" แล้ว');
   });
@@ -467,6 +571,12 @@ function openStats(a: Admin): void {
           '<h3>' + esc(a.name) + '</h3>' +
           '<div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap">' + statusBadge(a) +
             (a.role ? '<span class="badge brand">' + esc(a.role) + '</span>' : '') +
+            (function () {
+              const sc = scoreOf(a);
+              return sc === null ? '' :
+                '<span class="badge brand" title="คะแนน Overall จากตัวเลขวันนี้ — เกณฑ์ชุดเดียวกับหน้า Admin Performance (ปรับได้ที่นั่น)">⭐ ' +
+                esc(String(sc)) + '</span>';
+            })() +
           '</div>' +
         '</div>' +
       '</div>' +
@@ -568,20 +678,22 @@ function exportCsv(): void {
   }
   const rows: unknown[][] = [[
     'ชื่อ', 'อีเมล', 'Role', 'เปิดใช้งาน', 'สถานะ', 'ช่องทาง', 'กลุ่มสินค้า', 'แผนก', 'กลุ่มขาย', 'เพจ',
-    'ตอบวันนี้', 'แชทดูแล(24ชม.)', 'เพดาน', 'รอตอบ', 'ตอบเฉลี่ย(นาที)',
-    'ออเดอร์วันนี้', 'ยอดขายวันนี้', 'ออนไลน์วันนี้(นาที)', 'หายนานสุด(นาที)', 'โน้ต'
+    'ตอบวันนี้', 'แชทดูแล(24ชม.)', 'เพดาน', 'รอตอบ', 'เพดานรอตอบ', 'เกิน SLA', 'ตอบเฉลี่ย(นาที)',
+    'ออเดอร์วันนี้', 'ยอดขายวันนี้', 'คะแนน Overall (วันนี้)', 'ออนไลน์วันนี้(นาที)', 'หายนานสุด(นาที)', 'โน้ต'
   ]];
   list.forEach(function (a) {
     const t = a.today || {};
     const st = ADMIN_STATUS_META[statusOf(a)] || ADMIN_STATUS_META.offline;
     const ot = a.onlineToday;
+    const sc = scoreOf(a);
     rows.push([
       a.name || '', a.email || '', a.role || '', a.enabled !== false ? 'ใช่' : 'ไม่',
       st.label.replace(/^[^ ]+ /, ''), a.channels || 'both', a.productGroups || '', a.department || '',
       a.saleGroup || '', a.pages || '',
       t.replies || 0, Number(a.active) || 0, Number(a.maxActive) || DEFAULT_MAX_ACTIVE, Number(a.waiting) || 0,
+      Number(a.maxPending) || 0, Number(a.overSla) || 0,
       (t.respMins === null || t.respMins === undefined) ? '' : t.respMins,
-      t.orders || 0, t.revenue || 0,
+      t.orders || 0, t.revenue || 0, sc === null ? '' : sc,
       ot ? ot.mins : '', ot && ot.gapMins ? ot.gapMins : '', a.note || ''
     ]);
   });
@@ -633,8 +745,12 @@ function render(container: HTMLElement): void {
   if (filter.dept && !seen[filter.dept]) filter.dept = '';
 
   const waitingTotal = Number(k.waitingTotal) || 0;
+  const overSlaTotal = Number(k.overSlaTotal) || 0;
+  const slaMins = Number(d.slaMins) || 60;
   const disabledN = Number(k.disabled) || 0;
   const fullN = Number(k.fullCap) || 0;
+  const groups = allGroups();
+  if (filter.group && groups.indexOf(filter.group) < 0) filter.group = '';
 
   const controls = tab !== 'cards' ? '' :
       '<input class="input" id="adm-q" type="text" placeholder="🔍 ค้นหาชื่อแอดมิน..." ' +
@@ -665,6 +781,15 @@ function render(container: HTMLElement): void {
         '<option value="facebook"' + (filter.channel === 'facebook' ? ' selected' : '') + '>📘 Facebook</option>' +
         '<option value="line"' + (filter.channel === 'line' ? ' selected' : '') + '>🟢 LINE</option>' +
       '</select>' +
+      (groups.length
+        ? '<select class="input" id="adm-group">' +
+          '<option value=""' + (filter.group === '' ? ' selected' : '') + '>ทุกกลุ่มสินค้า</option>' +
+          groups.map(function (g) {
+            return '<option value="' + esc(g) + '"' + (filter.group === g ? ' selected' : '') + '>📦 ' +
+              esc(g) + '</option>';
+          }).join('') +
+          '</select>'
+        : '') +
       '<select class="input" id="adm-cap">' +
         '<option value=""' + (filter.cap === '' ? ' selected' : '') + '>Capacity: ทั้งหมด</option>' +
         '<option value="available"' + (filter.cap === 'available' ? ' selected' : '') + '>ว่างรับแชท</option>' +
@@ -673,6 +798,7 @@ function render(container: HTMLElement): void {
         '<option value="slow"' + (filter.cap === 'slow' ? ' selected' : '') + '>ตอบช้า (>8 นาที)</option>' +
       '</select>' +
       '<div class="spacer"></div>' +
+      '<button class="btn" id="adm-sla" title="แชทที่ลูกค้ารอเกินกี่นาทีถือว่าเกิน SLA (ใช้ร่วมกับหน้า Admin Performance)">⏰ SLA ' + slaMins + ' น.</button>' +
       '<button class="btn" id="adm-export">📄 Export CSV</button>';
 
   const html =
@@ -691,6 +817,7 @@ function render(container: HTMLElement): void {
       pgsItem(fmtNum(k.withSalesToday || 0), 'มียอดขายวันนี้', 'ok') +
       pgsItem(fmtNum(k.activeTotal || 0), 'แชทที่ดูแลรวม (24ชม.)', '') +
       pgsItem(fmtNum(waitingTotal), 'แชทรอตอบรวม', waitingTotal > 0 ? 'warn' : '') +
+      pgsItem(fmtNum(overSlaTotal), 'เกิน SLA ' + slaMins + ' น.', overSlaTotal > 0 ? 'warn' : '') +
       pgsItem(fmtNum(k.phonesToday || 0), 'เบอร์โทรวันนี้', '') +
     '</div>' +
 
@@ -731,7 +858,7 @@ function bindEvents(container: HTMLElement): void {
 
   const selMap: [string, keyof typeof filter][] = [
     ['#adm-status', 'status'], ['#adm-role', 'role'], ['#adm-dept', 'dept'],
-    ['#adm-channel', 'channel'], ['#adm-cap', 'cap'],
+    ['#adm-channel', 'channel'], ['#adm-group', 'group'], ['#adm-cap', 'cap'],
   ];
   selMap.forEach(function (pair) {
     const el = container.querySelector(pair[0]) as HTMLSelectElement | null;
@@ -743,6 +870,9 @@ function bindEvents(container: HTMLElement): void {
 
   const ex = container.querySelector('#adm-export');
   if (ex) ex.addEventListener('click', exportCsv);
+
+  const slaBtn = container.querySelector('#adm-sla');
+  if (slaBtn) slaBtn.addEventListener('click', function () { openSlaEditor(container); });
 
   const wrap = container.querySelector('#adm-grid-wrap');
   if (!wrap) return;
@@ -815,6 +945,47 @@ function bindEvents(container: HTMLElement): void {
   });
 }
 
+/* ---------------- modal ตั้งเกณฑ์ SLA (เก็บใน app_settings — ใช้ร่วมทั้งทีม/ทุกหน้า) ---------------- */
+
+function openSlaEditor(container: HTMLElement): void {
+  const cur = Number(lastData && lastData.slaMins) || 60;
+  openModal(
+    '<div class="modal-head"><h3>⏰ ตั้งเกณฑ์ SLA แชทรอตอบ</h3>' +
+      '<button class="modal-close">✕</button></div>' +
+    '<div style="font-size:12.5px;color:var(--text-2);margin-bottom:12px">' +
+      'แชทที่ลูกค้ารอนานเกินกี่นาทีถือว่า <b>เกิน SLA</b> — เป็นค่า proxy จากเวลาข้อความล่าสุด ' +
+      '(Pancake ไม่ส่ง event รายข้อความ) • ใช้เกณฑ์เดียวกันที่หน้า Admin Performance ด้วย</div>' +
+    '<div style="display:flex;align-items:center;gap:8px">' +
+      '<input type="number" class="input" id="sla-input" min="5" max="1440" step="5" value="' + cur +
+        '" style="width:110px"><span>นาที</span>' +
+    '</div>' +
+    '<div class="modal-actions">' +
+      '<button class="btn" id="sla-cancel">ยกเลิก</button>' +
+      '<button class="btn primary" id="sla-save">💾 บันทึก</button>' +
+    '</div>'
+  );
+  const root = document.getElementById('modal-root')!;
+  const cancel = root.querySelector('#sla-cancel');
+  if (cancel) cancel.addEventListener('click', closeModal);
+  const save = root.querySelector('#sla-save') as HTMLButtonElement | null;
+  if (save) save.addEventListener('click', function () {
+    const inp = root.querySelector('#sla-input') as HTMLInputElement | null;
+    const v = inp ? Math.round(Number(inp.value)) : NaN;
+    if (!isFinite(v) || v < 5 || v > 1440) { toast('⚠️ เกณฑ์ SLA ต้องอยู่ระหว่าง 5-1440 นาที'); return; }
+    save.disabled = true;
+    serverCall('apiAppSettings', { settings: { slaMins: v } }).then(function () {
+      closeModal();
+      toast('💾 ตั้งเกณฑ์ SLA ' + v + ' นาทีแล้ว — กำลังคำนวณใหม่...');
+      dataSeq++; // กัน refetch เบื้องหลังเก่ามาทับ
+      container.innerHTML = adminsSkel();
+      fetchData(container, false); // ให้ server นับ "เกิน SLA" ด้วยเกณฑ์ใหม่
+    }).catch(function () {
+      save.disabled = false;
+      toast('⚠️ บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
+    });
+  });
+}
+
 /* ---------------- fetch ---------------- */
 
 function fetchData(container: HTMLElement, silent: boolean): void {
@@ -847,6 +1018,7 @@ function fetchData(container: HTMLElement, silent: boolean): void {
 
 export const admins = {
   load: async (container: HTMLElement, force?: boolean): Promise<void> => {
+    await loadScoreCfg(); // เกณฑ์คะแนน Overall (โหลดครั้งเดียว — ใช้ใน stats modal + CSV)
     if (lastData && !force) {
       render(container);
       fetchData(container, true); /* อัปเดตเบื้องหลัง */

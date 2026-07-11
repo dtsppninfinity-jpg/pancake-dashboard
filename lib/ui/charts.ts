@@ -23,6 +23,11 @@ export interface HbarOpts {
   empty?: string;
 }
 
+export interface LineOpts {
+  fmt?: 'thb' | 'num'; // รูปแบบตัวเลขในทูลทิป (default thb)
+  unit?: string;       // หน่วยต่อท้ายเมื่อ fmt=num เช่น 'ข้อความ'
+}
+
 /** กราฟแท่งคู่ 7 วัน: data = [{label, total, replied}] (ลูกค้าทัก/เพจตอบ, มุมมน) */
 export function svgWeekBars(data: WeekBar[]): string {
   const W = 560, H = 208, padX = 14, bottom = 28, topPad = 26;
@@ -60,11 +65,22 @@ export function svgWeekBars(data: WeekBar[]): string {
     const tot = Number(d.total) || 0, rep = Number(d.replied) || 0;
     const hC = Math.round((tot / max) * innerH);
     const hP = Math.round((rep / max) * innerH);
-    parts.push('<path d="' + topRoundRect(xC, baseY - hC, barW, hC, r) + '" fill="url(#gradCust)"><title>' + esc(d.label) + ' — ลูกค้าทัก ' + fmtNum(tot) + '</title></path>');
-    parts.push('<path d="' + topRoundRect(xP, baseY - hP, barW, hP, r) + '" fill="url(#gradPage)"><title>' + esc(d.label) + ' — เพจตอบ ' + fmtNum(rep) + '</title></path>');
+    parts.push('<path d="' + topRoundRect(xC, baseY - hC, barW, hC, r) + '" fill="url(#gradCust)"/>');
+    parts.push('<path d="' + topRoundRect(xP, baseY - hP, barW, hP, r) + '" fill="url(#gradPage)"/>');
     if (tot > 0) parts.push('<text x="' + (xC + barW / 2) + '" y="' + (baseY - hC - 5) + '" text-anchor="middle" font-size="9" font-weight="600" style="fill:var(--text-3)">' + kFmt(tot) + '</text>');
     if (rep > 0) parts.push('<text x="' + (xP + barW / 2) + '" y="' + (baseY - hP - 5) + '" text-anchor="middle" font-size="9" font-weight="700" style="fill:var(--text-2)">' + kFmt(rep) + '</text>');
     parts.push('<text x="' + cx + '" y="' + (H - 9) + '" text-anchor="middle" font-size="10.5" style="fill:var(--text-3)">' + esc(d.label) + '</text>');
+    // เป้า hover ให้ทูลทิปการ์ดลอย (bindChartTips) — แทน <title> เดิม
+    // pill = อัตราส่วน "จำนวนข้อความ" เพจตอบ/ลูกค้าทัก (เกิน 100% ได้เมื่อเพจส่งมากกว่า — ไม่ cap ไม่โกหก)
+    const pctRep = tot > 0 ? Math.round((rep / tot) * 100) : null;
+    parts.push('<circle class="ch-hit" cx="' + Math.round(cx) + '" cy="' + (baseY - Math.max(hC, hP)) + '" r="10" fill="transparent"' +
+      ' data-title="📅 ' + esc(d.label) + '" data-fmt="num" data-unit="ข้อความ"' +
+      ' data-cur="' + tot + '" data-curlabel="ลูกค้าทัก"' +
+      ' data-prev="' + rep + '" data-prevlabel="เพจตอบ"' +
+      (pctRep !== null
+        ? ' data-pill="ตอบ/ทัก ' + pctRep + '%" data-pillcls="' + (pctRep >= 80 ? 'up' : pctRep >= 50 ? 'flat' : 'down') + '"'
+        : ' data-pill="ยังไม่มีลูกค้าทัก" data-pillcls="flat"') +
+      '></circle>');
   });
   parts.push('</svg>');
   return parts.join('');
@@ -82,8 +98,11 @@ export function svgDonut(pct: number, centerTop: string | number, centerSub: str
     '<text x="65" y="80" text-anchor="middle" font-size="9.5" style="fill:var(--text-3)">' + esc(centerSub) + '</text></svg>';
 }
 
-/** กราฟเส้น 24 ชั่วโมง: main/prev = array 24 ตัวเลข */
-export function svgHourlyLine(main: number[], prev?: number[] | null): string {
+/** กราฟเส้น 24 ชั่วโมง: main/prev = array 24 ตัวเลข (opts.fmt='num' → ทูลทิปเป็นจำนวน ไม่ใช่ ฿) */
+export function svgHourlyLine(main: number[], prev?: number[] | null, opts?: LineOpts): string {
+  const fmtAttr = opts && opts.fmt === 'num'
+    ? ' data-fmt="num"' + (opts.unit ? ' data-unit="' + esc(opts.unit) + '"' : '')
+    : '';
   const W = 780, H = 260, padL = 46, padR = 14, padT = 16, padB = 28;
   const all = main.concat(prev || []);
   const max = Math.max(...all.concat([1])) * 1.1;
@@ -127,7 +146,7 @@ export function svgHourlyLine(main: number[], prev?: number[] | null): string {
     }
     // เป้า hover (โปร่งใสแต่ยังรับอีเวนต์) + data-attrs ให้ทูลทิปอ่าน — แทน <title> เดิม
     parts.push('<circle class="ch-hit" cx="' + p[0] + '" cy="' + p[1] + '" r="10" fill="transparent"' +
-      ' data-h="' + i + '" data-cur="' + Math.round(v) + '"' +
+      ' data-h="' + i + '" data-cur="' + Math.round(v) + '"' + fmtAttr +
       (prev ? ' data-prev="' + Math.round(prev[i]) + '"' : '') + '></circle>');
   });
   parts.push('</svg>');
@@ -207,8 +226,12 @@ export function hideChartTip(): void {
  * กราฟที่ไม่มี .ch-hit (แท่ง/โดนัท) จะ return ทันที — เรียกแบบรวมๆ ได้อย่างปลอดภัย
  */
 export function bindChartTips(container: HTMLElement): void {
-  const svg = container.querySelector('svg.chart-svg') as SVGSVGElement | null;
-  if (!svg) return;
+  container.querySelectorAll<SVGSVGElement>('svg.chart-svg').forEach(function (svg) {
+    bindOneChart_(svg);
+  });
+}
+
+function bindOneChart_(svg: SVGSVGElement): void {
   const hitList = Array.from(svg.querySelectorAll<SVGCircleElement>('.ch-hit'));
   if (!hitList.length) return;
   const svgEl: SVGSVGElement = svg; // non-null local — คง type ในคลอเชอร์ (TS ไม่ narrow ข้าม closure)
@@ -260,9 +283,27 @@ export function bindChartTips(container: HTMLElement): void {
     const cur = +(c.getAttribute('data-cur') || 0);
     const hasPrev = c.hasAttribute('data-prev');
     const prev = hasPrev ? +(c.getAttribute('data-prev') || 0) : 0;
-    els.title.textContent = '🕐 ' + ('0' + h).slice(-2) + ':00 น.';
-    els.value.textContent = THB(cur);
-    if (!hasPrev) {
+    // รูปแบบตัวเลข: default = เงินบาท | data-fmt="num" = จำนวน (+หน่วย เช่น "ข้อความ")
+    const isNum = c.getAttribute('data-fmt') === 'num';
+    const unit = c.getAttribute('data-unit') || '';
+    const fv = (n: number) => isNum ? fmtNum(n) + (unit ? ' ' + unit : '') : THB(n);
+    const curLabel = c.getAttribute('data-curlabel') || '';
+    const prevLabel = c.getAttribute('data-prevlabel') || '';
+    els.title.textContent = c.getAttribute('data-title') || ('🕐 ' + ('0' + h).slice(-2) + ':00 น.');
+    els.value.textContent = (curLabel ? curLabel + ' ' : '') + fv(cur);
+    const pillTxt = c.getAttribute('data-pill');
+    if (pillTxt !== null) {
+      // กราฟที่กำหนด pill เอง (เช่น week bars: "ตอบแล้ว 85%") — ไม่ใช่การเทียบช่วงเวลา
+      tip.classList.remove('is-bare');
+      els.pill.className = 'ct-pill ' + (c.getAttribute('data-pillcls') || 'flat');
+      els.pill.textContent = pillTxt;
+      if (hasPrev) {
+        els.cmp.textContent = (prevLabel || 'เทียบ') + ' ' + fv(prev);
+        els.cmp.hidden = false;
+      } else {
+        els.cmp.hidden = true;
+      }
+    } else if (!hasPrev) {
       tip.classList.add('is-bare');
     } else {
       tip.classList.remove('is-bare');
@@ -272,7 +313,7 @@ export function bindChartTips(container: HTMLElement): void {
         const up = d >= 0;
         els.pill.className = 'ct-pill ' + (flat ? 'flat' : up ? 'up' : 'down');
         els.pill.textContent = (flat ? '' : up ? '▲ ' : '▼ ') + Math.abs(d).toFixed(1) + '%';
-        els.cmp.textContent = 'เทียบ ' + THB(prev) + ' ช่วงก่อนหน้า';
+        els.cmp.textContent = 'เทียบ ' + fv(prev) + ' ' + (prevLabel || 'ช่วงก่อนหน้า');
         els.cmp.hidden = false;
       } else if (cur > 0) {
         els.pill.className = 'ct-pill up';
@@ -280,7 +321,7 @@ export function bindChartTips(container: HTMLElement): void {
         els.cmp.hidden = true;
       } else {
         els.pill.className = 'ct-pill flat';
-        els.pill.textContent = '0.0%';
+        els.pill.textContent = isNum ? '0' : '0.0%';
         els.cmp.textContent = 'ไม่มียอดทั้งสองช่วง';
         els.cmp.hidden = false;
       }

@@ -10,6 +10,7 @@ import {
   startOfDayBkk,
 } from '@/lib/config';
 import { defaultRolePerms, effectiveStatus, capacityOf, normalizeRolePermsShape, DEFAULT_MAX_ACTIVE } from '@/lib/adminconfig';
+import { getAppSettings } from '@/lib/api/appsettings';
 
 /* ---------------- utilities (port จาก WebApi.gs) ---------------- */
 
@@ -123,7 +124,7 @@ export async function apiAdmins(_params?: any) {
   // log ออนไลน์: เอาย้อนถึง 26 ชม.ก่อนต้นวัน เพื่อได้ baseline สถานะตอนเที่ยงคืน
   const logSinceIso = new Date(todayStartTime - 26 * 3600 * 1000).toISOString();
 
-  const [adminsRows, chatDailyRows, orderRows, convRows, settingsRows, onlineLogRows, rolePermsRow] =
+  const [adminsRows, chatDailyRows, orderRows, convRows, settingsRows, onlineLogRows, rolePermsRow, appSettings] =
     await Promise.all([
       // Admins — ตารางเล็ก
       fetchAll<any>(() =>
@@ -171,6 +172,8 @@ export async function apiAdmins(_params?: any) {
       ).catch(missingTable_('admin_online_log')),
       // ตารางสิทธิ์ role (JSON ใน sync_state)
       db.from('sync_state').select('value').eq('key', 'admin_role_permissions').maybeSingle(),
+      // ตั้งค่ากลาง (เกณฑ์ SLA เป็นนาที — แก้ได้จากหน้าเว็บ)
+      getAppSettings(),
     ]);
 
   const setupNeeded = settingsRows === null; // ยังไม่ได้รัน migration
@@ -246,12 +249,21 @@ export async function apiAdmins(_params?: any) {
   // active = ทุกบทสนทนาที่ถูกมอบหมาย (วัด workload) / waiting = เฉพาะที่ลูกค้ารอตอบ
   const waitingByName: Record<string, number> = {};
   const activeByName: Record<string, number> = {};
+  const overSlaByName: Record<string, number> = {};
   let waitingTotal = 0;
+  let overSlaTotal = 0;
   const waitCutoff = convCutoff_();
+  // SLA proxy: แชทที่ "ลูกค้ารอ" และข้อความล่าสุด (updated_at) เก่ากว่าเกณฑ์ที่ตั้งไว้
+  // — ไม่ใช่ SLA per-case จริง (Pancake ไม่ให้ event รายข้อความ) สื่อสารบน UI ว่าเป็น proxy
+  const slaMins = appSettings.slaMins;
+  const slaCutoff = Date.now() - slaMins * 60000;
   convRows.forEach((c) => {
     if (!convInWindow_(c, waitCutoff)) return;
     const isWaiting = toBool_(c.waiting);
     if (isWaiting) waitingTotal++;
+    const upd = toDate_(c.updated_at);
+    const isOverSla = isWaiting && !!upd && upd.getTime() <= slaCutoff;
+    if (isOverSla) overSlaTotal++;
     String(c.assignees || '')
       .split(',')
       .forEach((nm) => {
@@ -259,6 +271,7 @@ export async function apiAdmins(_params?: any) {
         if (!nm) return;
         activeByName[nm] = (activeByName[nm] || 0) + 1;
         if (isWaiting) waitingByName[nm] = (waitingByName[nm] || 0) + 1;
+        if (isOverSla) overSlaByName[nm] = (overSlaByName[nm] || 0) + 1;
       });
   });
 
@@ -336,6 +349,7 @@ export async function apiAdmins(_params?: any) {
         revenue: Math.round(sales.revenue),
       },
       waiting: waitingByName[String(a.name)] || 0,
+      overSla: overSlaByName[String(a.name)] || 0, // แชทรอเกินเกณฑ์ SLA (proxy)
       active,
       // ---- ส่วนตั้งค่า (จาก admin_settings — default เมื่อยังไม่ตั้ง) ----
       enabled,
@@ -344,6 +358,7 @@ export async function apiAdmins(_params?: any) {
       channels: String(s.channels || 'both'),
       productGroups: String(s.product_groups || ''),
       maxActive,
+      maxPending: toNum_(s.max_pending) || 0, // 0 = ไม่กำหนดเพดานแชทรอตอบ (คอลัมน์จาก migration v3)
       note: String(s.note || ''),
       status: effectiveStatus(enabled, statusOverride, online),
       capacity: capacityOf(active, maxActive),
@@ -370,8 +385,9 @@ export async function apiAdmins(_params?: any) {
     withSalesToday: enabledAdmins.filter((a) => a.today.orders > 0).length,
     repliedToday: enabledAdmins.filter((a) => a.today.replies > 0).length,
     waitingTotal: waitingTotal,
+    overSlaTotal: overSlaTotal,
     phonesToday: enabledAdmins.reduce((s2, a) => s2 + a.today.phones, 0),
   };
 
-  return { kpis, admins: out, rolePerms, setupNeeded };
+  return { kpis, admins: out, rolePerms, setupNeeded, slaMins };
 }

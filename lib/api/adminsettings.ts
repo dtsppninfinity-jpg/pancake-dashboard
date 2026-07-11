@@ -15,7 +15,7 @@ function isMissingTable(err: any): boolean {
 /** ตรวจ/เติมค่า setting ของแอดมิน 1 คนให้อยู่ในช่วงที่ถูกต้องเสมอ */
 export function normalizeAdminSetting(raw: any): {
   user_id: string; enabled: boolean; status_override: string; role: string;
-  channels: string; product_groups: string; max_active: number; note: string;
+  channels: string; product_groups: string; max_active: number; max_pending: number; note: string;
 } | null {
   const userId = String((raw && raw.user_id) || '').trim();
   if (!userId || userId.length > 100) return null;
@@ -25,6 +25,9 @@ export function normalizeAdminSetting(raw: any): {
   let maxActive = Math.round(Number((raw && raw.max_active)));
   if (!isFinite(maxActive) || maxActive < 1) maxActive = DEFAULT_MAX_ACTIVE;
   if (maxActive > 9999) maxActive = 9999;
+  let maxPending = Math.round(Number((raw && raw.max_pending)));
+  if (!isFinite(maxPending) || maxPending < 0) maxPending = 0; // 0 = ไม่กำหนด
+  if (maxPending > 9999) maxPending = 9999;
   return {
     user_id: userId,
     enabled: raw && raw.enabled !== false, // default true
@@ -33,6 +36,7 @@ export function normalizeAdminSetting(raw: any): {
     channels: ch === 'facebook' || ch === 'line' ? ch : 'both',
     product_groups: String((raw && raw.product_groups) || '').slice(0, 200),
     max_active: maxActive,
+    max_pending: maxPending,
     note: String((raw && raw.note) || '').slice(0, 300),
   };
 }
@@ -63,7 +67,7 @@ export async function apiAdminSettings(params: any) {
       existing = data;
     }
     const provided: Record<string, any> = {};
-    ['enabled', 'status_override', 'role', 'channels', 'product_groups', 'max_active', 'note']
+    ['enabled', 'status_override', 'role', 'channels', 'product_groups', 'max_active', 'max_pending', 'note']
       .forEach((k) => { if (p.admin[k] !== undefined) provided[k] = p.admin[k]; });
     const clean = normalizeAdminSetting({ ...(existing || {}), ...provided, user_id: userId });
     if (!clean) return { ok: false, error: 'ข้อมูลไม่ถูกต้อง' };
@@ -79,14 +83,23 @@ export async function apiAdminSettings(params: any) {
     }
 
     const now = new Date().toISOString();
+    const payload: Record<string, any> = { ...clean, ...snap, updated_at: now };
+    let droppedMaxPending = false;
     let { error } = await db
       .from('admin_settings')
-      .upsert({ ...clean, ...snap, updated_at: now }, { onConflict: 'user_id' });
+      .upsert(payload, { onConflict: 'user_id' });
+    if (error && String(error.message || '').includes('max_pending')) {
+      // คอลัมน์ max_pending ยังไม่ถูกสร้าง (migration v3) — ตัดออกแล้วบันทึกส่วนที่เหลือ
+      // แต่ต้อง "บอกความจริง" กลับไปด้วย ไม่ใช่ปล่อยให้ user คิดว่าค่านี้ถูกบันทึกแล้ว
+      delete payload.max_pending;
+      droppedMaxPending = true;
+      ({ error } = await db.from('admin_settings').upsert(payload, { onConflict: 'user_id' }));
+    }
     if (error && Object.keys(snap).length) {
       // คอลัมน์ snapshot อาจยังไม่ถูกสร้าง (migration v2) — บันทึกส่วนหลักไปก่อน
-      ({ error } = await db
-        .from('admin_settings')
-        .upsert({ ...clean, updated_at: now }, { onConflict: 'user_id' }));
+      const p2: Record<string, any> = { ...clean, updated_at: now };
+      if (!('max_pending' in payload)) delete p2.max_pending;
+      ({ error } = await db.from('admin_settings').upsert(p2, { onConflict: 'user_id' }));
     }
     if (error) {
       if (isMissingTable(error)) {
@@ -94,7 +107,13 @@ export async function apiAdminSettings(params: any) {
       }
       return { ok: false, error: error.message };
     }
-    return { ok: true, admin: clean };
+    return {
+      ok: true,
+      admin: clean,
+      warning: droppedMaxPending && p.admin.max_pending !== undefined
+        ? 'บันทึกแล้ว ยกเว้น "เพดานแชทรอตอบ" — ต้องรัน migration v3 (max_pending) ใน Supabase ก่อน'
+        : undefined,
+    };
   }
 
   // ---- บันทึกตารางสิทธิ์ role ----

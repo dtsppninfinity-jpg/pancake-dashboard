@@ -69,7 +69,7 @@ export async function apiDashboard(params?: { channel?: string }): Promise<any> 
     db
       .from('chat_hourly')
       .select(
-        'platform,date,customer_inbox_count,customer_comment_count,page_inbox_count,page_comment_count,new_inbox_count,new_customer_count,uniq_phone_number_count'
+        'platform,page_name,date,customer_inbox_count,customer_comment_count,page_inbox_count,page_comment_count,new_inbox_count,new_customer_count,uniq_phone_number_count'
       )
       .gte('date', weekStartStr),
     'key'
@@ -83,8 +83,17 @@ export async function apiDashboard(params?: { channel?: string }): Promise<any> 
   // KPI วันนี้ (โหมดคอมเมนต์นับเฉพาะคู่ *_comment_count)
   const k = { convsToday: 0, custMsgs: 0, newCustomers: 0, pageReplies: 0, phones: 0 };
   const weekMap: Record<string, { total: number; replied: number }> = {}; // date -> {total, replied}
+  const commentPage: Record<string, { count: number; platform: string }> = {}; // คอมเมนต์วันนี้ต่อเพจ
   chat.forEach((r: any) => {
     const dateStr = toDateStr_(r.date);
+    if (dateStr === todayStr) {
+      const cc = toNum_(r.customer_comment_count);
+      if (cc > 0) {
+        const pn = String(r.page_name || 'ไม่ระบุเพจ');
+        if (!commentPage[pn]) commentPage[pn] = { count: 0, platform: String(r.platform || '') };
+        commentPage[pn].count += cc;
+      }
+    }
     const total = commentMode
       ? toNum_(r.customer_comment_count)
       : toNum_(r.customer_inbox_count) + toNum_(r.customer_comment_count);
@@ -191,6 +200,10 @@ export async function apiDashboard(params?: { channel?: string }): Promise<any> 
       .sort((a, b) => b.count - a.count),
     byPage: Object.keys(byPage)
       .map((n) => ({ name: n, platform: byPage[n].platform, count: byPage[n].count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8),
+    commentByPage: Object.keys(commentPage)
+      .map((n) => ({ name: n, platform: commentPage[n].platform, count: commentPage[n].count }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 8),
     tags: Object.keys(tagCount)

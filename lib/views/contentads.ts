@@ -11,7 +11,7 @@ import {
 import { contentadsSkel } from '@/lib/ui/skeletons';
 
 let lastData: any = null;
-const filter = { q: '', status: '', account: '', rank: 'revenue' };
+const filter = { q: '', status: '', account: '', page: '', product: '', rank: 'revenue' };
 let alertShowAll = false;
 
 const STATUS_OPTIONS = [
@@ -86,11 +86,14 @@ function filteredItems(data: any): any[] {
     if (q) {
       const hay = (String(it.name || '') + ' ' + String(it.campaign || '') + ' ' +
         String(it.account || '') + ' ' + String(it.adId || '') + ' ' +
-        String(it.marketer || '')).toLowerCase();
+        String(it.marketer || '') + ' ' + String(it.pageName || '') + ' ' +
+        (it.products || []).join(' ')).toLowerCase();
       if (hay.indexOf(q) < 0) continue;
     }
     if (filter.status && (!it.status || it.status.key !== filter.status)) continue;
     if (filter.account && String(it.account || '') !== filter.account) continue;
+    if (filter.page && String(it.pageName || it.pageId || '') !== filter.page) continue;
+    if (filter.product && (it.products || []).indexOf(filter.product) < 0) continue;
     out.push(it);
   }
   out.sort(function (a, b) { return rankScore(b, filter.rank) - rankScore(a, filter.rank); });
@@ -105,6 +108,29 @@ function uniqueAccounts(items: any[]): string[] {
   }
   out.sort();
   return out;
+}
+
+function uniquePages(items: any[]): string[] {
+  const seen: Record<string, boolean> = {}, out: string[] = [];
+  for (let i = 0; i < items.length; i++) {
+    const p = String(items[i].pageName || items[i].pageId || '');
+    if (p && !seen[p]) { seen[p] = true; out.push(p); }
+  }
+  out.sort();
+  return out;
+}
+
+/** รายชื่อสินค้าจากทุกแอด เรียงตามจำนวนแอดที่ขายสินค้านั้น (cap 30 ตัวเลือก) */
+function uniqueProducts(items: any[]): string[] {
+  const cnt: Record<string, number> = {};
+  for (let i = 0; i < items.length; i++) {
+    (items[i].products || []).forEach(function (nm: string) {
+      cnt[nm] = (cnt[nm] || 0) + 1;
+    });
+  }
+  return Object.keys(cnt)
+    .sort(function (a, b) { return cnt[b] - cnt[a] || a.localeCompare(b); })
+    .slice(0, 30);
 }
 
 /* ---------------- rule-based analysis (deterministic, ไม่เรียก server) ---------------- */
@@ -241,21 +267,27 @@ function buildExportRows(data: any): any[][] | null {
   const list = filteredItems(data);
   if (!list.length) { toast('ไม่มีข้อมูลให้ export'); return null; }
   const rows: any[][] = [[
-    '#', 'ชื่อแอด', 'Ad ID', 'แคมเปญ', 'Ad Set', 'บัญชีแอด', 'มาร์เก็ตติ้ง', 'สถานะ',
+    '#', 'ชื่อแอด', 'Ad ID', 'แคมเปญ', 'Ad Set', 'บัญชีแอด', 'เพจ', 'สินค้าหลัก', 'มาร์เก็ตติ้ง', 'สถานะ',
     'อายุ (วัน)', 'แอดมินปิดขายมากสุด',
     'Spend', 'Impressions', 'Reach', 'คลิก', 'CTR', 'แชท', 'Cost/แชท',
     'ออเดอร์สร้าง', 'ออเดอร์ส่งแล้ว', 'ออเดอร์', 'ยอดขาย', 'ROAS', 'Cost/Order',
     '% ปิด', 'อัปเดตล่าสุด',
   ]];
   list.forEach(function (it, i) {
+    // แถว Organic ไม่มี tracking ฝั่งแอด (spend/คลิก/แชท/impressions) — ใส่ "-" เหมือนบนการ์ด ไม่ใช่ 0 ปลอม
+    const org = !!it.organicPost;
     rows.push([
       i + 1,
       csvVal(it.name), csvVal(it.adId), csvVal(it.campaign), csvVal(it.adsetId), csvVal(it.account),
+      csvVal(it.pageName || it.pageId), (it.products || []).join(', '),
       csvVal(it.marketer), (it.status && it.status.label) || '',
       csvVal(nullable(it.ageDays)), csvVal(it.topSeller),
-      num(it.spend), num(it.impressions), num(it.reach), num(it.clicks),
-      csvVal(nullable(it.ctr)), num(it.msgs), csvVal(nullable(it.costPerMsg)),
-      num(it.orderCreated), num(it.orderShipped), num(it.orders), num(it.revenue),
+      org ? '-' : num(it.spend), org ? '-' : num(it.impressions),
+      org ? '-' : num(it.reach), org ? '-' : num(it.clicks),
+      org ? '-' : csvVal(nullable(it.ctr)), org ? '-' : num(it.msgs),
+      org ? '-' : csvVal(nullable(it.costPerMsg)),
+      org ? '-' : num(it.orderCreated), org ? '-' : num(it.orderShipped),
+      num(it.orders), num(it.revenue),
       csvVal(nullable(it.roas)), csvVal(nullable(it.costPerOrder)),
       csvVal(nullable(it.closeRate)),
       String(it.updatedAt || '').replace('T', ' '),
@@ -279,6 +311,19 @@ function controlsHtml(items: any[]): string {
     accounts.map(function (a) {
       return '<option value="' + esc(a) + '"' + (filter.account === a ? ' selected' : '') + '>' +
         esc(a) + '</option>';
+    }).join('') + '</select>';
+  const pages = uniquePages(items);
+  h += '<select class="input" id="ca-page"><option value="">ทุกเพจ</option>' +
+    pages.map(function (p) {
+      return '<option value="' + esc(p) + '"' + (filter.page === p ? ' selected' : '') + '>' +
+        esc(p) + '</option>';
+    }).join('') + '</select>';
+  const products = uniqueProducts(items);
+  h += '<select class="input" id="ca-product" title="สินค้าจากออเดอร์ที่ผูกแอด (Top 30)">' +
+    '<option value="">ทุกสินค้า</option>' +
+    products.map(function (p) {
+      return '<option value="' + esc(p) + '"' + (filter.product === p ? ' selected' : '') + '>' +
+        esc(p) + '</option>';
     }).join('') + '</select>';
   h += '<span class="spacer"></span>';
   h += '<button class="btn" id="ca-csv" title="Export รายการที่กรอง/เรียงแล้วทั้งหมด">📄 CSV</button>';
@@ -367,15 +412,19 @@ function cardHtml(it: any, rank: number): string {
       ? ' <span class="chip" style="padding:2px 10px;font-size:10.5px">' + esc(it.campaign) + '</span>'
       : '') +
     '</div>';
-  h += '<div class="ca-sub">' + esc(line1) +
+  const isOrganic = !!it.organicPost;
+  h += '<div class="ca-sub">' + esc(isOrganic ? 'ยอดขายจากโพสต์ (ไม่ผ่านแอด)' : line1) +
+    (it.pageName ? ' • 📄 ' + esc(it.pageName) : '') +
     (it.topSeller ? ' • 🧑‍💼 ปิดขายมากสุด: ' + esc(it.topSeller) : '') + '</div>';
-  h += '<div class="ca-sub">Ad ' + esc(it.adId) +
+  h += '<div class="ca-sub">' + (isOrganic ? 'Post ' : 'Ad ') + esc(it.adId) +
     (nullable(it.ageDays) !== null ? ' • อายุ ' + fmtNum(num(it.ageDays)) + ' วัน' : '') +
+    ((it.products || []).length ? ' • 📦 ' + esc((it.products || []).slice(0, 2).join(', ')) : '') +
     ' • อัปเดต ' + esc(relTime(it.updatedAt)) + '</div>';
   h += '</div>';
 
   h += '<div class="ca-nums">';
-  h += caNum('<b class="txt-good" title="ยอดขายจากออเดอร์ที่ผูก ad นี้">' +
+  h += caNum('<b class="txt-good" title="' +
+    (isOrganic ? 'ยอดขายจากออเดอร์ที่ผูกโพสต์นี้' : 'ยอดขายจากออเดอร์ที่ผูก ad นี้') + '">' +
     THB(num(it.revenue)) + '</b>', 'ยอดขาย');
   h += caNum('<b title="ค่าโฆษณาที่ใช้ไป">' + (num(it.spend) > 0 ? THB(it.spend) : '-') + '</b>', 'Spend');
   h += caNum('<b' + (roasCls ? ' class="' + roasCls + '"' : '') +
@@ -383,13 +432,16 @@ function cardHtml(it: any, rank: number): string {
   h += caNum('<b' + (cpoCls ? ' class="' + cpoCls + '"' : '') +
     ' title="ค่าโฆษณาต่อ 1 ออเดอร์">' + (cpo === null ? '-' : THB(cpo)) + '</b>', 'Cost/Order');
   h += caNum('<b>' + fmtNum(num(it.orders)) + '</b>', 'ออเดอร์');
-  h += caNum('<b>' + fmtNum(num(it.msgs)) + '</b>', 'แชท');
-  h += caNum('<b>' + kFmt(num(it.clicks)) + '</b>', 'คลิก');
+  // โพสต์ organic ไม่มี tracking แชท/คลิก — โชว์ "-" (ไม่ใช่ 0 เพราะไม่ได้วัด)
+  h += caNum('<b>' + (isOrganic ? '-' : fmtNum(num(it.msgs))) + '</b>', 'แชท');
+  h += caNum('<b>' + (isOrganic ? '-' : kFmt(num(it.clicks))) + '</b>', 'คลิก');
   h += caNum('<b>' + pctFmt(it.closeRate) + '</b>', '% ปิด');
   h += '</div>';
 
-  h += '<div style="flex-shrink:0"><button class="btn-mini primary" data-ca-view="' +
-    esc(it.adId) + '" title="วิเคราะห์จากตัวเลขจริง + คำแนะนำ">🧠 วิเคราะห์</button></div>';
+  if (!isOrganic) {
+    h += '<div style="flex-shrink:0"><button class="btn-mini primary" data-ca-view="' +
+      esc(it.adId) + '" title="วิเคราะห์จากตัวเลขจริง + คำแนะนำ">🧠 วิเคราะห์</button></div>';
+  }
   h += '</div>';
   return h;
 }
@@ -417,6 +469,11 @@ function listHtml(allItems: any[], list: any[]): string {
 
 function render(container: HTMLElement, data: any): void {
   const items = (data && data.items) || [];
+  // reset filter ที่ค่าหายไปจากตัวเลือกชุดใหม่ "ก่อน" กรอง — กัน ghost filter ที่ UI มองไม่เห็น
+  // (เช่น สินค้าเลือกไว้หลุดจาก Top-30 หลัง refetch → select โชว์ "ทุกสินค้า" แต่ยังกรองอยู่)
+  if (filter.account && uniqueAccounts(items).indexOf(filter.account) < 0) filter.account = '';
+  if (filter.page && uniquePages(items).indexOf(filter.page) < 0) filter.page = '';
+  if (filter.product && uniqueProducts(items).indexOf(filter.product) < 0) filter.product = '';
   const list = filteredItems(data);
   let html = '';
   if (data && data.note) html += '<div class="hint-box">' + esc(data.note) + '</div>';
@@ -445,6 +502,10 @@ function bind(container: HTMLElement, data: any): void {
   if (st) st.addEventListener('change', function () { filter.status = st.value; rerender(); });
   const ac = container.querySelector('#ca-account') as HTMLSelectElement | null;
   if (ac) ac.addEventListener('change', function () { filter.account = ac.value; rerender(); });
+  const pg = container.querySelector('#ca-page') as HTMLSelectElement | null;
+  if (pg) pg.addEventListener('change', function () { filter.page = pg.value; rerender(); });
+  const pd = container.querySelector('#ca-product') as HTMLSelectElement | null;
+  if (pd) pd.addEventListener('change', function () { filter.product = pd.value; rerender(); });
 
   container.querySelectorAll('[data-carank]').forEach(function (btn) {
     btn.addEventListener('click', function () {
