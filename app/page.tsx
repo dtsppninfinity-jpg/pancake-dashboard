@@ -55,6 +55,11 @@ export default function Page() {
               <span className="nav-texts"><span>Admin Performance</span>
               <span className="nav-label-sub">Ranking ยอดขาย • Top 3 🥇🥈🥉</span></span>
             </button>
+            <button className="nav-item" data-view="umap">
+              <span className="nav-icon">🧩</span>
+              <span className="nav-texts"><span>U Map</span>
+              <span className="nav-label-sub">แอดมินอยู่ U ไหน • จับคู่</span></span>
+            </button>
           </nav>
 
           <div className="sidebar-footer">
@@ -81,6 +86,7 @@ export default function Page() {
           <section id="view-contentads" className="view"></section>
           <section id="view-admins" className="view"></section>
           <section id="view-adminperf" className="view"></section>
+          <section id="view-umap" className="view"></section>
         </main>
       </div>
 

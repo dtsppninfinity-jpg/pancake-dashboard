@@ -258,7 +258,38 @@ export function adminperfSkel(): string {
 }
 
 /* ================================================================
- * 5) CONTENT & ADS
+ * 6) U MAP (จับคู่แอดมิน ↔ U)
+ * ================================================================ */
+
+function uCardSkel(): string {
+  return '<div class="u-card">' +
+    line('38%', '20px') + line('68%', '11px', '7px') +
+    '<div style="display:flex;gap:6px;margin-top:12px;flex-wrap:wrap">' +
+      pill('76px', '22px') + pill('60px', '22px') +
+    '</div></div>';
+}
+
+export function umapSkel(): string {
+  let h = controlsBar(inputSk('220px') + inputSk('100px') + inputSk('140px') + '<div class="spacer"></div>' + inputSk('160px'));
+  h += '<div class="umap-stats">' +
+    '<div class="tile">' + line('60%', '10px') + line('40%', '16px', '7px') + '</div>' +
+    '<div class="tile">' + line('66%', '10px') + line('44%', '16px', '7px') + '</div>' +
+    '<div class="tile">' + line('62%', '10px') + line('36%', '16px', '7px') + '</div>' +
+    '</div>';
+  let chips2 = '';
+  for (let i = 0; i < 10; i++) chips2 += pill((84 + ((i * 23) % 60)) + 'px', '30px');
+  let cards = '';
+  for (let i = 0; i < 9; i++) cards += uCardSkel();
+  h += '<div class="umap-layout">' +
+    '<div class="card">' + head() +
+      '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">' + chips2 + '</div></div>' +
+    '<div class="u-grid">' + cards + '</div>' +
+    '</div>';
+  return h;
+}
+
+/* ================================================================
+ * 7) CONTENT & ADS
  * ================================================================ */
 
 function caCard(): string {

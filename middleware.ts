@@ -1,5 +1,6 @@
 // middleware.ts — ประตูรหัสผ่านรวมทีม (กัน PII/ยอดขาย/อีเมลพนักงานหลุดสู่สาธารณะ)
-// ป้องกันทั้งหน้าเว็บ (/) และ /api/* ทุกเส้น ยกเว้น /login และ /api/login
+// ป้องกันทั้งหน้าเว็บ (/) และ /api/* ทุกเส้น ยกเว้น /login, /api/login
+// และ /api/public/* (API สาธารณะที่ตั้งใจเปิด — ส่งเฉพาะข้อมูลไม่อ่อนไหว เช่น U map)
 // cookie 'pn_auth' = sha256(DASHBOARD_PASSWORD) — ตรวจบน Edge ด้วย Web Crypto
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
@@ -31,6 +32,6 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // ป้องกันทุกเส้นทาง ยกเว้น: static ของ Next, หน้า login, endpoint login, favicon
-  matcher: ['/((?!_next/|login|api/login|favicon).*)'],
+  // ป้องกันทุกเส้นทาง ยกเว้น: static ของ Next, หน้า login, endpoint login, API สาธารณะ, favicon
+  matcher: ['/((?!_next/|login|api/login|api/public/|favicon).*)'],
 };

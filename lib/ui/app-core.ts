@@ -13,6 +13,7 @@ import { sales } from '@/lib/views/sales';
 import { contentads } from '@/lib/views/contentads';
 import { admins } from '@/lib/views/admins';
 import { adminperf } from '@/lib/views/adminperf';
+import { umap } from '@/lib/views/umap';
 
 /* ---------------- types ---------------- */
 
@@ -40,6 +41,7 @@ const Views: Record<string, ViewModule> = {
   contentads,
   admins,
   adminperf,
+  umap,
 };
 
 const VIEW_META: Record<string, { title: string; sub: string }> = {
@@ -48,6 +50,7 @@ const VIEW_META: Record<string, { title: string; sub: string }> = {
   contentads: { title: 'Content & Ads Performance', sub: 'แอดที่กำลังยิง + คำแนะนำจากตัวเลขจริง' },
   admins:     { title: 'Admin Management', sub: 'รายชื่อแอดมิน • สถานะออนไลน์ • สิทธิ์' },
   adminperf:  { title: 'Admin Performance', sub: 'Ranking ยอดขาย • Top 3 🥇🥈🥉' },
+  umap:       { title: 'U Map', sub: 'แอดมินอยู่ U ไหน — จับคู่ • เพิ่ม/ลบ U • มี API ให้ระบบอื่นดึง' },
 };
 
 /* ---------- สลับธีม สว่าง/มืด (จำค่าไว้ใน localStorage) ---------- */
