@@ -4,9 +4,9 @@ import {
 } from '../../lib/config';
 import {
   posFetchOrders, posFetchUsers, posFetchAds, posFetchCampaigns,
-  pageChatStats, pageConversations, pageUserStats, pageUsers, pageAdStats,
+  pageChatStats, pageConversations, pageUserStats, pageUsers, pageAdStats, pageCustomerEngagements,
 } from '../../lib/pancake';
-import { mapOrder, mapChatHour, mapConversation, mapAd, mapAdDaily } from '../../lib/mappers';
+import { mapOrder, mapChatHour, mapConversation, mapAd, mapAdDaily, mapEngagementDaily } from '../../lib/mappers';
 import { supabase, upsertRows, replaceTable } from '../../lib/supabase';
 
 /* ---------------- helper: โหลดเพจ + token จาก DB ---------------- */
@@ -88,6 +88,53 @@ export async function syncChatStats(since: Date, until: Date): Promise<string> {
 }
 
 export const syncChatToday = () => syncChatStats(startOfDayBkk(new Date()), new Date());
+
+/* ---------------- CUSTOMER ENGAGEMENTS (ตัวเลขชุดเดียวกับหน้าสถิติแชท Pancake) ---------------- */
+
+/**
+ * ดึง statistics/customer_engagements ของทุกเพจ ลง chat_engagement_daily
+ *
+ * ทำไมต้องมีทั้งที่มี chat_hourly อยู่แล้ว: chat_hourly (statistics/pages) นับ "ข้อความ"
+ * ส่วน endpoint นี้นับ "ลูกค้า" แบบตัดซ้ำ + ให้ order_count/old_order_count มาด้วย
+ * → เป็นตัวหาร/ตัวตั้งของ %ปิดการขายแบบที่ Pancake โชว์ ("ยอดสั่งซื้อจากลูกค้าทั้งหมด")
+ *
+ * ⚠️ บางเพจตอบ HTTP 500 — จับรายเพจ ไม่ให้ล้มทั้ง job (ตรวจแล้วเป็นเพจที่ไม่มีทราฟฟิก)
+ */
+export async function syncEngagementsForDate(dateStr: string, skip?: Set<string>): Promise<string> {
+  requireCredentials();
+  const { pages, tokens } = await loadPagesWithTokens();
+  const since = parsePancakeTime(`${dateStr}T00:00:00`)!;
+  const until = parsePancakeTime(`${dateStr}T23:59:59`)!;
+  const rows: any[] = [];
+  const errors: string[] = [];
+  let total = 0;
+  let orderCount = 0;
+  for (const p of pages) {
+    // backfill ส่ง set ของเพจที่ 500 มาแล้วมาให้ข้าม — ไม่งั้นเสียเวลา retry ซ้ำทุกวัน
+    if (skip && skip.has(String(p.page_id))) continue;
+    try {
+      const s = await pageCustomerEngagements(String(p.page_id), tokens[String(p.page_id)], since, until);
+      const row = mapEngagementDaily(p, s, dateStr);
+      // เพจที่ไม่มีความเคลื่อนไหวเลย ไม่ต้องเขียนแถวศูนย์ให้ตารางบวม
+      if (row.total || row.order_count || row.inbox) {
+        rows.push(row);
+        total += row.total;
+        orderCount += row.order_count;
+      }
+    } catch (e: any) {
+      errors.push(`${p.name}: ${e.message}`);
+      if (skip) skip.add(String(p.page_id));
+    }
+    await sleep(80);
+  }
+  if (rows.length) await upsertRows('chat_engagement_daily', rows, 'key');
+  let msg = `engagements ${dateStr}: ${rows.length} เพจ | ลูกค้า ${total} | ออเดอร์ ${orderCount}`;
+  if (errors.length) msg += ` | ผิดพลาด ${errors.length} เพจ: ${errors.slice(0, 2).join('; ')}`;
+  return msg;
+}
+
+export const syncEngagementsToday = () => syncEngagementsForDate(fmtDateBkk(new Date()));
+export const syncEngagementsYesterday = () => syncEngagementsForDate(fmtDateBkk(daysAgo(1)));
 
 /* ---------------- CONVERSATIONS ---------------- */
 
@@ -426,5 +473,8 @@ export async function prune(): Promise<string> {
   try {
     removed += await deleteOlder('ad_daily', 'date', cutDate(RETENTION_DAYS.AD_DAILY));
   } catch { /* ยังไม่มีตาราง ad_daily */ }
+  try {
+    removed += await deleteOlder('chat_engagement_daily', 'date', cutDate(RETENTION_DAYS.CHAT_ENGAGEMENT));
+  } catch { /* ยังไม่มีตาราง chat_engagement_daily */ }
   return `ลบข้อมูลเก่า ${removed} แถว`;
 }

@@ -17,6 +17,11 @@ interface Kpis {
   convsToday?: number;
   custMsgs?: number;
   newCustomers?: number;
+  // จาก statistics/customer_engagements (ชุดเดียวกับหน้าสถิติแชท Pancake)
+  // null = ยังไม่ได้รัน migration chat_engagement_daily
+  engCustomers?: number | null;
+  engNewInbox?: number | null;
+  engOrders?: number | null;
   pageReplies?: number;
   phones?: number;
   waiting?: number;
@@ -133,8 +138,13 @@ function statGridHtml(k: Kpis, donut?: DonutData): string {
     convBase ? '<b class="up">' + aiPct + '%</b> ของบทสนทนา 24 ชม.' : 'ยังไม่มีข้อมูล'));
   cards.push(statCard('👤', 'amber', 'รอแอดมินตอบ', fmtNum(k.waiting),
     waiting > 0 ? '<b class="warn">ต้องการความสนใจ</b>' : 'ไม่มีงานค้าง'));
-  cards.push(statCard('🆕', 'blue', 'ลูกค้าใหม่วันนี้', fmtNum(k.newCustomers),
-    commentMode ? 'ทุกช่องทางรวมกัน (แยกเฉพาะคอมเมนต์ไม่ได้)' : 'จากทุกเพจที่ sync'));
+  // ตัวเลขบรรทัดล่างมาจาก statistics/customer_engagements = ชุดเดียวกับหน้าสถิติแชทของ Pancake
+  // ให้เทียบจอต่อจอได้ (บรรทัดบนมาจาก statistics/pages ซึ่งนับ "ลูกค้าใหม่" คนละนิยามเล็กน้อย)
+  const engSub = (k.engNewInbox === null || k.engNewInbox === undefined)
+    ? (commentMode ? 'ทุกช่องทางรวมกัน (แยกเฉพาะคอมเมนต์ไม่ได้)' : 'จากทุกเพจที่ sync')
+    : 'Pancake นับ <b>' + fmtNum(k.engNewInbox) + '</b> คนเปิดแชทใหม่ • คุยทั้งหมด ' +
+      fmtNum(k.engCustomers || 0) + ' คน';
+  cards.push(statCard('🆕', 'blue', 'ลูกค้าใหม่วันนี้', fmtNum(k.newCustomers), engSub));
   return '<div class="stat-grid">' + cards.join('') + '</div>';
 }
 

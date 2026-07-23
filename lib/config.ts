@@ -43,7 +43,7 @@ export function money_(v: unknown): number {
 }
 
 /** เก็บข้อมูลย้อนหลังกี่วันในแต่ละตาราง (งาน prune รายวันจะลบที่เก่ากว่านี้) */
-export const RETENTION_DAYS = { ORDERS: 95, CHAT_HOURLY: 60, CONVERSATIONS: 14, ADMIN_CHAT_DAILY: 60, ADMIN_ONLINE_LOG: 35, AD_DAILY: 95 };
+export const RETENTION_DAYS = { ORDERS: 95, CHAT_HOURLY: 60, CONVERSATIONS: 14, ADMIN_CHAT_DAILY: 60, ADMIN_ONLINE_LOG: 35, AD_DAILY: 95, CHAT_ENGAGEMENT: 95 };
 
 /** credentials อ่านจาก environment (ตั้งใน .env.local หรือ GitHub Secrets) */
 export const cfg = {

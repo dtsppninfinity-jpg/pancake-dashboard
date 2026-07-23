@@ -16,10 +16,11 @@ let alertShowAll = false;
 /** ช่วงย้อนหลังที่ดึงจาก server (วัน) — เดิมหน้านี้ไม่มีตัวกรองเวลาเลย เป็นยอดสะสมตั้งแต่ต้น */
 let rangeDays = 7;
 
-// ⚠️ เป็นหน้าต่างย้อนหลังแบบกลิ้ง (นับถอยจากตอนนี้) ไม่ใช่ "ตั้งแต่เที่ยงคืน" แบบหน้า Sales
-//    ป้ายต้องบอกตรงๆ ไม่งั้นยอดจะดูไม่ตรงกับหน้า Sales แล้วหาสาเหตุไม่เจอ
+// นับเป็น "วันปฏิทินไทยเต็มวัน" เหมือนหน้า Sales และเหมือน Pancake
+// (1 วัน = ตั้งแต่เที่ยงคืนวันนี้ | 7 วัน = วันนี้ + 6 วันก่อน)
+// ค่าแอดกับยอดขายใช้หน้าต่างเดียวกันเป๊ะ — ไม่งั้น ROAS เพี้ยน
 const RANGE_OPTIONS = [
-  { d: 1, label: '24 ชม.' },
+  { d: 1, label: 'วันนี้' },
   { d: 7, label: '7 วัน' },
   { d: 30, label: '30 วัน' },
   { d: 90, label: '90 วัน' },
@@ -497,6 +498,11 @@ function render(container: HTMLElement, data: any): void {
   if (filter.product && uniqueProducts(items).indexOf(filter.product) < 0) filter.product = '';
   const list = filteredItems(data);
   let html = '';
+  // ค่าแอดไม่ครบช่วง = ROAS สูงเกินจริง — ต้องเตือนก่อนตัวเลข ไม่ใช่ปล่อยให้อ่านผิด
+  if (data && data.adDaysWarning) {
+    html += '<div class="hint-box" style="border-color:var(--red,#e17055);color:var(--red,#e17055)">⚠️ ' +
+      esc(data.adDaysWarning) + '</div>';
+  }
   if (data && data.note) html += '<div class="hint-box">' + esc(data.note) + '</div>';
   html += controlsHtml(items);
   html += alertsCardHtml(data);

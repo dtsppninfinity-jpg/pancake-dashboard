@@ -180,6 +180,31 @@ export async function pageAdStats(pageId: string, token: string, since: Date, un
   return res?.data ?? [];
 }
 
+/**
+ * สถิติ "การมีปฏิสัมพันธ์ของลูกค้า" ของเพจ — แหล่งเดียวกับหน้าสถิติแชทบน Pancake
+ * คืน series ตามชื่อ: inbox / comment / total / new_customer_replied /
+ * customer_engagement_new_inbox / order_count / old_order_count
+ *
+ * ⚠️ เพจที่ไม่มีทราฟฟิกเลยบางเพจ Pancake ตอบ HTTP 500 "Server internal error"
+ *    (ตรวจแล้ว 2026-07-23: 15 เพจ ทุกเพจคือเพจที่ statistics/pages ก็คืน 0 bucket เหมือนกัน)
+ *    ผู้เรียกต้อง try/catch รายเพจ ห้ามให้ล้มทั้ง job
+ */
+export async function pageCustomerEngagements(
+  pageId: string, token: string, since: Date, until: Date,
+): Promise<Record<string, number>> {
+  const res = await pagePublicGet(1, pageId, token, '/statistics/customer_engagements', {
+    date_range: pagesDateRange(since, until),
+  });
+  const series = res?.data?.series ?? [];
+  const out: Record<string, number> = {};
+  for (const s of series) {
+    const name = String(s?.name || '');
+    if (!name) continue;
+    out[name] = (s?.data ?? []).reduce((a: number, v: any) => a + (Number(v) || 0), 0);
+  }
+  return out;
+}
+
 /** บทสนทนาล่าสุด (v2, cursor pagination ทีละ 60) */
 export async function pageConversations(pageId: string, token: string, since: Date, until: Date, maxBatches = 3): Promise<any[]> {
   const all: any[] = [];

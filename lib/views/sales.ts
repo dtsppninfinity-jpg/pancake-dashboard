@@ -203,15 +203,31 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     : (Math.round(Number(k.closeRate) * 10) / 10) +
       '%<span style="font-size:14px;font-weight:600;color:var(--text-2)"> ปิดการขาย</span>';
 
+  // "1,429 (ยืนยันแล้ว 1,391)" — ตัวหลังคือตัวที่ Pancake นับ ให้บอสเทียบจอต่อจอได้
+  function confirmedSuffix(kk: any): string {
+    if (kk.confirmedOrders === null || kk.confirmedOrders === undefined) return '';
+    return '<span style="font-size:13px;font-weight:600;color:var(--text-3)"> • ยืนยันแล้ว ' +
+      fmtNum(kk.confirmedOrders) + '</span>';
+  }
+
+  function closeRateTip(kk: any): string {
+    if (kk.closeBase === null || kk.closeBase === undefined)
+      return 'ยังไม่ได้รัน migration db/migrations/2026-07-23-chat-engagement.sql — ตัวเลขนี้ต้องใช้ตาราง chat_engagement_daily';
+    return 'สูตรเดียวกับ Pancake: ออเดอร์ที่สร้างจากแชท (' + fmtNum(kk.closeOrders || 0) +
+      ') ÷ ลูกค้าที่มีปฏิสัมพันธ์ทั้งหมด (' + fmtNum(kk.closeBase || 0) + ') • ' +
+      'ในนั้นเป็นลูกค้าเปิดแชทใหม่ ' + fmtNum(kk.newInbox || 0) + ' คน';
+  }
+
   html += '<div class="sr-cards">' +
     '<div class="sr-card">' +
       '<div class="label">💰 รายได้รวม</div>' +
       '<div class="big">' + THB(k.revenue || 0) + '</div>' +
       '<div class="foot">' + fmtNum(k.orders || 0) + ' ออเดอร์' + trendChip(t.revenue) + '</div>' +
     '</div>' +
-    '<div class="sr-card">' +
+    '<div class="sr-card" title="นับออเดอร์ที่มีสินค้าจริง (ตัดออเดอร์เปล่าที่ Pancake สร้างให้ทุกแชทจากแอดทิ้งแล้ว) — ' +
+      'ตัวเลข &quot;ยืนยันแล้ว&quot; คือตัวที่ Pancake นับเป็น &quot;สร้างคำสั่งซื้อ&quot;">' +
       '<div class="label">🛒 คำสั่งซื้อ</div>' +
-      '<div class="big">' + fmtNum(k.orders || 0) + '</div>' +
+      '<div class="big">' + fmtNum(k.orders || 0) + confirmedSuffix(k) + '</div>' +
       '<div class="foot">📘 ' + THB(fb.revenue || 0) + ' • 🟢 ' + THB(ln.revenue || 0) +
         (Number(k.needCheck) > 0
           ? ' <span class="sr-red">⚠ ต้องตรวจ ' + fmtNum(k.needCheck) + '</span>'
@@ -219,10 +235,8 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         trendChip(t.orders) +
       '</div>' +
     '</div>' +
-    '<div class="sr-card" title="ออเดอร์ทั้งหมดในช่วง (' + esc(fmtNum(k.orders || 0)) +
-      ') ÷ บทสนทนาที่เปิดใหม่ในช่วงเดียวกัน (' + esc(fmtNum(k.newConvs || 0)) + ') — ' +
-      'เกิน 100% ได้ เพราะออเดอร์จากลูกค้าเก่าไม่ได้เปิดแชทใหม่">' +
-      '<div class="label">🎯 ออเดอร์ต่อแชทใหม่</div>' +
+    '<div class="sr-card" title="' + esc(closeRateTip(k)) + '">' +
+      '<div class="label">🎯 ยอดสั่งซื้อจากลูกค้าทั้งหมด</div>' +
       '<div class="big">' + closeRateBig + '</div>' +
       '<div class="foot">ยอดขายจากแอด ' + THB(k.adRevenue || 0) +
         ' • เฉลี่ย ' + THB(k.avgOrder || 0) + '/ออเดอร์</div>' +
@@ -254,8 +268,10 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     tileHtml('🛒 ออเดอร์', fmtNum(k.orders || 0)) +
     tileHtml('👥 ลูกค้า', fmtNum(k.customers || 0)) +
     tileHtml('💵 เฉลี่ย/ออเดอร์', THB(k.avgOrder || 0)) +
-    tileHtml('🎯 ออเดอร์/แชทใหม่', pctFmt(k.closeRate)) +
-    tileHtml('💬 บทสนทนาใหม่', fmtNum(k.newConvs || 0)) +
+    tileHtml('✅ ยืนยันแล้ว', k.confirmedOrders === null || k.confirmedOrders === undefined ? '—' : fmtNum(k.confirmedOrders)) +
+    tileHtml('🎯 %ปิดการขาย', pctFmt(k.closeRate)) +
+    tileHtml('👥 ลูกค้าที่คุยทั้งหมด', k.closeBase === null || k.closeBase === undefined ? '—' : fmtNum(k.closeBase)) +
+    tileHtml('💬 ลูกค้าเปิดแชทใหม่', k.newInbox === null || k.newInbox === undefined ? fmtNum(k.newConvs || 0) : fmtNum(k.newInbox)) +
     '<div class="tile tile-click" id="sr-margin-tile" title="กำไรประมาณการ = รายได้ × margin ' + m +
       '% (ตัวเลขประมาณ ไม่ใช่กำไรจริง) — คลิกเพื่อตั้งค่า margin">💚 กำไรประมาณ (' + m + '%) ⚙<b>' +
       THB(profit) + '</b></div>' +
@@ -609,12 +625,15 @@ function buildReportRows(): unknown[][] | null {
 
   rows.push(['— สรุปยอดขาย —']);
   rows.push(['รายได้รวม', Math.round(Number(k.revenue) || 0)]);
-  rows.push(['คำสั่งซื้อ', Number(k.orders) || 0]);
+  rows.push(['คำสั่งซื้อ (มีสินค้าจริง)', Number(k.orders) || 0]);
+  rows.push(['คำสั่งซื้อ (ยืนยันแล้ว)', (k.confirmedOrders === null || k.confirmedOrders === undefined) ? '-' : Number(k.confirmedOrders)]);
   rows.push(['ลูกค้า', Number(k.customers) || 0]);
   rows.push(['เฉลี่ย/ออเดอร์', Math.round(Number(k.avgOrder) || 0)]);
-  rows.push(['ออเดอร์ต่อแชทใหม่ (%)', (k.closeRate === null || k.closeRate === undefined) ? '-' : k.closeRate]);
+  rows.push(['%ปิดการขาย (ออเดอร์ ÷ ลูกค้าที่คุยทั้งหมด)', (k.closeRate === null || k.closeRate === undefined) ? '-' : k.closeRate]);
+  rows.push(['ลูกค้าที่คุยทั้งหมด', (k.closeBase === null || k.closeBase === undefined) ? '-' : Number(k.closeBase)]);
+  rows.push(['ลูกค้าเปิดแชทใหม่', (k.newInbox === null || k.newInbox === undefined) ? '-' : Number(k.newInbox)]);
   rows.push(['ยอดขายจากแอด', Math.round(Number(k.adRevenue) || 0)]);
-  rows.push(['บทสนทนาใหม่', Number(k.newConvs) || 0]);
+  rows.push(['บทสนทนาใหม่ (statistics/pages)', Number(k.newConvs) || 0]);
   rows.push(['ออเดอร์ที่ต้องตรวจ', Number(k.needCheck) || 0]);
   rows.push(['กำไรประมาณการ (margin ' + marginPct() + '%)', Math.round((Number(k.revenue) || 0) * marginPct() / 100)]);
   rows.push(['ลูกค้าเก่า (เคยซื้อใน 95 วัน)', d.returning ? Number(d.returning.returning) || 0 : '-']);

@@ -1,7 +1,7 @@
 // lib/api/contentads.ts — port ของ apiContentAds จาก WebApi.gs
 // อ่านจาก Supabase (orders + ads) แล้วรวมยอด/สร้าง alerts ตาม logic เดิมทุกตัวอักษร
 import { db, fetchAll } from '@/lib/db';
-import { EXCLUDED_STATUSES, money_, isPlaceholderOrder, fmtDateBkk } from '@/lib/config';
+import { EXCLUDED_STATUSES, money_, isPlaceholderOrder, fmtDateBkk, daysAgo } from '@/lib/config';
 
 /** ค่าจาก Postgres อาจเป็น number/string/null — แปลงเป็นเลขเสมอ (NaN → 0) */
 function toNum_(v: unknown): number {
@@ -57,8 +57,11 @@ interface AdRow {
  * (metric สะสมบวกกัน / ctr,cpm คำนวณใหม่จากยอดรวม ห้ามเฉลี่ยค่าเฉลี่ย)
  * ตารางยังไม่ถูกสร้าง → คืน [] แล้วหน้าเว็บจะบอกให้รัน migration
  */
-async function loadAdsFromDaily_(days: number): Promise<AdRow[]> {
-  const from = fmtDateBkk(new Date(Date.now() - days * 86400000));
+async function loadAdsFromDaily_(days: number): Promise<{ ads: AdRow[]; daysCovered: number }> {
+  // days=1 → วันนี้วันเดียว | days=7 → วันนี้ + 6 วันก่อน (วันปฏิทินไทยเต็มวัน)
+  // ⚠️ ต้องเป็นหน้าต่างเดียวกับตัวกรองออเดอร์เป๊ะๆ ไม่งั้น ROAS เพี้ยน
+  //    (ของเดิม gte(date, now-days) ทำให้ days=1 กินค่าแอด 2 วันปฏิทิน แต่ยอดขายแค่ 24 ชม.)
+  const from = fmtDateBkk(daysAgo(days - 1));
   let rows: any[];
   try {
     rows = await fetchAll<any>(() =>
@@ -70,12 +73,18 @@ async function loadAdsFromDaily_(days: number): Promise<AdRow[]> {
     );
   } catch (e: any) {
     const m = String((e && e.message) || e || '');
-    if (m.includes('ad_daily') && (m.includes('does not exist') || m.includes('schema cache'))) return [];
+    if (m.includes('ad_daily') && (m.includes('does not exist') || m.includes('schema cache'))) {
+      return { ads: [], daysCovered: 0 };
+    }
     throw e;
   }
 
+  // กี่วันในช่วงที่มีค่าแอดจริง — ถ้าน้อยกว่าช่วงที่เลือก ROAS จะสูงเกินจริง
+  // (ยอดขายเต็มช่วง ÷ ค่าแอดไม่กี่วัน) หน้าเว็บต้องเตือน ไม่ใช่โชว์เฉยๆ
+  const seenDates: Record<string, 1> = {};
   const byAd: Record<string, any> = {};
   rows.forEach(function (r) {
+    if (r.date) seenDates[String(r.date)] = 1;
     const id = String(r.ad_id || '');
     if (!id) return;
     let a = byAd[id];
@@ -107,7 +116,7 @@ async function loadAdsFromDaily_(days: number): Promise<AdRow[]> {
     }
   });
 
-  return Object.keys(byAd).map(function (id) {
+  const ads = Object.keys(byAd).map(function (id) {
     const a = byAd[id];
     // คำนวณใหม่จากยอดรวม — ห้ามเอา ctr/cpm รายวันมาเฉลี่ยกัน
     a.ctr = a.impressions > 0 ? Math.round((a.clicks / a.impressions) * 10000) / 100 : 0;
@@ -116,13 +125,16 @@ async function loadAdsFromDaily_(days: number): Promise<AdRow[]> {
     a.created_time = a._firstDate ? a._firstDate + 'T00:00:00+07:00' : null;
     return a as AdRow;
   });
+  return { ads, daysCovered: Object.keys(seenDates).length };
 }
 
 export async function apiContentAds(params?: any) {
   // ช่วงวันที่ย้อนหลัง (วัน) — เดิมไม่มีตัวกรองเวลาเลย ทุกตัวเลขเป็นยอดสะสมตั้งแต่ต้น
   // จึงเทียบกับ Pancake ที่ดูรายวัน/รายสัปดาห์ไม่ได้เลย
   const days = Math.min(95, Math.max(1, Math.round(Number((params && params.days)) || 7)));
-  const sinceIso = new Date(Date.now() - days * 86400000).toISOString();
+  // นับเป็น "วันปฏิทินไทยเต็มวัน" เหมือนหน้า Sales และเหมือน Pancake
+  // (days=1 = ตั้งแต่เที่ยงคืนวันนี้) — ต้องตรงกับหน้าต่างของ loadAdsFromDaily_
+  const sinceIso = daysAgo(days - 1).toISOString();
   // ยอดขายที่ผูกกับแต่ละ ad_id — จำกัดตามช่วงที่เลือก ให้เทียบกับค่าแอดช่วงเดียวกันได้
   const orders = await fetchAll<OrderRow>(() =>
     db.from('orders').select('ad_id,page_id,total_price,items_count,status,seller_name,creator_name,items_json')
@@ -194,7 +206,7 @@ export async function apiContentAds(params?: any) {
 
   // ค่าแอดจริงจาก ad_daily (รวมตามช่วงวันที่เลือก) — ตาราง `ads` เดิมว่างเปล่าถาวร
   // เพราะ POS /ads_manager/ads_v2 คืน 0 แถวเสมอ
-  const ads = await loadAdsFromDaily_(days);
+  const { ads, daysCovered: adDaysCovered } = await loadAdsFromDaily_(days);
 
   const items = ads.map(function (a) {
     const adId = String(a.ad_id);
@@ -394,8 +406,14 @@ export async function apiContentAds(params?: any) {
     items: (items as any[]).concat(organicItems),
     days,
     needAdSetup: ads.length === 0,   // ยังไม่ได้รัน migration ad_daily (หรือยังไม่มี sync รอบแรก)
-    note: 'ทุกตัวเลขเป็นของ ' + (days === 1 ? '24 ชม.' : days + ' วัน') + 'ล่าสุด ' +
-      '(นับถอยจากตอนนี้ ไม่ใช่ตั้งแต่เที่ยงคืนแบบหน้า Sales) • ค่าแอด/คลิก/แชท = ข้อมูลจริงจาก Pancake ' +
+    // ค่าแอดครอบคลุมกี่วันจากที่เลือก — น้อยกว่า days = ROAS สูงเกินจริง หน้าเว็บต้องเตือน
+    adDaysCovered,
+    adDaysWarning: (ads.length > 0 && adDaysCovered < days)
+      ? 'ค่าแอดมีข้อมูลแค่ ' + adDaysCovered + ' วันจาก ' + days + ' วันที่เลือก — ROAS จะสูงเกินจริง ' +
+        '(รัน `npm run backfill:ads ' + days + '` เพื่อเติมย้อนหลัง)'
+      : null,
+    note: 'ทุกตัวเลขเป็นของ ' + (days === 1 ? 'วันนี้' : days + ' วันล่าสุด') +
+      ' (วันปฏิทินไทยเต็มวัน — หน้าต่างเดียวกับหน้า Sales) • ค่าแอด/คลิก/แชท = ข้อมูลจริงจาก Pancake ' +
       '(pages/statistics/ads) • ยอดขาย = ออเดอร์ในช่วงเดียวกันที่ผูก ad_id • ' +
       'แถว 🌱 Organic = ยอดจากโพสต์ที่ไม่ได้ยิงแอด (แสดง 50 โพสต์ยอดสูงสุด)'
   };

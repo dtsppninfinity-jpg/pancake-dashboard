@@ -145,6 +145,28 @@ export function mapAdDaily(page: any, a: any, date: string) {
   };
 }
 
+/**
+ * series จาก statistics/customer_engagements → แถว chat_engagement_daily
+ * ชื่อคอลัมน์ถูกย่อจากชื่อ series ของ Pancake ให้อ่านง่าย (new_inbox ← customer_engagement_new_inbox)
+ */
+export function mapEngagementDaily(page: any, s: Record<string, number>, date: string) {
+  return {
+    key: `${page.page_id}|${date}`,
+    date,
+    page_id: String(page.page_id),
+    page_name: page.name || '',
+    platform: page.platform || '',
+    inbox: num(s.inbox),
+    comment: num(s.comment),
+    total: num(s.total),
+    new_customer_replied: num(s.new_customer_replied),
+    new_inbox: num(s.customer_engagement_new_inbox),
+    order_count: num(s.order_count),
+    old_order_count: num(s.old_order_count),
+    updated_at: new Date().toISOString(),
+  };
+}
+
 /** 1 แอด จาก Ads Manager → แถว ads */
 export function mapAd(a: any, campaignNameById: Record<string, string>) {
   const ins = a.insights || {};

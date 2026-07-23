@@ -32,6 +32,8 @@ async function runFast(): Promise<void> {
   await runJob('online-status', jobs.syncOnlineStatus);
   // ค่าแอดวันนี้ — อยู่ในรอบ fast เพื่อให้หน้าเว็บเห็น spend สดตามเวลา sync (ทุก 15 นาที)
   await runJob('ad-stats-today', jobs.syncAdStatsToday);
+  // ตัวเลขชุดเดียวกับหน้าสถิติแชท Pancake (ลูกค้าทั้งหมด / ลูกค้าใหม่ / ออเดอร์) — ใช้เป็น %ปิดการขาย
+  await runJob('engagements-today', jobs.syncEngagementsToday);
 }
 
 async function runHourly(): Promise<boolean> {
@@ -46,8 +48,10 @@ async function runDaily(): Promise<boolean> {
   const b = await runJob('admin-chat-2d', () => jobs.syncAdminChatBackfill(2));
   // Meta ปรับยอด spend ย้อนหลังได้อีก 1-2 วัน — เก็บซ้ำของเมื่อวานให้ตรง
   const d = await runJob('ad-stats-yesterday', jobs.syncAdStatsYesterday);
+  // ปิดยอดของเมื่อวานให้ครบ (ออเดอร์ที่ยืนยันข้ามคืนทำให้ order_count ขยับได้)
+  const e = await runJob('engagements-yesterday', jobs.syncEngagementsYesterday);
   const c = await runJob('prune', jobs.prune);
-  return a && b && c && d;
+  return a && b && c && d && e;
 }
 
 const MODE = (process.argv[2] || 'fast').toLowerCase();

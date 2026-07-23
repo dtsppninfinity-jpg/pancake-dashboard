@@ -154,7 +154,9 @@ function parseItems_(v: any): any[] {
 
 // ช่วงเปรียบเทียบใช้แค่ยอดรวม → คอลัมน์เบา | ช่วงปัจจุบันต้องทำ Top เพจ/สินค้า → เพิ่ม page+items
 // (แยกกันเพื่อไม่ให้ payload บวม: items_json ของช่วง prev 30 วันไม่มีใครใช้)
-const LIGHT_COLS = 'inserted_at,status,status_name,total_price,customer_id,ad_id,platform';
+// items_count ต้องมีเสมอ — isPlaceholderOrder() ใช้ตัดออเดอร์เปล่า ถ้าไม่ดึงมาจะอ่านเป็น 0
+// แล้วออเดอร์จริงที่ราคา 0 (ของแถม/แลกแต้ม) จะถูกทิ้งทั้งที่มีของ
+const LIGHT_COLS = 'inserted_at,status,status_name,total_price,items_count,customer_id,ad_id,platform';
 const FULL_COLS = LIGHT_COLS + ',page_id,account_name,items_json';
 
 /**
@@ -180,6 +182,50 @@ async function loadOrders_(sinceIso: string, untilIso: string | null, cols: stri
     // ตัด "ออเดอร์เปล่า" ที่ Pancake สร้างให้ทุกแชทจากแอด (43% ของตาราง) ทิ้งตั้งแต่ต้นทาง
     // — ไม่ใช่ออเดอร์จริง ไม่มีสินค้า ไม่มีเงิน ถ้านับรวมจะทำให้ทุกตัวเลขนับหัวเพี้ยน
     .filter((o) => o._at && !o._placeholder);
+}
+
+/* ---------------- สถิติลูกค้าแบบเดียวกับหน้า Pancake (chat_engagement_daily) ---------------- */
+
+interface Engagement {
+  total: number;      // ลูกค้าที่มีปฏิสัมพันธ์ทั้งหมด (ตัดซ้ำแล้ว) — ตัวหารของ %ปิดการขาย
+  newInbox: number;   // ลูกค้าที่เปิดแชทใหม่
+  orders: number;     // "สร้างคำสั่งซื้อ" ตามที่ Pancake นับ
+  oldOrders: number;  // ออเดอร์จากลูกค้าเก่า
+  byCh: Record<string, { total: number; newInbox: number; orders: number }>;
+}
+
+const emptyEng_ = (): Engagement => ({
+  total: 0, newInbox: 0, orders: 0, oldOrders: 0,
+  byCh: { facebook: { total: 0, newInbox: 0, orders: 0 }, line: { total: 0, newInbox: 0, orders: 0 }, other: { total: 0, newInbox: 0, orders: 0 } },
+});
+
+/**
+ * รวมสถิติลูกค้าของช่วงที่เลือก จาก chat_engagement_daily
+ * (ตัวเลขชุดนี้มาจาก statistics/customer_engagements — แหล่งเดียวกับที่ Pancake โชว์)
+ * คืน null เมื่อยังไม่ได้รัน migration → หน้าเว็บโชว์ "—" ไม่ใช่ 0
+ */
+async function loadEngagement_(r: Range): Promise<Engagement | null> {
+  try {
+    const rows = await fetchAll<Row>(() =>
+      db.from('chat_engagement_daily')
+        .select('key,date,platform,total,new_inbox,order_count,old_order_count')
+        .gte('date', fmtDateBkk(r.start))
+        .lte('date', fmtDateBkk(r.end)),
+      'key'
+    );
+    const e = emptyEng_();
+    rows.forEach((row) => {
+      const ch = platformChannel_(row.platform);
+      const total = toNum_(row.total);
+      const ni = toNum_(row.new_inbox);
+      const oc = toNum_(row.order_count);
+      e.total += total; e.newInbox += ni; e.orders += oc; e.oldOrders += toNum_(row.old_order_count);
+      e.byCh[ch].total += total; e.byCh[ch].newInbox += ni; e.byCh[ch].orders += oc;
+    });
+    return e;
+  } catch {
+    return null; // ยังไม่มีตาราง chat_engagement_daily
+  }
 }
 
 /* ---------------- ค่าแอดจริงรายวัน (ad_daily) ---------------- */
@@ -291,11 +337,14 @@ export async function apiSales(params: any) {
   const prevCh = prev.filter(matchChannel);
 
   function summarize(list: Row[]) {
-    const s: any = { revenue: 0, orders: list.length, customers: {}, needCheck: 0, adRevenue: 0 };
+    const s: any = { revenue: 0, orders: list.length, confirmed: 0, customers: {}, needCheck: 0, adRevenue: 0 };
     list.forEach((o) => {
       s.revenue += o.total_price;
       if (o.customer_id) s.customers[o.customer_id] = 1;
       if (o._needCheck) s.needCheck++;
+      // "ยืนยันแล้ว" = ผ่านการยืนยันของแอดมินแล้ว (ไม่ใช่ออเดอร์ใหม่/รอยืนยัน)
+      // Pancake นับตัวนี้เป็น "สร้างคำสั่งซื้อ" — เราโชว์คู่กับยอดรวมเพื่อให้เทียบกันได้
+      else s.confirmed++;
       if (o.ad_id) s.adRevenue += o.total_price;
     });
     s.customers = Object.keys(s.customers).length;
@@ -353,13 +402,16 @@ export async function apiSales(params: any) {
     }
     if (toDateStr_(c.date) === todayStr) todayNewCust += toNum_(c.new_customer_count);
   });
-  // ตัวหารของ % ปิดการขายต้องกรอง channel ให้ตรงกับตัวตั้ง (ออเดอร์)
-  // ⚠️ ความหมายที่แท้จริง: ออเดอร์ทั้งหมดในช่วง ÷ "บทสนทนาที่เปิดใหม่" ในช่วงเดียวกัน
-  //    ตัวตั้งรวมออเดอร์จากลูกค้าเก่า (ที่ไม่ได้เปิดแชทใหม่) ด้วย ค่าจึงเกิน 100% ได้ตามหลัก
-  //    ไม่ cap ที่ 100 อีกต่อไป — การ cap ทำให้ตัวเลขโกหกว่า "ปิดได้ทุกแชท"
-  //    ป้ายบนหน้าเว็บระบุตัวหารไว้ตรงๆ แล้ว
+  // ---- %ปิดการขาย = "ยอดสั่งซื้อจากลูกค้าทั้งหมด" ของ Pancake ----
+  // สูตร: order_count ÷ total (ลูกค้าที่มีปฏิสัมพันธ์ทั้งหมด ตัดซ้ำแล้ว)
+  // ทั้งตัวตั้งและตัวหารมาจาก statistics/customer_engagements — แหล่งเดียวกับหน้าสถิติแชท
+  // ของ Pancake เป๊ะ จึงเทียบกับที่บอสเห็นบนจอ Pancake ได้ตรงๆ
+  // (สูตรเดิม "ออเดอร์ POS ÷ บทสนทนาที่เปิดใหม่" ให้ ~40% ซึ่งไม่ตรงกับตัวเลขไหนของ Pancake)
+  const eng = await loadEngagement_(r);
+  const engCh = eng ? (channel ? eng.byCh[channel] : { total: eng.total, newInbox: eng.newInbox, orders: eng.orders }) : null;
+  const closeRate = engCh && engCh.total ? Math.round((engCh.orders / engCh.total) * 1000) / 10 : null;
+  // ตัวหารเดิม (บทสนทนาที่เปิดใหม่) ยังใช้ต่อในกล่องช่องทาง/ป้ายกำกับ
   const convBase = channel ? newConvsByCh[channel] || 0 : newConvs;
-  const closeRate = convBase ? Math.round((sCur.orders / convBase) * 1000) / 10 : null;
 
   // แผงข้อมูลวันนี้ (ไม่สนฟิลเตอร์)
   const todayRange = resolveRange_({ preset: 'today' });
@@ -380,9 +432,9 @@ export async function apiSales(params: any) {
     .map((ch) => {
       const list = cur.filter((o) => orderChannel_(o) === ch);
       const s = summarize(list);
-      const cRate = newConvsByCh[ch]
-        ? Math.min(100, Math.round((s.orders / newConvsByCh[ch]) * 1000) / 10)
-        : null;
+      // ใช้สูตรเดียวกับ KPI ด้านบน (ออเดอร์ ÷ ลูกค้าทั้งหมด ตามที่ Pancake นับ)
+      const e = eng ? eng.byCh[ch] : null;
+      const cRate = e && e.total ? Math.round((e.orders / e.total) * 1000) / 10 : null;
       let status;
       if (!s.orders) status = { label: '—', cls: 'neutral' };
       else if (cRate !== null && cRate >= 20) status = { label: '✅ ดี', cls: 'ai' };
@@ -545,11 +597,17 @@ export async function apiSales(params: any) {
     kpis: {
       revenue: Math.round(sCur.revenue),
       orders: sCur.orders,
+      // ออเดอร์ที่แอดมินยืนยันแล้ว — Pancake นับตัวนี้เป็น "สร้างคำสั่งซื้อ"
+      confirmedOrders: sCur.confirmed,
       customers: sCur.customers,
       avgOrder: sCur.orders ? Math.round(sCur.revenue / sCur.orders) : 0,
       needCheck: sCur.needCheck,
       adRevenue: Math.round(sCur.adRevenue),
+      // %ปิดการขาย = ออเดอร์ ÷ ลูกค้าที่คุยทั้งหมด (สูตรเดียวกับ Pancake)
       closeRate: closeRate,
+      closeBase: engCh ? engCh.total : null,
+      closeOrders: engCh ? engCh.orders : null,
+      newInbox: engCh ? engCh.newInbox : null,
       newConvs: convBase,
     },
     // ค่าแอด + ROAS ของช่วงที่เลือก — null = ยังไม่ได้รัน migration ad_daily (หน้าเว็บโชว์ "-")

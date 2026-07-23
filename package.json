@@ -11,6 +11,8 @@
     "sync:daily": "tsx scripts/sync/index.ts daily",
     "setup:pages": "tsx scripts/setup/discover-pages.ts",
     "backfill": "tsx scripts/setup/backfill.ts",
+    "backfill:engagements": "tsx scripts/setup/backfill-engagements.ts",
+    "backfill:ads": "tsx scripts/setup/backfill-ads.ts",
     "typecheck": "tsc --noEmit",
     "check": "tsx scripts/check.ts",
     "watch": "tsx scripts/watch.ts",

@@ -57,6 +57,34 @@ function dayOfWeekBkk_(d: Date): number {
  * 1) DASHBOARD — ภาพรวมแชทวันนี้
  * ================================================================ */
 
+/**
+ * สถิติลูกค้าของ "วันนี้" จาก chat_engagement_daily (ต้นทาง: statistics/customer_engagements)
+ * คืน null เมื่อยังไม่มีตาราง — หน้าเว็บต้องโชว์ "—" ไม่ใช่ 0
+ */
+async function loadEngagementToday_(
+  todayStr: string, channel: string, commentMode: boolean,
+): Promise<{ total: number; newInbox: number; orders: number } | null> {
+  try {
+    const rows = await fetchAll<any>(() =>
+      db.from('chat_engagement_daily')
+        .select('key,platform,total,new_inbox,order_count')
+        .eq('date', todayStr),
+      'key'
+    );
+    const out = { total: 0, newInbox: 0, orders: 0 };
+    rows.forEach((r: any) => {
+      // มุมคอมเมนต์ไม่มีตัวเลขแยกจาก endpoint นี้ → รวมทุก platform เหมือน commentMode ที่อื่น
+      if (!commentMode && channel && platformChannel_(r.platform) !== channel) return;
+      out.total += toNum_(r.total);
+      out.newInbox += toNum_(r.new_inbox);
+      out.orders += toNum_(r.order_count);
+    });
+    return out;
+  } catch {
+    return null;
+  }
+}
+
 export async function apiDashboard(params?: { channel?: string }): Promise<any> {
   const channel = (params && params.channel) || '';
   // โหมดพิเศษ: channel='comment' = มุมมองเฉพาะคอมเมนต์ (ทุก platform, นับคู่ *_comment_count)
@@ -182,12 +210,21 @@ export async function apiDashboard(params?: { channel?: string }): Promise<any> 
   });
   attention.sort((a, b) => b.waitMins - a.waitMins);
 
+  // ตัวเลขชุดเดียวกับหน้าสถิติแชทของ Pancake (chat_engagement_daily) — ใช้ยืนยันว่า
+  // "ลูกค้าใหม่" ที่เราโชว์ตรงกับที่บอสเห็นบนจอ Pancake จริง
+  // null = ยังไม่ได้รัน migration 2026-07-23-chat-engagement.sql → หน้าเว็บโชว์ "—"
+  const eng = await loadEngagementToday_(todayStr, channel, commentMode);
+
   const replyBase = donut.replied + donut.ai + donut.waiting;
   return {
     kpis: {
       convsToday: k.convsToday,
       custMsgs: k.custMsgs,
       newCustomers: k.newCustomers,
+      // จาก Pancake ตรงๆ: ลูกค้าที่คุยทั้งหมด / ลูกค้าที่เปิดแชทใหม่ / ออเดอร์ที่สร้างจากแชท
+      engCustomers: eng ? eng.total : null,
+      engNewInbox: eng ? eng.newInbox : null,
+      engOrders: eng ? eng.orders : null,
       pageReplies: k.pageReplies,
       phones: k.phones,
       waiting: donut.waiting,
