@@ -394,7 +394,8 @@ export async function apiContentAds(params?: any) {
     items: (items as any[]).concat(organicItems),
     days,
     needAdSetup: ads.length === 0,   // ยังไม่ได้รัน migration ad_daily (หรือยังไม่มี sync รอบแรก)
-    note: 'ทุกตัวเลขเป็นของ ' + days + ' วันล่าสุด • ค่าแอด/คลิก/แชท = ข้อมูลจริงจาก Pancake ' +
+    note: 'ทุกตัวเลขเป็นของ ' + (days === 1 ? '24 ชม.' : days + ' วัน') + 'ล่าสุด ' +
+      '(นับถอยจากตอนนี้ ไม่ใช่ตั้งแต่เที่ยงคืนแบบหน้า Sales) • ค่าแอด/คลิก/แชท = ข้อมูลจริงจาก Pancake ' +
       '(pages/statistics/ads) • ยอดขาย = ออเดอร์ในช่วงเดียวกันที่ผูก ad_id • ' +
       'แถว 🌱 Organic = ยอดจากโพสต์ที่ไม่ได้ยิงแอด (แสดง 50 โพสต์ยอดสูงสุด)'
   };
