@@ -63,8 +63,13 @@ function posGet(path: string, params: Params = {}): Promise<any> {
   return fetchJson(`${POS_BASE}/shops/${cfg.posShopId}${path}${qs(p)}`);
 }
 
-/** ดึงออเดอร์ทีละหน้า (เรียงตาม updated_at) ในช่วงเวลา */
-export async function posFetchOrders(since: Date, until: Date, maxPages = 30): Promise<any[]> {
+/**
+ * ดึงออเดอร์ทีละหน้า (เรียงตาม updated_at) ในช่วงเวลา
+ * ⚠️ ห้ามให้เพดานเงียบ: ถ้า total_pages เกิน maxPages แปลว่าข้อมูลถูกตัดทิ้งแน่นอน
+ *    ต้อง throw ให้ sync_log ขึ้นแดง ดีกว่าปล่อยให้ยอดขายขาดหายแบบไม่มีใครรู้
+ *    (เคยเกิดมาแล้ว: ออเดอร์ 1-4 ก.ค. 2026 หายทั้ง 4 วัน ~10,000 ใบ เพราะเพดานเงียบแบบนี้)
+ */
+export async function posFetchOrders(since: Date, until: Date, maxPages = 120): Promise<any[]> {
   const all: any[] = [];
   let totalPages = 1;
   for (let page = 1; page <= totalPages && page <= maxPages; page++) {
@@ -80,6 +85,12 @@ export async function posFetchOrders(since: Date, until: Date, maxPages = 30): P
     totalPages = res?.total_pages ?? 1;
     if (!data.length) break;
     await sleep(250);
+  }
+  if (totalPages > maxPages) {
+    throw new Error(
+      `posFetchOrders ชนเพดาน: มี ${totalPages} หน้า แต่ดึงได้แค่ ${maxPages} หน้า ` +
+      `(${since.toISOString()} → ${until.toISOString()}) — ข้อมูลขาดแน่นอน ต้องลดช่วงเวลาหรือเพิ่มเพดาน`
+    );
   }
   return all;
 }

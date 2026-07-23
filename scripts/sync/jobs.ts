@@ -34,7 +34,9 @@ export async function syncOrders(): Promise<string> {
   requireCredentials();
   const since = new Date(Date.now() - 48 * 3600 * 1000);
   const until = new Date(Date.now() + 3600 * 1000);
-  const raw = await posFetchOrders(since, until, 30);
+  // เพดาน 120 หน้า = 12,000 ออเดอร์/48 ชม. — ทีมทำ ~2,800/วัน จึงเหลือที่เผื่ออีกเท่าตัว
+  // เดิมตั้งไว้ 30 หน้า (3,000 ใบ) ซึ่ง "ชนพอดี" ทุกรอบ = ออเดอร์หายเงียบทุก 15 นาที
+  const raw = await posFetchOrders(since, until, 120);
   const map = await platformByPage();
   const rows = raw.map((o) => mapOrder(o, map));
   const n = await upsertRows('orders', rows, 'id');

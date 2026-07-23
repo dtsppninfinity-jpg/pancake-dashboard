@@ -71,15 +71,17 @@ export function svgWeekBars(data: WeekBar[]): string {
     if (rep > 0) parts.push('<text x="' + (xP + barW / 2) + '" y="' + (baseY - hP - 5) + '" text-anchor="middle" font-size="9" font-weight="700" style="fill:var(--text-2)">' + kFmt(rep) + '</text>');
     parts.push('<text x="' + cx + '" y="' + (H - 9) + '" text-anchor="middle" font-size="10.5" style="fill:var(--text-3)">' + esc(d.label) + '</text>');
     // เป้า hover ให้ทูลทิปการ์ดลอย (bindChartTips) — แทน <title> เดิม
-    // pill = อัตราส่วน "จำนวนข้อความ" เพจตอบ/ลูกค้าทัก (เกิน 100% ได้เมื่อเพจส่งมากกว่า — ไม่ cap ไม่โกหก)
-    const pctRep = tot > 0 ? Math.round((rep / tot) * 100) : null;
+    // ⚠️ ทั้งสองแท่งเป็น "จำนวนข้อความ" ไม่ใช่จำนวนบทสนทนา — เพจส่งสคริปต์ขายทีละหลายบับเบิล
+    //    อัตราส่วนจึงอยู่ที่ 5-15 เท่าเป็นปกติ เอามาเรียก "% การตอบ" ไม่ได้ (เคยโชว์ 828%)
+    //    แสดงเป็นสัดส่วน "เพจ:ลูกค้า x.x:1" แทน — ตรงกับสิ่งที่วัดได้จริง
+    const ratio = tot > 0 ? (rep / tot) : null;
     parts.push('<circle class="ch-hit" cx="' + Math.round(cx) + '" cy="' + (baseY - Math.max(hC, hP)) + '" r="10" fill="transparent"' +
       ' data-title="📅 ' + esc(d.label) + '" data-fmt="num" data-unit="ข้อความ"' +
-      ' data-cur="' + tot + '" data-curlabel="ลูกค้าทัก"' +
-      ' data-prev="' + rep + '" data-prevlabel="เพจตอบ"' +
-      (pctRep !== null
-        ? ' data-pill="ตอบ/ทัก ' + pctRep + '%" data-pillcls="' + (pctRep >= 80 ? 'up' : pctRep >= 50 ? 'flat' : 'down') + '"'
-        : ' data-pill="ยังไม่มีลูกค้าทัก" data-pillcls="flat"') +
+      ' data-cur="' + tot + '" data-curlabel="ลูกค้าส่ง"' +
+      ' data-prev="' + rep + '" data-prevlabel="เพจส่ง"' +
+      (ratio !== null
+        ? ' data-pill="เพจ:ลูกค้า ' + ratio.toFixed(1) + ':1" data-pillcls="flat"'
+        : ' data-pill="ยังไม่มีข้อความลูกค้า" data-pillcls="flat"') +
       '></circle>');
   });
   parts.push('</svg>');

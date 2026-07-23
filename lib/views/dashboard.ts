@@ -123,8 +123,12 @@ function statGridHtml(k: Kpis, donut?: DonutData): string {
     cards.push(statCard('💬', 'purple', 'บทสนทนาใหม่วันนี้', fmtNum(k.convsToday),
       'ข้อความลูกค้า ' + fmtNum(k.custMsgs) + ' • 📞 เบอร์ใหม่ ' + fmtNum(k.phones)));
   }
-  cards.push(statCard('📤', 'green', 'การตอบกลับของเพจ', fmtNum(k.pageReplies),
-    '<b class="up">' + esc(pctFmt(k.replyRate)) + '</b> ของบทสนทนาได้รับการตอบ'));
+  // ⚠️ pageReplies = จำนวน "ข้อความ" ที่เพจส่งวันนี้ (รวมบอต/ข้อความอัตโนมัติ/บรอดแคสต์)
+  //    ไม่ใช่จำนวนบทสนทนาที่ตอบ — และคนละชุดข้อมูล/คนละช่วงเวลากับ replyRate (24 ชม. จาก conversations)
+  //    เดิมเอามาแปะคู่กันในการ์ดเดียว ทำให้ดูเหมือน "ตอบ 94% จาก 47,375 ครั้ง" ซึ่งไม่จริง
+  //    replyRate ยังอยู่ในการ์ดโดนัทที่เขียน "(24 ชม.)" กำกับไว้ชัดเจนแล้ว
+  cards.push(statCard('📤', 'green', 'ข้อความที่เพจส่งวันนี้', fmtNum(k.pageReplies),
+    'รวมบอต/ข้อความอัตโนมัติ • ลูกค้าส่ง ' + fmtNum(k.custMsgs) + ' ข้อความ'));
   cards.push(statCard('🤖', 'purple', 'ตอบอัตโนมัติ (24 ชม.)', fmtNum(ai),
     convBase ? '<b class="up">' + aiPct + '%</b> ของบทสนทนา 24 ชม.' : 'ยังไม่มีข้อมูล'));
   cards.push(statCard('👤', 'amber', 'รอแอดมินตอบ', fmtNum(k.waiting),
@@ -138,11 +142,13 @@ function weekCardHtml(week?: WeekItem[]): string {
   const body = (week && week.length)
     ? svgWeekBars(week)
     : '<div class="empty-note">ยังไม่มีข้อมูล</div>';
+  // ป้ายต้องบอกว่าเป็น "จำนวนข้อความ" ไม่ใช่บทสนทนา — เพจส่งสคริปต์ขายทีละหลายบับเบิล
+  // แท่งม่วงจึงสูงกว่าแท่งฟ้าหลายเท่าเป็นปกติ (ไม่ใช่ข้อมูลผิด)
   return '<div class="card">' +
     '<h3>ปริมาณข้อความ 7 วันล่าสุด</h3>' +
     '<div class="card-sub">' +
-    '<span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#3b82f6;vertical-align:middle;margin-right:5px"></span>ลูกค้าทัก' +
-    '<span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#6c5ce7;vertical-align:middle;margin:0 5px 0 14px"></span>เพจตอบ' +
+    '<span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#3b82f6;vertical-align:middle;margin-right:5px"></span>ลูกค้าส่ง' +
+    '<span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#6c5ce7;vertical-align:middle;margin:0 5px 0 14px"></span>เพจส่ง (รวมบอต/บรอดแคสต์)' +
     '</div>' +
     body + '</div>';
 }

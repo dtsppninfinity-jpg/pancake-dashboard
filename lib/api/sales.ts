@@ -354,8 +354,12 @@ export async function apiSales(params: any) {
     if (toDateStr_(c.date) === todayStr) todayNewCust += toNum_(c.new_customer_count);
   });
   // ตัวหารของ % ปิดการขายต้องกรอง channel ให้ตรงกับตัวตั้ง (ออเดอร์)
+  // ⚠️ ความหมายที่แท้จริง: ออเดอร์ทั้งหมดในช่วง ÷ "บทสนทนาที่เปิดใหม่" ในช่วงเดียวกัน
+  //    ตัวตั้งรวมออเดอร์จากลูกค้าเก่า (ที่ไม่ได้เปิดแชทใหม่) ด้วย ค่าจึงเกิน 100% ได้ตามหลัก
+  //    ไม่ cap ที่ 100 อีกต่อไป — การ cap ทำให้ตัวเลขโกหกว่า "ปิดได้ทุกแชท"
+  //    ป้ายบนหน้าเว็บระบุตัวหารไว้ตรงๆ แล้ว
   const convBase = channel ? newConvsByCh[channel] || 0 : newConvs;
-  const closeRate = convBase ? Math.min(100, Math.round((sCur.orders / convBase) * 1000) / 10) : null;
+  const closeRate = convBase ? Math.round((sCur.orders / convBase) * 1000) / 10 : null;
 
   // แผงข้อมูลวันนี้ (ไม่สนฟิลเตอร์)
   const todayRange = resolveRange_({ preset: 'today' });

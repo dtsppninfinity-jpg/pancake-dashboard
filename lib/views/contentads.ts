@@ -13,6 +13,15 @@ import { contentadsSkel } from '@/lib/ui/skeletons';
 let lastData: any = null;
 const filter = { q: '', status: '', account: '', page: '', product: '', rank: 'revenue' };
 let alertShowAll = false;
+/** ช่วงย้อนหลังที่ดึงจาก server (วัน) — เดิมหน้านี้ไม่มีตัวกรองเวลาเลย เป็นยอดสะสมตั้งแต่ต้น */
+let rangeDays = 7;
+
+const RANGE_OPTIONS = [
+  { d: 1, label: 'วันนี้' },
+  { d: 7, label: '7 วัน' },
+  { d: 30, label: '30 วัน' },
+  { d: 90, label: '90 วัน' },
+];
 
 const STATUS_OPTIONS = [
   { key: '', label: 'ทุกสถานะ' },
@@ -300,7 +309,12 @@ function buildExportRows(data: any): any[][] | null {
 
 function controlsHtml(items: any[]): string {
   const accounts = uniqueAccounts(items);
-  let h = '<div class="pg-controls">';
+  let h = '<div class="conv-filters" id="ca-range" style="margin-bottom:10px">' +
+    RANGE_OPTIONS.map(function (o) {
+      return '<button class="filter-btn' + (rangeDays === o.d ? ' active' : '') +
+        '" data-cadays="' + o.d + '">🗓 ' + o.label + '</button>';
+    }).join('') + '</div>';
+  h += '<div class="pg-controls">';
   h += '<input class="input" id="ca-q" style="flex:1;min-width:220px;max-width:360px" ' +
     'placeholder="🔍 ค้นหาชื่อแอด / แคมเปญ / บัญชีแอด..." value="' + esc(filter.q) + '">';
   h += '<select class="input" id="ca-status">' + STATUS_OPTIONS.map(function (o) {
@@ -446,10 +460,15 @@ function cardHtml(it: any, rank: number): string {
   return h;
 }
 
-function listHtml(allItems: any[], list: any[]): string {
+function listHtml(allItems: any[], list: any[], needSetup?: boolean): string {
   if (!allItems.length) {
-    return '<div class="card"><div class="empty-note">📡 ยังไม่มีข้อมูลแอด — ' +
-      'ระบบซิงค์ข้อมูลแอดอัตโนมัติทุกชั่วโมง รอสักครู่แล้วรีเฟรช</div></div>';
+    // แยก 2 กรณีให้ชัด: ยังไม่ได้สร้างตาราง vs สร้างแล้วแต่ยังไม่มีข้อมูลในช่วงนี้
+    return needSetup
+      ? '<div class="card"><div class="empty-note">🧩 ยังไม่ได้เปิดใช้ข้อมูลค่าแอด — ' +
+        'ต้องรัน <b>db/migrations/2026-07-23-ad-daily.sql</b> ใน Supabase ก่อน ' +
+        'แล้วรอ sync รอบถัดไป (ทุก 15 นาที)</div></div>'
+      : '<div class="card"><div class="empty-note">📡 ยังไม่มีข้อมูลแอดในช่วงนี้ — ' +
+        'ลองเลือกช่วงที่ยาวขึ้น หรือรอ sync รอบถัดไป</div></div>';
   }
   if (!list.length) {
     return '<div class="card"><div class="empty-note">🎯 ไม่พบแอดตามตัวกรอง</div></div>';
@@ -480,7 +499,7 @@ function render(container: HTMLElement, data: any): void {
   html += controlsHtml(items);
   html += alertsCardHtml(data);
   html += rankControlsHtml();
-  html += listHtml(items, list);
+  html += listHtml(items, list, !!(data && data.needAdSetup));
   container.innerHTML = html;
   bind(container, data);
 }
@@ -506,6 +525,16 @@ function bind(container: HTMLElement, data: any): void {
   if (pg) pg.addEventListener('change', function () { filter.page = pg.value; rerender(); });
   const pd = container.querySelector('#ca-product') as HTMLSelectElement | null;
   if (pd) pd.addEventListener('change', function () { filter.product = pd.value; rerender(); });
+
+  container.querySelectorAll('[data-cadays]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const d = Number(btn.getAttribute('data-cadays')) || 7;
+      if (d === rangeDays) return;
+      rangeDays = d;
+      container.innerHTML = contentadsSkel(); // ต้องดึงใหม่จาก server — กรองฝั่ง client ไม่ได้
+      fetchFresh(container, false);
+    });
+  });
 
   container.querySelectorAll('[data-carank]').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -536,7 +565,7 @@ function bind(container: HTMLElement, data: any): void {
 /* ---------------- fetch + register ---------------- */
 
 function fetchFresh(container: HTMLElement, background: boolean): void {
-  serverCall('apiContentAds').then(function (data) {
+  serverCall('apiContentAds', { days: rangeDays }).then(function (data) {
     lastData = data || {};
     render(container, lastData);
   }).catch(function (err: any) {

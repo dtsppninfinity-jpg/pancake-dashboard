@@ -1,7 +1,7 @@
 // lib/api/contentads.ts — port ของ apiContentAds จาก WebApi.gs
 // อ่านจาก Supabase (orders + ads) แล้วรวมยอด/สร้าง alerts ตาม logic เดิมทุกตัวอักษร
 import { db, fetchAll } from '@/lib/db';
-import { EXCLUDED_STATUSES, money_, isPlaceholderOrder } from '@/lib/config';
+import { EXCLUDED_STATUSES, money_, isPlaceholderOrder, fmtDateBkk } from '@/lib/config';
 
 /** ค่าจาก Postgres อาจเป็น number/string/null — แปลงเป็นเลขเสมอ (NaN → 0) */
 function toNum_(v: unknown): number {
@@ -52,12 +52,82 @@ interface AdRow {
   updated_at?: string | null;
 }
 
-export async function apiContentAds(_params?: unknown) {
-  // ยอดขายที่ผูกกับแต่ละ ad_id (จากออเดอร์ทั้งชีต ~90 วัน)
-  // กรอง ad_id ที่ไม่ว่างใน query เพื่อลดจำนวนแถว แล้วค่อยรวมยอดใน JS ตาม logic เดิม
+/**
+ * รวมค่าแอดจาก ad_daily ตามจำนวนวันย้อนหลัง แล้วคืนรูปเดียวกับตาราง `ads` เดิม
+ * (metric สะสมบวกกัน / ctr,cpm คำนวณใหม่จากยอดรวม ห้ามเฉลี่ยค่าเฉลี่ย)
+ * ตารางยังไม่ถูกสร้าง → คืน [] แล้วหน้าเว็บจะบอกให้รัน migration
+ */
+async function loadAdsFromDaily_(days: number): Promise<AdRow[]> {
+  const from = fmtDateBkk(new Date(Date.now() - days * 86400000));
+  let rows: any[];
+  try {
+    rows = await fetchAll<any>(() =>
+      db.from('ad_daily').select(
+        'date,ad_id,page_id,page_name,name,status,account_id,spend,impressions,reach,clicks,' +
+        'link_clicks,ctr,cpm,msgs_started,first_replies,phones,pos_orders,optimization_goal,updated_at'
+      ).gte('date', from),
+      'ad_id'
+    );
+  } catch (e: any) {
+    const m = String((e && e.message) || e || '');
+    if (m.includes('ad_daily') && (m.includes('does not exist') || m.includes('schema cache'))) return [];
+    throw e;
+  }
+
+  const byAd: Record<string, any> = {};
+  rows.forEach(function (r) {
+    const id = String(r.ad_id || '');
+    if (!id) return;
+    let a = byAd[id];
+    if (!a) {
+      a = byAd[id] = {
+        ad_id: id, name: r.name || '', ad_account_name: String(r.account_id || ''),
+        adset_id: '', campaign_name: '', campaign_id: '', marketer_name: '',
+        status: r.status || '', effective_status: r.status || '',
+        spend: 0, impressions: 0, reach: 0, clicks: 0, msgs_started: 0,
+        order_created: 0, order_shipped: 0, ctr: 0, cost_per_msg: 0,
+        created_time: null, start_time: null, updated_at: '',
+        _firstDate: String(r.date || ''),
+      };
+    }
+    a.spend += toNum_(r.spend);
+    a.impressions += toNum_(r.impressions);
+    a.reach += toNum_(r.reach);            // ประมาณ — reach จริงไม่บวกกันตรงๆ (คนซ้ำข้ามวัน)
+    a.clicks += toNum_(r.clicks);
+    a.msgs_started += toNum_(r.msgs_started);
+    a.order_created += toNum_(r.pos_orders);
+    const d = String(r.date || '');
+    if (d && (!a._firstDate || d < a._firstDate)) a._firstDate = d;
+    // สถานะ + ชื่อ ให้ยึดวันล่าสุดเสมอ
+    const u = String(r.updated_at || '');
+    if (u >= String(a.updated_at || '')) {
+      a.updated_at = u;
+      if (r.status) { a.status = r.status; a.effective_status = r.status; }
+      if (r.name) a.name = r.name;
+    }
+  });
+
+  return Object.keys(byAd).map(function (id) {
+    const a = byAd[id];
+    // คำนวณใหม่จากยอดรวม — ห้ามเอา ctr/cpm รายวันมาเฉลี่ยกัน
+    a.ctr = a.impressions > 0 ? Math.round((a.clicks / a.impressions) * 10000) / 100 : 0;
+    a.cost_per_msg = a.msgs_started > 0 ? Math.round((a.spend / a.msgs_started) * 100) / 100 : 0;
+    // ad_daily ไม่มีวันสร้างแอด — ใช้วันแรกที่เห็นแอดนี้แทน (อายุ "ตั้งแต่เริ่มเก็บข้อมูล")
+    a.created_time = a._firstDate ? a._firstDate + 'T00:00:00+07:00' : null;
+    return a as AdRow;
+  });
+}
+
+export async function apiContentAds(params?: any) {
+  // ช่วงวันที่ย้อนหลัง (วัน) — เดิมไม่มีตัวกรองเวลาเลย ทุกตัวเลขเป็นยอดสะสมตั้งแต่ต้น
+  // จึงเทียบกับ Pancake ที่ดูรายวัน/รายสัปดาห์ไม่ได้เลย
+  const days = Math.min(95, Math.max(1, Math.round(Number((params && params.days)) || 7)));
+  const sinceIso = new Date(Date.now() - days * 86400000).toISOString();
+  // ยอดขายที่ผูกกับแต่ละ ad_id — จำกัดตามช่วงที่เลือก ให้เทียบกับค่าแอดช่วงเดียวกันได้
   const orders = await fetchAll<OrderRow>(() =>
     db.from('orders').select('ad_id,page_id,total_price,items_count,status,seller_name,creator_name,items_json')
-      .not('ad_id', 'is', null).neq('ad_id', '').not('inserted_at', 'is', null)
+      .not('ad_id', 'is', null).neq('ad_id', '')
+      .gte('inserted_at', sinceIso)
   );
 
   // ชื่อเพจ (ให้ dropdown "ทุกเพจ" ใช้ชื่อจริงแทน page_id)
@@ -122,12 +192,9 @@ export async function apiContentAds(_params?: unknown) {
     return best ? best + ' (' + bestN + ')' : '';
   }
 
-  const ads = await fetchAll<AdRow>(() =>
-    db.from('ads').select(
-      'ad_id,name,campaign_name,campaign_id,adset_id,ad_account_name,status,effective_status,spend,impressions,reach,clicks,ctr,msgs_started,cost_per_msg,order_created,order_shipped,marketer_name,created_time,start_time,updated_at'
-    ),
-    'ad_id'
-  );
+  // ค่าแอดจริงจาก ad_daily (รวมตามช่วงวันที่เลือก) — ตาราง `ads` เดิมว่างเปล่าถาวร
+  // เพราะ POS /ads_manager/ads_v2 คืน 0 แถวเสมอ
+  const ads = await loadAdsFromDaily_(days);
 
   const items = ads.map(function (a) {
     const adId = String(a.ad_id);
@@ -203,7 +270,7 @@ export async function apiContentAds(_params?: unknown) {
     db.from('orders').select('post_id,page_id,total_price,items_count,status,seller_name,creator_name,inserted_at')
       .not('post_id', 'is', null).neq('post_id', '')
       .or('ad_id.is.null,ad_id.eq.')
-      .not('inserted_at', 'is', null)
+      .gte('inserted_at', sinceIso)
   );
   const byPost: Record<string, {
     revenue: number; orders: number;
@@ -325,6 +392,10 @@ export async function apiContentAds(_params?: unknown) {
     },
     alerts: alerts.slice(0, 30),
     items: (items as any[]).concat(organicItems),
-    note: 'Spend/แชท/ออเดอร์ที่สร้าง = ค่าสะสมของแอดจาก POS • ยอดขาย = ออเดอร์ใน 90 วันที่ผูก ad_id • แถว 🌱 Organic = ยอดจากโพสต์ที่ไม่ได้ยิงแอด (แสดง 50 โพสต์ยอดสูงสุด)'
+    days,
+    needAdSetup: ads.length === 0,   // ยังไม่ได้รัน migration ad_daily (หรือยังไม่มี sync รอบแรก)
+    note: 'ทุกตัวเลขเป็นของ ' + days + ' วันล่าสุด • ค่าแอด/คลิก/แชท = ข้อมูลจริงจาก Pancake ' +
+      '(pages/statistics/ads) • ยอดขาย = ออเดอร์ในช่วงเดียวกันที่ผูก ad_id • ' +
+      'แถว 🌱 Organic = ยอดจากโพสต์ที่ไม่ได้ยิงแอด (แสดง 50 โพสต์ยอดสูงสุด)'
   };
 }

@@ -219,8 +219,10 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         trendChip(t.orders) +
       '</div>' +
     '</div>' +
-    '<div class="sr-card" title="ปิดการขาย = ออเดอร์ ÷ บทสนทนาใหม่ (บทสนทนาใหม่ ' + esc(fmtNum(k.newConvs || 0)) + ')">' +
-      '<div class="label">🎯 ประสิทธิภาพการขาย</div>' +
+    '<div class="sr-card" title="ออเดอร์ทั้งหมดในช่วง (' + esc(fmtNum(k.orders || 0)) +
+      ') ÷ บทสนทนาที่เปิดใหม่ในช่วงเดียวกัน (' + esc(fmtNum(k.newConvs || 0)) + ') — ' +
+      'เกิน 100% ได้ เพราะออเดอร์จากลูกค้าเก่าไม่ได้เปิดแชทใหม่">' +
+      '<div class="label">🎯 ออเดอร์ต่อแชทใหม่</div>' +
       '<div class="big">' + closeRateBig + '</div>' +
       '<div class="foot">ยอดขายจากแอด ' + THB(k.adRevenue || 0) +
         ' • เฉลี่ย ' + THB(k.avgOrder || 0) + '/ออเดอร์</div>' +
@@ -252,7 +254,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     tileHtml('🛒 ออเดอร์', fmtNum(k.orders || 0)) +
     tileHtml('👥 ลูกค้า', fmtNum(k.customers || 0)) +
     tileHtml('💵 เฉลี่ย/ออเดอร์', THB(k.avgOrder || 0)) +
-    tileHtml('🎯 % ปิดการขาย', pctFmt(k.closeRate)) +
+    tileHtml('🎯 ออเดอร์/แชทใหม่', pctFmt(k.closeRate)) +
     tileHtml('💬 บทสนทนาใหม่', fmtNum(k.newConvs || 0)) +
     '<div class="tile tile-click" id="sr-margin-tile" title="กำไรประมาณการ = รายได้ × margin ' + m +
       '% (ตัวเลขประมาณ ไม่ใช่กำไรจริง) — คลิกเพื่อตั้งค่า margin">💚 กำไรประมาณ (' + m + '%) ⚙<b>' +
@@ -610,7 +612,7 @@ function buildReportRows(): unknown[][] | null {
   rows.push(['คำสั่งซื้อ', Number(k.orders) || 0]);
   rows.push(['ลูกค้า', Number(k.customers) || 0]);
   rows.push(['เฉลี่ย/ออเดอร์', Math.round(Number(k.avgOrder) || 0)]);
-  rows.push(['% ปิดการขาย', (k.closeRate === null || k.closeRate === undefined) ? '-' : k.closeRate]);
+  rows.push(['ออเดอร์ต่อแชทใหม่ (%)', (k.closeRate === null || k.closeRate === undefined) ? '-' : k.closeRate]);
   rows.push(['ยอดขายจากแอด', Math.round(Number(k.adRevenue) || 0)]);
   rows.push(['บทสนทนาใหม่', Number(k.newConvs) || 0]);
   rows.push(['ออเดอร์ที่ต้องตรวจ', Number(k.needCheck) || 0]);
