@@ -12,6 +12,7 @@ import {
   THB,
   fmtNum,
   pctFmt,
+  relTime,
   rangeControlsHtml,
   bindRangeControls,
   showError,
@@ -53,6 +54,11 @@ interface SalesData {
   alerts?: any[];
   top?: any;        // { all|facebook|line: { pages: [...], products: [...] } }
   returning?: any;  // { total, returning, pct } | null (null = ยังไม่รัน migration)
+  // ค่าแอดจริง + ROAS | null = ยังไม่รัน migration ad_daily → หน้าเว็บโชว์ "—"
+  adCost?: {
+    spend: number; trend: number | null; activeAds: number;
+    syncedAt: string | null; roas: number | null; roasPrev: number | null;
+  } | null;
 }
 
 let lastData: SalesData | null = null;
@@ -121,6 +127,36 @@ function chBoxHtml(key: string, ch: any): string {
 
 function tileHtml(label: string, value: string): string {
   return '<div class="tile">' + label + '<b>' + value + '</b></div>';
+}
+
+/** "ยังไม่ได้ตั้งตาราง ad_daily" — โชว์ "—" ไม่ใช่ 0 (0 จะอ่านเหมือนวัดแล้วได้ศูนย์) */
+const AD_SETUP_HINT = 'ต้องรัน db/migrations/2026-07-23-ad-daily.sql ใน Supabase ก่อน ' +
+  'แล้วรอ sync รอบถัดไป (ทุก 15 นาที)';
+
+function adSpendTile(d: SalesData): string {
+  const a = d.adCost;
+  if (!a) return '<div class="tile" title="' + esc(AD_SETUP_HINT) + '">📣 ค่าแอด<b>—</b></div>';
+  const when = a.syncedAt ? ' • สดถึง ' + esc(relTime(a.syncedAt)) : '';
+  return '<div class="tile" title="ค่าแอดจริงจาก Pancake (pages/statistics/ads) ของช่วงที่เลือก • ' +
+    'แอดที่กำลังยิง ' + fmtNum(a.activeAds || 0) + ' ตัว' + when +
+    ' — ค่าแอดไม่ได้แยก FB/LINE จึงไม่เปลี่ยนตามช่องทางที่กรอง">📣 ค่าแอด<b>' +
+    THB(a.spend) + ' ' + trendChip(a.trend) + '</b></div>';
+}
+
+function roasTile(d: SalesData): string {
+  const a = d.adCost;
+  if (!a) return '<div class="tile" title="' + esc(AD_SETUP_HINT) + '">📊 ROAS<b>—</b></div>';
+  if (a.roas === null || a.roas === undefined) {
+    return '<div class="tile" title="ช่วงนี้ยังไม่มีค่าแอด — คำนวณ ROAS ไม่ได้">📊 ROAS<b>—</b></div>';
+  }
+  // ROAS < 1 = ขายได้น้อยกว่าค่าแอด
+  const cls = a.roas >= 2 ? 'up' : (a.roas >= 1 ? '' : 'down');
+  const prev = (a.roasPrev !== null && a.roasPrev !== undefined)
+    ? ' <span style="font-size:11px;font-weight:600;color:var(--text-3)">(ก่อนหน้า ' + a.roasPrev.toFixed(2) + 'x)</span>'
+    : '';
+  return '<div class="tile" title="ROAS = ยอดขายทุกช่องทางในช่วงที่เลือก ÷ ค่าแอดในช่วงเดียวกัน ' +
+    '(ไม่ได้จับคู่รายแอด — เป็นภาพรวม)">📊 ROAS<b' +
+    (cls ? ' class="sr-' + cls + '"' : '') + '>' + a.roas.toFixed(2) + 'x' + prev + '</b></div>';
 }
 
 /* ---------------- render ---------------- */
@@ -222,6 +258,8 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       '% (ตัวเลขประมาณ ไม่ใช่กำไรจริง) — คลิกเพื่อตั้งค่า margin">💚 กำไรประมาณ (' + m + '%) ⚙<b>' +
       THB(profit) + '</b></div>' +
     retTile +
+    adSpendTile(d) +
+    roasTile(d) +
   '</div>';
 
   /* --- 5. main: กราฟรายชั่วโมง + ข้อมูลธุรกิจวันนี้ --- */

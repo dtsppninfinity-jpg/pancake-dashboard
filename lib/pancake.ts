@@ -157,6 +157,18 @@ export async function pageChatStats(pageId: string, token: string, since: Date, 
   return res?.data ?? [];
 }
 
+/**
+ * ค่าแอดของเพจ แยกรายแอด (spend/impressions/clicks/ctr/cpm/สถานะ)
+ * นี่คือแหล่งค่าแอด "ที่ใช้ได้จริง" — POS /ads_manager/ads_v2 คืน 0 แถวเสมอ
+ * spend เป็นบาทจริง (ทศนิยม) ไม่ใช่สตางค์เหมือน orders.total_price
+ */
+export async function pageAdStats(pageId: string, token: string, since: Date, until: Date): Promise<any[]> {
+  const res = await pagePublicGet(1, pageId, token, '/statistics/ads', {
+    type: 'by_id', since: unixSec(since), until: unixSec(until),
+  });
+  return res?.data ?? [];
+}
+
 /** บทสนทนาล่าสุด (v2, cursor pagination ทีละ 60) */
 export async function pageConversations(pageId: string, token: string, since: Date, until: Date, maxBatches = 3): Promise<any[]> {
   const all: any[] = [];

@@ -30,6 +30,8 @@ async function runFast(): Promise<void> {
   await runJob('chat-today', jobs.syncChatToday);
   await runJob('conversations', jobs.syncConversations);
   await runJob('online-status', jobs.syncOnlineStatus);
+  // ค่าแอดวันนี้ — อยู่ในรอบ fast เพื่อให้หน้าเว็บเห็น spend สดตามเวลา sync (ทุก 15 นาที)
+  await runJob('ad-stats-today', jobs.syncAdStatsToday);
 }
 
 async function runHourly(): Promise<boolean> {
@@ -42,8 +44,10 @@ async function runHourly(): Promise<boolean> {
 async function runDaily(): Promise<boolean> {
   const a = await runJob('chat-yesterday', jobs.syncChatYesterday);
   const b = await runJob('admin-chat-2d', () => jobs.syncAdminChatBackfill(2));
+  // Meta ปรับยอด spend ย้อนหลังได้อีก 1-2 วัน — เก็บซ้ำของเมื่อวานให้ตรง
+  const d = await runJob('ad-stats-yesterday', jobs.syncAdStatsYesterday);
   const c = await runJob('prune', jobs.prune);
-  return a && b && c;
+  return a && b && c && d;
 }
 
 const MODE = (process.argv[2] || 'fast').toLowerCase();

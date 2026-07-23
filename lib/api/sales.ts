@@ -182,6 +182,76 @@ async function loadOrders_(sinceIso: string, untilIso: string | null, cols: stri
     .filter((o) => o._at && !o._placeholder);
 }
 
+/* ---------------- ค่าแอดจริงรายวัน (ad_daily) ---------------- */
+
+interface AdCost {
+  spend: number;
+  spendPrev: number | null;
+  trend: number | null;
+  roas: number | null;        // ยอดขาย / ค่าแอด (ใส่ทีหลังที่ผู้เรียก)
+  activeAds: number;
+  syncedAt: string | null;    // เวลาที่ sync ค่าแอดล่าสุด (ให้หน้าเว็บบอก "สดถึงเมื่อไหร่")
+  worst: { name: string; spend: number }[];
+}
+
+/**
+ * รวมค่าแอดจาก ad_daily ตามช่วงวันที่ (เวลาไทย)
+ * คืน null เมื่อตารางยังไม่ถูกสร้าง — หน้าเว็บต้องโชว์ "-" ไม่ใช่ 0
+ * (0 จะอ่านเหมือน "วัดแล้วได้ศูนย์" ซึ่งไม่จริง)
+ */
+async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
+  const dateOf = (d: Date) => fmtDateBkk(d);
+  try {
+    const rows = await fetchAll<Row>(() =>
+      db.from('ad_daily')
+        .select('date,ad_id,name,status,spend,pos_orders,updated_at')
+        .gte('date', dateOf(r.prevStart))
+        .lte('date', dateOf(r.end)),
+      'ad_id'
+    );
+    const curFrom = dateOf(r.start), curTo = dateOf(r.end);
+    const prevFrom = dateOf(r.prevStart), prevTo = dateOf(r.prevEnd);
+    let spend = 0, spendPrev = 0, syncedAt: string | null = null;
+    const activeIds: Record<string, 1> = {};
+    const byAd: Record<string, { name: string; spend: number; orders: number }> = {};
+    rows.forEach((a) => {
+      const d = String(a.date || '').slice(0, 10);
+      const sp = toNum_(a.spend);
+      if (d >= curFrom && d <= curTo) {
+        spend += sp;
+        if (String(a.status || '').toUpperCase() === 'ACTIVE') activeIds[String(a.ad_id)] = 1;
+        const id = String(a.ad_id);
+        if (!byAd[id]) byAd[id] = { name: String(a.name || ''), spend: 0, orders: 0 };
+        byAd[id].spend += sp;
+        byAd[id].orders += toNum_(a.pos_orders);
+        const u = String(a.updated_at || '');
+        if (u && (!syncedAt || u > syncedAt)) syncedAt = u;
+      } else if (d >= prevFrom && d < prevTo) {
+        spendPrev += sp;
+      }
+    });
+    const worst = Object.keys(byAd)
+      .map((id) => byAd[id])
+      .filter((a) => a.spend > 800 && a.orders === 0)
+      .sort((a, b) => b.spend - a.spend)
+      .slice(0, 5);
+    return {
+      spend,
+      spendPrev: compare ? spendPrev : null,
+      trend: compare ? pctChange_(spend, spendPrev) : null,
+      roas: null,
+      activeAds: Object.keys(activeIds).length,
+      syncedAt,
+      worst,
+    };
+  } catch (e: any) {
+    const m = String((e && e.message) || e || '');
+    // ตารางยังไม่ถูกสร้าง = ยังไม่ได้รัน migration → ไม่ใช่ error ของระบบ
+    if (m.includes('ad_daily') && (m.includes('does not exist') || m.includes('schema cache'))) return null;
+    throw e;
+  }
+}
+
 /* ================================================================
  * apiSales
  * ================================================================ */
@@ -435,26 +505,32 @@ export async function apiSales(params: any) {
       view: 'dashboard',
     });
   }
-  const ads = await fetchAll<Row>(() =>
-    db.from('ads').select('effective_status,spend,order_created,name'),
-    'ad_id'
-  );
-  const badAds = ads.filter((a) => {
-    return (
-      String(a.effective_status).toUpperCase() === 'ACTIVE' &&
-      toNum_(a.spend) > 800 &&
-      toNum_(a.order_created) === 0
-    );
-  });
+  // ---- ค่าแอดจริง (ad_daily) + ROAS ของช่วงที่เลือก ----
+  // spend ใน ad_daily เป็นบาทจริง (ทศนิยม) ไม่ใช่สตางค์ — ห้ามหาร MONEY_SCALE
+  // ตารางอาจยังไม่ถูกสร้าง (ยังไม่รัน migration) → คืน null ให้หน้าเว็บโชว์ "-" ไม่ใช่ 0
+  const adCost = await loadAdCost_(r, compare);
+
+  const badAds = (adCost && adCost.worst) ? adCost.worst : [];
   if (badAds.length) {
     alerts.push({
       icon: '🕳',
       title: 'แอดจ่ายแล้วไม่มีออเดอร์',
       reason:
         badAds.length +
-        ' แอดใช้เงิน >800 แต่ยังไม่มีออเดอร์ เช่น "' +
+        ' แอดใช้เงิน >฿800 แต่ยังไม่มีออเดอร์ เช่น "' +
         String(badAds[0].name).slice(0, 40) +
         '"',
+      level: 'red',
+      view: 'contentads',
+    });
+  }
+  if (adCost && adCost.roas !== null && adCost.roas < 1 && adCost.spend > 0) {
+    alerts.push({
+      icon: '📉',
+      title: 'ROAS ต่ำกว่าทุน',
+      reason: 'ช่วงนี้ยอดขาย ฿' + Math.round(sCur.revenue).toLocaleString('th-TH') +
+        ' จากค่าแอด ฿' + Math.round(adCost.spend).toLocaleString('th-TH') +
+        ' (ROAS ' + adCost.roas.toFixed(2) + 'x)',
       level: 'red',
       view: 'contentads',
     });
@@ -472,6 +548,18 @@ export async function apiSales(params: any) {
       closeRate: closeRate,
       newConvs: convBase,
     },
+    // ค่าแอด + ROAS ของช่วงที่เลือก — null = ยังไม่ได้รัน migration ad_daily (หน้าเว็บโชว์ "-")
+    // ⚠️ ROAS นับยอดขาย "ทุกช่องทาง" หารค่าแอดทั้งหมด (ไม่ได้จับคู่รายแอด)
+    //    ค่าแอดไม่ได้แยก FB/LINE จึงไม่กรองตาม channel filter — ป้ายบนหน้าเว็บบอกไว้แล้ว
+    adCost: adCost ? {
+      spend: Math.round(adCost.spend),
+      trend: adCost.trend,
+      activeAds: adCost.activeAds,
+      syncedAt: adCost.syncedAt,
+      roas: adCost.spend > 0 ? Math.round((sCur.revenue / adCost.spend) * 100) / 100 : null,
+      roasPrev: (compare && adCost.spendPrev && adCost.spendPrev > 0)
+        ? Math.round((sPrev.revenue / adCost.spendPrev) * 100) / 100 : null,
+    } : null,
     trends: {
       revenue: compare ? pctChange_(sCur.revenue, sPrev.revenue) : null,
       orders: compare ? pctChange_(sCur.orders, sPrev.orders) : null,

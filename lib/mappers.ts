@@ -114,6 +114,37 @@ export function mapConversation(page: any, c: any) {
   };
 }
 
+/** 1 แอด จาก pages /statistics/ads → แถว ad_daily (คีย์ = date + ad_id) */
+export function mapAdDaily(page: any, a: any, date: string) {
+  const adId = String(a.ad_id || '');
+  if (!adId) return null;
+  return {
+    date,
+    ad_id: adId,
+    page_id: String(page.page_id),
+    page_name: page.name || '',
+    name: a.name || '',
+    status: a.ad_status || a.status || '',
+    account_id: String(a.account_id || ''),
+    currency: a.currency || 'THB',
+    spend: num(a.spend),
+    impressions: num(a.impressions),
+    reach: num(a.reach),
+    clicks: num(a.clicks),
+    link_clicks: num(a.link_click),
+    ctr: num(a.ctr),
+    cpm: num(a.cpm),
+    msgs_started: num(a.messaging_conversation_started_7d),
+    first_replies: num(a.messaging_first_reply),
+    phones: num(a.sum_phone_number),
+    pos_orders: num(a.total_order_count ?? a.sum_order),
+    optimization_goal: a.optimization_goal || '',
+    daily_budget: num(a.daily_budget),
+    budget_remaining: num(a.budget_remaining),
+    updated_at: new Date().toISOString(),
+  };
+}
+
 /** 1 แอด จาก Ads Manager → แถว ads */
 export function mapAd(a: any, campaignNameById: Record<string, string>) {
   const ins = a.insights || {};

@@ -4,9 +4,9 @@ import {
 } from '../../lib/config';
 import {
   posFetchOrders, posFetchUsers, posFetchAds, posFetchCampaigns,
-  pageChatStats, pageConversations, pageUserStats, pageUsers,
+  pageChatStats, pageConversations, pageUserStats, pageUsers, pageAdStats,
 } from '../../lib/pancake';
-import { mapOrder, mapChatHour, mapConversation, mapAd } from '../../lib/mappers';
+import { mapOrder, mapChatHour, mapConversation, mapAd, mapAdDaily } from '../../lib/mappers';
 import { supabase, upsertRows, replaceTable } from '../../lib/supabase';
 
 /* ---------------- helper: โหลดเพจ + token จาก DB ---------------- */
@@ -109,7 +109,43 @@ export async function syncConversations(): Promise<string> {
   return msg;
 }
 
-/* ---------------- ADS ---------------- */
+/* ---------------- AD STATS รายวัน (ค่าแอดจริง) ---------------- */
+
+/**
+ * ดึงค่าแอดรายแอดของทุกเพจ ลง ad_daily (1 วัน = 1 ชุด)
+ * แหล่ง: pages /statistics/ads?type=by_id — ตัวเดียวที่ให้ spend จริง
+ * (POS /ads_manager/ads_v2 คืน 0 แถวเสมอ ตาราง `ads` เดิมจึงว่างมาตลอด)
+ * เรียกทุกรอบ sync (15 นาที) สำหรับ "วันนี้" → หน้าเว็บได้ค่าแอดสดตามเวลา sync
+ */
+export async function syncAdStatsForDate(dateStr: string): Promise<string> {
+  requireCredentials();
+  const { pages, tokens } = await loadPagesWithTokens();
+  const since = parsePancakeTime(`${dateStr}T00:00:00`)!;
+  const until = parsePancakeTime(`${dateStr}T23:59:59`)!;
+  const rows: any[] = [];
+  const errors: string[] = [];
+  let spend = 0;
+  for (const p of pages) {
+    try {
+      const ads = await pageAdStats(String(p.page_id), tokens[String(p.page_id)], since, until);
+      for (const a of ads) {
+        const row = mapAdDaily(p, a, dateStr);
+        if (row) { rows.push(row); spend += row.spend; }
+      }
+    } catch (e: any) { errors.push(`${p.name}: ${e.message}`); }
+    await sleep(80);
+  }
+  if (rows.length) await upsertRows('ad_daily', rows, 'date,ad_id');
+  let msg = `ad stats ${dateStr}: ${rows.length} แอด จาก ${pages.length} เพจ | spend ฿${spend.toFixed(2)}`;
+  if (errors.length) msg += ` | ผิดพลาด ${errors.length} เพจ: ${errors.slice(0, 2).join('; ')}`;
+  return msg;
+}
+
+export const syncAdStatsToday = () => syncAdStatsForDate(fmtDateBkk(new Date()));
+/** ยอดของ Meta ยังขยับย้อนหลังได้อีก 1-2 วัน — งานรายวันตามเก็บซ้ำ */
+export const syncAdStatsYesterday = () => syncAdStatsForDate(fmtDateBkk(daysAgo(1)));
+
+/* ---------------- ADS (ตารางเดิม — POS endpoint ตายแล้ว) ---------------- */
 
 export async function syncAds(): Promise<string> {
   requireCredentials();
@@ -385,5 +421,8 @@ export async function prune(): Promise<string> {
   try {
     removed += await deleteOlder('admin_online_log', 'changed_at', cutIso(RETENTION_DAYS.ADMIN_ONLINE_LOG));
   } catch { /* ยังไม่มีตาราง admin_online_log */ }
+  try {
+    removed += await deleteOlder('ad_daily', 'date', cutDate(RETENTION_DAYS.AD_DAILY));
+  } catch { /* ยังไม่มีตาราง ad_daily */ }
   return `ลบข้อมูลเก่า ${removed} แถว`;
 }

@@ -786,3 +786,6 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   opacity: .6; background: var(--red-soft);
   border: 1px dashed var(--red);
 }
+/* ป้ายค่าแอด/ROAS ใน sr-strip */
+.sr-strip .tile b.sr-up   { color: var(--green); }
+.sr-strip .tile b.sr-down { color: var(--red); }
