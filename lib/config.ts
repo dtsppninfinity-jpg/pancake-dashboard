@@ -17,6 +17,31 @@ export const EXCLUDED_STATUSES = [4, 5, 6, 7, 15];
 /** สถานะที่ถือว่า "ต้องตรวจ" (ออเดอร์ใหม่ที่ยังไม่ยืนยัน) */
 export const NEED_CHECK_STATUSES = [0, 17];
 
+/**
+ * "ออเดอร์เปล่า" ที่ Pancake สร้างอัตโนมัติให้ทุกบทสนทนาที่มาจากแอด
+ * — ไม่มีสินค้า ไม่มีราคา ไม่มีเลขที่ออเดอร์ (แค่ customer_id + ad_id)
+ * มีถึง 43% ของแถวทั้งตาราง (35,038 จาก 81,015 เมื่อ 2026-07-23) ถ้านับรวมจะทำให้
+ * "จำนวนออเดอร์" พองเกินจริงเท่าตัว และ "เฉลี่ย/ออเดอร์" ต่ำผิดปกติ
+ * ⚠️ ห้ามตัดด้วย status=0 เฉยๆ — ออเดอร์ใหม่ที่มีของจริงก็เป็น status 0 เหมือนกัน
+ */
+export function isPlaceholderOrder(o: { items_count?: unknown; total_price?: unknown }): boolean {
+  return num(o.items_count) === 0 && num(o.total_price) === 0;
+}
+
+/**
+ * Pancake เก็บเงินเป็น "หน่วยย่อย" (สตางค์) แม้ order_currency = THB
+ * พิสูจน์แล้ว 2 ทาง: (1) ค่าเงินทั้งตาราง 91,760 ค่า หาร 100 ลงตัวทุกค่า ไม่มีข้อยกเว้น
+ * (2) ข้อความที่แอดมินพิมพ์เองในแชท ("เก็บปลายทาง 390 บาท") × 100 = total_price ที่เก็บ
+ *     (ตรง 503 คู่จาก 510 คู่ที่จับได้ / ไม่มีคู่ไหนตรงแบบไม่หาร)
+ * ถ้าวันหนึ่งพบว่า Pancake เปลี่ยนไปเก็บเป็นบาทตรงๆ ให้แก้ค่านี้เป็น 1 ที่เดียวจบ
+ */
+export const MONEY_SCALE: number = 100;
+
+/** อ่านคอลัมน์เงินจาก DB → บาทจริง (ใช้ทุกที่ที่อ่าน total_price/cod/price) */
+export function money_(v: unknown): number {
+  return num(v) / MONEY_SCALE;
+}
+
 /** เก็บข้อมูลย้อนหลังกี่วันในแต่ละตาราง (งาน prune รายวันจะลบที่เก่ากว่านี้) */
 export const RETENTION_DAYS = { ORDERS: 95, CHAT_HOURLY: 60, CONVERSATIONS: 14, ADMIN_CHAT_DAILY: 60, ADMIN_ONLINE_LOG: 35 };
 
@@ -68,10 +93,31 @@ export function daysAgo(n: number): Date {
 }
 
 /**
- * แปลง timestamp จาก Pancake ("2026-07-07T09:08:31" = เวลาไทย) → Date
- * ถ้าไม่มีโซนต่อท้าย ให้ถือเป็น +07:00
+ * แปลง timestamp ที่ "ไม่มีโซน" แล้วถือว่าเป็น **เวลาไทย** → Date
+ *
+ * ⚠️ Pancake ใช้โซนไม่เหมือนกันในแต่ละ endpoint — เลือกฟังก์ชันให้ถูกตัว:
+ *   • ใช้ตัวนี้กับ: label ชั่วโมงของ `statistics/pages` (พิสูจน์แล้ว: ขอช่วง 09:00-12:00
+ *     เวลาไทย ได้ label 09,10,11 ตรงตัว) และกับสตริงวันที่ที่ "เราสร้างเอง" เช่นค่าจาก
+ *     date picker ('2026-07-23T00:00:00') หรือค่าที่อ่านกลับจาก DB (มีโซนต่อท้ายอยู่แล้ว)
+ *   • ห้ามใช้กับ: เวลาของออเดอร์ POS และ conversations — พวกนั้นเป็น UTC ใช้ parsePancakeUtc
  */
 export function parsePancakeTime(s: unknown): Date | null {
+  return parseWithFallback_(s, '+07:00');
+}
+
+/**
+ * แปลง timestamp ที่ "ไม่มีโซน" แล้วถือว่าเป็น **UTC** → Date
+ *
+ * ใช้กับ POS `/orders` และ pages `/conversations` เท่านั้น
+ * พิสูจน์: ยิง API ตอน UTC 06:00:00 (ไทย 13:00) ได้ updated_at = '2026-07-23T06:00:02'
+ * — ตรงกับ UTC ไม่ใช่เวลาไทย เดิมโค้ดเติม '+07:00' ให้ ทำให้ทุกแถวถูกบันทึกเร็วไป 7 ชม.
+ * (กราฟยอดขายรายชั่วโมงเลยขึ้นพีคตอนตี 2-4 ซึ่งเป็นไปไม่ได้)
+ */
+export function parsePancakeUtc(s: unknown): Date | null {
+  return parseWithFallback_(s, 'Z');
+}
+
+function parseWithFallback_(s: unknown, tzSuffix: string): Date | null {
   if (!s) return null;
   if (s instanceof Date) return s;
   const str = String(s).replace(' ', 'T');
@@ -81,14 +127,20 @@ export function parsePancakeTime(s: unknown): Date | null {
     return isNaN(d.getTime()) ? null : d;
   }
   const hasTz = /([zZ]|[+-]\d{2}:?\d{2})$/.test(str);
-  const iso = hasTz ? str : str.slice(0, 19) + '+07:00';
+  const iso = hasTz ? str : str.slice(0, 19) + tzSuffix;
   const d = new Date(iso);
   return isNaN(d.getTime()) ? null : d;
 }
 
-/** ISO string (เก็บลง timestamptz) จาก Pancake time */
+/** ISO string (เก็บลง timestamptz) — สำหรับเวลาที่ไม่มีโซนแล้วเป็นเวลาไทย */
 export function toIso(s: unknown): string | null {
   const d = parsePancakeTime(s);
+  return d ? d.toISOString() : null;
+}
+
+/** ISO string (เก็บลง timestamptz) — สำหรับเวลา Pancake ที่เป็น UTC (orders / conversations) */
+export function toIsoUtc(s: unknown): string | null {
+  const d = parsePancakeUtc(s);
   return d ? d.toISOString() : null;
 }
 

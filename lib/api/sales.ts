@@ -7,6 +7,8 @@ import {
   NEED_CHECK_STATUSES,
   BKK_OFFSET_MS,
   num,
+  money_,
+  isPlaceholderOrder,
   parsePancakeTime,
   fmtDateBkk,
   startOfDayBkk,
@@ -169,12 +171,15 @@ async function loadOrders_(sinceIso: string, untilIso: string | null, cols: stri
     .map((o) => {
       o._at = toDate_(o.inserted_at);
       o.status = toNum_(o.status);
-      o.total_price = toNum_(o.total_price);
+      o._placeholder = isPlaceholderOrder(o); // ต้องเช็คก่อนแปลงหน่วยเงิน (ใช้ค่าดิบ)
+      o.total_price = money_(o.total_price);
       o._excluded = EXCLUDED_STATUSES.indexOf(o.status) >= 0;
       o._needCheck = NEED_CHECK_STATUSES.indexOf(o.status) >= 0;
       return o;
     })
-    .filter((o) => o._at);
+    // ตัด "ออเดอร์เปล่า" ที่ Pancake สร้างให้ทุกแชทจากแอด (43% ของตาราง) ทิ้งตั้งแต่ต้นทาง
+    // — ไม่ใช่ออเดอร์จริง ไม่มีสินค้า ไม่มีเงิน ถ้านับรวมจะทำให้ทุกตัวเลขนับหัวเพี้ยน
+    .filter((o) => o._at && !o._placeholder);
 }
 
 /* ================================================================
@@ -342,7 +347,7 @@ export async function apiSales(params: any) {
         const qty = toNum_(it.qty) || 1;
         if (!products[nm]) products[nm] = { qty: 0, value: 0, orders: 0 };
         products[nm].qty += qty;
-        products[nm].value += toNum_(it.price) * qty; // มูลค่าตามราคาขาย (ประมาณ — ไม่หักส่วนลดท้ายบิล)
+        products[nm].value += money_(it.price) * qty; // มูลค่าตามราคาขาย (ประมาณ — ไม่หักส่วนลดท้ายบิล)
         products[nm].orders++;
       });
     });

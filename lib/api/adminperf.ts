@@ -5,6 +5,8 @@ import {
   EXCLUDED_STATUSES,
   fmtDateBkk,
   fmtDateTimeBkk,
+  money_,
+  isPlaceholderOrder,
   parsePancakeTime,
   startOfDayBkk,
 } from '@/lib/config';
@@ -132,11 +134,13 @@ async function loadOrders_(r: { start: Date; end: Date }) {
     .map((o) => {
       o._at = toDate_(o.inserted_at);
       o.status = toNum_(o.status);
-      o.total_price = toNum_(o.total_price);
+      o._placeholder = isPlaceholderOrder(o); // เช็คก่อนแปลงหน่วยเงิน
+      o.total_price = money_(o.total_price);
       o._excluded = EXCLUDED_STATUSES.indexOf(o.status) >= 0;
       return o;
     })
-    .filter((o) => o._at);
+    // ตัดออเดอร์เปล่าที่ Pancake สร้างอัตโนมัติจากแชทแอด — ไม่ใช่ยอดขายของแอดมิน
+    .filter((o) => o._at && !o._placeholder);
 }
 
 /* ---------------- API ---------------- */

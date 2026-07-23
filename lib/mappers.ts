@@ -1,5 +1,5 @@
 // lib/mappers.ts — แปลงข้อมูลดิบจาก Pancake → object ตามคอลัมน์ตาราง (port จาก Sync*.gs)
-import { ORDER_STATUS_TH, TZ, num, toIso, fmtDateBkk, parsePancakeTime } from './config';
+import { ORDER_STATUS_TH, TZ, num, toIso, toIsoUtc, fmtDateBkk, parsePancakeTime } from './config';
 
 /** เดา platform จากข้อมูลออเดอร์ ถ้าไม่รู้จัก page_id */
 export function guessPlatform(o: any): string {
@@ -29,8 +29,9 @@ export function mapOrder(o: any, platformByPage: Record<string, string>) {
     display_id: o.display_id || '',
     status,
     status_name: (status !== null && ORDER_STATUS_TH[status]) || o.status_name || String(status ?? ''),
-    inserted_at: toIso(o.inserted_at),
-    updated_at: toIso(o.updated_at),
+    // POS ส่งเวลามาเป็น UTC (ไม่มีโซนต่อท้าย) — ห้ามใช้ toIso ที่เติม +07:00 ให้
+    inserted_at: toIsoUtc(o.inserted_at),
+    updated_at: toIsoUtc(o.updated_at),
     total_price: num(o.total_price),
     cod: num(o.cod),
     transfer_money: num(o.transfer_money),
@@ -99,8 +100,9 @@ export function mapConversation(page: any, c: any) {
     customer_name: (c.from && c.from.name) || '',
     snippet: String(c.snippet || '').slice(0, 150),
     message_count: num(c.message_count),
-    inserted_at: toIso(c.inserted_at),
-    updated_at: toIso(c.updated_at),
+    // pages API ส่งเวลามาเป็น UTC (ไม่มีโซนต่อท้าย) — เหมือน POS orders
+    inserted_at: toIsoUtc(c.inserted_at),
+    updated_at: toIsoUtc(c.updated_at),
     last_sent_by: lastBy,
     last_admin_name: isAdmin ? (last.admin_name || last.name || '') : '',
     waiting: lastBy === 'customer',

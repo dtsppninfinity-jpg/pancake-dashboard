@@ -6,6 +6,8 @@ import { db, fetchAll } from '@/lib/db';
 import {
   EXCLUDED_STATUSES,
   fmtDateBkk,
+  money_,
+  isPlaceholderOrder,
   parsePancakeTime,
   startOfDayBkk,
 } from '@/lib/config';
@@ -149,7 +151,7 @@ export async function apiAdmins(_params?: any) {
       fetchAll<any>(() =>
         db
           .from('orders')
-          .select('inserted_at,status,total_price,seller_id,seller_name,creator_name')
+          .select('inserted_at,status,total_price,items_count,seller_id,seller_name,creator_name')
           .gte('inserted_at', todayStartIso)
       ),
       // Conversations — กรองเฉพาะที่อัปเดตใน 24 ชม. ล่าสุด
@@ -228,8 +230,9 @@ export async function apiAdmins(_params?: any) {
     const status = toNum_(o.status);
     const excluded = EXCLUDED_STATUSES.indexOf(status) >= 0;
     const t = at.getTime();
-    if (t < todayStartTime || t > todayEndTime || excluded) return;
-    const totalPrice = toNum_(o.total_price);
+    // ตัดออเดอร์เปล่าที่ Pancake สร้างอัตโนมัติจากแชทแอด (ไม่มีสินค้า ไม่มีเงิน)
+    if (t < todayStartTime || t > todayEndTime || excluded || isPlaceholderOrder(o)) return;
+    const totalPrice = money_(o.total_price);
     const sid = String(o.seller_id || '');
     const snm = String(o.seller_name || o.creator_name || '');
     if (sid) {

@@ -54,16 +54,21 @@ export const METRIC_BY_KEY: Record<string, Metric> = METRICS.reduce((m, x) => {
 }, {} as Record<string, Metric>);
 
 // ค่าเริ่มต้น — ตัวที่เปิดรวมน้ำหนักได้ 100 (ปรับได้หมดในหน้าเว็บ)
+// ⚠️ เป้าหมายที่หน่วยเป็น ฿ ถูกหาร 100 พร้อมกับการแก้หน่วยเงิน (MONEY_SCALE) เมื่อ 2026-07-23
+//    เดิม revenue 500,000 / avgOrder 30,000 คิดบนตัวเลขที่พองอยู่ 100 เท่า
 export const DEFAULT_CONFIG: MetricConfig[] = [
-  { key: 'revenue',     weight: 40, target: 500000, enabled: true },
-  { key: 'closeRate',   weight: 20, target: 30,     enabled: true },
-  { key: 'orders',      weight: 15, target: 50,     enabled: true },
-  { key: 'avgRespMins', weight: 15, target: 5,      enabled: true },
-  { key: 'phones',      weight: 10, target: 100,    enabled: true },
-  { key: 'replies',     weight: 0,  target: 1000,   enabled: false },
-  { key: 'chats',       weight: 0,  target: 200,    enabled: false },
-  { key: 'avgOrder',    weight: 0,  target: 30000,  enabled: false },
+  { key: 'revenue',     weight: 40, target: 5000, enabled: true },
+  { key: 'closeRate',   weight: 20, target: 30,   enabled: true },
+  { key: 'orders',      weight: 15, target: 50,   enabled: true },
+  { key: 'avgRespMins', weight: 15, target: 5,    enabled: true },
+  { key: 'phones',      weight: 10, target: 100,  enabled: true },
+  { key: 'replies',     weight: 0,  target: 1000, enabled: false },
+  { key: 'chats',       weight: 0,  target: 200,  enabled: false },
+  { key: 'avgOrder',    weight: 0,  target: 300,  enabled: false },
 ];
+
+/** คีย์ที่เป้าหมายเป็นจำนวนเงิน — ใช้ตอนย้ายค่าที่ทีมเคยตั้งไว้ให้เข้าหน่วยใหม่ */
+export const MONEY_METRIC_KEYS = ['revenue', 'avgOrder'];
 
 /** รวม config ที่เก็บไว้กับค่าเริ่มต้น → คืน array ครบทุกตัวชี้วัดตามลำดับ METRICS */
 export function normalizeConfig(raw: unknown): MetricConfig[] {

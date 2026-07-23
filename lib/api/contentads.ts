@@ -1,7 +1,7 @@
 // lib/api/contentads.ts — port ของ apiContentAds จาก WebApi.gs
 // อ่านจาก Supabase (orders + ads) แล้วรวมยอด/สร้าง alerts ตาม logic เดิมทุกตัวอักษร
 import { db, fetchAll } from '@/lib/db';
-import { EXCLUDED_STATUSES } from '@/lib/config';
+import { EXCLUDED_STATUSES, money_, isPlaceholderOrder } from '@/lib/config';
 
 /** ค่าจาก Postgres อาจเป็น number/string/null — แปลงเป็นเลขเสมอ (NaN → 0) */
 function toNum_(v: unknown): number {
@@ -14,6 +14,7 @@ interface OrderRow {
   post_id?: string | null;
   page_id?: string | null;
   total_price: number | string | null;
+  items_count?: number | string | null;
   status: number | string | null;
   seller_name?: string | null;
   creator_name?: string | null;
@@ -55,7 +56,7 @@ export async function apiContentAds(_params?: unknown) {
   // ยอดขายที่ผูกกับแต่ละ ad_id (จากออเดอร์ทั้งชีต ~90 วัน)
   // กรอง ad_id ที่ไม่ว่างใน query เพื่อลดจำนวนแถว แล้วค่อยรวมยอดใน JS ตาม logic เดิม
   const orders = await fetchAll<OrderRow>(() =>
-    db.from('orders').select('ad_id,page_id,total_price,status,seller_name,creator_name,items_json')
+    db.from('orders').select('ad_id,page_id,total_price,items_count,status,seller_name,creator_name,items_json')
       .not('ad_id', 'is', null).neq('ad_id', '').not('inserted_at', 'is', null)
   );
 
@@ -74,9 +75,10 @@ export async function apiContentAds(_params?: unknown) {
   orders.forEach(function (o) {
     const status = toNum_(o.status);
     const excluded = EXCLUDED_STATUSES.indexOf(status) >= 0;
-    if (excluded || !o.ad_id) return;
+    // ออเดอร์เปล่าจาก Pancake ผูก ad_id มาด้วยเสมอ — ถ้าไม่ตัด จำนวนออเดอร์ต่อแอดจะพองมาก
+    if (excluded || !o.ad_id || isPlaceholderOrder(o)) return;
     const id = String(o.ad_id);
-    revByAd[id] = (revByAd[id] || 0) + toNum_(o.total_price);
+    revByAd[id] = (revByAd[id] || 0) + money_(o.total_price);
     cntByAd[id] = (cntByAd[id] || 0) + 1;
     const seller = String(o.seller_name || o.creator_name || '').trim();
     if (seller) {
@@ -198,7 +200,7 @@ export async function apiContentAds(_params?: unknown) {
   // ---- แถว Organic: ออเดอร์ที่ผูกโพสต์ (post_id) แต่ไม่ได้มาจากแอด ----
   // revenue/orders เป็นของจริง — spend/คลิก/แชทของโพสต์ไม่มีข้อมูล (ไม่ใช่ 0) หน้าเว็บโชว์ "-"
   const organicOrders = await fetchAll<OrderRow>(() =>
-    db.from('orders').select('post_id,page_id,total_price,status,seller_name,creator_name,inserted_at')
+    db.from('orders').select('post_id,page_id,total_price,items_count,status,seller_name,creator_name,inserted_at')
       .not('post_id', 'is', null).neq('post_id', '')
       .or('ad_id.is.null,ad_id.eq.')
       .not('inserted_at', 'is', null)
@@ -209,12 +211,12 @@ export async function apiContentAds(_params?: unknown) {
   }> = {};
   organicOrders.forEach(function (o) {
     const status = toNum_(o.status);
-    if (EXCLUDED_STATUSES.indexOf(status) >= 0) return;
+    if (EXCLUDED_STATUSES.indexOf(status) >= 0 || isPlaceholderOrder(o)) return;
     const pid = String(o.post_id || '');
     if (!pid) return;
     if (!byPost[pid]) byPost[pid] = { revenue: 0, orders: 0, pages: {}, sellers: {}, lastAt: '' };
     const p = byPost[pid];
-    p.revenue += toNum_(o.total_price);
+    p.revenue += money_(o.total_price);
     p.orders++;
     const pg = String(o.page_id || '');
     if (pg) p.pages[pg] = (p.pages[pg] || 0) + 1;
