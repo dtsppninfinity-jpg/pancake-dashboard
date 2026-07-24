@@ -280,6 +280,14 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 .sr-trend.up { background: var(--green-soft); color: var(--green); }
 .sr-trend.down { background: var(--red-soft); color: var(--red); }
 .sr-trend.flat { background: rgba(255,255,255,.08); color: var(--text-3); }
+.sr-chan-banner {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+  margin-bottom: 12px; padding: 8px 13px; border-radius: 10px;
+  background: var(--primary-soft); border: 1px solid var(--primary);
+  color: var(--text); font-size: 13px; font-weight: 600; cursor: help;
+}
+.sr-chan-banner b { font-weight: 800; }
+.sr-chan-hint { font-size: 11.5px; font-weight: 500; color: var(--text-3); }
 .sr-channels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
 .sr-chbox {
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px;

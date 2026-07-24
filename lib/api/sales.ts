@@ -253,6 +253,7 @@ interface AdCost {
   metaValuePrev: number;      // ช่วงก่อนหน้า
   metaPurchases: number;      // "ซื้อ" ที่ Meta ตี
   metaMsgs: number;           // "ทัก" (messaging_conversation_started_7d)
+  adPageIds: string[];        // page_id ของเพจที่มีค่าแอด (spend>0) ในช่วง — ใช้ทำ ROAS ใหม่
 }
 
 /**
@@ -268,7 +269,7 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
     try {
       rows = await fetchAll<Row>(() =>
         db.from('ad_daily')
-          .select('date,ad_id,name,status,spend,pos_orders,meta_purchases,meta_purchase_value,msgs_started,updated_at')
+          .select('date,ad_id,page_id,name,status,spend,pos_orders,meta_purchases,meta_purchase_value,msgs_started,updated_at')
           .gte('date', dateOf(r.prevStart))
           .lte('date', dateOf(r.end)),
         'ad_id'
@@ -277,7 +278,7 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
       if (!String((e2 && e2.message) || '').includes('meta_purchase')) throw e2;
       rows = await fetchAll<Row>(() =>
         db.from('ad_daily')
-          .select('date,ad_id,name,status,spend,pos_orders,msgs_started,updated_at')
+          .select('date,ad_id,page_id,name,status,spend,pos_orders,msgs_started,updated_at')
           .gte('date', dateOf(r.prevStart))
           .lte('date', dateOf(r.end)),
         'ad_id'
@@ -288,6 +289,7 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
     let spend = 0, spendPrev = 0, syncedAt: string | null = null;
     let metaValue = 0, metaValuePrev = 0, metaPurchases = 0, metaMsgs = 0;
     const activeIds: Record<string, 1> = {};
+    const adPageSet: Record<string, 1> = {};   // เพจที่มี spend>0 ในช่วง
     const byAd: Record<string, { name: string; spend: number; orders: number }> = {};
     rows.forEach((a) => {
       const d = String(a.date || '').slice(0, 10);
@@ -297,6 +299,7 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
         metaValue += toNum_(a.meta_purchase_value);
         metaPurchases += toNum_(a.meta_purchases);
         metaMsgs += toNum_(a.msgs_started);
+        if (sp > 0 && a.page_id) adPageSet[String(a.page_id)] = 1;
         if (String(a.status || '').toUpperCase() === 'ACTIVE') activeIds[String(a.ad_id)] = 1;
         const id = String(a.ad_id);
         if (!byAd[id]) byAd[id] = { name: String(a.name || ''), spend: 0, orders: 0 };
@@ -326,6 +329,7 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
       metaValuePrev,
       metaPurchases,
       metaMsgs,
+      adPageIds: Object.keys(adPageSet),
     };
   } catch (e: any) {
     const m = String((e && e.message) || e || '');
@@ -605,6 +609,19 @@ export async function apiSales(params: any) {
   // ตารางอาจยังไม่ถูกสร้าง (ยังไม่รัน migration) → คืน null ให้หน้าเว็บโชว์ "-" ไม่ใช่ 0
   const adCost = await loadAdCost_(r, compare);
 
+  // ---- ยอดขายแยกช่องทาง (ไม่สน channel filter — ใช้ทำ ROAS หลายแบบ) ----
+  // เพจ = Facebook, ไลน์ = LINE — คิดจาก cur (ทุกช่องทางในช่วง) ตัดออเดอร์ยกเลิกแล้ว
+  let fbRev = 0, lineRev = 0, adPagesRev = 0;
+  const adPageSet = new Set((adCost && adCost.adPageIds) || []);
+  cur.forEach((o) => {
+    const chn = orderChannel_(o);
+    if (chn === 'facebook') fbRev += o.total_price;
+    else if (chn === 'line') lineRev += o.total_price;
+    // ยอดขายของ "เพจที่ยิงแอด" — เฉพาะเพจที่มีค่าแอด>0 ในช่วงนี้ (ทำ ROAS ใหม่)
+    if (o.page_id && adPageSet.has(String(o.page_id))) adPagesRev += o.total_price;
+  });
+  const fbLineRev = fbRev + lineRev;
+
   const badAds = (adCost && adCost.worst) ? adCost.worst : [];
   if (badAds.length) {
     alerts.push({
@@ -675,7 +692,19 @@ export async function apiSales(params: any) {
         ? Math.round((adCost.metaPurchases / adCost.metaMsgs) * 1000) / 10 : null,
       adPurchases: adCost.metaPurchases,
       adMsgs: adCost.metaMsgs,
+      // ---- ROAS แบบยอดขาย POS จริง (บอสสั่งเพิ่ม 2026-07-24) ----
+      // ROAS ใหม่  = ยอดขายเฉพาะเพจที่ยิงแอด ÷ ค่าแอด
+      // ROAS รวม  = ยอดขายทั้งหมดของ Facebook ÷ ค่าแอด
+      roasNew: adCost.spend > 0 ? Math.round((adPagesRev / adCost.spend) * 100) / 100 : null,
+      roasAll: adCost.spend > 0 ? Math.round((fbRev / adCost.spend) * 100) / 100 : null,
+      adPagesRev: Math.round(adPagesRev),
     } : null,
+    // ยอดขายแยกช่องทาง (ไม่ขึ้นกับ channel filter — โชว์ครบเสมอ)
+    salesBreak: {
+      total: Math.round(fbLineRev),   // เพจ + ไลน์
+      fb: Math.round(fbRev),          // ยอดขายเพจ (Facebook)
+      line: Math.round(lineRev),      // ยอดขายไลน์
+    },
     trends: {
       revenue: compare ? pctChange_(sCur.revenue, sPrev.revenue) : null,
       orders: compare ? pctChange_(sCur.orders, sPrev.orders) : null,

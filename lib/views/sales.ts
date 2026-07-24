@@ -60,11 +60,15 @@ interface SalesData {
     syncedAt: string | null; roas: number | null; roasPrev: number | null;
     adRevenueMeta?: number; adCloseRate?: number | null;
     adPurchases?: number; adMsgs?: number;
+    roasNew?: number | null; roasAll?: number | null; adPagesRev?: number;
   } | null;
+  salesBreak?: { total: number; fb: number; line: number };
 }
 
 let lastData: SalesData | null = null;
-const state: SalesState = { preset: 'today', from: '', to: '', channel: '', compare: 'prev' };
+// default = Facebook: ยอดขายส่วนใหญ่มาจาก FB และแอดทั้งหมดอยู่บน FB (บอสสั่ง 2026-07-24)
+// LINE/อื่นๆ ดูได้โดยคลิกช่องช่องทางด้านล่าง
+const state: SalesState = { preset: 'today', from: '', to: '', channel: 'facebook', compare: 'prev' };
 
 /* ---------------- app settings (margin% — เก็บบนเซิร์ฟเวอร์ ใช้ร่วมทั้งทีม) ---------------- */
 
@@ -196,6 +200,29 @@ function adCloseTile(d: SalesData): string {
   }) + '>🎯 %ปิดจากแอด (Meta)<b>' + pctFmt(a.adCloseRate) + '</b></div>';
 }
 
+/** ROAS แบบยอดขาย POS จริง — kind='new' (เฉพาะเพจที่ยิงแอด) | 'all' (ทั้ง Facebook) */
+function roasPosTile(d: SalesData, kind: 'new' | 'all'): string {
+  const a = d.adCost;
+  const label = kind === 'new' ? '📊 ROAS ใหม่' : '📊 ROAS รวม';
+  if (!a) return '<div class="tile" title="' + esc(AD_SETUP_HINT) + '">' + label + '<b>—</b></div>';
+  const v = kind === 'new' ? a.roasNew : a.roasAll;
+  if (v === null || v === undefined) {
+    return '<div class="tile" title="ช่วงนี้ยังไม่มีค่าแอด — คำนวณ ROAS ไม่ได้">' + label + '<b>—</b></div>';
+  }
+  const cls = v >= 2 ? 'up' : (v >= 1 ? '' : 'down');
+  const tip: TipSpec = kind === 'new'
+    ? { title: '📊 ROAS ใหม่', formula: 'ยอดขายเฉพาะเพจที่ยิงแอด ÷ ค่าแอด',
+        body: 'ยอดขาย POS ของเพจที่มีค่าแอด ' + THB(a.adPagesRev || 0) + ' ÷ ค่าแอด ' + THB(a.spend) +
+          ' • นับเฉพาะเพจที่กำลังยิงแอด (ตัดเพจที่ไม่ได้ยิงออก)',
+        src: 'ออเดอร์ POS จริง' }
+    : { title: '📊 ROAS รวม', formula: 'ยอดขายทั้งหมดของ Facebook ÷ ค่าแอด',
+        body: 'ยอดขาย POS ของ Facebook ทุกเพจ ' + THB((d.salesBreak && d.salesBreak.fb) || 0) +
+          ' ÷ ค่าแอด ' + THB(a.spend) + ' • รวมเพจที่ไม่ได้ยิงแอดด้วย (blended / MER)',
+        src: 'ออเดอร์ POS จริง' };
+  return '<div class="tile"' + tipAttrs(tip) + '>' + label + '<b' +
+    (cls ? ' class="sr-' + cls + '"' : '') + '>' + v.toFixed(2) + 'x</b></div>';
+}
+
 /* ---------------- render ---------------- */
 
 function render(container: HTMLElement, dArg?: SalesData | null): void {
@@ -255,6 +282,15 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       'คนทัก = อินบ็อกซ์ใหม่ ' + fmtNum(kk.closeNewInbox || 0) + ' + คอมเมนต์ ' + fmtNum(kk.closeComment || 0);
   }
 
+  // แถบบอกช่องทางที่กำลังดู — default = Facebook จึงต้องบอกชัด ไม่ให้เข้าใจผิดว่าเป็นยอดรวมทุกช่องทาง
+  if (state.channel) {
+    html += '<div class="sr-chan-banner"' + tipAttrs({
+      title: 'กำลังกรองช่องทาง',
+      body: 'ยอดขาย / ออเดอร์ / %ปิด นับเฉพาะ ' + CH_LABELS[state.channel] +
+        ' • ค่าแอด/ROAS เป็นของ Facebook เสมอ (แอดทั้งหมดอยู่บน FB) • คลิกช่องด้านล่าง (หรือ "ทั้งหมด") เพื่อเปลี่ยน',
+    }) + '>👁 กำลังดูเฉพาะ <b>' + CH_LABELS[state.channel] + '</b>' +
+      '<span class="sr-chan-hint">— ยอดขาย/ออเดอร์/%ปิด นับเฉพาะช่องทางนี้ • เปลี่ยนได้ที่ช่องด้านล่าง</span></div>';
+  }
   html += '<div class="sr-cards">' +
     '<div class="sr-card"' + tipAttrs({
       title: '💰 รายได้รวม',
@@ -314,7 +350,19 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
           : '') +
       '</b></div>'
     : '<div class="tile" title="ต้องรัน SQL migration (db/migrations/2026-07-11-sprint2.sql) ใน Supabase ก่อน">🔁 ลูกค้าเก่า (95 วัน)<b>—</b></div>';
+  // ยอดขายแยกช่องทาง (ไม่ขึ้นกับ channel filter — โชว์ครบเสมอ ตามที่บอสสั่ง)
+  const sb = d.salesBreak || { total: 0, fb: 0, line: 0 };
   html += '<div class="sr-strip">' +
+    tileHtml('🧾 ยอดขายรวม (เพจ+ไลน์)', THB(sb.total || 0), {
+      title: '🧾 ยอดขายรวม (เพจ+ไลน์)', formula: 'ยอดขายเพจ + ยอดขายไลน์',
+      body: 'เพจ (Facebook) ' + THB(sb.fb || 0) + ' + ไลน์ ' + THB(sb.line || 0) +
+        ' • ไม่ขึ้นกับช่องทางที่กรอง โชว์รวมเสมอ', src: 'ออเดอร์ POS จริง' }) +
+    tileHtml('📘 ยอดขายเพจ', THB(sb.fb || 0), {
+      title: '📘 ยอดขายเพจ (Facebook)', formula: 'Σ ยอดขายออเดอร์ช่องทาง Facebook',
+      body: 'เฉพาะ Facebook • ตัวตั้งของ ROAS รวม', src: 'ออเดอร์ POS จริง' }) +
+    tileHtml('🟢 ยอดขายไลน์', THB(sb.line || 0), {
+      title: '🟢 ยอดขายไลน์ (LINE OA)', formula: 'Σ ยอดขายออเดอร์ช่องทาง LINE',
+      body: 'เฉพาะ LINE OA', src: 'ออเดอร์ POS จริง' }) +
     tileHtml('💰 รายได้', THB(k.revenue || 0), {
       title: '💰 รายได้', formula: 'Σ ยอดขายทุกออเดอร์ (ตัดยกเลิก/ตีกลับ)',
       body: 'รวมทุกช่องทางในช่วงที่เลือก', src: 'ออเดอร์ POS จริง' }) +
@@ -347,6 +395,8 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       THB(profit) + '</b></div>' +
     retTile +
     adSpendTile(d) +
+    roasPosTile(d, 'new') +
+    roasPosTile(d, 'all') +
     roasTile(d) +
     adCloseTile(d) +
   '</div>';
