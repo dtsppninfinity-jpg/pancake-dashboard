@@ -21,6 +21,8 @@ interface Kpis {
   // null = ยังไม่ได้รัน migration chat_engagement_daily
   engCustomers?: number | null;
   engNewInbox?: number | null;
+  engReached?: number | null;  // คนทัก = อินบ็อกซ์ใหม่ + คอมเมนต์
+  engComment?: number | null;
   engOrders?: number | null;
   pageReplies?: number;
   phones?: number;
@@ -125,18 +127,21 @@ function statGridHtml(k: Kpis, donut?: DonutData): string {
     cards.push(statCard('💭', 'purple', 'คอมเมนต์จากลูกค้าวันนี้', fmtNum(k.custMsgs),
       'เพจตอบคอมเมนต์ ' + fmtNum(k.pageReplies) + ' ครั้ง'));
   } else {
-    // "บทสนทนาใหม่วันนี้" = "บทสนทนาอินบ็อกซ์ใหม่" จากหน้า "สถิติการมีส่วนร่วม" ของ Pancake
-    // (statistics/customer_engagements → chat_engagement_daily.new_inbox) ให้ตรงจอ Pancake เป๊ะ
-    // fallback เป็น new_inbox_count จาก statistics/pages ถ้ายังไม่มีข้อมูล engagement วันนี้
-    const convNew = (k.engNewInbox === null || k.engNewInbox === undefined)
-      ? k.convsToday : k.engNewInbox;
-    const convTip = ' data-tip-title="บทสนทนาใหม่วันนี้"' +
-      ' data-tip-formula="อินบ็อกซ์ใหม่ (สถิติการมีส่วนร่วม)"' +
-      ' data-tip="จำนวนลูกค้าที่เปิดแชทอินบ็อกซ์ใหม่วันนี้ ตรงกับคอลัมน์ &quot;บทสนทนาอินบ็อกซ์ใหม่&quot; บนหน้าสถิติการมีส่วนร่วมของ Pancake"' +
+    // "คนทักวันนี้" = คนที่ทักเข้ามาจริง = อินบ็อกซ์ใหม่ + คอมเมนต์ (บอสยืนยันนิยามนี้)
+    // ดึงจาก statistics/customer_engagements (chat_engagement_daily) → engReached = new_inbox + comment
+    // fallback เป็น new_inbox_count จาก statistics/pages ถ้ายังไม่มีข้อมูล engagement วันนี้ (ไม่รวมคอมเมนต์)
+    const hasEng = k.engReached !== null && k.engReached !== undefined;
+    const reached = hasEng ? k.engReached : k.convsToday;
+    const convTip = ' data-tip-title="คนทักวันนี้"' +
+      ' data-tip-formula="อินบ็อกซ์ใหม่ + คอมเมนต์"' +
+      ' data-tip="จำนวนคนที่ทักเข้ามาวันนี้ = บทสนทนาอินบ็อกซ์ใหม่ + คอมเมนต์ (คนทักจริง ไม่ใช่ลูกค้าเก่าที่คุยต่อ) จากหน้าสถิติการมีส่วนร่วมของ Pancake"' +
       ' data-tip-src="Pancake · statistics/customer_engagements">';
-    cards.push(statCard('💬', 'purple', 'บทสนทนาใหม่วันนี้',
-      '<span' + convTip + fmtNum(convNew) + '</span>',
-      'ข้อความลูกค้า ' + fmtNum(k.custMsgs) + ' • 📞 เบอร์ใหม่ ' + fmtNum(k.phones)));
+    const convSub = hasEng
+      ? 'อินบ็อกซ์ใหม่ ' + fmtNum(k.engNewInbox || 0) + ' + คอมเมนต์ ' + fmtNum(k.engComment || 0) +
+        ' • 📞 เบอร์ใหม่ ' + fmtNum(k.phones)
+      : 'ข้อความลูกค้า ' + fmtNum(k.custMsgs) + ' • 📞 เบอร์ใหม่ ' + fmtNum(k.phones);
+    cards.push(statCard('💬', 'purple', 'คนทักวันนี้',
+      '<span' + convTip + fmtNum(reached) + '</span>', convSub));
   }
   // ⚠️ pageReplies = จำนวน "ข้อความ" ที่เพจส่งวันนี้ (รวมบอต/ข้อความอัตโนมัติ/บรอดแคสต์)
   //    ไม่ใช่จำนวนบทสนทนาที่ตอบ — และคนละชุดข้อมูล/คนละช่วงเวลากับ replyRate (24 ชม. จาก conversations)
