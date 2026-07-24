@@ -34,13 +34,15 @@ async function runFast(): Promise<void> {
   await runJob('ad-stats-today', jobs.syncAdStatsToday);
   // ตัวเลขชุดเดียวกับหน้าสถิติแชท Pancake (ลูกค้าทั้งหมด / ลูกค้าใหม่ / ออเดอร์) — ใช้เป็น %ปิดการขาย
   await runJob('engagements-today', jobs.syncEngagementsToday);
+  // สถิติตอบแชทรายแอดมิน (ตอบวันนี้ / เวลาตอบเฉลี่ย) — ย้ายจาก hourly มา fast (ทุก 15 นาที)
+  // เพราะแอดมินที่ยุ่งมากยิงข้อความเร็ว เลขจะคลาดกับจอ Pancake หลายร้อยถ้าอัปเดตแค่ชั่วโมงละครั้ง
+  await runJob('admin-chat-today', jobs.syncAdminChatToday);
 }
 
 async function runHourly(): Promise<boolean> {
   const a = await runJob('ads', jobs.syncAds);
   const b = await runJob('admins-roster', jobs.syncAdminsRoster);
-  const c = await runJob('admin-chat-today', jobs.syncAdminChatToday);
-  return a && b && c;
+  return a && b;
 }
 
 async function runDaily(): Promise<boolean> {

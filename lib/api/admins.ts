@@ -197,25 +197,30 @@ export async function apiAdmins(_params?: any) {
   }
 
   // สถิติแชทวันนี้ต่อ user_id (รวมทุกเพจ) + เร็วสุด/ช้าสุดรายเพจ (min/max ของ avg รายเพจ)
+  // ⚠️ avg_response_ms จริงเก็บเป็น "วินาที" (Pancake ส่ง average_response_time หน่วยวินาที) — หารด้วย 60 ไม่ใช่ 60000
+  // respWSum/respWeight = ถ่วงน้ำหนักด้วยจำนวนข้อความรายเพจ (inbox_count) ให้ตรงวิธีเฉลี่ยของ Pancake
+  // (เฉลี่ยแบบไม่ถ่วงน้ำหนักทำให้เพจที่ยุ่งจริงถูกกลบด้วยเพจที่แทบไม่มีข้อความ)
   const chatToday: Record<
     string,
-    { replies: number; chats: number; phones: number; respSum: number; respN: number;
+    { replies: number; chats: number; phones: number; respWSum: number; respWeight: number;
       respMin: number; respMax: number }
   > = {};
   chatDailyRows.forEach((r) => {
     if (toDateStr_(r.date) !== todayStr) return;
     const uid = String(r.user_id);
     if (!chatToday[uid]) {
-      chatToday[uid] = { replies: 0, chats: 0, phones: 0, respSum: 0, respN: 0, respMin: 0, respMax: 0 };
+      chatToday[uid] = { replies: 0, chats: 0, phones: 0, respWSum: 0, respWeight: 0, respMin: 0, respMax: 0 };
     }
     const t = chatToday[uid];
-    t.replies += toNum_(r.inbox_count) + toNum_(r.comment_count);
+    const inbox = toNum_(r.inbox_count);
+    t.replies += inbox + toNum_(r.comment_count);
     t.chats += toNum_(r.unique_inbox_count);
     t.phones += toNum_(r.phone_number_count);
-    const resp = toNum_(r.avg_response_ms);
+    const resp = toNum_(r.avg_response_ms); // วินาที
     if (resp > 0) {
-      t.respSum += resp;
-      t.respN++;
+      const w = inbox > 0 ? inbox : 1; // ถ่วงด้วยจำนวนข้อความของเพจนั้น
+      t.respWSum += resp * w;
+      t.respWeight += w;
       if (!t.respMin || resp < t.respMin) t.respMin = resp;
       if (resp > t.respMax) t.respMax = resp;
     }
@@ -296,7 +301,7 @@ export async function apiAdmins(_params?: any) {
   const out = adminsRows.map((a) => {
     const uid = String(a.user_id);
     const t = chatToday[uid] ||
-      { replies: 0, chats: 0, phones: 0, respSum: 0, respN: 0, respMin: 0, respMax: 0 };
+      { replies: 0, chats: 0, phones: 0, respWSum: 0, respWeight: 0, respMin: 0, respMax: 0 };
     // ออเดอร์ของคนเดียวกันอาจมาทั้งแบบผูก seller_id และแบบไม่ผูก (จับด้วยชื่อ) — รวมสองทาง
     const sp = (a.pos_user_id && salesByPosId[String(a.pos_user_id)]) ||
       { orders: 0, revenue: 0, marks: [] as [number, number][] };
@@ -345,9 +350,9 @@ export async function apiAdmins(_params?: any) {
         replies: t.replies,
         chats: t.chats,
         phones: t.phones,
-        respMins: t.respN ? Math.round((t.respSum / t.respN / 60000) * 10) / 10 : null,
-        respMinMins: t.respMin ? Math.round((t.respMin / 60000) * 10) / 10 : null, // เพจที่ตอบเร็วสุด
-        respMaxMins: t.respMax ? Math.round((t.respMax / 60000) * 10) / 10 : null, // เพจที่ตอบช้าสุด
+        respMins: t.respWeight ? Math.round((t.respWSum / t.respWeight / 60) * 10) / 10 : null,
+        respMinMins: t.respMin ? Math.round((t.respMin / 60) * 10) / 10 : null, // เพจที่ตอบเร็วสุด
+        respMaxMins: t.respMax ? Math.round((t.respMax / 60) * 10) / 10 : null, // เพจที่ตอบช้าสุด
         orders: sales.orders,
         revenue: Math.round(sales.revenue),
       },

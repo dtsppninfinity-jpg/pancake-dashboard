@@ -269,13 +269,15 @@ export async function apiAdminPerf(params: any) {
     const t0 = startOfDay_(d).getTime();
     if (t0 < startOfDay_(r.start).getTime() || t0 > r.end.getTime()) return;
     const uid = String(c.user_id);
-    if (!chatByUser[uid]) chatByUser[uid] = { chats: 0, replies: 0, phones: 0, respSum: 0, respN: 0, name: String(c.user_name || '') };
+    if (!chatByUser[uid]) chatByUser[uid] = { chats: 0, replies: 0, phones: 0, respWSum: 0, respWeight: 0, name: String(c.user_name || '') };
     const t = chatByUser[uid];
+    const inbox = toNum_(c.inbox_count);
     t.chats += toNum_(c.unique_inbox_count);
-    t.replies += toNum_(c.inbox_count) + toNum_(c.comment_count);
+    t.replies += inbox + toNum_(c.comment_count);
     t.phones += toNum_(c.phone_number_count);
+    // avg_response_ms จริงเป็น "วินาที" — ถ่วงน้ำหนักด้วยจำนวนข้อความรายเพจ (ดู lib/api/admins.ts)
     const resp = toNum_(c.avg_response_ms);
-    if (resp > 0) { t.respSum += resp; t.respN++; }
+    if (resp > 0) { const w = inbox > 0 ? inbox : 1; t.respWSum += resp * w; t.respWeight += w; }
   });
 
   function topKey(map: Record<string, number>): string {
@@ -353,7 +355,7 @@ export async function apiAdminPerf(params: any) {
       replies: chat ? chat.replies : 0,
       phones: chat ? chat.phones : 0,
       closeRate: chats ? Math.min(100, Math.round(nOrders / chats * 1000) / 10) : null,
-      avgRespMins: (chat && chat.respN) ? Math.round(chat.respSum / chat.respN / 60000 * 10) / 10 : null,
+      avgRespMins: (chat && chat.respWeight) ? Math.round(chat.respWSum / chat.respWeight / 60 * 10) / 10 : null,
       avgOrder: nOrders ? Math.round(revenue / nOrders) : 0,
       topProduct: sale ? topKey(sale.products) : '',
       topPage: sale ? topKey(sale.pages) : '',

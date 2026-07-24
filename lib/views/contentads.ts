@@ -458,6 +458,9 @@ function cardHtml(it: any, rank: number): string {
     fmtNum(num(it.orders)) + '</b>', isOrganic ? 'ออเดอร์' : 'ซื้อ (Meta)');
   // โพสต์ organic ไม่มี tracking แชท/คลิก — โชว์ "-" (ไม่ใช่ 0 เพราะไม่ได้วัด)
   h += caNum('<b>' + (isOrganic ? '-' : fmtNum(num(it.msgs))) + '</b>', 'ทัก');
+  // ต้นทุน/ทัก = ค่าโฆษณา ÷ จำนวนคนทัก (ตรงคอลัมน์ "ต้นทุน/นัก" ของทีมแอด)
+  h += caNum('<b title="ต้นทุนต่อ 1 คนทัก = ค่าโฆษณา ÷ จำนวนคนทัก">' +
+    ((isOrganic || num(it.msgs) === 0) ? '-' : THB(num(it.costPerMsg))) + '</b>', 'ต้นทุน/ทัก');
   h += caNum('<b>' + (isOrganic ? '-' : kFmt(num(it.clicks))) + '</b>', 'คลิก');
   h += caNum('<b title="ซื้อ ÷ ทัก (แบบ Meta)">' + pctFmt(it.closeRate) + '</b>', '% ปิด');
   h += '</div>';
