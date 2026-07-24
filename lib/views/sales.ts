@@ -444,11 +444,16 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         label: p.name,
         value: p.value || p.qty,
         display: p.value ? THB(p.value) : fmtNum(p.qty) + ' ชิ้น',
+        attr: 'data-drill-prod="' + esc(p.name) + '" title="คลิกดูว่าขายได้เพจไหนบ้าง"',
       };
     });
     const pageRows = (topCh.pages || []).map(function (p: any) {
-      return { label: p.name, value: p.revenue, display: THB(p.revenue) };
+      return {
+        label: p.name, value: p.revenue, display: THB(p.revenue),
+        attr: 'data-drill-page="' + esc(p.name) + '" title="คลิกดูสินค้าที่เพจนี้ขายได้"',
+      };
     });
+    const pageCount = (topCh.pagesFull || []).length;
     html += '<div class="sr-bottom">' +
       '<div class="card">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
@@ -456,12 +461,16 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
           '<button class="btn-mini" id="sr-drill">🔍 ดูรายละเอียด</button>' +
         '</div>' +
         '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] +
-          ' — มูลค่า = ราคาขาย × จำนวน (ยังไม่หักส่วนลดท้ายบิล)</div>' +
+          ' — มูลค่า = ราคาขาย × จำนวน (ยังไม่หักส่วนลดท้ายบิล) • 👆 คลิกสินค้าเพื่อดูรายเพจ</div>' +
         '<div class="hbar-wide">' + hbarRows(prodRows, { empty: 'ยังไม่มีข้อมูลสินค้าในช่วงนี้' }) + '</div>' +
       '</div>' +
       '<div class="card">' +
-        '<h3>📄 เพจยอดขายดี Top 10</h3>' +
-        '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] + ' — เรียงตามรายได้</div>' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+          '<h3>📄 เพจยอดขายดี Top 10</h3>' +
+          (pageCount > 10 ? '<button class="btn-mini" id="sr-allpages">📋 ดูทุกเพจ (' + fmtNum(pageCount) + ')</button>' : '') +
+        '</div>' +
+        '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] +
+          ' — เรียงตามรายได้ • 👆 คลิกเพจเพื่อดูสินค้า</div>' +
         '<div class="hbar-wide">' + hbarRows(pageRows, { empty: 'ยังไม่มีออเดอร์ในช่วงนี้' }) + '</div>' +
       '</div>' +
     '</div>';
@@ -574,6 +583,11 @@ function bindEvents(container: HTMLElement): void {
   const drillBtn = container.querySelector('#sr-drill');
   if (drillBtn) drillBtn.addEventListener('click', openDrill);
 
+  // คลิกเจาะรายเพจ/รายสินค้าจากวิดเจ็ต Top 10 (ตามช่องทางที่กรองอยู่)
+  bindDrillRows(container, state.channel);
+  const allPagesBtn = container.querySelector('#sr-allpages');
+  if (allPagesBtn) allPagesBtn.addEventListener('click', function () { openAllPages(state.channel); });
+
   const marginTile = container.querySelector('#sr-margin-tile');
   if (marginTile) marginTile.addEventListener('click', function () { openMarginEditor(container); });
 
@@ -642,6 +656,113 @@ function openDrill(): void {
       if (body) body.innerHTML = drillBodyHtml(ch);
     });
   });
+}
+
+/* ---------------- drilldown ไขว้: เพจ↔สินค้า (คลิกจากวิดเจ็ต Top 10) ---------------- */
+
+function topOf(chKey: string): any {
+  const t = (lastData && lastData.top) || {};
+  return (chKey ? t[chKey] : t.all) || { pagesFull: [], pageProducts: {}, productPages: {} };
+}
+
+function drillNote(): string {
+  return '<div style="font-size:11px;color:var(--text-3);margin-top:10px">' +
+    '*มูลค่าสินค้า = ราคาขาย × จำนวน (ยังไม่หักส่วนลดท้ายบิล — รายได้จริงดูที่ระดับออเดอร์)</div>';
+}
+
+/** ผูกคลิกให้แถว/แถวตารางที่มี data-drill-page / data-drill-prod (ใช้ทั้งวิดเจ็ตหลักและใน modal) */
+function bindDrillRows(root: ParentNode | null, chKey: string): void {
+  if (!root) return;
+  root.querySelectorAll('[data-drill-prod]').forEach(function (el) {
+    el.addEventListener('click', function () {
+      openProductDrill(el.getAttribute('data-drill-prod') || '', chKey);
+    });
+  });
+  root.querySelectorAll('[data-drill-page]').forEach(function (el) {
+    el.addEventListener('click', function () {
+      openPageDrill(el.getAttribute('data-drill-page') || '', chKey);
+    });
+  });
+}
+
+/** สินค้า → ขายได้จากเพจไหนบ้าง (คลิกเพจเจาะต่อได้) */
+function openProductDrill(prodName: string, chKey: string): void {
+  const top = topOf(chKey);
+  const pages = (top.productPages && top.productPages[prodName]) || [];
+  const totVal = pages.reduce(function (s: number, p: any) { return s + (p.value || 0); }, 0);
+  const totQty = pages.reduce(function (s: number, p: any) { return s + (p.qty || 0); }, 0);
+  const totOrd = pages.reduce(function (s: number, p: any) { return s + (p.orders || 0); }, 0);
+  const rows = pages.map(function (p: any, i: number) {
+    return '<tr class="clickable" data-drill-page="' + esc(p.page) + '" title="คลิกดูสินค้าของเพจนี้">' +
+      '<td>' + (i + 1) + '</td><td>' + esc(p.page) + '</td><td>' + THB(p.value) +
+      '</td><td>' + fmtNum(p.qty) + '</td><td>' + fmtNum(p.orders) + '</td></tr>';
+  }).join('');
+  openModal(
+    '<div class="modal-head"><h3>📦 ' + esc(prodName) + '</h3><button class="modal-close">✕</button></div>' +
+    '<div class="card-sub" style="margin-bottom:10px">' + esc((lastData && lastData.rangeLabel) || '') +
+      ' • ' + CH_LABELS[chKey] + '</div>' +
+    '<div class="pill-grid" style="margin-bottom:12px">' +
+      '<span class="chip">💰 ' + THB(totVal) + '</span>' +
+      '<span class="chip">📦 ' + fmtNum(totQty) + ' ชิ้น</span>' +
+      '<span class="chip">🛒 ' + fmtNum(totOrd) + ' ออเดอร์</span></div>' +
+    '<h4 style="margin:6px 0">🏬 ขายได้จากเพจ (คลิกเพจเพื่อดูสินค้าอื่นของเพจนั้น)</h4>' +
+    (pages.length
+      ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>#</th><th>เพจ</th><th>มูลค่า*</th>' +
+        '<th>จำนวน</th><th>ออเดอร์</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      : '<div class="empty-note">ไม่มีข้อมูลเพจสำหรับสินค้านี้</div>') +
+    drillNote()
+  );
+  bindDrillRows(document.getElementById('modal-root'), chKey);
+}
+
+/** เพจ → สินค้าที่ขายได้ (คลิกสินค้าเจาะต่อได้) */
+function openPageDrill(pageName: string, chKey: string): void {
+  const top = topOf(chKey);
+  const prods = (top.pageProducts && top.pageProducts[pageName]) || [];
+  const info = (top.pagesFull || []).filter(function (p: any) { return p.name === pageName; })[0] ||
+    { revenue: 0, orders: 0 };
+  const rows = prods.map(function (p: any, i: number) {
+    return '<tr class="clickable" data-drill-prod="' + esc(p.name) + '" title="คลิกดูว่าขายได้เพจไหนอีก">' +
+      '<td>' + (i + 1) + '</td><td>' + esc(p.name) + '</td><td>' + THB(p.value) +
+      '</td><td>' + fmtNum(p.qty) + '</td><td>' + fmtNum(p.orders) + '</td></tr>';
+  }).join('');
+  openModal(
+    '<div class="modal-head"><h3>📄 ' + esc(pageName) + '</h3><button class="modal-close">✕</button></div>' +
+    '<div class="card-sub" style="margin-bottom:10px">' + esc((lastData && lastData.rangeLabel) || '') +
+      ' • ' + CH_LABELS[chKey] + '</div>' +
+    '<div class="pill-grid" style="margin-bottom:12px">' +
+      '<span class="chip">💰 ' + THB(info.revenue) + '</span>' +
+      '<span class="chip">🛒 ' + fmtNum(info.orders) + ' ออเดอร์</span></div>' +
+    '<h4 style="margin:6px 0">📦 สินค้าที่ขายได้ (คลิกสินค้าเพื่อดูว่าขายเพจไหนอีก)</h4>' +
+    (prods.length
+      ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>#</th><th>สินค้า</th><th>มูลค่า*</th>' +
+        '<th>จำนวน</th><th>ออเดอร์</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      : '<div class="empty-note">ไม่มีข้อมูลสินค้าสำหรับเพจนี้</div>') +
+    drillNote()
+  );
+  bindDrillRows(document.getElementById('modal-root'), chKey);
+}
+
+/** รายชื่อทุกเพจที่มียอด (คลิกเพจเจาะต่อ) */
+function openAllPages(chKey: string): void {
+  const top = topOf(chKey);
+  const pages = top.pagesFull || [];
+  const rows = pages.map(function (p: any, i: number) {
+    return '<tr class="clickable" data-drill-page="' + esc(p.name) + '" title="คลิกดูสินค้าของเพจนี้">' +
+      '<td>' + (i + 1) + '</td><td>' + esc(p.name) + '</td><td>' + THB(p.revenue) +
+      '</td><td>' + fmtNum(p.orders) + '</td></tr>';
+  }).join('');
+  openModal(
+    '<div class="modal-head"><h3>📄 ทุกเพจที่มียอดขาย (' + fmtNum(pages.length) + ')</h3>' +
+      '<button class="modal-close">✕</button></div>' +
+    '<div class="card-sub" style="margin-bottom:10px">' + esc((lastData && lastData.rangeLabel) || '') +
+      ' • ' + CH_LABELS[chKey] + ' • คลิกเพจเพื่อดูสินค้าที่ขายได้</div>' +
+    (pages.length
+      ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>#</th><th>เพจ</th><th>รายได้</th>' +
+        '<th>ออเดอร์</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      : '<div class="empty-note">ยังไม่มีออเดอร์ในช่วงนี้</div>')
+  );
+  bindDrillRows(document.getElementById('modal-root'), chKey);
 }
 
 /* ---------------- margin editor (กำไรประมาณการ) ---------------- */

@@ -16,6 +16,7 @@ export interface HbarItem {
   value: number;
   display?: string | number;
   cls?: string;
+  attr?: string; // HTML attributes ดิบใส่ที่แถว (เช่น data-* ให้คลิกเจาะได้) — ผู้เรียกต้อง escape เอง
 }
 
 export interface HbarOpts {
@@ -162,7 +163,7 @@ export function hbarRows(items: HbarItem[], opts?: HbarOpts): string {
   const max = Math.max(...items.map(function (it) { return it.value; }).concat([1]));
   return items.map(function (it) {
     const w = Math.round((it.value / max) * 100);
-    return '<div class="hbar-row">' +
+    return '<div class="hbar-row' + (it.attr ? ' clickable' : '') + '"' + (it.attr ? ' ' + it.attr : '') + '>' +
       '<div class="hbar-label" title="' + esc(it.label) + '">' + esc(it.label) + '</div>' +
       '<div class="hbar-track"><div class="hbar-fill ' + (it.cls || o.cls || '') + '" style="width:' + w + '%"></div></div>' +
       '<div class="hbar-num">' + esc(it.display !== undefined ? it.display : fmtNum(it.value)) + '</div></div>';

@@ -215,6 +215,10 @@ input, select { font-family: inherit; }
   display: grid; grid-template-columns: 130px 1fr 48px; gap: 10px;
   align-items: center; font-size: 12.5px; margin-bottom: 9px;
 }
+.hbar-row.clickable { cursor: pointer; border-radius: 7px; padding: 3px 6px; margin-left: -6px; margin-right: -6px; transition: background .15s; }
+.hbar-row.clickable:hover { background: rgba(108,92,231,.10); }
+table.tbl tr.clickable { cursor: pointer; }
+table.tbl tr.clickable:hover td { background: rgba(108,92,231,.12); }
 .hbar-label { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hbar-track { height: 9px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
 .hbar-fill {

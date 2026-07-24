@@ -511,6 +511,9 @@ export async function apiSales(params: any) {
   function topAgg(list: Row[]) {
     const pages: Record<string, { revenue: number; orders: number }> = {};
     const products: Record<string, { qty: number; value: number; orders: number }> = {};
+    // cross-tab สำหรับ drilldown: เพจ→สินค้า และ สินค้า→เพจ (นับยอดขายรายคู่)
+    const pageProd: Record<string, Record<string, { qty: number; value: number; orders: number }>> = {};
+    const prodPage: Record<string, Record<string, { qty: number; value: number; orders: number }>> = {};
     list.forEach((o) => {
       if (o._needCheck) return;   // Top เพจ/สินค้า นับเฉพาะยืนยันแล้ว (ตรงกับยอดขายหลัก)
       const pg = pageNames[String(o.page_id || '')] || String(o.account_name || '') || 'ไม่ระบุเพจ';
@@ -521,13 +524,42 @@ export async function apiSales(params: any) {
         const nm = String((it && it.name) || '').trim();
         if (!nm) return;
         const qty = toNum_(it.qty) || 1;
+        const val = money_(it.price) * qty; // มูลค่าตามราคาขาย (ประมาณ — ไม่หักส่วนลดท้ายบิล)
         if (!products[nm]) products[nm] = { qty: 0, value: 0, orders: 0 };
         products[nm].qty += qty;
-        products[nm].value += money_(it.price) * qty; // มูลค่าตามราคาขาย (ประมาณ — ไม่หักส่วนลดท้ายบิล)
+        products[nm].value += val;
         products[nm].orders++;
+        // เพจ→สินค้า
+        if (!pageProd[pg]) pageProd[pg] = {};
+        if (!pageProd[pg][nm]) pageProd[pg][nm] = { qty: 0, value: 0, orders: 0 };
+        pageProd[pg][nm].qty += qty; pageProd[pg][nm].value += val; pageProd[pg][nm].orders++;
+        // สินค้า→เพจ
+        if (!prodPage[nm]) prodPage[nm] = {};
+        if (!prodPage[nm][pg]) prodPage[nm][pg] = { qty: 0, value: 0, orders: 0 };
+        prodPage[nm][pg].qty += qty; prodPage[nm][pg].value += val; prodPage[nm][pg].orders++;
       });
     });
+    // เพจ→สินค้า: เรียงตามมูลค่า top 25 ต่อเพจ (แต่ละเพจมักมีสินค้าไม่กี่ตัว payload เล็ก)
+    const pageProducts: Record<string, any[]> = {};
+    Object.keys(pageProd).forEach((pg) => {
+      pageProducts[pg] = Object.keys(pageProd[pg])
+        .map((nm) => ({ name: nm, qty: pageProd[pg][nm].qty, value: Math.round(pageProd[pg][nm].value), orders: pageProd[pg][nm].orders }))
+        .sort((a, b) => (b.value - a.value) || (b.qty - a.qty))
+        .slice(0, 25);
+    });
+    // สินค้า→เพจ: เรียงตามมูลค่า top 25 ต่อสินค้า
+    const productPages: Record<string, any[]> = {};
+    Object.keys(prodPage).forEach((nm) => {
+      productPages[nm] = Object.keys(prodPage[nm])
+        .map((pg) => ({ page: pg, qty: prodPage[nm][pg].qty, value: Math.round(prodPage[nm][pg].value), orders: prodPage[nm][pg].orders }))
+        .sort((a, b) => (b.value - a.value) || (b.qty - a.qty))
+        .slice(0, 25);
+    });
     return {
+      // ทุกเพจที่มียอด (ไม่จำกัด 10) — ใช้ปุ่ม "ดูทุกเพจ" ; เพจไม่มียอดไม่โผล่อยู่แล้ว
+      pagesFull: Object.keys(pages)
+        .map((nm) => ({ name: nm, revenue: Math.round(pages[nm].revenue), orders: pages[nm].orders }))
+        .sort((a, b) => b.revenue - a.revenue),
       pages: Object.keys(pages)
         .map((nm) => ({ name: nm, revenue: Math.round(pages[nm].revenue), orders: pages[nm].orders }))
         .sort((a, b) => b.revenue - a.revenue)
@@ -536,6 +568,8 @@ export async function apiSales(params: any) {
         .map((nm) => ({ name: nm, qty: products[nm].qty, value: Math.round(products[nm].value), orders: products[nm].orders }))
         .sort((a, b) => (b.value - a.value) || (b.qty - a.qty))
         .slice(0, 10),
+      pageProducts,   // เพจ→รายการสินค้าที่ขายได้
+      productPages,   // สินค้า→เพจที่ขายได้
     };
   }
 
