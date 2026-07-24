@@ -294,9 +294,9 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
   html += '<div class="sr-cards">' +
     '<div class="sr-card"' + tipAttrs({
       title: '💰 รายได้รวม',
-      formula: 'Σ ยอดขายทุกออเดอร์ (ตัดยกเลิก/ตีกลับ)',
-      body: 'รวมทุกช่องทาง (FB + LINE) ในช่วงที่เลือก • ไม่รวมออเดอร์เปล่าและออเดอร์ที่ยกเลิก/ตีกลับ • หน่วยเป็นบาท (แปลงจากสตางค์ที่ Pancake เก็บแล้ว)',
-      src: 'ออเดอร์ POS จริง',
+      formula: 'Σ ยอดขายออเดอร์ "ยืนยันแล้ว"',
+      body: 'นับเฉพาะออเดอร์ยืนยันแล้ว (ตรงนิยาม Pancake "รวมสินค้าปิดการขาย") • ไม่รวมออเดอร์ใหม่/รอยืนยัน/ยกเลิก/ตีกลับ • หน่วยเป็นบาท',
+      src: 'ออเดอร์ POS จริง (ยืนยันแล้ว)',
     }) + '>' +
       '<div class="label">💰 รายได้รวม</div>' +
       '<div class="big">' + THB(k.revenue || 0) + '</div>' +
@@ -356,16 +356,16 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     tileHtml('🧾 ยอดขายรวม (เพจ+ไลน์)', THB(sb.total || 0), {
       title: '🧾 ยอดขายรวม (เพจ+ไลน์)', formula: 'ยอดขายเพจ + ยอดขายไลน์',
       body: 'เพจ (Facebook) ' + THB(sb.fb || 0) + ' + ไลน์ ' + THB(sb.line || 0) +
-        ' • ไม่ขึ้นกับช่องทางที่กรอง โชว์รวมเสมอ', src: 'ออเดอร์ POS จริง' }) +
+        ' • เฉพาะยืนยันแล้ว • ไม่ขึ้นกับช่องทางที่กรอง', src: 'ออเดอร์ POS จริง (ยืนยันแล้ว)' }) +
     tileHtml('📘 ยอดขายเพจ', THB(sb.fb || 0), {
-      title: '📘 ยอดขายเพจ (Facebook)', formula: 'Σ ยอดขายออเดอร์ช่องทาง Facebook',
-      body: 'เฉพาะ Facebook • ตัวตั้งของ ROAS รวม', src: 'ออเดอร์ POS จริง' }) +
+      title: '📘 ยอดขายเพจ (Facebook)', formula: 'Σ ยอดขาย FB "ยืนยันแล้ว"',
+      body: 'เฉพาะ Facebook ที่ยืนยันแล้ว (ตรง Pancake) • ตัวตั้งของ ROAS รวม', src: 'ออเดอร์ POS จริง (ยืนยันแล้ว)' }) +
     tileHtml('🟢 ยอดขายไลน์', THB(sb.line || 0), {
-      title: '🟢 ยอดขายไลน์ (LINE OA)', formula: 'Σ ยอดขายออเดอร์ช่องทาง LINE',
-      body: 'เฉพาะ LINE OA', src: 'ออเดอร์ POS จริง' }) +
+      title: '🟢 ยอดขายไลน์ (LINE OA)', formula: 'Σ ยอดขาย LINE "ยืนยันแล้ว"',
+      body: 'เฉพาะ LINE OA ที่ยืนยันแล้ว', src: 'ออเดอร์ POS จริง (ยืนยันแล้ว)' }) +
     tileHtml('💰 รายได้', THB(k.revenue || 0), {
-      title: '💰 รายได้', formula: 'Σ ยอดขายทุกออเดอร์ (ตัดยกเลิก/ตีกลับ)',
-      body: 'รวมทุกช่องทางในช่วงที่เลือก', src: 'ออเดอร์ POS จริง' }) +
+      title: '💰 รายได้', formula: 'Σ ยอดขายออเดอร์ "ยืนยันแล้ว"',
+      body: 'รวมทุกช่องทาง เฉพาะยืนยันแล้ว (ตรง Pancake)', src: 'ออเดอร์ POS จริง (ยืนยันแล้ว)' }) +
     tileHtml('🛒 ออเดอร์', fmtNum(k.orders || 0), {
       title: '🛒 ออเดอร์', formula: 'นับออเดอร์ที่มีสินค้าจริง',
       body: 'ตัดออเดอร์เปล่าที่ Pancake สร้างให้ทุกแชทจากแอด', src: 'ออเดอร์ POS จริง' }) +
@@ -373,8 +373,8 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       title: '👥 ลูกค้า', formula: 'นับ customer_id ไม่ซ้ำ',
       body: 'จำนวนลูกค้าที่มีออเดอร์ในช่วงนี้ (คนเดียวสั่งหลายครั้งนับ 1)' }) +
     tileHtml('💵 เฉลี่ย/ออเดอร์', THB(k.avgOrder || 0), {
-      title: '💵 เฉลี่ย/ออเดอร์', formula: 'รายได้รวม ÷ จำนวนออเดอร์',
-      body: 'มูลค่าเฉลี่ยต่อ 1 ออเดอร์' }) +
+      title: '💵 เฉลี่ย/ออเดอร์', formula: 'ยอดขายยืนยันแล้ว ÷ ออเดอร์ยืนยันแล้ว',
+      body: 'มูลค่าเฉลี่ยต่อ 1 ออเดอร์ที่ปิดการขายแล้ว' }) +
     tileHtml('✅ ยืนยันแล้ว', k.confirmedOrders === null || k.confirmedOrders === undefined ? '—' : fmtNum(k.confirmedOrders), {
       title: '✅ ยืนยันแล้ว', formula: 'ออเดอร์สถานะ "ยืนยันแล้ว" (status=1)',
       body: 'ตัวที่ Pancake นับเป็น "สร้างคำสั่งซื้อ" — เอาไว้เทียบจอ Pancake' }) +

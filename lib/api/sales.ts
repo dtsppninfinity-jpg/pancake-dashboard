@@ -378,15 +378,20 @@ export async function apiSales(params: any) {
   const prevCh = prev.filter(matchChannel);
 
   function summarize(list: Row[]) {
-    const s: any = { revenue: 0, orders: list.length, confirmed: 0, customers: {}, needCheck: 0, adRevenue: 0 };
+    // ยอดขาย = เฉพาะออเดอร์ "ยืนยันแล้ว" (ตรงนิยาม Pancake POS ที่นับ "รวมสินค้าปิดการขาย")
+    // ออเดอร์ใหม่/รอยืนยัน (_needCheck = status 0,17) ยังไม่ปิดการขาย จึงไม่นับเป็นยอดขาย
+    // — แต่ยังนับใน orders (จำนวนใบ) และโชว์เป็น "ต้องตรวจ" ให้เห็น
+    const s: any = { revenue: 0, allRevenue: 0, orders: list.length, confirmed: 0, customers: {}, needCheck: 0, adRevenue: 0 };
     list.forEach((o) => {
-      s.revenue += o.total_price;
+      s.allRevenue += o.total_price;
       if (o.customer_id) s.customers[o.customer_id] = 1;
-      if (o._needCheck) s.needCheck++;
-      // "ยืนยันแล้ว" = ผ่านการยืนยันของแอดมินแล้ว (ไม่ใช่ออเดอร์ใหม่/รอยืนยัน)
-      // Pancake นับตัวนี้เป็น "สร้างคำสั่งซื้อ" — เราโชว์คู่กับยอดรวมเพื่อให้เทียบกันได้
-      else s.confirmed++;
-      if (o.ad_id) s.adRevenue += o.total_price;
+      if (o._needCheck) {
+        s.needCheck++;
+      } else {
+        s.confirmed++;
+        s.revenue += o.total_price;               // ยอดขาย = เฉพาะยืนยันแล้ว
+        if (o.ad_id) s.adRevenue += o.total_price;
+      }
     });
     s.customers = Object.keys(s.customers).length;
     return s;
@@ -409,11 +414,12 @@ export async function apiSales(params: any) {
     };
   }
 
-  // ยอดขายรายชั่วโมง (รวมทุกวันในช่วง bucket ตามชั่วโมงของวัน)
+  // ยอดขายรายชั่วโมง (รวมทุกวันในช่วง bucket ตามชั่วโมงของวัน) — เฉพาะยืนยันแล้ว
   function hourlyBuckets(list: Row[]): number[] {
     const h: number[] = [];
     for (let i = 0; i < 24; i++) h.push(0);
     list.forEach((o) => {
+      if (o._needCheck) return;   // ยอดขาย = เฉพาะออเดอร์ยืนยันแล้ว (ตรง Pancake)
       h[bkkHour_(o._at)] += o.total_price;
     });
     return h.map((v) => Math.round(v));
@@ -464,10 +470,10 @@ export async function apiSales(params: any) {
   let todayLine = 0;
   let todayNeedCheck = 0;
   todayOrders.forEach((o) => {
+    if (o._needCheck) { todayNeedCheck++; return; }   // ยอดขาย = เฉพาะยืนยันแล้ว
     const ch = orderChannel_(o);
     if (ch === 'line') todayLine += o.total_price;
     else if (ch === 'facebook') todayFb += o.total_price;
-    if (o._needCheck) todayNeedCheck++;
   });
 
   // แหล่งที่มา FB / LINE / อื่นๆ
@@ -506,6 +512,7 @@ export async function apiSales(params: any) {
     const pages: Record<string, { revenue: number; orders: number }> = {};
     const products: Record<string, { qty: number; value: number; orders: number }> = {};
     list.forEach((o) => {
+      if (o._needCheck) return;   // Top เพจ/สินค้า นับเฉพาะยืนยันแล้ว (ตรงกับยอดขายหลัก)
       const pg = pageNames[String(o.page_id || '')] || String(o.account_name || '') || 'ไม่ระบุเพจ';
       if (!pages[pg]) pages[pg] = { revenue: 0, orders: 0 };
       pages[pg].revenue += o.total_price;
@@ -614,6 +621,7 @@ export async function apiSales(params: any) {
   let fbRev = 0, lineRev = 0, adPagesRev = 0;
   const adPageSet = new Set((adCost && adCost.adPageIds) || []);
   cur.forEach((o) => {
+    if (o._needCheck) return;   // ยอดขาย = เฉพาะยืนยันแล้ว (ตรง Pancake)
     const chn = orderChannel_(o);
     if (chn === 'facebook') fbRev += o.total_price;
     else if (chn === 'line') lineRev += o.total_price;
@@ -659,7 +667,8 @@ export async function apiSales(params: any) {
       // ออเดอร์ที่แอดมินยืนยันแล้ว — Pancake นับตัวนี้เป็น "สร้างคำสั่งซื้อ"
       confirmedOrders: sCur.confirmed,
       customers: sCur.customers,
-      avgOrder: sCur.orders ? Math.round(sCur.revenue / sCur.orders) : 0,
+      // เฉลี่ย/ออเดอร์ = ยอดขายยืนยันแล้ว ÷ จำนวนออเดอร์ยืนยันแล้ว (ให้สอดคล้องกับยอดขาย)
+      avgOrder: sCur.confirmed ? Math.round(sCur.revenue / sCur.confirmed) : 0,
       needCheck: sCur.needCheck,
       adRevenue: Math.round(sCur.adRevenue),
       // %ปิดการขาย = ออเดอร์ที่สร้างจากแชท ÷ คนทัก (อินบ็อกซ์ใหม่ + คอมเมนต์)
