@@ -187,28 +187,34 @@ async function loadOrders_(sinceIso: string, untilIso: string | null, cols: stri
 /* ---------------- สถิติลูกค้าแบบเดียวกับหน้า Pancake (chat_engagement_daily) ---------------- */
 
 interface Engagement {
-  total: number;      // ลูกค้าที่มีปฏิสัมพันธ์ทั้งหมด (ตัดซ้ำแล้ว) — ตัวหารของ %ปิดการขาย
-  newInbox: number;   // ลูกค้าที่เปิดแชทใหม่
-  orders: number;     // "สร้างคำสั่งซื้อ" ตามที่ Pancake นับ
+  total: number;      // ลูกค้าที่มีปฏิสัมพันธ์ทั้งหมด (inbox+comment ตัดซ้ำ) — ไว้อ้างอิง
+  reached: number;    // "คนทัก" = อินบ็อกซ์ใหม่ + คอมเมนต์ = ตัวหารของ %ปิดการขาย (ตามที่บอสกำหนด)
+  newInbox: number;   // ลูกค้าที่เปิดบทสนทนาอินบ็อกซ์ใหม่
+  comment: number;    // ลูกค้าที่ทักผ่านคอมเมนต์
+  orders: number;     // "สร้างคำสั่งซื้อ" (ออเดอร์ที่สร้างจากแชท) — ตัวตั้ง
   oldOrders: number;  // ออเดอร์จากลูกค้าเก่า
-  byCh: Record<string, { total: number; newInbox: number; orders: number }>;
+  byCh: Record<string, { total: number; reached: number; newInbox: number; comment: number; orders: number }>;
 }
 
+const emptyChEng_ = () => ({ total: 0, reached: 0, newInbox: 0, comment: 0, orders: 0 });
 const emptyEng_ = (): Engagement => ({
-  total: 0, newInbox: 0, orders: 0, oldOrders: 0,
-  byCh: { facebook: { total: 0, newInbox: 0, orders: 0 }, line: { total: 0, newInbox: 0, orders: 0 }, other: { total: 0, newInbox: 0, orders: 0 } },
+  total: 0, reached: 0, newInbox: 0, comment: 0, orders: 0, oldOrders: 0,
+  byCh: { facebook: emptyChEng_(), line: emptyChEng_(), other: emptyChEng_() },
 });
 
 /**
  * รวมสถิติลูกค้าของช่วงที่เลือก จาก chat_engagement_daily
  * (ตัวเลขชุดนี้มาจาก statistics/customer_engagements — แหล่งเดียวกับที่ Pancake โชว์)
+ *
+ * "คนทัก" (reached) = อินบ็อกซ์ใหม่ + คอมเมนต์ — ตามที่บอสระบุว่าเป็น "คนทักจริง"
+ * (ไม่ใช่ total ที่รวม inbox เดิมของลูกค้าเก่าด้วย)
  * คืน null เมื่อยังไม่ได้รัน migration → หน้าเว็บโชว์ "—" ไม่ใช่ 0
  */
 async function loadEngagement_(r: Range): Promise<Engagement | null> {
   try {
     const rows = await fetchAll<Row>(() =>
       db.from('chat_engagement_daily')
-        .select('key,date,platform,total,new_inbox,order_count,old_order_count')
+        .select('key,date,platform,total,comment,new_inbox,order_count,old_order_count')
         .gte('date', fmtDateBkk(r.start))
         .lte('date', fmtDateBkk(r.end)),
       'key'
@@ -218,9 +224,13 @@ async function loadEngagement_(r: Range): Promise<Engagement | null> {
       const ch = platformChannel_(row.platform);
       const total = toNum_(row.total);
       const ni = toNum_(row.new_inbox);
+      const cm = toNum_(row.comment);
+      const reached = ni + cm;   // คนทัก
       const oc = toNum_(row.order_count);
-      e.total += total; e.newInbox += ni; e.orders += oc; e.oldOrders += toNum_(row.old_order_count);
-      e.byCh[ch].total += total; e.byCh[ch].newInbox += ni; e.byCh[ch].orders += oc;
+      e.total += total; e.reached += reached; e.newInbox += ni; e.comment += cm;
+      e.orders += oc; e.oldOrders += toNum_(row.old_order_count);
+      const b = e.byCh[ch];
+      b.total += total; b.reached += reached; b.newInbox += ni; b.comment += cm; b.orders += oc;
     });
     return e;
   } catch {
@@ -238,6 +248,11 @@ interface AdCost {
   activeAds: number;
   syncedAt: string | null;    // เวลาที่ sync ค่าแอดล่าสุด (ให้หน้าเว็บบอก "สดถึงเมื่อไหร่")
   worst: { name: string; spend: number }[];
+  // ตัวเลข Meta pixel (ให้ ROAS/%ปิด ตรงหน้า Meta Ads dashboard)
+  metaValue: number;          // ยอดขายที่ Meta ตี (บาทจริง)
+  metaValuePrev: number;      // ช่วงก่อนหน้า
+  metaPurchases: number;      // "ซื้อ" ที่ Meta ตี
+  metaMsgs: number;           // "ทัก" (messaging_conversation_started_7d)
 }
 
 /**
@@ -248,16 +263,30 @@ interface AdCost {
 async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
   const dateOf = (d: Date) => fmtDateBkk(d);
   try {
-    const rows = await fetchAll<Row>(() =>
-      db.from('ad_daily')
-        .select('date,ad_id,name,status,spend,pos_orders,updated_at')
-        .gte('date', dateOf(r.prevStart))
-        .lte('date', dateOf(r.end)),
-      'ad_id'
-    );
+    // meta_purchases/value อาจยังไม่มีคอลัมน์ (ยังไม่รัน migration 2026-07-24) → ลองแบบเต็มก่อน
+    let rows: Row[];
+    try {
+      rows = await fetchAll<Row>(() =>
+        db.from('ad_daily')
+          .select('date,ad_id,name,status,spend,pos_orders,meta_purchases,meta_purchase_value,msgs_started,updated_at')
+          .gte('date', dateOf(r.prevStart))
+          .lte('date', dateOf(r.end)),
+        'ad_id'
+      );
+    } catch (e2: any) {
+      if (!String((e2 && e2.message) || '').includes('meta_purchase')) throw e2;
+      rows = await fetchAll<Row>(() =>
+        db.from('ad_daily')
+          .select('date,ad_id,name,status,spend,pos_orders,msgs_started,updated_at')
+          .gte('date', dateOf(r.prevStart))
+          .lte('date', dateOf(r.end)),
+        'ad_id'
+      );
+    }
     const curFrom = dateOf(r.start), curTo = dateOf(r.end);
     const prevFrom = dateOf(r.prevStart), prevTo = dateOf(r.prevEnd);
     let spend = 0, spendPrev = 0, syncedAt: string | null = null;
+    let metaValue = 0, metaValuePrev = 0, metaPurchases = 0, metaMsgs = 0;
     const activeIds: Record<string, 1> = {};
     const byAd: Record<string, { name: string; spend: number; orders: number }> = {};
     rows.forEach((a) => {
@@ -265,6 +294,9 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
       const sp = toNum_(a.spend);
       if (d >= curFrom && d <= curTo) {
         spend += sp;
+        metaValue += toNum_(a.meta_purchase_value);
+        metaPurchases += toNum_(a.meta_purchases);
+        metaMsgs += toNum_(a.msgs_started);
         if (String(a.status || '').toUpperCase() === 'ACTIVE') activeIds[String(a.ad_id)] = 1;
         const id = String(a.ad_id);
         if (!byAd[id]) byAd[id] = { name: String(a.name || ''), spend: 0, orders: 0 };
@@ -274,6 +306,7 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
         if (u && (!syncedAt || u > syncedAt)) syncedAt = u;
       } else if (d >= prevFrom && d < prevTo) {
         spendPrev += sp;
+        metaValuePrev += toNum_(a.meta_purchase_value);
       }
     });
     const worst = Object.keys(byAd)
@@ -289,6 +322,10 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
       activeAds: Object.keys(activeIds).length,
       syncedAt,
       worst,
+      metaValue,
+      metaValuePrev,
+      metaPurchases,
+      metaMsgs,
     };
   } catch (e: any) {
     const m = String((e && e.message) || e || '');
@@ -402,14 +439,16 @@ export async function apiSales(params: any) {
     }
     if (toDateStr_(c.date) === todayStr) todayNewCust += toNum_(c.new_customer_count);
   });
-  // ---- %ปิดการขาย = "ยอดสั่งซื้อจากลูกค้าทั้งหมด" ของ Pancake ----
-  // สูตร: order_count ÷ total (ลูกค้าที่มีปฏิสัมพันธ์ทั้งหมด ตัดซ้ำแล้ว)
-  // ทั้งตัวตั้งและตัวหารมาจาก statistics/customer_engagements — แหล่งเดียวกับหน้าสถิติแชท
-  // ของ Pancake เป๊ะ จึงเทียบกับที่บอสเห็นบนจอ Pancake ได้ตรงๆ
-  // (สูตรเดิม "ออเดอร์ POS ÷ บทสนทนาที่เปิดใหม่" ให้ ~40% ซึ่งไม่ตรงกับตัวเลขไหนของ Pancake)
+  // ---- %ปิดการขาย = ออเดอร์ที่สร้างจากแชท ÷ คนทัก ----
+  // "คนทัก" (reached) = บทสนทนาอินบ็อกซ์ใหม่ + คอมเมนต์ ตามที่บอสระบุว่าเป็น "คนทักจริง"
+  // ทั้งตัวตั้ง (order_count) และตัวหารมาจาก statistics/customer_engagements ของ Pancake
+  // (สูตรเก่าใช้ total = รวม inbox ของลูกค้าเก่าด้วย ทำให้ตัวหารใหญ่เกิน %ต่ำผิด)
   const eng = await loadEngagement_(r);
-  const engCh = eng ? (channel ? eng.byCh[channel] : { total: eng.total, newInbox: eng.newInbox, orders: eng.orders }) : null;
-  const closeRate = engCh && engCh.total ? Math.round((engCh.orders / engCh.total) * 1000) / 10 : null;
+  const engCh = eng
+    ? (channel ? eng.byCh[channel]
+       : { total: eng.total, reached: eng.reached, newInbox: eng.newInbox, comment: eng.comment, orders: eng.orders })
+    : null;
+  const closeRate = engCh && engCh.reached ? Math.round((engCh.orders / engCh.reached) * 1000) / 10 : null;
   // ตัวหารเดิม (บทสนทนาที่เปิดใหม่) ยังใช้ต่อในกล่องช่องทาง/ป้ายกำกับ
   const convBase = channel ? newConvsByCh[channel] || 0 : newConvs;
 
@@ -432,9 +471,9 @@ export async function apiSales(params: any) {
     .map((ch) => {
       const list = cur.filter((o) => orderChannel_(o) === ch);
       const s = summarize(list);
-      // ใช้สูตรเดียวกับ KPI ด้านบน (ออเดอร์ ÷ ลูกค้าทั้งหมด ตามที่ Pancake นับ)
+      // ใช้สูตรเดียวกับ KPI ด้านบน (ออเดอร์จากแชท ÷ คนทัก = อินบ็อกซ์ใหม่ + คอมเมนต์)
       const e = eng ? eng.byCh[ch] : null;
-      const cRate = e && e.total ? Math.round((e.orders / e.total) * 1000) / 10 : null;
+      const cRate = e && e.reached ? Math.round((e.orders / e.reached) * 1000) / 10 : null;
       let status;
       if (!s.orders) status = { label: '—', cls: 'neutral' };
       else if (cRate !== null && cRate >= 20) status = { label: '✅ ดี', cls: 'ai' };
@@ -580,13 +619,16 @@ export async function apiSales(params: any) {
       view: 'contentads',
     });
   }
-  if (adCost && adCost.roas !== null && adCost.roas < 1 && adCost.spend > 0) {
+  // ROAS แบบ Meta (ยอดที่ Meta ตี ÷ ค่าแอด) — ต่ำกว่า 1 = ขายได้น้อยกว่าค่าแอด
+  const adRoas = (adCost && adCost.spend > 0 && adCost.metaValue > 0)
+    ? adCost.metaValue / adCost.spend : null;
+  if (adCost && adRoas !== null && adRoas < 1) {
     alerts.push({
       icon: '📉',
       title: 'ROAS ต่ำกว่าทุน',
-      reason: 'ช่วงนี้ยอดขาย ฿' + Math.round(sCur.revenue).toLocaleString('th-TH') +
+      reason: 'ช่วงนี้ยอดขายจากแอด(Meta) ฿' + Math.round(adCost.metaValue).toLocaleString('th-TH') +
         ' จากค่าแอด ฿' + Math.round(adCost.spend).toLocaleString('th-TH') +
-        ' (ROAS ' + adCost.roas.toFixed(2) + 'x)',
+        ' (ROAS ' + adRoas.toFixed(2) + 'x)',
       level: 'red',
       view: 'contentads',
     });
@@ -603,10 +645,13 @@ export async function apiSales(params: any) {
       avgOrder: sCur.orders ? Math.round(sCur.revenue / sCur.orders) : 0,
       needCheck: sCur.needCheck,
       adRevenue: Math.round(sCur.adRevenue),
-      // %ปิดการขาย = ออเดอร์ ÷ ลูกค้าที่คุยทั้งหมด (สูตรเดียวกับ Pancake)
+      // %ปิดการขาย = ออเดอร์ที่สร้างจากแชท ÷ คนทัก (อินบ็อกซ์ใหม่ + คอมเมนต์)
       closeRate: closeRate,
-      closeBase: engCh ? engCh.total : null,
-      closeOrders: engCh ? engCh.orders : null,
+      closeBase: engCh ? engCh.reached : null,      // คนทัก = ตัวหาร
+      closeOrders: engCh ? engCh.orders : null,     // ออเดอร์จากแชท = ตัวตั้ง
+      closeNewInbox: engCh ? engCh.newInbox : null, // ในคนทัก: อินบ็อกซ์ใหม่กี่คน
+      closeComment: engCh ? engCh.comment : null,   // ในคนทัก: คอมเมนต์กี่คน
+      engTotal: engCh ? engCh.total : null,         // ลูกค้าคุยทั้งหมด (อ้างอิง)
       newInbox: engCh ? engCh.newInbox : null,
       newConvs: convBase,
     },
@@ -618,9 +663,18 @@ export async function apiSales(params: any) {
       trend: adCost.trend,
       activeAds: adCost.activeAds,
       syncedAt: adCost.syncedAt,
-      roas: adCost.spend > 0 ? Math.round((sCur.revenue / adCost.spend) * 100) / 100 : null,
-      roasPrev: (compare && adCost.spendPrev && adCost.spendPrev > 0)
-        ? Math.round((sPrev.revenue / adCost.spendPrev) * 100) / 100 : null,
+      // ROAS = ยอดขายที่ Meta ตี ÷ ค่าแอด (ตรงหน้า Meta Ads dashboard)
+      // เดิมใช้ยอดขายรวมทุกช่องทาง (รวม organic/LINE/ลูกค้าเก่า) หารค่าแอด → พองเกินจริง
+      roas: adCost.spend > 0 && adCost.metaValue > 0
+        ? Math.round((adCost.metaValue / adCost.spend) * 100) / 100 : null,
+      roasPrev: (compare && adCost.spendPrev && adCost.spendPrev > 0 && adCost.metaValuePrev > 0)
+        ? Math.round((adCost.metaValuePrev / adCost.spendPrev) * 100) / 100 : null,
+      // ยอดขายจากแอด (Meta) + %ปิดแบบ Meta = ซื้อ ÷ ทัก
+      adRevenueMeta: Math.round(adCost.metaValue),
+      adCloseRate: adCost.metaMsgs > 0
+        ? Math.round((adCost.metaPurchases / adCost.metaMsgs) * 1000) / 10 : null,
+      adPurchases: adCost.metaPurchases,
+      adMsgs: adCost.metaMsgs,
     } : null,
     trends: {
       revenue: compare ? pctChange_(sCur.revenue, sPrev.revenue) : null,

@@ -138,6 +138,11 @@ export function mapAdDaily(page: any, a: any, date: string) {
     first_replies: num(a.messaging_first_reply),
     phones: num(a.sum_phone_number),
     pos_orders: num(a.total_order_count ?? a.sum_order),
+    // ตัวเลขที่ Meta ตีเอง (pixel) — ใช้ทำ ROAS/%ปิด ให้ตรงหน้า Meta Ads dashboard
+    // meta_purchase_value เป็นบาทจริง (หน่วยเดียวกับ spend) ไม่ใช่สตางค์ — ห้ามหาร 100
+    meta_purchases: num(a.meta_purchase ?? a.purchases),
+    meta_purchase_value: num(a.meta_purchase_value ?? a.purchases_conversion_value),
+    meta_roas: num(a.purchase_roas),
     optimization_goal: a.optimization_goal || '',
     daily_budget: num(a.daily_budget),
     budget_remaining: num(a.budget_remaining),

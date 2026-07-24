@@ -8,6 +8,7 @@
 
 import { serverCall, esc, relTime, toast } from '@/lib/ui/helpers';
 import { hideChartTip } from '@/lib/ui/charts';
+import { bindInfoTips, hideInfoTip } from '@/lib/ui/infotip';
 import { dashboard } from '@/lib/views/dashboard';
 import { sales } from '@/lib/views/sales';
 import { contentads } from '@/lib/views/contentads';
@@ -87,6 +88,7 @@ const App = {
     const themeBtn = document.getElementById('btn-theme');
     if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
     setTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark');
+    bindInfoTips(); // tooltip กรอบอธิบายสูตร — ผูกครั้งเดียว ครอบทุก view
     serverCall<Bootstrap>('apiBootstrap').then(function (b) {
       self.state.bootstrap = b;
       self.renderSyncInfo(b);
@@ -127,6 +129,7 @@ const App = {
   switchView(view: string): void {
     if (!VIEW_META[view]) return;
     hideChartTip(); // กันทูลทิปกราฟ (body singleton) ค้างลอยข้ามหน้าเมื่อสลับ view ด้วยคีย์บอร์ด
+    hideInfoTip();  // เช่นเดียวกัน — กันกรอบอธิบายค้างข้ามหน้า
     this.state.view = view;
     document.querySelectorAll('.nav-item').forEach(function (b) {
       b.classList.toggle('active', b.getAttribute('data-view') === view);

@@ -649,6 +649,67 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 :root[data-theme="light"] .chart-tip {
   box-shadow: 0 8px 24px -6px rgba(15,23,42,.16), 0 2px 6px -2px rgba(15,23,42,.10);
 }
+
+/* ============================================================
+   info tooltip ("holder") — กรอบลอยอธิบายสูตร/ความหมายของค่า
+   ทำงานทุกหน้า: bindInfoTips() ใน app-core ผูก mouseover แบบ delegate
+   เป้า = element ที่มี [data-tip] (หรือ title เดิม แปลงให้อัตโนมัติ)
+   ============================================================ */
+.info-tip {
+  position: fixed; left: 0; top: 0; z-index: 10000;
+  pointer-events: none; box-sizing: border-box;
+  max-width: 320px; padding: 10px 12px 11px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  box-shadow: 0 10px 28px -8px rgba(3,7,18,.6), 0 2px 6px -2px rgba(3,7,18,.45);
+  color: var(--text);
+  font-family: inherit; font-size: 12px; line-height: 1.45; font-weight: 500;
+  letter-spacing: -.01em;
+  opacity: 0; transform: translateY(3px) scale(.98);
+  transform-origin: var(--caret-x, 18px) 100%;
+  transition: opacity .12s ease, transform .14s cubic-bezier(.16,1,.3,1);
+  will-change: transform, opacity;
+}
+.info-tip.is-on { opacity: 1; transform: translateY(0) scale(1); }
+.info-tip.flip { transform-origin: var(--caret-x, 18px) 0; }
+.info-tip .it-title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11.5px; font-weight: 700; color: var(--text);
+  margin-bottom: 5px; letter-spacing: 0;
+}
+.info-tip .it-title::before {
+  content: ""; flex: none; width: 7px; height: 7px; border-radius: 2px;
+  background: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft);
+}
+.info-tip .it-formula {
+  font-variant-numeric: tabular-nums;
+  background: var(--track); border-radius: 7px;
+  padding: 5px 8px; margin: 5px 0;
+  font-size: 11.5px; color: var(--text); font-weight: 600;
+  border: 1px solid var(--border);
+}
+.info-tip .it-body { color: var(--text-2); }
+.info-tip .it-body b { color: var(--text); font-weight: 700; }
+.info-tip .it-src {
+  margin-top: 6px; font-size: 10.5px; color: var(--text-3);
+  display: flex; align-items: center; gap: 4px;
+}
+.info-tip .it-caret {
+  position: absolute; left: var(--caret-x, 18px); margin-left: -5px;
+  width: 9px; height: 9px; background: var(--surface); transform: rotate(45deg);
+  bottom: -5px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  border-bottom-right-radius: 2px;
+}
+.info-tip.flip .it-caret {
+  bottom: auto; top: -5px; border: 0;
+  border-left: 1px solid var(--border); border-top: 1px solid var(--border);
+  border-top-left-radius: 2px;
+}
+:root[data-theme="light"] .info-tip {
+  box-shadow: 0 10px 28px -8px rgba(15,23,42,.18), 0 2px 6px -2px rgba(15,23,42,.10);
+}
+/* บอกผู้ใช้ว่าค่านี้ hover ดูสูตรได้ — เส้นใต้ประจุดจางๆ */
+[data-tip] { cursor: help; }
 @media (prefers-reduced-motion: reduce) {
   .chart-tip { transition: opacity .1s linear; transform: none !important; }
   .chart-tip.is-on { transform: none !important; }

@@ -58,6 +58,8 @@ interface SalesData {
   adCost?: {
     spend: number; trend: number | null; activeAds: number;
     syncedAt: string | null; roas: number | null; roasPrev: number | null;
+    adRevenueMeta?: number; adCloseRate?: number | null;
+    adPurchases?: number; adMsgs?: number;
   } | null;
 }
 
@@ -125,8 +127,21 @@ function chBoxHtml(key: string, ch: any): string {
     '</button>';
 }
 
-function tileHtml(label: string, value: string): string {
-  return '<div class="tile">' + label + '<b>' + value + '</b></div>';
+function tileHtml(label: string, value: string, tip?: TipSpec): string {
+  return '<div class="tile"' + tipAttrs(tip) + '>' + label + '<b>' + value + '</b></div>';
+}
+
+/** สเปกของ tooltip อธิบายสูตร: หัวข้อ / สูตร / คำอธิบาย / แหล่งข้อมูล */
+interface TipSpec { title?: string; formula?: string; body?: string; src?: string; }
+function tipAttrs(t?: TipSpec): string {
+  if (!t) return '';
+  let s = '';
+  if (t.title) s += ' data-tip-title="' + esc(t.title) + '"';
+  if (t.formula) s += ' data-tip-formula="' + esc(t.formula) + '"';
+  if (t.src) s += ' data-tip-src="' + esc(t.src) + '"';
+  // data-tip เป็นตัวกระตุ้นหลัก — ต้องมีเสมอ (ใช้ body ถ้ามี ไม่งั้นใช้ title)
+  s += ' data-tip="' + esc(t.body || t.title || '') + '"';
+  return s;
 }
 
 /** "ยังไม่ได้ตั้งตาราง ad_daily" — โชว์ "—" ไม่ใช่ 0 (0 จะอ่านเหมือนวัดแล้วได้ศูนย์) */
@@ -136,11 +151,13 @@ const AD_SETUP_HINT = 'ต้องรัน db/migrations/2026-07-23-ad-daily.s
 function adSpendTile(d: SalesData): string {
   const a = d.adCost;
   if (!a) return '<div class="tile" title="' + esc(AD_SETUP_HINT) + '">📣 ค่าแอด<b>—</b></div>';
-  const when = a.syncedAt ? ' • สดถึง ' + esc(relTime(a.syncedAt)) : '';
-  return '<div class="tile" title="ค่าแอดจริงจาก Pancake (pages/statistics/ads) ของช่วงที่เลือก • ' +
-    'แอดที่กำลังยิง ' + fmtNum(a.activeAds || 0) + ' ตัว' + when +
-    ' — ค่าแอดไม่ได้แยก FB/LINE จึงไม่เปลี่ยนตามช่องทางที่กรอง">📣 ค่าแอด<b>' +
-    THB(a.spend) + ' ' + trendChip(a.trend) + '</b></div>';
+  const when = a.syncedAt ? ' • สดถึง ' + relTime(a.syncedAt) : '';
+  return '<div class="tile"' + tipAttrs({
+    title: '📣 ค่าแอด', formula: 'Σ spend ทุกแอด (บาทจริง)',
+    body: 'แอดที่กำลังยิง ' + fmtNum(a.activeAds || 0) + ' ตัว' + when +
+      ' • ไม่ได้แยก FB/LINE จึงไม่เปลี่ยนตามช่องทางที่กรอง',
+    src: 'Meta Ads (pages/statistics/ads)',
+  }) + '>📣 ค่าแอด<b>' + THB(a.spend) + ' ' + trendChip(a.trend) + '</b></div>';
 }
 
 function roasTile(d: SalesData): string {
@@ -154,9 +171,29 @@ function roasTile(d: SalesData): string {
   const prev = (a.roasPrev !== null && a.roasPrev !== undefined)
     ? ' <span style="font-size:11px;font-weight:600;color:var(--text-3)">(ก่อนหน้า ' + a.roasPrev.toFixed(2) + 'x)</span>'
     : '';
-  return '<div class="tile" title="ROAS = ยอดขายทุกช่องทางในช่วงที่เลือก ÷ ค่าแอดในช่วงเดียวกัน ' +
-    '(ไม่ได้จับคู่รายแอด — เป็นภาพรวม)">📊 ROAS<b' +
+  return '<div class="tile"' + tipAttrs({
+    title: '📊 ROAS (Meta)', formula: 'ยอดขายที่ Meta ตี ÷ ค่าแอด',
+    body: 'ยอดขายจากแอด (Meta) ' + THB(a.adRevenueMeta || 0) + ' ÷ ค่าแอด ' + THB(a.spend) +
+      ' • ตรงกับหน้า Meta Ads dashboard (ไม่ใช่ยอดรวมทุกช่องทาง)',
+    src: 'Meta Ads (meta_purchase_value)',
+  }) + '>📊 ROAS (Meta)<b' +
     (cls ? ' class="sr-' + cls + '"' : '') + '>' + a.roas.toFixed(2) + 'x' + prev + '</b></div>';
+}
+
+function adCloseTile(d: SalesData): string {
+  const a = d.adCost;
+  if (!a || a.adCloseRate === null || a.adCloseRate === undefined) {
+    return '<div class="tile"' + tipAttrs({
+      title: '🎯 %ปิดจากแอด (Meta)',
+      body: 'ต้องรัน migration db/migrations/2026-07-24-ad-daily-meta-purchase.sql ก่อน' }) +
+      '>🎯 %ปิดจากแอด<b>—</b></div>';
+  }
+  return '<div class="tile"' + tipAttrs({
+    title: '🎯 %ปิดจากแอด (Meta)', formula: 'ซื้อ ÷ คนทักจากแอด',
+    body: 'ซื้อ ' + fmtNum(a.adPurchases || 0) + ' ÷ คนทักจากแอด ' + fmtNum(a.adMsgs || 0) +
+      ' • เฉพาะคนที่มาจากแอด (คนละตัวกับ %ปิดด้านบนที่นับลูกค้าทุกคน)',
+    src: 'Meta Ads (meta_purchase ÷ messaging_started)',
+  }) + '>🎯 %ปิดจากแอด (Meta)<b>' + pctFmt(a.adCloseRate) + '</b></div>';
 }
 
 /* ---------------- render ---------------- */
@@ -213,19 +250,28 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
   function closeRateTip(kk: any): string {
     if (kk.closeBase === null || kk.closeBase === undefined)
       return 'ยังไม่ได้รัน migration db/migrations/2026-07-23-chat-engagement.sql — ตัวเลขนี้ต้องใช้ตาราง chat_engagement_daily';
-    return 'สูตรเดียวกับ Pancake: ออเดอร์ที่สร้างจากแชท (' + fmtNum(kk.closeOrders || 0) +
-      ') ÷ ลูกค้าที่มีปฏิสัมพันธ์ทั้งหมด (' + fmtNum(kk.closeBase || 0) + ') • ' +
-      'ในนั้นเป็นลูกค้าเปิดแชทใหม่ ' + fmtNum(kk.newInbox || 0) + ' คน';
+    return 'ออเดอร์ที่สร้างจากแชท (' + fmtNum(kk.closeOrders || 0) +
+      ') ÷ คนทัก (' + fmtNum(kk.closeBase || 0) + ') • ' +
+      'คนทัก = อินบ็อกซ์ใหม่ ' + fmtNum(kk.closeNewInbox || 0) + ' + คอมเมนต์ ' + fmtNum(kk.closeComment || 0);
   }
 
   html += '<div class="sr-cards">' +
-    '<div class="sr-card">' +
+    '<div class="sr-card"' + tipAttrs({
+      title: '💰 รายได้รวม',
+      formula: 'Σ ยอดขายทุกออเดอร์ (ตัดยกเลิก/ตีกลับ)',
+      body: 'รวมทุกช่องทาง (FB + LINE) ในช่วงที่เลือก • ไม่รวมออเดอร์เปล่าและออเดอร์ที่ยกเลิก/ตีกลับ • หน่วยเป็นบาท (แปลงจากสตางค์ที่ Pancake เก็บแล้ว)',
+      src: 'ออเดอร์ POS จริง',
+    }) + '>' +
       '<div class="label">💰 รายได้รวม</div>' +
       '<div class="big">' + THB(k.revenue || 0) + '</div>' +
       '<div class="foot">' + fmtNum(k.orders || 0) + ' ออเดอร์' + trendChip(t.revenue) + '</div>' +
     '</div>' +
-    '<div class="sr-card" title="นับออเดอร์ที่มีสินค้าจริง (ตัดออเดอร์เปล่าที่ Pancake สร้างให้ทุกแชทจากแอดทิ้งแล้ว) — ' +
-      'ตัวเลข &quot;ยืนยันแล้ว&quot; คือตัวที่ Pancake นับเป็น &quot;สร้างคำสั่งซื้อ&quot;">' +
+    '<div class="sr-card"' + tipAttrs({
+      title: '🛒 คำสั่งซื้อ',
+      formula: 'นับออเดอร์ที่มีสินค้าจริง',
+      body: 'ตัดออเดอร์เปล่าที่ Pancake สร้างให้ทุกแชทจากแอดทิ้งแล้ว • "ยืนยันแล้ว" = ออเดอร์ที่แอดมินกดยืนยัน = ตัวที่ Pancake นับเป็น "สร้างคำสั่งซื้อ"',
+      src: 'ออเดอร์ POS จริง',
+    }) + '>' +
       '<div class="label">🛒 คำสั่งซื้อ</div>' +
       '<div class="big">' + fmtNum(k.orders || 0) + confirmedSuffix(k) + '</div>' +
       '<div class="foot">📘 ' + THB(fb.revenue || 0) + ' • 🟢 ' + THB(ln.revenue || 0) +
@@ -235,8 +281,13 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         trendChip(t.orders) +
       '</div>' +
     '</div>' +
-    '<div class="sr-card" title="' + esc(closeRateTip(k)) + '">' +
-      '<div class="label">🎯 ยอดสั่งซื้อจากลูกค้าทั้งหมด</div>' +
+    '<div class="sr-card"' + tipAttrs({
+      title: '🎯 % ปิดการขาย',
+      formula: 'ออเดอร์ที่สร้างจากแชท ÷ คนทัก',
+      body: closeRateTip(k),
+      src: 'Pancake statistics/customer_engagements',
+    }) + '>' +
+      '<div class="label">🎯 % ปิดการขาย (ต่อคนทัก)</div>' +
       '<div class="big">' + closeRateBig + '</div>' +
       '<div class="foot">ยอดขายจากแอด ' + THB(k.adRevenue || 0) +
         ' • เฉลี่ย ' + THB(k.avgOrder || 0) + '/ออเดอร์</div>' +
@@ -264,20 +315,40 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       '</b></div>'
     : '<div class="tile" title="ต้องรัน SQL migration (db/migrations/2026-07-11-sprint2.sql) ใน Supabase ก่อน">🔁 ลูกค้าเก่า (95 วัน)<b>—</b></div>';
   html += '<div class="sr-strip">' +
-    tileHtml('💰 รายได้', THB(k.revenue || 0)) +
-    tileHtml('🛒 ออเดอร์', fmtNum(k.orders || 0)) +
-    tileHtml('👥 ลูกค้า', fmtNum(k.customers || 0)) +
-    tileHtml('💵 เฉลี่ย/ออเดอร์', THB(k.avgOrder || 0)) +
-    tileHtml('✅ ยืนยันแล้ว', k.confirmedOrders === null || k.confirmedOrders === undefined ? '—' : fmtNum(k.confirmedOrders)) +
-    tileHtml('🎯 %ปิดการขาย', pctFmt(k.closeRate)) +
-    tileHtml('👥 ลูกค้าที่คุยทั้งหมด', k.closeBase === null || k.closeBase === undefined ? '—' : fmtNum(k.closeBase)) +
-    tileHtml('💬 ลูกค้าเปิดแชทใหม่', k.newInbox === null || k.newInbox === undefined ? fmtNum(k.newConvs || 0) : fmtNum(k.newInbox)) +
+    tileHtml('💰 รายได้', THB(k.revenue || 0), {
+      title: '💰 รายได้', formula: 'Σ ยอดขายทุกออเดอร์ (ตัดยกเลิก/ตีกลับ)',
+      body: 'รวมทุกช่องทางในช่วงที่เลือก', src: 'ออเดอร์ POS จริง' }) +
+    tileHtml('🛒 ออเดอร์', fmtNum(k.orders || 0), {
+      title: '🛒 ออเดอร์', formula: 'นับออเดอร์ที่มีสินค้าจริง',
+      body: 'ตัดออเดอร์เปล่าที่ Pancake สร้างให้ทุกแชทจากแอด', src: 'ออเดอร์ POS จริง' }) +
+    tileHtml('👥 ลูกค้า', fmtNum(k.customers || 0), {
+      title: '👥 ลูกค้า', formula: 'นับ customer_id ไม่ซ้ำ',
+      body: 'จำนวนลูกค้าที่มีออเดอร์ในช่วงนี้ (คนเดียวสั่งหลายครั้งนับ 1)' }) +
+    tileHtml('💵 เฉลี่ย/ออเดอร์', THB(k.avgOrder || 0), {
+      title: '💵 เฉลี่ย/ออเดอร์', formula: 'รายได้รวม ÷ จำนวนออเดอร์',
+      body: 'มูลค่าเฉลี่ยต่อ 1 ออเดอร์' }) +
+    tileHtml('✅ ยืนยันแล้ว', k.confirmedOrders === null || k.confirmedOrders === undefined ? '—' : fmtNum(k.confirmedOrders), {
+      title: '✅ ยืนยันแล้ว', formula: 'ออเดอร์สถานะ "ยืนยันแล้ว" (status=1)',
+      body: 'ตัวที่ Pancake นับเป็น "สร้างคำสั่งซื้อ" — เอาไว้เทียบจอ Pancake' }) +
+    tileHtml('🎯 %ปิดการขาย', pctFmt(k.closeRate), {
+      title: '🎯 %ปิดการขาย', formula: 'ออเดอร์ที่สร้างจากแชท ÷ คนทัก',
+      body: 'คนทัก = อินบ็อกซ์ใหม่ + คอมเมนต์ (คนที่ทักเข้ามาจริง ไม่ใช่ลูกค้าเก่าที่คุยต่อ)',
+      src: 'Pancake statistics/customer_engagements' }) +
+    tileHtml('💬 คนทัก', k.closeBase === null || k.closeBase === undefined ? '—' : fmtNum(k.closeBase), {
+      title: '💬 คนทัก', formula: 'อินบ็อกซ์ใหม่ + คอมเมนต์',
+      body: 'ตัวหารของ %ปิดการขาย = อินบ็อกซ์ใหม่ ' + fmtNum(k.closeNewInbox || 0) +
+        ' + คอมเมนต์ ' + fmtNum(k.closeComment || 0) + ' • ลูกค้าที่คุยทั้งหมด ' + fmtNum(k.engTotal || 0),
+      src: 'Pancake statistics/customer_engagements' }) +
+    tileHtml('📨 อินบ็อกซ์ใหม่', k.closeNewInbox === null || k.closeNewInbox === undefined ? fmtNum(k.newConvs || 0) : fmtNum(k.closeNewInbox), {
+      title: '📨 อินบ็อกซ์ใหม่', formula: 'customer_engagement_new_inbox',
+      body: 'ลูกค้าที่เปิดบทสนทนาอินบ็อกซ์ใหม่ในช่วงนี้', src: 'Pancake statistics/customer_engagements' }) +
     '<div class="tile tile-click" id="sr-margin-tile" title="กำไรประมาณการ = รายได้ × margin ' + m +
       '% (ตัวเลขประมาณ ไม่ใช่กำไรจริง) — คลิกเพื่อตั้งค่า margin">💚 กำไรประมาณ (' + m + '%) ⚙<b>' +
       THB(profit) + '</b></div>' +
     retTile +
     adSpendTile(d) +
     roasTile(d) +
+    adCloseTile(d) +
   '</div>';
 
   /* --- 5. main: กราฟรายชั่วโมง + ข้อมูลธุรกิจวันนี้ --- */
@@ -629,9 +700,11 @@ function buildReportRows(): unknown[][] | null {
   rows.push(['คำสั่งซื้อ (ยืนยันแล้ว)', (k.confirmedOrders === null || k.confirmedOrders === undefined) ? '-' : Number(k.confirmedOrders)]);
   rows.push(['ลูกค้า', Number(k.customers) || 0]);
   rows.push(['เฉลี่ย/ออเดอร์', Math.round(Number(k.avgOrder) || 0)]);
-  rows.push(['%ปิดการขาย (ออเดอร์ ÷ ลูกค้าที่คุยทั้งหมด)', (k.closeRate === null || k.closeRate === undefined) ? '-' : k.closeRate]);
-  rows.push(['ลูกค้าที่คุยทั้งหมด', (k.closeBase === null || k.closeBase === undefined) ? '-' : Number(k.closeBase)]);
-  rows.push(['ลูกค้าเปิดแชทใหม่', (k.newInbox === null || k.newInbox === undefined) ? '-' : Number(k.newInbox)]);
+  rows.push(['%ปิดการขาย (ออเดอร์จากแชท ÷ คนทัก)', (k.closeRate === null || k.closeRate === undefined) ? '-' : k.closeRate]);
+  rows.push(['คนทัก (อินบ็อกซ์ใหม่ + คอมเมนต์)', (k.closeBase === null || k.closeBase === undefined) ? '-' : Number(k.closeBase)]);
+  rows.push(['— อินบ็อกซ์ใหม่', (k.closeNewInbox === null || k.closeNewInbox === undefined) ? '-' : Number(k.closeNewInbox)]);
+  rows.push(['— คอมเมนต์', (k.closeComment === null || k.closeComment === undefined) ? '-' : Number(k.closeComment)]);
+  rows.push(['ลูกค้าที่คุยทั้งหมด (อ้างอิง)', (k.engTotal === null || k.engTotal === undefined) ? '-' : Number(k.engTotal)]);
   rows.push(['ยอดขายจากแอด', Math.round(Number(k.adRevenue) || 0)]);
   rows.push(['บทสนทนาใหม่ (statistics/pages)', Number(k.newConvs) || 0]);
   rows.push(['ออเดอร์ที่ต้องตรวจ', Number(k.needCheck) || 0]);

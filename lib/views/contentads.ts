@@ -282,8 +282,8 @@ function buildExportRows(data: any): any[][] | null {
     '#', 'ชื่อแอด', 'Ad ID', 'แคมเปญ', 'Ad Set', 'บัญชีแอด', 'เพจ', 'สินค้าหลัก', 'มาร์เก็ตติ้ง', 'สถานะ',
     'อายุ (วัน)', 'แอดมินปิดขายมากสุด',
     'Spend', 'Impressions', 'Reach', 'คลิก', 'CTR', 'แชท', 'Cost/แชท',
-    'ออเดอร์สร้าง', 'ออเดอร์ส่งแล้ว', 'ออเดอร์', 'ยอดขาย', 'ROAS', 'Cost/Order',
-    '% ปิด', 'อัปเดตล่าสุด',
+    'ออเดอร์สร้าง', 'ออเดอร์ส่งแล้ว', 'ซื้อ(Meta)', 'ออเดอร์POSจริง', 'ยอดขาย(Meta)', 'ยอดขายPOSจริง', 'ROAS', 'Cost/ซื้อ',
+    '% ปิด(ซื้อ/ทัก)', 'อัปเดตล่าสุด',
   ]];
   list.forEach(function (it, i) {
     // แถว Organic ไม่มี tracking ฝั่งแอด (spend/คลิก/แชท/impressions) — ใส่ "-" เหมือนบนการ์ด ไม่ใช่ 0 ปลอม
@@ -299,7 +299,7 @@ function buildExportRows(data: any): any[][] | null {
       org ? '-' : csvVal(nullable(it.ctr)), org ? '-' : num(it.msgs),
       org ? '-' : csvVal(nullable(it.costPerMsg)),
       org ? '-' : num(it.orderCreated), org ? '-' : num(it.orderShipped),
-      num(it.orders), num(it.revenue),
+      num(it.orders), num(it.ordersPos), num(it.revenue), num(it.revenuePos),
       csvVal(nullable(it.roas)), csvVal(nullable(it.costPerOrder)),
       csvVal(nullable(it.closeRate)),
       String(it.updatedAt || '').replace('T', ' '),
@@ -439,20 +439,27 @@ function cardHtml(it: any, rank: number): string {
     ' • อัปเดต ' + esc(relTime(it.updatedAt)) + '</div>';
   h += '</div>';
 
+  // ยอดขาย POS จริง (เทียบกับที่ Meta ตี) — โชว์เป็นบรรทัดเล็กใต้ตัวเลข Meta
+  const posRev = num(it.revenuePos);
+  const posSub = (!isOrganic && posRev > 0 && posRev !== num(it.revenue))
+    ? '<span style="font-size:10px;color:var(--text-3)">จริง ' + THB(posRev) + '</span>' : '';
   h += '<div class="ca-nums">';
   h += caNum('<b class="txt-good" title="' +
-    (isOrganic ? 'ยอดขายจากออเดอร์ที่ผูกโพสต์นี้' : 'ยอดขายจากออเดอร์ที่ผูก ad นี้') + '">' +
-    THB(num(it.revenue)) + '</b>', 'ยอดขาย');
+    (isOrganic ? 'ยอดขายจากออเดอร์ที่ผูกโพสต์นี้'
+      : 'ยอดขายที่ Meta ตี (ตรงหน้า Meta dashboard) • ยอด POS จริงในระบบ = ' + THB(posRev)) + '">' +
+    THB(num(it.revenue)) + '</b>' + posSub, isOrganic ? 'ยอดขาย' : 'ยอดขาย (Meta)');
   h += caNum('<b title="ค่าโฆษณาที่ใช้ไป">' + (num(it.spend) > 0 ? THB(it.spend) : '-') + '</b>', 'Spend');
   h += caNum('<b' + (roasCls ? ' class="' + roasCls + '"' : '') +
-    ' title="ROAS = ยอดขาย ÷ ค่าโฆษณา">' + roasStr(roas) + '</b>', 'ROAS');
+    ' title="ROAS = ยอดขาย Meta ÷ ค่าโฆษณา (เหมือน Meta dashboard)">' + roasStr(roas) + '</b>', 'ROAS');
   h += caNum('<b' + (cpoCls ? ' class="' + cpoCls + '"' : '') +
-    ' title="ค่าโฆษณาต่อ 1 ออเดอร์">' + (cpo === null ? '-' : THB(cpo)) + '</b>', 'Cost/Order');
-  h += caNum('<b>' + fmtNum(num(it.orders)) + '</b>', 'ออเดอร์');
+    ' title="ค่าโฆษณาต่อ 1 การซื้อ (แบบ Meta)">' + (cpo === null ? '-' : THB(cpo)) + '</b>', 'Cost/ซื้อ');
+  h += caNum('<b title="จำนวน &quot;ซื้อ&quot; ที่ Meta ตี' +
+    (isOrganic ? '' : ' • ออเดอร์ POS จริง ' + fmtNum(num(it.ordersPos))) + '">' +
+    fmtNum(num(it.orders)) + '</b>', isOrganic ? 'ออเดอร์' : 'ซื้อ (Meta)');
   // โพสต์ organic ไม่มี tracking แชท/คลิก — โชว์ "-" (ไม่ใช่ 0 เพราะไม่ได้วัด)
-  h += caNum('<b>' + (isOrganic ? '-' : fmtNum(num(it.msgs))) + '</b>', 'แชท');
+  h += caNum('<b>' + (isOrganic ? '-' : fmtNum(num(it.msgs))) + '</b>', 'ทัก');
   h += caNum('<b>' + (isOrganic ? '-' : kFmt(num(it.clicks))) + '</b>', 'คลิก');
-  h += caNum('<b>' + pctFmt(it.closeRate) + '</b>', '% ปิด');
+  h += caNum('<b title="ซื้อ ÷ ทัก (แบบ Meta)">' + pctFmt(it.closeRate) + '</b>', '% ปิด');
   h += '</div>';
 
   if (!isOrganic) {

@@ -50,6 +50,9 @@ interface AdRow {
   order_shipped?: number | string | null;
   marketer_name?: string | null;
   updated_at?: string | null;
+  // ตัวเลขจาก Meta pixel — ใช้ทำ ROAS/%ปิด ให้ตรงหน้า Meta Ads dashboard
+  meta_purchases?: number;
+  meta_value?: number;
 }
 
 /**
@@ -67,16 +70,27 @@ async function loadAdsFromDaily_(days: number): Promise<{ ads: AdRow[]; daysCove
     rows = await fetchAll<any>(() =>
       db.from('ad_daily').select(
         'date,ad_id,page_id,page_name,name,status,account_id,spend,impressions,reach,clicks,' +
-        'link_clicks,ctr,cpm,msgs_started,first_replies,phones,pos_orders,optimization_goal,updated_at'
+        'link_clicks,ctr,cpm,msgs_started,first_replies,phones,pos_orders,' +
+        'meta_purchases,meta_purchase_value,optimization_goal,updated_at'
       ).gte('date', from),
       'ad_id'
     );
   } catch (e: any) {
     const m = String((e && e.message) || e || '');
-    if (m.includes('ad_daily') && (m.includes('does not exist') || m.includes('schema cache'))) {
+    // ยังไม่รัน migration meta_purchase → ลองใหม่แบบไม่มี field นั้น (หน้าเว็บยังทำงานได้)
+    if (m.includes('meta_purchase')) {
+      rows = await fetchAll<any>(() =>
+        db.from('ad_daily').select(
+          'date,ad_id,page_id,page_name,name,status,account_id,spend,impressions,reach,clicks,' +
+          'link_clicks,ctr,cpm,msgs_started,first_replies,phones,pos_orders,optimization_goal,updated_at'
+        ).gte('date', from),
+        'ad_id'
+      );
+    } else if (m.includes('ad_daily') && (m.includes('does not exist') || m.includes('schema cache'))) {
       return { ads: [], daysCovered: 0 };
+    } else {
+      throw e;
     }
-    throw e;
   }
 
   // กี่วันในช่วงที่มีค่าแอดจริง — ถ้าน้อยกว่าช่วงที่เลือก ROAS จะสูงเกินจริง
@@ -95,6 +109,7 @@ async function loadAdsFromDaily_(days: number): Promise<{ ads: AdRow[]; daysCove
         status: r.status || '', effective_status: r.status || '',
         spend: 0, impressions: 0, reach: 0, clicks: 0, msgs_started: 0,
         order_created: 0, order_shipped: 0, ctr: 0, cost_per_msg: 0,
+        meta_purchases: 0, meta_value: 0,
         created_time: null, start_time: null, updated_at: '',
         _firstDate: String(r.date || ''),
       };
@@ -105,6 +120,8 @@ async function loadAdsFromDaily_(days: number): Promise<{ ads: AdRow[]; daysCove
     a.clicks += toNum_(r.clicks);
     a.msgs_started += toNum_(r.msgs_started);
     a.order_created += toNum_(r.pos_orders);
+    a.meta_purchases += toNum_(r.meta_purchases);
+    a.meta_value += toNum_(r.meta_purchase_value);
     const d = String(r.date || '');
     if (d && (!a._firstDate || d < a._firstDate)) a._firstDate = d;
     // สถานะ + ชื่อ ให้ยึดวันล่าสุดเสมอ
@@ -213,12 +230,18 @@ export async function apiContentAds(params?: any) {
     const spend = toNum_(a.spend);
     const msgs = toNum_(a.msgs_started);
     const orderCreated = toNum_(a.order_created);
-    const revenue = Math.round(revByAd[adId] || 0);
+    // ---- ตัวเลขหลัก = ของ Meta (ให้ตรงหน้า Meta Ads dashboard เป๊ะ) ----
+    const metaPurchases = toNum_(a.meta_purchases);   // "ซื้อ" ที่ Meta ตี
+    const metaValue = toNum_(a.meta_value);            // "ยอดขาย" ที่ Meta ตี (บาทจริง)
+    const revenue = Math.round(metaValue);
+    const roas = spend > 0 ? Math.round((metaValue / spend) * 100) / 100 : null;
+    // %ปิด = ซื้อ ÷ ทัก (แบบ Meta) — ไม่ cap เพื่อให้ตรงเลข Meta จริง
+    const closeRate = msgs > 0 ? Math.round(metaPurchases / msgs * 1000) / 10 : null;
+    const costPerOrder = (spend > 0 && metaPurchases > 0) ? Math.round(spend / metaPurchases) : null;
+    // ---- ยอด POS จริง (ในระบบเรา) เก็บไว้เทียบ ไม่ใช่ตัวหลักแล้ว ----
+    const revenuePos = Math.round(revByAd[adId] || 0);
     const posOrders = cntByAd[adId] || 0;
     const effOrders = Math.max(orderCreated, posOrders);
-    const roas = spend > 0 ? Math.round((revenue / spend) * 100) / 100 : null;
-    const costPerOrder = (spend > 0 && effOrders > 0) ? Math.round(spend / effOrders) : null;
-    const closeRate = msgs > 0 ? Math.min(100, Math.round(effOrders / msgs * 1000) / 10) : null;
     const effStatus = String(a.effective_status || a.status || '').toUpperCase();
     const active = effStatus === 'ACTIVE';
 
@@ -265,11 +288,13 @@ export async function apiContentAds(params?: any) {
       costPerMsg: toNum_(a.cost_per_msg),
       orderCreated: orderCreated,
       orderShipped: toNum_(a.order_shipped),
-      orders: effOrders,
-      revenue: revenue,
-      roas: roas,
+      orders: metaPurchases,        // "ซื้อ" ตาม Meta (ตัวหลัก)
+      ordersPos: effOrders,         // ออเดอร์ POS จริงในระบบเรา (เทียบ)
+      revenue: revenue,             // ยอดขายที่ Meta ตี (ตัวหลัก)
+      revenuePos: revenuePos,       // ยอดขายจริงจาก POS (เทียบ)
+      roas: roas,                   // Meta ROAS = ยอด Meta / ค่าแอด
       costPerOrder: costPerOrder,
-      closeRate: closeRate,
+      closeRate: closeRate,         // %ปิด = ซื้อ/ทัก แบบ Meta
       marketer: String(a.marketer_name || ''),
       status: status,
       updatedAt: String(a.updated_at || '')
@@ -329,7 +354,9 @@ export async function apiContentAds(params?: any) {
         spend: 0, impressions: 0, reach: 0, clicks: 0, ctr: 0,
         msgs: 0, costPerMsg: 0, orderCreated: 0, orderShipped: 0,
         orders: p.orders,
-        revenue: Math.round(p.revenue),
+        ordersPos: p.orders,
+        revenue: Math.round(p.revenue),      // organic ไม่มี Meta → ใช้ยอด POS จริง
+        revenuePos: Math.round(p.revenue),
         roas: null as number | null,
         costPerOrder: null as number | null,
         closeRate: null as number | null,
@@ -413,8 +440,9 @@ export async function apiContentAds(params?: any) {
         '(รัน `npm run backfill:ads ' + days + '` เพื่อเติมย้อนหลัง)'
       : null,
     note: 'ทุกตัวเลขเป็นของ ' + (days === 1 ? 'วันนี้' : days + ' วันล่าสุด') +
-      ' (วันปฏิทินไทยเต็มวัน — หน้าต่างเดียวกับหน้า Sales) • ค่าแอด/คลิก/แชท = ข้อมูลจริงจาก Pancake ' +
-      '(pages/statistics/ads) • ยอดขาย = ออเดอร์ในช่วงเดียวกันที่ผูก ad_id • ' +
+      ' (วันปฏิทินไทยเต็มวัน — หน้าต่างเดียวกับหน้า Sales) • ' +
+      'ยอดขาย / ROAS / %ปิด (ซื้อ÷ทัก) = ตัวเลขจาก Meta Ads โดยตรง ตรงกับหน้า Meta dashboard • ' +
+      'ยอดขายจริง (POS) = ออเดอร์ในระบบที่ผูก ad_id ไว้เทียบ • ' +
       'แถว 🌱 Organic = ยอดจากโพสต์ที่ไม่ได้ยิงแอด (แสดง 50 โพสต์ยอดสูงสุด)'
   };
 }

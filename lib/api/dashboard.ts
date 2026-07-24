@@ -63,20 +63,24 @@ function dayOfWeekBkk_(d: Date): number {
  */
 async function loadEngagementToday_(
   todayStr: string, channel: string, commentMode: boolean,
-): Promise<{ total: number; newInbox: number; orders: number } | null> {
+): Promise<{ total: number; reached: number; newInbox: number; comment: number; orders: number } | null> {
   try {
     const rows = await fetchAll<any>(() =>
       db.from('chat_engagement_daily')
-        .select('key,platform,total,new_inbox,order_count')
+        .select('key,platform,total,comment,new_inbox,order_count')
         .eq('date', todayStr),
       'key'
     );
-    const out = { total: 0, newInbox: 0, orders: 0 };
+    const out = { total: 0, reached: 0, newInbox: 0, comment: 0, orders: 0 };
     rows.forEach((r: any) => {
       // มุมคอมเมนต์ไม่มีตัวเลขแยกจาก endpoint นี้ → รวมทุก platform เหมือน commentMode ที่อื่น
       if (!commentMode && channel && platformChannel_(r.platform) !== channel) return;
+      const ni = toNum_(r.new_inbox);
+      const cm = toNum_(r.comment);
       out.total += toNum_(r.total);
-      out.newInbox += toNum_(r.new_inbox);
+      out.newInbox += ni;
+      out.comment += cm;
+      out.reached += ni + cm;   // คนทัก = อินบ็อกซ์ใหม่ + คอมเมนต์
       out.orders += toNum_(r.order_count);
     });
     return out;
@@ -223,7 +227,9 @@ export async function apiDashboard(params?: { channel?: string }): Promise<any> 
       newCustomers: k.newCustomers,
       // จาก Pancake ตรงๆ: ลูกค้าที่คุยทั้งหมด / ลูกค้าที่เปิดแชทใหม่ / ออเดอร์ที่สร้างจากแชท
       engCustomers: eng ? eng.total : null,
+      engReached: eng ? eng.reached : null,     // คนทัก = อินบ็อกซ์ใหม่ + คอมเมนต์
       engNewInbox: eng ? eng.newInbox : null,
+      engComment: eng ? eng.comment : null,
       engOrders: eng ? eng.orders : null,
       pageReplies: k.pageReplies,
       phones: k.phones,
