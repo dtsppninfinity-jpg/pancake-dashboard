@@ -439,17 +439,18 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
   /* --- 5.5 Top 10 สินค้า / เพจ (ตามช่องทางที่กรองอยู่) --- */
   const topCh = d.top ? (state.channel ? d.top[state.channel] : d.top.all) : null;
   if (topCh) {
-    // การ์ดซ้าย = สินค้าเรียงตามจำนวนชิ้น | การ์ดขวา = สินค้าเรียงตามยอดเงิน — กดสินค้าใดก็เจาะดูรายเพจได้
-    const prodByQtyRows = (topCh.productsByQty || topCh.products || []).map(function (p: any) {
+    const prodRows = (topCh.products || []).map(function (p: any) {
       return {
-        label: p.name, value: p.qty || p.value, display: fmtNum(p.qty) + ' ชิ้น',
+        label: p.name,
+        value: p.value || p.qty,
+        display: p.value ? THB(p.value) : fmtNum(p.qty) + ' ชิ้น',
         attr: 'data-drill-prod="' + esc(p.name) + '" title="คลิกดูว่าขายได้เพจไหนบ้าง"',
       };
     });
-    const prodByValRows = (topCh.products || []).map(function (p: any) {
+    const pageRows = (topCh.pages || []).map(function (p: any) {
       return {
-        label: p.name, value: p.value || p.qty, display: THB(p.value),
-        attr: 'data-drill-prod="' + esc(p.name) + '" title="คลิกดูว่าเพจไหนขายได้เท่าไร"',
+        label: p.name, value: p.revenue, display: THB(p.revenue),
+        attr: 'data-drill-page="' + esc(p.name) + '" title="คลิกดูสินค้าที่เพจนี้ขายได้"',
       };
     });
     const pageCount = (topCh.pagesFull || []).length;
@@ -460,17 +461,17 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
           '<button class="btn-mini" id="sr-drill">🔍 ดูรายละเอียด</button>' +
         '</div>' +
         '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] +
-          ' — เรียงตามจำนวนชิ้น • 👆 คลิกสินค้าเพื่อดูรายเพจ</div>' +
-        '<div class="hbar-wide">' + hbarRows(prodByQtyRows, { empty: 'ยังไม่มีข้อมูลสินค้าในช่วงนี้' }) + '</div>' +
+          ' — มูลค่า = ราคาขาย × จำนวน (ยังไม่หักส่วนลดท้ายบิล) • 👆 คลิกสินค้าเพื่อดูรายเพจ</div>' +
+        '<div class="hbar-wide">' + hbarRows(prodRows, { empty: 'ยังไม่มีข้อมูลสินค้าในช่วงนี้' }) + '</div>' +
       '</div>' +
       '<div class="card">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
-          '<h3>📄 ยอดขายรายสินค้า Top 10</h3>' +
-          (pageCount > 0 ? '<button class="btn-mini" id="sr-allpages">📋 ดูทุกเพจ (' + fmtNum(pageCount) + ')</button>' : '') +
+          '<h3>📄 เพจยอดขายดี Top 10</h3>' +
+          (pageCount > 10 ? '<button class="btn-mini" id="sr-allpages">📋 ดูทุกเพจ (' + fmtNum(pageCount) + ')</button>' : '') +
         '</div>' +
         '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] +
-          ' — เรียงตามยอดเงิน • 👆 คลิกสินค้าเพื่อดูว่าเพจไหนขายได้เท่าไร</div>' +
-        '<div class="hbar-wide">' + hbarRows(prodByValRows, { empty: 'ยังไม่มีออเดอร์ในช่วงนี้' }) + '</div>' +
+          ' — เรียงตามรายได้ • 👆 คลิกเพจเพื่อดูสินค้า</div>' +
+        '<div class="hbar-wide">' + hbarRows(pageRows, { empty: 'ยังไม่มีออเดอร์ในช่วงนี้' }) + '</div>' +
       '</div>' +
     '</div>';
   }

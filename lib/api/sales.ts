@@ -568,11 +568,6 @@ export async function apiSales(params: any) {
         .map((nm) => ({ name: nm, qty: products[nm].qty, value: Math.round(products[nm].value), orders: products[nm].orders }))
         .sort((a, b) => (b.value - a.value) || (b.qty - a.qty))
         .slice(0, 10),
-      // สินค้าเรียงตามจำนวนชิ้น (การ์ดซ้าย) — คนละมุมกับ products ที่เรียงตามมูลค่า (การ์ดขวา)
-      productsByQty: Object.keys(products)
-        .map((nm) => ({ name: nm, qty: products[nm].qty, value: Math.round(products[nm].value), orders: products[nm].orders }))
-        .sort((a, b) => (b.qty - a.qty) || (b.value - a.value))
-        .slice(0, 10),
       pageProducts,   // เพจ→รายการสินค้าที่ขายได้
       productPages,   // สินค้า→เพจที่ขายได้
     };
