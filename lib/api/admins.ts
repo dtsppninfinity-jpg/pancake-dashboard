@@ -142,7 +142,7 @@ export async function apiAdmins(_params?: any) {
         db
           .from('admin_chat_daily')
           .select(
-            'date,user_id,inbox_count,comment_count,unique_inbox_count,phone_number_count,avg_response_ms'
+            'date,user_id,inbox_count,comment_count,unique_inbox_count,phone_number_count,avg_response_ms,updated_at'
           )
           .eq('date', todayStr),
         'key'
@@ -381,6 +381,14 @@ export async function apiAdmins(_params?: any) {
     try { rolePerms = normalizeRolePermsShape(JSON.parse(rolePermsRow.data.value)); } catch { /* ใช้ default */ }
   }
 
+  // เวลาที่สถิติแชท (admin_chat_daily) ถูก sync ล่าสุด — ตัวเลข "ตอบวันนี้/ตอบเฉลี่ย" เป็นสแนปช็อต
+  // ไม่ใช่สด (sync ทุก ~15 นาที) หน้าเว็บต้องบอกให้ชัด กันเข้าใจผิดว่าไม่ตรง Pancake
+  let chatSyncedAt: string | null = null;
+  chatDailyRows.forEach((r: any) => {
+    const u = String(r.updated_at || '');
+    if (u && (!chatSyncedAt || u > chatSyncedAt)) chatSyncedAt = u;
+  });
+
   const enabledAdmins = out.filter((a) => a.enabled);
   const kpis = {
     total: out.length,
@@ -397,5 +405,5 @@ export async function apiAdmins(_params?: any) {
     phonesToday: enabledAdmins.reduce((s2, a) => s2 + a.today.phones, 0),
   };
 
-  return { kpis, admins: out, rolePerms, setupNeeded, slaMins };
+  return { kpis, admins: out, rolePerms, setupNeeded, slaMins, chatSyncedAt };
 }

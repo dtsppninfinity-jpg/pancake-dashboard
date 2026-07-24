@@ -16,6 +16,7 @@ import {
   toast,
   showError,
   downloadCSV,
+  relTime,
 } from '@/lib/ui/helpers';
 import { adminsSkel } from '@/lib/ui/skeletons';
 import {
@@ -101,6 +102,7 @@ interface AdminsData {
   rolePerms?: RolePerms;
   setupNeeded?: boolean;
   slaMins?: number;
+  chatSyncedAt?: string | null; // เวลาที่ admin_chat_daily ถูก sync ล่าสุด (สแนปช็อต)
 }
 
 /* ---------------- state ---------------- */
@@ -807,6 +809,12 @@ function render(container: HTMLElement): void {
         'ปุ่มปิดใช้งาน/สถานะ/ตั้งค่าจะยังบันทึกไม่ได้ และสถิติออนไลน์ยังไม่เริ่มเก็บ ' +
         '(รัน SQL migration ตามที่แชทแจ้ง แล้วทุกอย่างจะทำงานอัตโนมัติ)</div>'
       : '') +
+    // สถิติแชท (ตอบวันนี้/ตอบเฉลี่ย) เป็นสแนปช็อตทุก ~15 นาที ไม่ใช่สด — บอกให้ชัด กันเข้าใจว่าไม่ตรง Pancake
+    '<div class="hint-box" style="border-left-color:var(--primary);font-size:12px">' +
+      '💬 <b>สถิติแชท</b> (ตอบวันนี้ / ตอบเฉลี่ย) = สแนปช็อต ' +
+      (d.chatSyncedAt ? 'อัปเดตล่าสุด <b>' + esc(relTime(d.chatSyncedAt)) + '</b> ' : '') +
+      '(ดึงทุก ~15 นาที ไม่ใช่สดวินาที) • เพจ FB ตรงกับ Pancake เป๊ะ — ' +
+      'เพจ LINE บางเพจ Pancake API ไม่ให้ข้อมูลรายแอดมิน จึงนับได้ไม่ครบ 100%</div>' +
     '<div class="pg-summary">' +
       pgsItem(fmtNum(k.total || 0), 'แอดมินทั้งหมด', '') +
       pgsItem(fmtNum(k.online || 0), 'ออนไลน์', 'ok') +
