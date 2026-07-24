@@ -447,10 +447,16 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         attr: 'data-drill-prod="' + esc(p.name) + '" title="คลิกดูว่าขายได้เพจไหนบ้าง"',
       };
     });
-    const pageRows = (topCh.pages || []).map(function (p: any) {
+    // การ์ดขวา = ยอดขายจัดกลุ่มตามยูนิต (U/สินค้า) — เหมือนที่ทีมแอดจัด (แผนที่ใน U Map)
+    const units = (topCh.units || []);
+    const unitRows = units.map(function (u: any) {
+      const label = u.mapped
+        ? (u.product || u.u) + (u.u ? ' (' + u.u + ')' : '')
+        : '⚠️ ยังไม่จัดกลุ่ม';
       return {
-        label: p.name, value: p.revenue, display: THB(p.revenue),
-        attr: 'data-drill-page="' + esc(p.name) + '" title="คลิกดูสินค้าที่เพจนี้ขายได้"',
+        label: label, value: u.revenue, display: THB(u.revenue),
+        cls: u.mapped ? '' : 'sr-unmapped',
+        attr: 'data-drill-unit="' + esc(u.key) + '" title="คลิกดูรายเพจในยูนิตนี้"',
       };
     });
     const pageCount = (topCh.pagesFull || []).length;
@@ -466,12 +472,12 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       '</div>' +
       '<div class="card">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
-          '<h3>📄 เพจยอดขายดี Top 10</h3>' +
-          (pageCount > 10 ? '<button class="btn-mini" id="sr-allpages">📋 ดูทุกเพจ (' + fmtNum(pageCount) + ')</button>' : '') +
+          '<h3>🧩 ยอดขายตามยูนิต (สินค้า)</h3>' +
+          (pageCount > 0 ? '<button class="btn-mini" id="sr-allpages">📋 ดูทุกเพจ (' + fmtNum(pageCount) + ')</button>' : '') +
         '</div>' +
         '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] +
-          ' — เรียงตามรายได้ • 👆 คลิกเพจเพื่อดูสินค้า</div>' +
-        '<div class="hbar-wide">' + hbarRows(pageRows, { empty: 'ยังไม่มีออเดอร์ในช่วงนี้' }) + '</div>' +
+          ' — จัดกลุ่มตามยูนิต • 👆 คลิกยูนิตเพื่อดูรายเพจ • จับคู่เพจ→U ได้ที่หน้า U Map</div>' +
+        '<div class="hbar-wide">' + hbarRows(unitRows, { empty: 'ยังไม่มีออเดอร์ในช่วงนี้' }) + '</div>' +
       '</div>' +
     '</div>';
   }
@@ -662,7 +668,7 @@ function openDrill(): void {
 
 function topOf(chKey: string): any {
   const t = (lastData && lastData.top) || {};
-  return (chKey ? t[chKey] : t.all) || { pagesFull: [], pageProducts: {}, productPages: {} };
+  return (chKey ? t[chKey] : t.all) || { pagesFull: [], pageProducts: {}, productPages: {}, units: [] };
 }
 
 function drillNote(): string {
@@ -683,6 +689,42 @@ function bindDrillRows(root: ParentNode | null, chKey: string): void {
       openPageDrill(el.getAttribute('data-drill-page') || '', chKey);
     });
   });
+  root.querySelectorAll('[data-drill-unit]').forEach(function (el) {
+    el.addEventListener('click', function () {
+      openUnitDrill(el.getAttribute('data-drill-unit') || '', chKey);
+    });
+  });
+}
+
+/** ยูนิต (สินค้า) → เพจในยูนิตนั้นขายได้เท่าไร (คลิกเพจเจาะดูสินค้าต่อได้) */
+function openUnitDrill(unitKey: string, chKey: string): void {
+  const top = topOf(chKey);
+  const unit = (top.units || []).filter(function (u: any) { return String(u.key) === String(unitKey); })[0];
+  if (!unit) { toast('ไม่พบยูนิตนี้'); return; }
+  const pages = unit.pages || [];
+  const title = unit.mapped ? (esc(unit.product || unit.u) + (unit.u ? ' <span class="chip">' + esc(unit.u) + '</span>' : '')) : '⚠️ ยังไม่จัดกลุ่ม';
+  const rows = pages.map(function (p: any, i: number) {
+    return '<tr class="clickable" data-drill-page="' + esc(p.name) + '" title="คลิกดูสินค้าของเพจนี้">' +
+      '<td>' + (i + 1) + '</td><td>' + esc(p.name) + '</td><td>' + THB(p.revenue) +
+      '</td><td>' + fmtNum(p.orders) + '</td></tr>';
+  }).join('');
+  openModal(
+    '<div class="modal-head"><h3>🧩 ' + title + '</h3><button class="modal-close">✕</button></div>' +
+    '<div class="card-sub" style="margin-bottom:10px">' + esc((lastData && lastData.rangeLabel) || '') +
+      ' • ' + CH_LABELS[chKey] + '</div>' +
+    '<div class="pill-grid" style="margin-bottom:12px">' +
+      '<span class="chip">💰 ' + THB(unit.revenue) + '</span>' +
+      '<span class="chip">🛒 ' + fmtNum(unit.orders) + ' ออเดอร์</span>' +
+      '<span class="chip">📄 ' + fmtNum(pages.length) + ' เพจ</span></div>' +
+    (unit.mapped ? '' : '<div class="hint-box" style="margin-bottom:10px">เพจกลุ่มนี้ยังไม่ถูกจับคู่กับยูนิต — ' +
+      'ไปจับคู่ได้ที่หน้า <b>U Map</b> เพื่อให้รวมยอดถูกกลุ่ม</div>') +
+    '<h4 style="margin:6px 0">📄 เพจในยูนิตนี้ (คลิกเพจเพื่อดูสินค้าที่ขายได้)</h4>' +
+    (pages.length
+      ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>#</th><th>เพจ</th><th>รายได้</th>' +
+        '<th>ออเดอร์</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+      : '<div class="empty-note">ไม่มีเพจในยูนิตนี้</div>')
+  );
+  bindDrillRows(document.getElementById('modal-root'), chKey);
 }
 
 /** สินค้า → ขายได้จากเพจไหนบ้าง (คลิกเพจเจาะต่อได้) */

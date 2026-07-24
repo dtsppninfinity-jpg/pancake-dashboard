@@ -225,6 +225,8 @@ table.tbl tr.clickable:hover td { background: rgba(108,92,231,.12); }
   height: 100%; border-radius: 99px; transition: width .5s;
   background: linear-gradient(90deg, #7d6cf0, #a55eea);
 }
+/* กลุ่มยอดขายที่ยังไม่จับคู่ยูนิต — สีส้มเตือนให้ไปจับคู่ใน U Map */
+.hbar-fill.sr-unmapped { background: linear-gradient(90deg, #e8a13a, #e17055); }
 .hbar-fill.green { background: linear-gradient(90deg, #16a06b, #2dd4bf); }
 .hbar-fill.blue { background: linear-gradient(90deg, #1877f2, #38bdf8); }
 .hbar-fill.amber { background: linear-gradient(90deg, #d97706, #fbbf24); }
@@ -830,6 +832,23 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 .u-member .x { cursor: pointer; opacity: .55; font-weight: 700; padding: 0 1px; }
 .u-member .x:hover { opacity: 1; color: var(--red); }
 .u-empty { font-size: 11.5px; color: var(--text-3); }
+.u-pages-btn {
+  display: block; width: 100%; margin-top: 10px; text-align: left;
+  border: 1px dashed var(--border); background: var(--surface-2); color: var(--text-2);
+  border-radius: 8px; font-size: 11.5px; padding: 5px 9px; cursor: pointer; transition: border-color .15s;
+}
+.u-pages-btn:hover { border-color: var(--primary); color: var(--text); }
+.page-pick-list { max-height: 52vh; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+.page-pick {
+  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  border-radius: 8px; padding: 7px 10px; cursor: pointer; font-size: 12.5px; transition: border-color .12s;
+}
+.page-pick:hover { border-color: var(--primary); }
+.page-pick.selected { background: var(--primary-soft); border-color: var(--primary); }
+.page-pick .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.page-pick .cnt { font-size: 10.5px; color: var(--amber); flex-shrink: 0; }
+.page-pick .chk { flex-shrink: 0; }
 .u-card.droppable { border-color: var(--primary); cursor: pointer; }
 .u-card.droppable:hover {
   transform: translateY(-2px);

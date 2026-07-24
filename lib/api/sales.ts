@@ -2,6 +2,7 @@
 // server-side เท่านั้น: import { db, fetchAll } จาก @/lib/db
 // เปลี่ยนแค่แหล่งอ่าน (readTable_ → fetchAll) + กรองช่วงเวลาใน query เพื่อเลี่ยง 1000-row cap
 import { db, fetchAll } from '@/lib/db';
+import { getPageUnitMap } from './umap';
 import {
   EXCLUDED_STATUSES,
   NEED_CHECK_STATUSES,
@@ -507,6 +508,11 @@ export async function apiSales(params: any) {
     const pageRows = await fetchAll<Row>(() => db.from('pages').select('page_id,name'), 'page_id');
     pageRows.forEach((p) => { pageNames[String(p.page_id)] = String(p.name || ''); });
   }
+  // แผนที่ เพจ→ยูนิต (U/สินค้า) จาก U Map — ใช้จัดกลุ่มยอดขายตามยูนิตแบบทีมแอด
+  // เพจที่ยังไม่จับคู่ = กลุ่ม "ยังไม่จัดกลุ่ม" (บอสไปจับใน U Map ได้)
+  let pageUnit: Record<string, { u: string; product: string }> = {};
+  try { pageUnit = await getPageUnitMap(); } catch { pageUnit = {}; }
+  const UNMAPPED = '__none__';
 
   function topAgg(list: Row[]) {
     const pages: Record<string, { revenue: number; orders: number }> = {};
@@ -514,12 +520,27 @@ export async function apiSales(params: any) {
     // cross-tab สำหรับ drilldown: เพจ→สินค้า และ สินค้า→เพจ (นับยอดขายรายคู่)
     const pageProd: Record<string, Record<string, { qty: number; value: number; orders: number }>> = {};
     const prodPage: Record<string, Record<string, { qty: number; value: number; orders: number }>> = {};
+    // จัดกลุ่มตามยูนิต: unitAgg = ยอดรวมต่อยูนิต, unitPages = เพจในยูนิต (สำหรับเจาะ U→เพจ)
+    const unitAgg: Record<string, { u: string; product: string; revenue: number; orders: number }> = {};
+    const unitPages: Record<string, Record<string, { revenue: number; orders: number }>> = {};
     list.forEach((o) => {
       if (o._needCheck) return;   // Top เพจ/สินค้า นับเฉพาะยืนยันแล้ว (ตรงกับยอดขายหลัก)
       const pg = pageNames[String(o.page_id || '')] || String(o.account_name || '') || 'ไม่ระบุเพจ';
       if (!pages[pg]) pages[pg] = { revenue: 0, orders: 0 };
       pages[pg].revenue += o.total_price;
       pages[pg].orders++;
+      // รวมตามยูนิต
+      const um = pageUnit[String(o.page_id || '')];
+      const ukey = um ? um.u : UNMAPPED;
+      if (!unitAgg[ukey]) {
+        unitAgg[ukey] = { u: um ? um.u : '', product: um ? um.product : 'ยังไม่จัดกลุ่ม', revenue: 0, orders: 0 };
+      }
+      unitAgg[ukey].revenue += o.total_price;
+      unitAgg[ukey].orders++;
+      if (!unitPages[ukey]) unitPages[ukey] = {};
+      if (!unitPages[ukey][pg]) unitPages[ukey][pg] = { revenue: 0, orders: 0 };
+      unitPages[ukey][pg].revenue += o.total_price;
+      unitPages[ukey][pg].orders++;
       parseItems_(o.items_json).forEach((it: any) => {
         const nm = String((it && it.name) || '').trim();
         if (!nm) return;
@@ -568,6 +589,20 @@ export async function apiSales(params: any) {
         .map((nm) => ({ name: nm, qty: products[nm].qty, value: Math.round(products[nm].value), orders: products[nm].orders }))
         .sort((a, b) => (b.value - a.value) || (b.qty - a.qty))
         .slice(0, 10),
+      // ยอดขายจัดกลุ่มตามยูนิต (U/สินค้า) — เจาะ U→เพจ→สินค้า ได้ (กลุ่ม "ยังไม่จัดกลุ่ม" ต่อท้ายเสมอ)
+      units: Object.keys(unitAgg)
+        .map((k) => ({
+          key: k,
+          u: unitAgg[k].u,
+          product: unitAgg[k].product,
+          revenue: Math.round(unitAgg[k].revenue),
+          orders: unitAgg[k].orders,
+          mapped: k !== UNMAPPED,
+          pages: Object.keys(unitPages[k] || {})
+            .map((nm) => ({ name: nm, revenue: Math.round(unitPages[k][nm].revenue), orders: unitPages[k][nm].orders }))
+            .sort((a, b) => b.revenue - a.revenue),
+        }))
+        .sort((a, b) => (a.mapped === b.mapped) ? (b.revenue - a.revenue) : (a.mapped ? -1 : 1)),
       pageProducts,   // เพจ→รายการสินค้าที่ขายได้
       productPages,   // สินค้า→เพจที่ขายได้
     };

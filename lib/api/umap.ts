@@ -7,7 +7,8 @@ import { db, fetchAll } from '@/lib/db';
 const KEY = 'u_map';
 
 export interface UMember { id: string; name: string }
-export interface UUnit { u: string; product: string; admins: UMember[] }
+// pages = เพจที่อยู่ในยูนิตนี้ (id = page_id, name = ชื่อเพจ) — ใช้จัดกลุ่มยอดขายตาม U
+export interface UUnit { u: string; product: string; admins: UMember[]; pages: UMember[] }
 export interface UMapDoc { units: UUnit[]; updatedAt: string }
 
 /* ---------------- seed (รายการตั้งต้นจากทีม 2026-07-21) ---------------- */
@@ -67,7 +68,16 @@ function normalizeDoc(raw: any): UMapDoc {
       ids.add(id);
       admins.push({ id, name });
     }
-    out.units.push({ u, product: normProduct(it && it.product), admins });
+    const pages: UMember[] = [];
+    const pageIds = new Set<string>();
+    for (const m of (it && Array.isArray(it.pages)) ? it.pages : []) {
+      const id = String((m && m.id) || '').trim().slice(0, 100);
+      const name = String((m && m.name) || '').trim().slice(0, 150);
+      if (!id || pageIds.has(id)) continue;
+      pageIds.add(id);
+      pages.push({ id, name });
+    }
+    out.units.push({ u, product: normProduct(it && it.product), admins, pages });
   }
   sortUnits_(out.units);
   return out;
@@ -100,7 +110,7 @@ export async function getUMapDoc(): Promise<UMapDoc> {
     return normalizeDoc(parsed);
   }
   const doc: UMapDoc = {
-    units: SEED_UNITS.map(([u, product]) => ({ u, product, admins: [] })),
+    units: SEED_UNITS.map(([u, product]) => ({ u, product, admins: [], pages: [] })),
     updatedAt: '',
   };
   sortUnits_(doc.units);
@@ -134,17 +144,30 @@ async function loadRoster_(): Promise<UMember[]> {
     .sort((a, b) => a.name.localeCompare(b.name, 'th'));
 }
 
+/** รายชื่อเพจทั้งหมด (ให้ dropdown จับคู่เพจ→U) */
+async function loadPageRoster_(): Promise<Array<{ id: string; name: string; platform: string }>> {
+  const pages = await fetchAll<any>(() => db.from('pages').select('page_id,name,platform'), 'page_id');
+  return pages
+    .filter((p: any) => p.page_id)
+    .map((p: any) => ({
+      id: String(p.page_id),
+      name: String(p.name || '').trim() || String(p.page_id),
+      platform: String(p.platform || '').toLowerCase(),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+}
+
 /* ---------------- API หลัก (หลังรหัสทีม) ---------------- */
 
 export async function apiUMap(params: any) {
   const p = params || {};
   const action = String(p.action || '');
 
-  // ---- อ่านทั้งหมด (units + roster) ----
+  // ---- อ่านทั้งหมด (units + roster แอดมิน + roster เพจ) ----
   if (!action) {
-    const [doc, roster] = await Promise.all([getUMapDoc(), loadRoster_()]);
+    const [doc, roster, pageRoster] = await Promise.all([getUMapDoc(), loadRoster_(), loadPageRoster_()]);
     return {
-      ok: true, units: doc.units, updatedAt: doc.updatedAt, roster,
+      ok: true, units: doc.units, updatedAt: doc.updatedAt, roster, pageRoster,
       // ให้ UI บอกความจริงเรื่องลิงก์สาธารณะ — ถ้าตั้ง key ไว้ ลิงก์เปล่าๆ จะโดน 401
       publicNeedsKey: !!process.env.UMAP_PUBLIC_KEY,
     };
@@ -160,7 +183,7 @@ export async function apiUMap(params: any) {
     const product = normProduct(p.product);
     if (!product) return { ok: false, error: 'กรอกชื่อผลิตภัณฑ์ด้วย' };
     if (doc.units.some((x) => x.u === u)) return { ok: false, error: u + ' มีอยู่แล้ว' };
-    doc.units.push({ u, product, admins: [] });
+    doc.units.push({ u, product, admins: [], pages: [] });
   } else if (action === 'editUnit') {
     const unit = doc.units.find((x) => x.u === u);
     if (!unit) return { ok: false, error: 'ไม่พบ ' + (u || 'U ที่ระบุ') };
@@ -205,6 +228,27 @@ export async function apiUMap(params: any) {
     const before = unit.admins.length;
     unit.admins = unit.admins.filter((m) => m.id !== userId);
     if (unit.admins.length === before) return { ok: false, error: 'แอดมินคนนี้ไม่ได้อยู่ใน ' + u };
+  } else if (action === 'assignPage') {
+    const unit = doc.units.find((x) => x.u === u);
+    if (!unit) return { ok: false, error: 'ไม่พบ ' + (u || 'U ที่ระบุ') };
+    const pageId = String(p.pageId || '').trim();
+    if (!pageId) return { ok: false, error: 'ไม่ได้ระบุเพจ' };
+    // เอาชื่อเพจจากตาราง pages เสมอ (ไม่เชื่อชื่อจาก client)
+    const { data: pg, error } = await db.from('pages').select('page_id,name')
+      .eq('page_id', pageId).maybeSingle();
+    if (error) return { ok: false, error: error.message };
+    if (!pg) return { ok: false, error: 'ไม่พบเพจนี้ในระบบ' };
+    const pageName = String(pg.name || '').trim().slice(0, 150) || pageId;
+    // 1 เพจอยู่ได้ยูนิตเดียว — ถอดออกจากยูนิตอื่นก่อนเสมอ
+    doc.units.forEach((x) => { x.pages = (x.pages || []).filter((m) => m.id !== pageId); });
+    unit.pages.push({ id: pageId, name: pageName });
+  } else if (action === 'unassignPage') {
+    const unit = doc.units.find((x) => x.u === u);
+    if (!unit) return { ok: false, error: 'ไม่พบ ' + (u || 'U ที่ระบุ') };
+    const pageId = String(p.pageId || '').trim();
+    const before = unit.pages.length;
+    unit.pages = unit.pages.filter((m) => m.id !== pageId);
+    if (unit.pages.length === before) return { ok: false, error: 'เพจนี้ไม่ได้อยู่ใน ' + u };
   } else {
     return { ok: false, error: 'ไม่รู้จักคำสั่ง: ' + action };
   }
@@ -241,6 +285,22 @@ export async function publicUMapPayload(uFilter?: string) {
     ok: true as const,
     updatedAt: doc.updatedAt,
     count: units.length,
-    units: units.map((x) => ({ u: x.u, product: x.product, admins: x.admins.map((m) => m.name) })),
+    units: units.map((x) => ({
+      u: x.u, product: x.product,
+      admins: x.admins.map((m) => m.name),
+      pages: (x.pages || []).map((m) => m.name),
+    })),
   };
+}
+
+/** map page_id → {u, product} จาก u_map — ให้หน้า Sales จัดกลุ่มยอดขายตามยูนิต */
+export async function getPageUnitMap(): Promise<Record<string, { u: string; product: string }>> {
+  const doc = await getUMapDoc();
+  const out: Record<string, { u: string; product: string }> = {};
+  for (const unit of doc.units) {
+    for (const pg of unit.pages || []) {
+      if (pg.id) out[String(pg.id)] = { u: unit.u, product: unit.product };
+    }
+  }
+  return out;
 }

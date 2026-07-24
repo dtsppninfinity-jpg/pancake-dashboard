@@ -14,12 +14,14 @@ import { umapSkel } from '@/lib/ui/skeletons';
 /* ---------------- data types (apiUMap) ---------------- */
 
 interface UMember { id: string; name: string }
-interface UUnit { u: string; product: string; admins: UMember[] }
+interface UPage { id: string; name: string; platform?: string }
+interface UUnit { u: string; product: string; admins: UMember[]; pages: UMember[] }
 interface UMapData {
   ok?: boolean;
   error?: string;
   units?: UUnit[];
   roster?: UMember[];
+  pageRoster?: UPage[]; // รายชื่อเพจทั้งหมด ให้จับคู่เพจ→U
   updatedAt?: string;
   publicNeedsKey?: boolean; // server ตั้ง UMAP_PUBLIC_KEY ไว้ → ลิงก์สาธารณะต้องแนบ ?key=
 }
@@ -68,10 +70,14 @@ function statsHtml(units: UUnit[], roster: UMember[]): string {
   const assigned = new Set<string>();
   units.forEach((x) => x.admins.forEach((a) => assigned.add(a.id)));
   const freeAdmins = roster.filter((a) => !assigned.has(a.id)).length;
+  const pagesMapped = units.reduce((s, x) => s + (x.pages || []).length, 0);
+  const totalPages = (lastData && lastData.pageRoster || []).length;
   return '<div class="umap-stats">' +
     '<div class="tile">U ทั้งหมด<b>' + units.length + '</b></div>' +
     '<div class="tile">มีแอดมินประจำแล้ว<b>' + withAdmin + ' / ' + units.length + ' U</b></div>' +
     '<div class="tile">แอดมินที่ยังไม่มี U<b>' + freeAdmins + ' คน</b></div>' +
+    '<div class="tile" title="ใช้จัดกลุ่มยอดขายตามยูนิตในหน้า Sales">เพจจับคู่แล้ว<b>' +
+      pagesMapped + (totalPages ? ' / ' + totalPages : '') + ' เพจ</b></div>' +
     '</div>';
 }
 
@@ -115,6 +121,7 @@ function uCardHtml(x: UUnit, ids: Set<string>, hasRoster: boolean): string {
   const members = x.admins.length
     ? x.admins.map((m) => memberChip_(x.u, m, hasRoster && !ids.has(m.id))).join('')
     : '<span class="u-empty">ยังว่าง — ไม่มีแอดมินประจำ</span>';
+  const nPages = (x.pages || []).length;
   return '<div class="u-card' + (droppable ? ' droppable' : '') + '" data-u="' + esc(x.u) + '">' +
     '<div class="u-tools">' +
       '<button class="u-tool-btn" data-act="edit" data-u="' + esc(x.u) + '" title="แก้ชื่อผลิตภัณฑ์">✏️</button>' +
@@ -123,6 +130,9 @@ function uCardHtml(x: UUnit, ids: Set<string>, hasRoster: boolean): string {
     '<div class="u-code">' + esc(x.u) + '</div>' +
     '<div class="u-product">' + esc(x.product || '—') + '</div>' +
     '<div class="u-members">' + members + '</div>' +
+    '<button class="u-pages-btn" data-act="pages" data-u="' + esc(x.u) + '" title="จับคู่เพจของยูนิตนี้ (ใช้จัดกลุ่มยอดขาย)">' +
+      '📄 ' + (nPages ? nPages + ' เพจ' : 'ยังไม่จับคู่เพจ') + ' • จัดการ' +
+    '</button>' +
     '</div>';
 }
 
@@ -264,6 +274,104 @@ function openRemoveUnit(container: HTMLElement, u: string): void {
     closeModal();
     mutate(container, { action: 'removeUnit', u }, '🗑 ลบ ' + u + ' แล้ว');
   });
+}
+
+/* ---------------- จับคู่เพจ → U (ใช้จัดกลุ่มยอดขายในหน้า Sales) ---------------- */
+
+/** map page_id → รหัส U ที่เพจนั้นถูกจับคู่อยู่ (จาก lastData.units) */
+function pageUnitLookup_(): Record<string, string> {
+  const m: Record<string, string> = {};
+  ((lastData && lastData.units) || []).forEach((x) => (x.pages || []).forEach((p) => { m[p.id] = x.u; }));
+  return m;
+}
+
+/** ย้ายเพจไปยูนิต u ในหน่วยความจำ (optimistic) — server เป็นตัวตัดสินจริงตอน mutate กลับ */
+function localMovePage_(u: string, pageId: string, pageName: string): void {
+  if (!lastData || !lastData.units) return;
+  lastData.units.forEach((x) => { x.pages = (x.pages || []).filter((p) => p.id !== pageId); });
+  const unit = lastData.units.find((x) => x.u === u);
+  if (unit) unit.pages.push({ id: pageId, name: pageName });
+}
+function localRemovePage_(u: string, pageId: string): void {
+  const unit = (lastData && lastData.units || []).find((x) => x.u === u);
+  if (unit) unit.pages = unit.pages.filter((p) => p.id !== pageId);
+}
+
+let pageSearch = '';
+
+function openPageManager(container: HTMLElement, u: string): void {
+  pageSearch = '';
+  openModal(
+    '<div class="modal-head"><h3>📄 จับคู่เพจ — ' + esc(u) + '</h3><button class="modal-close">✕</button></div>' +
+    '<div id="pm-body"></div>'
+  );
+  const root = document.getElementById('modal-root')!;
+  const body = root.querySelector('#pm-body') as HTMLElement | null;
+  if (!body) return;
+
+  function listHtml(): string {
+    const unit = (lastData && lastData.units || []).find((x) => x.u === u);
+    if (!unit) return '<div class="empty-note">ไม่พบยูนิตนี้</div>';
+    const lookup = pageUnitLookup_();
+    const roster = (lastData && lastData.pageRoster) || [];
+    const q = pageSearch.trim().toLowerCase();
+    const list = q ? roster.filter((p) => p.name.toLowerCase().includes(q)) : roster;
+    // เพจในยูนิตนี้ขึ้นก่อน แล้วเพจที่ยังไม่จับคู่ แล้วเพจของยูนิตอื่น
+    list.sort((a, b) => {
+      const ra = lookup[a.id] === u ? 0 : (lookup[a.id] ? 2 : 1);
+      const rb = lookup[b.id] === u ? 0 : (lookup[b.id] ? 2 : 1);
+      return ra !== rb ? ra - rb : a.name.localeCompare(b.name, 'th');
+    });
+    if (!roster.length) return '<div class="empty-note">ยังไม่มีรายชื่อเพจ (รอ sync)</div>';
+    const rows = list.map((p) => {
+      const cur = lookup[p.id];
+      const here = cur === u;
+      const other = (cur && cur !== u) ? cur : '';
+      return '<button class="page-pick' + (here ? ' selected' : '') + '" data-pid="' + esc(p.id) +
+        '" data-name="' + esc(p.name) + '">' +
+        '<span class="chk">' + (here ? '✅' : '⬜') + '</span>' +
+        '<span class="nm">' + esc(p.name) + (p.platform === 'line' ? ' 🟢' : '') + '</span>' +
+        (other ? '<span class="cnt">อยู่ ' + esc(other) + '</span>' : '') +
+        '</button>';
+    }).join('');
+    return rows || '<div class="empty-note">ไม่พบเพจชื่อ "' + esc(pageSearch) + '"</div>';
+  }
+
+  function renderBody(): void {
+    const unit = (lastData && lastData.units || []).find((x) => x.u === u);
+    const n = unit ? (unit.pages || []).length : 0;
+    body!.innerHTML =
+      '<div class="card-sub" style="margin-bottom:8px">คลิกเพจเพื่อจับคู่/เอาออกจาก <b>' + esc(u) +
+        '</b>' + (unit && unit.product ? ' — ' + esc(unit.product) : '') + ' • ตอนนี้ ' + n + ' เพจ • ' +
+        '1 เพจอยู่ได้ยูนิตเดียว (จับที่นี่จะย้ายออกจากยูนิตเดิมให้)</div>' +
+      '<input class="input" id="pm-search" placeholder="🔎 ค้นหาเพจ..." value="' + esc(pageSearch) +
+        '" style="width:100%;margin-bottom:8px">' +
+      '<div class="page-pick-list">' + listHtml() + '</div>';
+    const s = body!.querySelector('#pm-search') as HTMLInputElement | null;
+    if (s) s.addEventListener('input', () => {
+      pageSearch = s.value;
+      const l = body!.querySelector('.page-pick-list') as HTMLElement | null;
+      if (l) l.innerHTML = listHtml();
+    });
+  }
+
+  body.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest('.page-pick') as HTMLElement | null;
+    if (!btn) return;
+    const pid = btn.getAttribute('data-pid') || '';
+    const name = btn.getAttribute('data-name') || '';
+    const here = pageUnitLookup_()[pid] === u;
+    if (here) {
+      localRemovePage_(u, pid);
+      mutate(container, { action: 'unassignPage', u, pageId: pid }, '');
+    } else {
+      localMovePage_(u, pid, name);
+      mutate(container, { action: 'assignPage', u, pageId: pid }, '');
+    }
+    renderBody(); // สะท้อนผลทันที (optimistic) — server จะยืนยันภายหลัง
+  });
+
+  renderBody();
 }
 
 /* ---------------- 🎮 เกมทดสอบความจำ (client-only, ไม่แตะ DB) ---------------- */
@@ -414,6 +522,12 @@ function bindEvents(container: HTMLElement): void {
       const u = tool.getAttribute('data-u') || '';
       if (tool.getAttribute('data-act') === 'edit') openEditUnit(container, u);
       else openRemoveUnit(container, u);
+      return;
+    }
+    // ปุ่มจัดการเพจ — ต้องดักก่อน .u-card ไม่งั้นจะไปเข้า logic จับคู่แอดมิน
+    const pagesBtn = t.closest('.u-pages-btn') as HTMLElement | null;
+    if (pagesBtn) {
+      openPageManager(container, pagesBtn.getAttribute('data-u') || '');
       return;
     }
     const card = t.closest('.u-card') as HTMLElement | null;
