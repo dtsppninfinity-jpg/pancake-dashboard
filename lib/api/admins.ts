@@ -13,6 +13,7 @@ import {
 } from '@/lib/config';
 import { defaultRolePerms, effectiveStatus, capacityOf, normalizeRolePermsShape, DEFAULT_MAX_ACTIVE } from '@/lib/adminconfig';
 import { getAppSettings } from '@/lib/api/appsettings';
+import { allocateReached } from '@/lib/api/chat-reached';
 
 /* ---------------- utilities (port จาก WebApi.gs) ---------------- */
 
@@ -126,7 +127,7 @@ export async function apiAdmins(_params?: any) {
   // log ออนไลน์: เอาย้อนถึง 26 ชม.ก่อนต้นวัน เพื่อได้ baseline สถานะตอนเที่ยงคืน
   const logSinceIso = new Date(todayStartTime - 26 * 3600 * 1000).toISOString();
 
-  const [adminsRows, chatDailyRows, orderRows, convRows, settingsRows, onlineLogRows, rolePermsRow, appSettings] =
+  const [adminsRows, chatDailyRows, engDailyRows, orderRows, convRows, settingsRows, onlineLogRows, rolePermsRow, appSettings] =
     await Promise.all([
       // Admins — ตารางเล็ก
       fetchAll<any>(() =>
@@ -142,11 +143,19 @@ export async function apiAdmins(_params?: any) {
         db
           .from('admin_chat_daily')
           .select(
-            'date,user_id,inbox_count,comment_count,unique_inbox_count,phone_number_count,avg_response_ms,updated_at'
+            'date,user_id,page_id,inbox_count,comment_count,unique_inbox_count,phone_number_count,avg_response_ms,updated_at'
           )
           .eq('date', todayStr),
         'key'
       ),
+      // คนทัก (new_inbox+comment) ระดับเพจ วันนี้ — เอาไปจัดสรรรายแอดมิน ([[chat-reached]])
+      fetchAll<any>(() =>
+        db
+          .from('chat_engagement_daily')
+          .select('date,page_id,new_inbox,comment')
+          .eq('date', todayStr),
+        'key'
+      ).catch(() => [] as any[]),
       // Orders — กรองตั้งแต่ต้นวันนี้ (เวลาไทย) ในตัว query
       fetchAll<any>(() =>
         db
@@ -214,7 +223,7 @@ export async function apiAdmins(_params?: any) {
     const t = chatToday[uid];
     const inbox = toNum_(r.inbox_count);
     t.replies += inbox + toNum_(r.comment_count);
-    t.chats += toNum_(r.unique_inbox_count);
+    // t.chats = คนทักจัดสรร (ตั้งหลังลูป) — ไม่ใช่ unique_inbox ดิบที่นับซ้ำข้ามแอดมิน
     t.phones += toNum_(r.phone_number_count);
     const resp = toNum_(r.avg_response_ms); // วินาที
     if (resp > 0) {
@@ -225,6 +234,9 @@ export async function apiAdmins(_params?: any) {
       if (resp > t.respMax) t.respMax = resp;
     }
   });
+  // "แชท" = คนทักจัดสรร (new_inbox+comment ระดับเพจ กระจายตามสัดส่วน unique_inbox) — เป็นตัวหาร %ปิด
+  const reachedByUid = allocateReached(chatDailyRows, engDailyRows);
+  Object.keys(chatToday).forEach((uid) => { chatToday[uid].chats = reachedByUid[uid] || 0; });
 
   // ยอดขายวันนี้ต่อ seller (pos id และชื่อ) + จุดเวลาออเดอร์ (ให้ timeline ใน modal)
   const salesByPosId: Record<string, { orders: number; revenue: number; marks: [number, number][] }> = {};

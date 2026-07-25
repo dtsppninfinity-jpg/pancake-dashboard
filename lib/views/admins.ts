@@ -596,7 +596,7 @@ function openStats(a: Admin): void {
     '<div style="margin:16px 0 10px;font-weight:700;font-size:13px">📊 สถิติวันนี้ (ข้อมูลจริง)</div>' +
     '<div class="page-stats">' +
       cellHtml(fmtNum(t.replies || 0), 'ตอบ', '') +
-      cellHtml(fmtNum(t.chats || 0), 'แชท', '') +
+      cellHtml(fmtNum(t.chats || 0), 'คนทัก', '') +
       cellHtml(fmtNum(t.phones || 0), 'เบอร์โทร', '') +
       cellHtml(fmtNum(t.orders || 0), 'ออเดอร์', '') +
       cellHtml(esc(THB(t.revenue || 0)), 'ยอดขาย', '') +

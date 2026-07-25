@@ -11,6 +11,7 @@ import {
   startOfDayBkk,
 } from '@/lib/config';
 import { getAppSettings } from '@/lib/api/appsettings';
+import { allocateReached } from '@/lib/api/chat-reached';
 
 /* ---------------- utilities (พอร์ตจาก WebApi.gs) ---------------- */
 
@@ -180,11 +181,23 @@ export async function apiAdminPerf(params: any) {
   const chatRows = await fetchAll<any>(() =>
     db
       .from('admin_chat_daily')
-      .select('date,user_id,user_name,unique_inbox_count,inbox_count,comment_count,phone_number_count,avg_response_ms')
+      .select('date,user_id,user_name,page_id,unique_inbox_count,inbox_count,comment_count,phone_number_count,avg_response_ms')
       .gte('date', chatFrom)
       .lte('date', chatTo),
     'key'
   );
+
+  // ยอด "คนทัก" (บทสนทนาอินบ็อกซ์ใหม่ + ความคิดเห็น) ระดับเพจ จาก chat_engagement_daily
+  // เอาไปจัดสรรรายแอดมินตามสัดส่วน unique_inbox → เป็นตัวเลข "แชท" + ตัวหาร %ปิดที่ตรงจอ Pancake
+  const engRows = await fetchAll<any>(() =>
+    db
+      .from('chat_engagement_daily')
+      .select('date,page_id,new_inbox,comment')
+      .gte('date', chatFrom)
+      .lte('date', chatTo),
+    'key'
+  ).catch(() => [] as any[]);
+  const reachedByUid = allocateReached(chatRows, engRows);
 
   // ลูกค้าใหม่รวมทีม + ปริมาณลูกค้าทักรายชั่วโมง (จาก chat_hourly — ระดับเพจ ไม่มีรายแอดมิน)
   // ไม่ catch: ตาราง chat_hourly มีแน่นอน — error จริง (503/timeout) ต้องดังให้หน้าเว็บโชว์ retry
@@ -272,13 +285,15 @@ export async function apiAdminPerf(params: any) {
     if (!chatByUser[uid]) chatByUser[uid] = { chats: 0, replies: 0, phones: 0, respWSum: 0, respWeight: 0, name: String(c.user_name || '') };
     const t = chatByUser[uid];
     const inbox = toNum_(c.inbox_count);
-    t.chats += toNum_(c.unique_inbox_count);
+    // t.chats = คนทักจัดสรร (ตั้งหลังลูปจาก reachedByUid) — ไม่ใช่ unique_inbox ดิบที่นับซ้ำข้ามแอดมิน
     t.replies += inbox + toNum_(c.comment_count);
     t.phones += toNum_(c.phone_number_count);
     // avg_response_ms จริงเป็น "วินาที" — ถ่วงน้ำหนักด้วยจำนวนข้อความรายเพจ (ดู lib/api/admins.ts)
     const resp = toNum_(c.avg_response_ms);
     if (resp > 0) { const w = inbox > 0 ? inbox : 1; t.respWSum += resp * w; t.respWeight += w; }
   });
+  // "แชท" = คนทักจัดสรร (new_inbox+comment ระดับเพจ กระจายตามสัดส่วน unique_inbox)
+  Object.keys(chatByUser).forEach((uid) => { chatByUser[uid].chats = reachedByUid[uid] || 0; });
 
   function topKey(map: Record<string, number>): string {
     let best = '', bestV = -1;

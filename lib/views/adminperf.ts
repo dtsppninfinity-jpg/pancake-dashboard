@@ -304,7 +304,7 @@ function kpiStripHtml(data: PerfData | null): string {
     pgsItem(fmtNum(team.online || 0), 'ออนไลน์', 'ok') +
     pgsItem(fmtNum(team.offline || 0), 'ออฟไลน์', '') +
     pgsItem(fmtNum(disabledN), 'ปิดใช้งาน', disabledN > 0 ? 'warn' : '') +
-    pgsItem(fmtNum(chatsSum), 'แชทในช่วงนี้', '') +
+    pgsItem(fmtNum(chatsSum), 'คนทักในช่วงนี้', '') +
     pgsItem(fmtNum(repliesSum), 'ข้อความที่ตอบ', '') +
     pgsItem(avgResp === null ? '—' : avgResp + ' น.', 'Response เฉลี่ย', '') +
     pgsItem(f ? esc(String(f.name).slice(0, 10)) : '—',
@@ -413,8 +413,8 @@ function rankCardHtml(r: PerfRow, idx: number): string {
     ? ' <span class="badge urgent" title="แชทที่ลูกค้ารอเกินเกณฑ์ SLA ตอนนี้ (ไม่ขึ้นกับช่วงเวลาที่เลือก)">⏰ ' +
       esc(fmtNum(Number(r.overSla))) + '</span>'
     : '';
-  const sub1 = '🛒 ' + esc(fmtNum(r.orders)) + ' ออเดอร์ • 💬 ' + esc(fmtNum(r.chats)) +
-    ' แชท • ↩ ' + esc(fmtNum(r.replies)) + ' ตอบ • 📞 ' + esc(fmtNum(r.phones)) + ' เบอร์';
+  const sub1 = '🛒 ' + esc(fmtNum(r.orders)) + ' ออเดอร์ • 💬 <span title="คนทัก = บทสนทนาอินบ็อกซ์ใหม่ + ความคิดเห็น (ตรงจอสถิติการมีส่วนร่วมของ Pancake) — ใช้เป็นตัวหาร %ปิดการขาย">' +
+    esc(fmtNum(r.chats)) + ' คนทัก</span> • ↩ ' + esc(fmtNum(r.replies)) + ' ตอบ • 📞 ' + esc(fmtNum(r.phones)) + ' เบอร์';
   const sub2 = '📦 ' + esc(r.topProduct || '-') + ' • 📄 ' + esc(r.topPage || '-') +
     (r.lastOrderAt ? ' • ออเดอร์ล่าสุด ' + esc(relTime(r.lastOrderAt)) : '');
   // โหมด Overall โชว์คะแนนเป็นตัวใหญ่ + ยอดขายเป็นตัวรอง; โหมดอื่นโชว์ยอดขายเป็นตัวใหญ่
@@ -422,7 +422,7 @@ function rankCardHtml(r: PerfRow, idx: number): string {
     ? '<div class="rank-big">' + esc(scoreFmt(r._score)) + '<span class="rank-big-u"> คะแนน</span></div>'
     : '<div class="rank-big">' + esc(THB(r.revenue)) + '</div>';
   const mini = (state.mode === 'overall' ? '💰 ' + esc(THB(r.revenue)) + ' • ' : '') +
-    '🎯 ' + esc(pctFmt(r.closeRate)) + ' • ⚡ ' + esc(respLong(r)) +
+    '<span title="%ปิดการขาย = ออเดอร์ ÷ คนทัก (อินบ็อกซ์ใหม่+ความคิดเห็น)">🎯 ' + esc(pctFmt(r.closeRate)) + '</span> • ⚡ ' + esc(respLong(r)) +
     (state.mode === 'overall' ? '' : ' • เฉลี่ย ' + esc(THB(r.avgOrder)));
   return '<div class="' + cardCls + '">' +
     noHtml +
@@ -588,7 +588,7 @@ function exportCSV(): void {
     ['Admin Performance Ranking'],
     ['ช่วงเวลา: ' + (lastData!.rangeLabel || '-') + ' • โหมดจัดอันดับ: ' + modeLabel(state.mode) +
       (state.group ? ' • กลุ่มสินค้า: ' + state.group : '')],
-    ['อันดับ', 'แอดมิน', 'สถานะ', 'Overall คะแนน', 'ยอดขาย', 'ออเดอร์', 'แชทที่ดูแล', 'ข้อความที่ตอบ',
+    ['อันดับ', 'แอดมิน', 'สถานะ', 'Overall คะแนน', 'ยอดขาย', 'ออเดอร์', 'คนทัก(อินบ็อกซ์ใหม่+คอมเมนต์)', 'ข้อความที่ตอบ',
       '% ปิดการขาย', 'ตอบเฉลี่ย(นาที)', 'เฉลี่ย/ออเดอร์', 'สินค้าขายดี', 'เพจยอดดีสุด',
       'กลุ่มสินค้า', 'แชทที่ดูแลตอนนี้(24ชม.)', 'แชทรอตอบตอนนี้', 'เกิน SLA ตอนนี้'],
   ];
