@@ -30,8 +30,6 @@ async function runFast(): Promise<void> {
   await runJob('chat-today', jobs.syncChatToday);
   await runJob('conversations', jobs.syncConversations);
   await runJob('online-status', jobs.syncOnlineStatus);
-  // ค่าแอดวันนี้ — อยู่ในรอบ fast เพื่อให้หน้าเว็บเห็น spend สดตามเวลา sync (ทุก 15 นาที)
-  await runJob('ad-stats-today', jobs.syncAdStatsToday);
   // ตัวเลขชุดเดียวกับหน้าสถิติแชท Pancake (ลูกค้าทั้งหมด / ลูกค้าใหม่ / ออเดอร์) — ใช้เป็น %ปิดการขาย
   await runJob('engagements-today', jobs.syncEngagementsToday);
   // สถิติตอบแชทรายแอดมิน (ตอบวันนี้ / เวลาตอบเฉลี่ย) — ย้ายจาก hourly มา fast (ทุก 15 นาที)
@@ -42,18 +40,22 @@ async function runFast(): Promise<void> {
 async function runHourly(): Promise<boolean> {
   const a = await runJob('ads', jobs.syncAds);
   const b = await runJob('admins-roster', jobs.syncAdminsRoster);
-  return a && b;
+  // ค่าแอดวันนี้: Pancake ก่อน (ให้ page_id/ชื่อแอด) → Meta ทับ spend จริง (ต้องรันหลัง Pancake)
+  const c = await runJob('ad-stats-today', jobs.syncAdStatsToday);
+  const d = await runJob('meta-ads-today', jobs.syncMetaAdsToday);
+  return a && b && c && d;
 }
 
 async function runDaily(): Promise<boolean> {
   const a = await runJob('chat-yesterday', jobs.syncChatYesterday);
   const b = await runJob('admin-chat-2d', () => jobs.syncAdminChatBackfill(2));
-  // Meta ปรับยอด spend ย้อนหลังได้อีก 1-2 วัน — เก็บซ้ำของเมื่อวานให้ตรง
+  // Meta ปรับยอด spend ย้อนหลังได้อีก 1-2 วัน — เก็บซ้ำของเมื่อวานให้ตรง (Pancake ก่อน → Meta ทับ)
   const d = await runJob('ad-stats-yesterday', jobs.syncAdStatsYesterday);
+  const f = await runJob('meta-ads-yesterday', jobs.syncMetaAdsYesterday);
   // ปิดยอดของเมื่อวานให้ครบ (ออเดอร์ที่ยืนยันข้ามคืนทำให้ order_count ขยับได้)
   const e = await runJob('engagements-yesterday', jobs.syncEngagementsYesterday);
   const c = await runJob('prune', jobs.prune);
-  return a && b && c && d && e;
+  return a && b && c && d && e && f;
 }
 
 const MODE = (process.argv[2] || 'fast').toLowerCase();

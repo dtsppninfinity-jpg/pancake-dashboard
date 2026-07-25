@@ -169,6 +169,7 @@ export async function apiContentAds(params?: any) {
   const revByAd: Record<string, number> = {};
   const cntByAd: Record<string, number> = {};
   const sellerByAd: Record<string, Record<string, number>> = {}; // ใครปิดขายจากแอดนี้บ้าง (นับออเดอร์)
+  const sellerRevByAd: Record<string, Record<string, number>> = {}; // ยอดขายต่อคนปิด (บาท)
   const pageByAd: Record<string, Record<string, number>> = {};   // แอดนี้ยอดมาจากเพจไหนบ้าง (นับออเดอร์)
   const prodByAd: Record<string, Record<string, number>> = {};   // สินค้าที่ขายผ่านแอดนี้ (นับชิ้น)
   orders.forEach(function (o) {
@@ -183,6 +184,8 @@ export async function apiContentAds(params?: any) {
     if (seller) {
       if (!sellerByAd[id]) sellerByAd[id] = {};
       sellerByAd[id][seller] = (sellerByAd[id][seller] || 0) + 1;
+      if (!sellerRevByAd[id]) sellerRevByAd[id] = {};
+      sellerRevByAd[id][seller] = (sellerRevByAd[id][seller] || 0) + money_(o.total_price);
     }
     const pid = String(o.page_id || '');
     if (pid) {
@@ -219,6 +222,17 @@ export async function apiContentAds(params?: any) {
     let best = '', bestN = 0;
     Object.keys(m).forEach(function (k) { if (m[k] > bestN) { bestN = m[k]; best = k; } });
     return best ? best + ' (' + bestN + ')' : '';
+  }
+
+  /** รายชื่อคนปิดขายของแอด เรียงตามจำนวนออเดอร์ (สูงสุด 6) — [{name, orders, revenue}] */
+  function closers_(adId: string): { name: string; orders: number; revenue: number }[] {
+    const m = sellerByAd[adId];
+    if (!m) return [];
+    const rev = sellerRevByAd[adId] || {};
+    return Object.keys(m)
+      .map(function (name) { return { name: name, orders: m[name], revenue: Math.round(rev[name] || 0) }; })
+      .sort(function (a, b) { return b.orders - a.orders; })
+      .slice(0, 6);
   }
 
   // ค่าแอดจริงจาก ad_daily (รวมตามช่วงวันที่เลือก) — ตาราง `ads` เดิมว่างเปล่าถาวร
@@ -272,6 +286,7 @@ export async function apiContentAds(params?: any) {
       adsetId: String(a.adset_id || ''),
       ageDays: ageDays,
       topSeller: topSeller_(adId),
+      closers: closers_(adId),
       pageId: topPageId,
       pageName: pageNames[topPageId] || '',
       products: topProducts_(adId),

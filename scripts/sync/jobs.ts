@@ -7,6 +7,7 @@ import {
   pageChatStats, pageConversations, pageUserStats, pageUsers, pageAdStats, pageCustomerEngagements,
 } from '../../lib/pancake';
 import { mapOrder, mapChatHour, mapConversation, mapAd, mapAdDaily, mapEngagementDaily } from '../../lib/mappers';
+import { metaListAdAccounts, metaAccountAdInsights } from '../../lib/meta';
 import { supabase, upsertRows, replaceTable } from '../../lib/supabase';
 
 /* ---------------- helper: โหลดเพจ + token จาก DB ---------------- */
@@ -193,6 +194,49 @@ export async function syncAdStatsForDate(dateStr: string): Promise<string> {
 export const syncAdStatsToday = () => syncAdStatsForDate(fmtDateBkk(new Date()));
 /** ยอดของ Meta ยังขยับย้อนหลังได้อีก 1-2 วัน — งานรายวันตามเก็บซ้ำ */
 export const syncAdStatsYesterday = () => syncAdStatsForDate(fmtDateBkk(daysAgo(1)));
+
+/* ---------------- META ADS (ค่าแอด "จริง" จาก Meta Marketing API) ---------------- */
+
+/**
+ * ดึง spend/impressions/clicks/purchases/value ระดับแอด จาก Meta ของ "ทุกบัญชีที่ยิงจริง"
+ * แล้วทับลง ad_daily (merge — คงค่า page_id/name ที่ Pancake ใส่) → ค่าแอดตรงจอ Meta เป๊ะ
+ * ต้องรัน "หลัง" syncAdStats (Pancake) ในรอบเดียวกัน เพื่อให้ค่า Meta ทับค่า Pancake
+ */
+export async function syncMetaAdsRange(since: string, until: string): Promise<string> {
+  const token = process.env.META_ACCESS_TOKEN || '';
+  if (!token) return 'ข้าม: ยังไม่ได้ตั้ง META_ACCESS_TOKEN';
+  const accounts = await metaListAdAccounts();
+  const active = accounts.filter((a) => a.account_status === 1);
+  const rows: any[] = [];
+  const errors: string[] = [];
+  let spend = 0;
+  const now = new Date().toISOString();
+  for (const acc of active) {
+    try {
+      const ins = await metaAccountAdInsights(acc.account_id, since, until);
+      for (const it of ins) {
+        if (!it.ad_id || !it.date) continue;
+        rows.push({
+          date: it.date, ad_id: it.ad_id, account_id: acc.account_id,
+          spend: it.spend, impressions: it.impressions, clicks: it.clicks, reach: it.reach,
+          meta_purchases: it.purchases, meta_purchase_value: it.purchase_value,
+          updated_at: now,
+        });
+        spend += it.spend;
+      }
+    } catch (e: any) { errors.push(`${acc.account_id}: ${e.message}`); }
+    await sleep(120);
+  }
+  if (rows.length) await upsertRows('ad_daily', rows, 'date,ad_id');
+  const range = since === until ? since : `${since}..${until}`;
+  let msg = `meta ads ${range}: ${rows.length} แถว จาก ${active.length}/${accounts.length} บัญชี | spend ฿${spend.toFixed(2)}`;
+  if (errors.length) msg += ` | ผิดพลาด ${errors.length} บัญชี: ${errors.slice(0, 2).join('; ')}`;
+  return msg;
+}
+
+export const syncMetaAdsForDate = (dateStr: string) => syncMetaAdsRange(dateStr, dateStr);
+export const syncMetaAdsToday = () => syncMetaAdsForDate(fmtDateBkk(new Date()));
+export const syncMetaAdsYesterday = () => syncMetaAdsForDate(fmtDateBkk(daysAgo(1)));
 
 /* ---------------- ADS (ตารางเดิม — POS endpoint ตายแล้ว) ---------------- */
 

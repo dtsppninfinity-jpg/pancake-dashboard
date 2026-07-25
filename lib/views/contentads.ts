@@ -227,7 +227,38 @@ function openAnalysis(data: any, adId: any): void {
       ? '<span class="badge ai">🧑‍💼 ปิดขายมากสุด: ' + esc(item.topSeller) + '</span>' : '') +
     '</div>';
 
-  html += '<div style="font-weight:700;font-size:13px;margin:12px 0 4px">⚠️ ปัญหาที่พบ</div>';
+  // ---- รายละเอียดการขายจริง (จากออเดอร์ POS ที่ผูก ad_id นี้) — แบบเดียวกับหน้า PAGE POS เดิม ----
+  const closers = Array.isArray(item.closers) ? item.closers : [];
+  const dRow = function (label: string, val: string): string {
+    return '<div style="display:flex;justify-content:space-between;gap:12px;padding:5px 0;' +
+      'border-bottom:1px dashed rgba(38,51,82,.6);font-size:12.5px">' +
+      '<span style="color:var(--text-3)">' + label + '</span>' +
+      '<span style="font-weight:600;text-align:right;min-width:0">' + val + '</span></div>';
+  };
+  html += '<div style="font-weight:700;font-size:13px;margin:16px 0 4px">🧾 รายละเอียดการขาย (POS จริง)</div>';
+  html += '<div>';
+  html += dRow('บริษัท / เพจ', esc(item.pageName || '—'));
+  html += dRow('Ad ID', '<span style="font-family:monospace;font-size:11px">' + esc(String(item.adId)) + '</span>');
+  html += dRow('ยอดขาย POS', THB(num(item.revenuePos)) + ' • ' + fmtNum(num(item.ordersPos)) + ' ออเดอร์');
+  if (num(item.spend) > 0) {
+    html += dRow('ค่าแอด / ROAS(POS)', THB(num(item.spend)) +
+      (num(item.spend) > 0 ? ' • ' + (num(item.revenuePos) / num(item.spend)).toFixed(2) + 'x' : ''));
+  }
+  html += dRow('อัปเดตล่าสุด', item.updatedAt ? esc(relTime(item.updatedAt)) : '—');
+  html += '</div>';
+  html += '<div style="font-weight:700;font-size:13px;margin:14px 0 4px">🧑‍💼 ปิดยอดขาย (ใครปิดได้เท่าไร)</div>';
+  if (!closers.length) {
+    html += '<div class="empty-note" style="padding:10px">ยังไม่มีออเดอร์ POS ที่ผูกแอดนี้ในช่วงที่เลือก</div>';
+  } else {
+    html += '<div>' + closers.map(function (c: any) {
+      return '<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;' +
+        'border-bottom:1px dashed rgba(38,51,82,.5);font-size:12.5px">' +
+        '<span>👤 ' + esc(String(c.name)) + ' <span class="badge neutral">' + fmtNum(num(c.orders)) + '</span></span>' +
+        '<span style="font-weight:600">' + THB(num(c.revenue)) + '</span></div>';
+    }).join('') + '</div>';
+  }
+
+  html += '<div style="font-weight:700;font-size:13px;margin:16px 0 4px">⚠️ ปัญหาที่พบ</div>';
   if (!probs.length) {
     html += '<div class="empty-note" style="padding:14px 10px">ไม่พบปัญหา — แอดทำงานได้ดี 🎉</div>';
   } else {

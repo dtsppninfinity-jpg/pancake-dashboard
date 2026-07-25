@@ -13,6 +13,7 @@
     "backfill": "tsx scripts/setup/backfill.ts",
     "backfill:engagements": "tsx scripts/setup/backfill-engagements.ts",
     "backfill:ads": "tsx scripts/setup/backfill-ads.ts",
+    "backfill:meta-ads": "tsx scripts/setup/backfill-meta-ads.ts",
     "typecheck": "tsc --noEmit",
     "check": "tsx scripts/check.ts",
     "watch": "tsx scripts/watch.ts",
