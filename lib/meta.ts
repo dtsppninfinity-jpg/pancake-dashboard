@@ -37,6 +37,25 @@ async function metaGet(path: string, params: Record<string, string>, tries = 3):
   throw new Error(lastErr || 'meta fetch ล้มเหลว');
 }
 
+/**
+ * รันงานพร้อมกันทีละ n ตัว (worker pool) — คงลำดับผลลัพธ์เท่ากับลำดับ input
+ * ทำไม: ยิงทีละบัญชี (125 บัญชี × ~1.5 วิ) = ~3 นาที ซึ่งดันรอบ sync 15 นาทีจนเกือบชน
+ */
+export async function metaPool<T, R>(items: T[], n: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i]);
+    }
+  };
+  const size = Math.max(1, Math.min(n, items.length));
+  await Promise.all(Array.from({ length: size }, worker));
+  return out;
+}
+
 export interface MetaAccount { account_id: string; name: string; account_status: number; }
 
 /** ทุกบัญชีโฆษณาที่ token เข้าถึง (paginate) */
@@ -106,4 +125,148 @@ export async function metaAccountAdInsights(accountId: string, since: string, un
     await sleep(60);
   } while (after);
   return out;
+}
+
+/* ---------------- ครีเอทีฟของแอด (รูป / คลิป / ลิงก์โพสต์จริง) ---------------- */
+
+/**
+ * ⚠️ insights (ข้างบน) คืนครีเอทีฟไม่ได้ไม่ว่าใส่ field อะไร — ต้องอ่านจาก node Ad
+ * ใช้ `creative` (เอกพจน์ บน Ad) ไม่ใช่ edge `adcreatives` ที่ไม่คืน ad_id มาด้วย (join กลับไม่ได้)
+ *
+ * thumbnail_url ถ้าไม่ระบุขนาด Meta คืน 64x64 (1.9KB — เอามาโชว์ไม่ได้)
+ * ต้องส่งเป็น "field param" บน node creative แบบ .thumbnail_width(600) — ใส่เป็น query param
+ * เฉยๆ ไม่มีผล (ยิงจริงเทียบแล้ว: 64x64/1.9KB → 600x600/47KB)
+ */
+const THUMB_PX = 600;
+
+// object_story_spec / asset_feed_spec ต้องเจาะ sub-field เอง — ขอทั้งก้อนจะได้ page_welcome_message
+// ก้อนใหญ่มากจน Meta ตอบ error #1 "Please reduce the amount of data you're asking for"
+const CREATIVE_FIELDS =
+  `creative.thumbnail_width(${THUMB_PX}).thumbnail_height(${THUMB_PX})` +
+  '{id,name,object_type,thumbnail_url,image_url,video_id,object_story_id,effective_object_story_id,' +
+  'instagram_permalink_url,link_url,call_to_action_type,' +
+  'object_story_spec{page_id,link_data{picture,link,call_to_action},video_data{video_id,image_url,call_to_action}},' +
+  'asset_feed_spec{images,videos,link_urls,call_to_action_types}}';
+
+const AD_FIELDS = `id,name,account_id,effective_status,${CREATIVE_FIELDS}`;
+
+export interface MetaAdCreative {
+  ad_id: string; account_id: string; name: string;
+  thumb_url: string; image_url: string; video_id: string; object_type: string;
+  post_id: string; permalink: string; ig_permalink: string;
+  cta: string; link_url: string;
+}
+
+/** ค่าแรกที่ไม่ว่าง (แปลงเป็น string ให้แล้ว) */
+function firstStr_(...vals: any[]): string {
+  for (const v of vals) {
+    const s = v === null || v === undefined ? '' : String(v);
+    if (s) return s;
+  }
+  return '';
+}
+
+/** node Ad (พร้อม creative) → แถว ad_creative — คืน null ถ้าไม่มี id */
+function creativeFromAd_(ad: any, fallbackAccountId = ''): MetaAdCreative | null {
+  const adId = String((ad && ad.id) || '');
+  if (!adId) return null;
+  const c = (ad && ad.creative) || {};
+  const oss = c.object_story_spec || {};
+  const link = oss.link_data || {};
+  const vid = oss.video_data || {};
+  const afs = c.asset_feed_spec || {};
+  const afsImg = (afs.images && afs.images[0]) || {};
+  const afsVid = (afs.videos && afs.videos[0]) || {};
+  const afsLink = (afs.link_urls && afs.link_urls[0]) || {};
+  // รูปคมสุดตามลำดับ — thumbnail_url เก็บแยก (เป็นตัวสำรองสุดท้าย: เล็กกว่า + URL หมดอายุเร็วกว่า)
+  const image = firstStr_(c.image_url, link.picture, vid.image_url, afsImg.url, afsVid.thumbnail_url);
+  // effective_object_story_id ครอบคลุม dark post (โพสต์ที่ไม่ขึ้นหน้าเพจ) — ใช้ก่อน object_story_id
+  const postId = firstStr_(c.effective_object_story_id, c.object_story_id);
+  return {
+    ad_id: adId,
+    account_id: String((ad && ad.account_id) || fallbackAccountId || ''),
+    // ชื่อครีเอทีฟมักเป็นพาดหัว/ข้อความโพสต์ (สื่อความกว่าชื่อแอดที่ทีมตั้งว่า "VP4")
+    name: firstStr_(c.name, ad && ad.name).slice(0, 300),
+    thumb_url: String(c.thumbnail_url || ''),
+    image_url: image,
+    video_id: firstStr_(c.video_id, vid.video_id, afsVid.video_id),
+    object_type: String(c.object_type || ''),
+    post_id: postId,
+    permalink: postId ? `https://www.facebook.com/${postId}` : '',
+    ig_permalink: String(c.instagram_permalink_url || ''),
+    cta: firstStr_(c.call_to_action_type, link.call_to_action && link.call_to_action.type,
+      vid.call_to_action && vid.call_to_action.type, afs.call_to_action_types && afs.call_to_action_types[0]),
+    link_url: firstStr_(c.link_url, link.link, afsLink.website_url),
+  };
+}
+
+/**
+ * ครีเอทีฟของ "ทุกแอด" ใน 1 บัญชี (paginate)
+ * limit 50 ไม่ใช่ 200 — field ครีเอทีฟหนักมาก ขอ 200 แล้ว Meta ตอบ error #1 (ยิงจริงเจอมาแล้ว)
+ */
+export async function metaAccountAdCreatives(accountId: string): Promise<MetaAdCreative[]> {
+  const out: MetaAdCreative[] = [];
+  let after: string | undefined;
+  do {
+    const p: Record<string, string> = { fields: AD_FIELDS, limit: '50' };
+    if (after) p.after = after;
+    const r = await metaGet(`act_${accountId}/ads`, p);
+    (r.data || []).forEach((ad: any) => {
+      const row = creativeFromAd_(ad, accountId);
+      if (row) out.push(row);
+    });
+    after = (r.paging && r.paging.next && r.paging.cursors) ? r.paging.cursors.after : undefined;
+    await sleep(60);
+  } while (after);
+  return out;
+}
+
+/** ยิง /?ids=a,b,c ชุดเดียว — คืน null เมื่อ Meta ปฏิเสธทั้งก้อน (ให้ตัวเรียกไปแตกครึ่งเอง) */
+async function creativesBatch_(ids: string[]): Promise<MetaAdCreative[] | null> {
+  try {
+    const r = await metaGet('', { ids: ids.join(','), fields: AD_FIELDS });
+    const out: MetaAdCreative[] = [];
+    Object.keys(r || {}).forEach((k) => {
+      const row = creativeFromAd_(r[k]);
+      if (row) out.push(row);
+    });
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * ครีเอทีฟของ ad_id ที่ระบุ (batch ทีละ 50 ผ่าน /?ids=) — เติมเฉพาะแอดที่เรามีในตารางจริง
+ * เร็วกว่ากวาดทุกบัญชีมาก (ad_daily สะสม ~28k ad_id แต่รอบหนึ่งเติมแค่ตัวใหม่)
+ *
+ * ⚠️ ถ้ามี ad_id สักตัวที่ token เข้าไม่ถึง/ถูกลบ Meta จะ error ทั้งก้อน → แตกครึ่งลงไปเรื่อยๆ
+ * จนเหลือตัวเดียวแล้วค่อยข้ามเฉพาะตัวนั้น (missing) แทนที่จะทิ้งทั้ง 50 ตัว
+ */
+export async function metaAdCreativesByIds(
+  adIds: string[], pool = 3
+): Promise<{ rows: MetaAdCreative[]; missing: string[] }> {
+  const CHUNK = 50;
+  const chunks: string[][] = [];
+  for (let i = 0; i < adIds.length; i += CHUNK) chunks.push(adIds.slice(i, i + CHUNK));
+
+  const solve = async (ids: string[]): Promise<{ rows: MetaAdCreative[]; missing: string[] }> => {
+    const r = await creativesBatch_(ids);
+    if (r) return { rows: r, missing: [] };
+    if (ids.length === 1) return { rows: [], missing: ids };
+    const mid = Math.floor(ids.length / 2);
+    const a = await solve(ids.slice(0, mid));
+    const b = await solve(ids.slice(mid));
+    return { rows: a.rows.concat(b.rows), missing: a.missing.concat(b.missing) };
+  };
+
+  const parts = await metaPool(chunks, pool, async (c) => {
+    const r = await solve(c);
+    await sleep(60);
+    return r;
+  });
+  const rows: MetaAdCreative[] = [];
+  const missing: string[] = [];
+  parts.forEach((p) => { rows.push(...p.rows); missing.push(...p.missing); });
+  return { rows, missing };
 }

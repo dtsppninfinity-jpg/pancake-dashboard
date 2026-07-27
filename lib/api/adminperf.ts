@@ -11,6 +11,7 @@ import {
   startOfDayBkk,
 } from '@/lib/config';
 import { getAppSettings } from '@/lib/api/appsettings';
+import { getKpiTargets, nicknameOf } from '@/lib/api/adminsettings';
 import { allocateReached } from '@/lib/api/chat-reached';
 
 /* ---------------- utilities (พอร์ตจาก WebApi.gs) ---------------- */
@@ -41,13 +42,26 @@ function startOfDay_(d: Date): Date {
 
 /**
  * แปลง params ช่วงเวลา → {start, end, prevStart, prevEnd, label}
- * preset: today | 7d | 30d | month | custom (from/to = 'yyyy-MM-dd')
+ * preset: today | yesterday | 3d | 7d | 30d | month | custom (from/to = 'yyyy-MM-dd')
+ * ⚠️ ต้องมีครบทุก key ใน RANGE_PRESETS (lib/ui/helpers.ts) — key ที่ไม่มี case จะตกไป default = วันนี้ เงียบๆ
  */
 function resolveRange_(params: any) {
   const p = params || {};
+  const preset = p.preset || 'today';
   const now = new Date();
   let start: Date, end: Date = now, label: string;
-  switch (p.preset || 'today') {
+  switch (preset) {
+    case 'yesterday':
+      // เมื่อวาน = ทั้งวัน 00:00:00.000–23:59:59.999 เวลาไทย
+      // (ไม่ตัดที่ "ตอนนี้" เหมือน preset อื่น — วันมันจบไปแล้ว ต้องได้ยอดเต็มวัน)
+      start = daysAgo_(1);
+      end = new Date(startOfDay_(now).getTime() - 1);
+      label = 'เมื่อวานนี้';
+      break;
+    case '3d':
+      start = daysAgo_(2); // 3 วันล่าสุด "รวมวันนี้" — กติกาเดียวกับ 7d/30d
+      label = '3 วันล่าสุด';
+      break;
     case '7d':
       start = daysAgo_(6);
       label = '7 วันล่าสุด';
@@ -71,11 +85,16 @@ function resolveRange_(params: any) {
       label = 'วันนี้';
   }
   const span = end.getTime() - start.getTime();
+  // ช่วงเทียบ = ถอยหลังเท่าความยาวช่วงที่เลือก (prevStart+span จึงเท่ากับ start เหมือนเดิม)
+  // ยกเว้น 'yesterday' ที่จบ 23:59:59.999 → span สั้นกว่าวันจริง 1ms ถ้าถอยเท่า span ช่วงเทียบจะเริ่ม
+  // 00:00:00.001 แล้วออเดอร์เที่ยงคืนตรงของ "วันก่อนหน้าเมื่อวาน" หลุด — ถอยเต็มวันแทน
+  const shiftMs = preset === 'yesterday' ? 86400000 : span;
+  const prevStart = new Date(start.getTime() - shiftMs);
   return {
     start,
     end,
-    prevStart: new Date(start.getTime() - span),
-    prevEnd: new Date(start.getTime()),
+    prevStart,
+    prevEnd: new Date(prevStart.getTime() + span),
     label,
   };
 }
@@ -110,6 +129,15 @@ function orderChannel_(o: any): string {
   return platformChannel_(o.platform);
 }
 
+/**
+ * บทสนทนาแถวนี้เป็น "คอมเมนต์" ไหม (conversations.type)
+ * ค่าจริงในตาราง: INBOX / COMMENT / RATING — RATING มีแค่หลักหน่วย จึงนับรวมกับอินบ็อกซ์
+ * (ไม่ใช่คอมเมนต์ใต้โพสต์ และแยกออกมาเป็นช่องที่สามก็ไม่มีใครใช้)
+ */
+function isComment_(c: any): boolean {
+  return String(c && c.type || '').toUpperCase() === 'COMMENT';
+}
+
 /** items_json อาจเป็น jsonb (array แล้ว) หรือ string — คืน array เสมอ */
 function parseItems_(v: any): any[] {
   if (Array.isArray(v)) return v;
@@ -127,7 +155,8 @@ async function loadOrders_(r: { start: Date; end: Date }) {
   const rows = await fetchAll<any>(() =>
     db
       .from('orders')
-      .select('inserted_at,status,total_price,platform,seller_id,seller_name,creator_name,items_json,page_id,account_name')
+      // ad_id = แอดที่ออเดอร์นี้มาจาก (มีจริง ~92% ของยอด — ใช้ทำ ROAS รายแอดมิน)
+      .select('inserted_at,status,total_price,platform,seller_id,seller_name,creator_name,items_json,page_id,account_name,ad_id')
       .gte('inserted_at', r.start.toISOString())
       .lte('inserted_at', r.end.toISOString())
   );
@@ -142,6 +171,31 @@ async function loadOrders_(r: { start: Date; end: Date }) {
     })
     // ตัดออเดอร์เปล่าที่ Pancake สร้างอัตโนมัติจากแชทแอด — ไม่ใช่ยอดขายของแอดมิน
     .filter((o) => o._at && !o._placeholder);
+}
+
+/**
+ * ค่าแอดจริงรายแอดในช่วง (ad_daily) → { ad_id: spend บาท }
+ * ⚠️ ad_daily.spend เป็น "บาทจริง" (มีทศนิยม) ไม่ใช่สตางค์เหมือน orders.total_price — ห้ามหาร 100
+ * คืน null เมื่อตารางยังไม่ถูกสร้าง (ยังไม่รัน migration) → หน้าเว็บต้องโชว์ "—" ไม่ใช่ 0
+ */
+async function loadAdSpend_(fromDate: string, toDate: string): Promise<Record<string, number> | null> {
+  try {
+    const rows = await fetchAll<any>(() =>
+      db.from('ad_daily').select('date,ad_id,spend').gte('date', fromDate).lte('date', toDate),
+      'ad_id'
+    );
+    const byAd: Record<string, number> = {};
+    rows.forEach((a) => {
+      const id = String(a.ad_id || '');
+      if (!id) return;
+      byAd[id] = (byAd[id] || 0) + toNum_(a.spend);
+    });
+    return byAd;
+  } catch (e: any) {
+    const m = String((e && e.message) || e || '');
+    if (m.includes('ad_daily') && (m.includes('does not exist') || m.includes('schema cache'))) return null;
+    throw e;
+  }
 }
 
 /* ---------------- API ---------------- */
@@ -161,11 +215,17 @@ export async function apiAdminPerf(params: any) {
   // (ตาราง admin_settings อาจยังไม่ถูกสร้าง → ถือว่าเปิดใช้งานทุกคน)
   const disabledIds: Record<string, boolean> = {};
   const groupsById: Record<string, string> = {}; // กลุ่มสินค้าที่ตั้งไว้ (ใช้เป็น filter ฝั่ง client)
+  const nickById: Record<string, string> = {};   // ชื่อเล่นที่พิมพ์ทับไว้ ('' = ให้เดาจากชื่อเต็ม)
   try {
-    const { data: st } = await db.from('admin_settings').select('user_id,enabled,product_groups');
-    (st || []).forEach((s: any) => {
+    // nickname มาจาก migration 2026-07-27 — ฐานที่ยังไม่รันจะ error ที่คอลัมน์นี้ → ขอใหม่แบบไม่มีมัน
+    let st = await db.from('admin_settings').select('user_id,enabled,product_groups,nickname');
+    if (st.error && String(st.error.message || '').includes('nickname')) {
+      st = await db.from('admin_settings').select('user_id,enabled,product_groups') as any;
+    }
+    (st.data || []).forEach((s: any) => {
       if (s.enabled === false) disabledIds[String(s.user_id)] = true;
       if (s.product_groups) groupsById[String(s.user_id)] = String(s.product_groups);
+      if (s.nickname) nickById[String(s.user_id)] = String(s.nickname);
     });
   } catch { /* ยังไม่มีตาราง */ }
 
@@ -223,34 +283,52 @@ export async function apiAdminPerf(params: any) {
   const appSettings = await getAppSettings();
   const slaMins = appSettings.slaMins;
   const activeByName: Record<string, number> = {};
-  const waitingByName: Record<string, number> = {};
+  const waitingByName: Record<string, number> = {};        // รอตอบทั้งหมด (อินบ็อกซ์ + คอมเมนต์)
+  const waitingCommentByName: Record<string, number> = {}; // เฉพาะคอมเมนต์ใต้โพสต์
   const overSlaByName: Record<string, number> = {};
   let overSlaTotal = 0;
+  let waitingTotal = 0;
+  let waitingCommentTotal = 0;
   {
     const cutoffIso = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     const slaCutoff = Date.now() - slaMins * 60000;
+    // ต้อง select type ด้วย — "แชทรอตอบ" ~41% เป็นคอมเมนต์ใต้โพสต์ ไม่ใช่อินบ็อกซ์
+    // (คนละงานกันสำหรับแอดมิน จึงต้องแยกให้เห็น ไม่ใช่กองรวมเป็นตัวเลขเดียว)
     const convRows = await fetchAll<any>(() =>
-      db.from('conversations').select('waiting,updated_at,assignees,platform').gte('updated_at', cutoffIso)
+      db.from('conversations').select('waiting,updated_at,assignees,platform,type').gte('updated_at', cutoffIso)
     );
     convRows.forEach((c: any) => {
       // เคารพ filter ช่องทางเหมือน KPI อื่นบนหน้าเดียวกัน (chat_hourly/orders กรองอยู่แล้ว)
       if (channel && platformChannel_(c.platform) !== channel) return;
       const upd = toDate_(c.updated_at);
       const isWaiting = toBool_(c.waiting);
+      const isComment = isComment_(c);
       const isOverSla = isWaiting && !!upd && upd.getTime() <= slaCutoff;
       if (isOverSla) overSlaTotal++;
+      if (isWaiting) {
+        waitingTotal++;
+        if (isComment) waitingCommentTotal++;
+      }
       String(c.assignees || '').split(',').forEach((nm: string) => {
         nm = nm.trim();
         if (!nm) return;
         activeByName[nm] = (activeByName[nm] || 0) + 1;
-        if (isWaiting) waitingByName[nm] = (waitingByName[nm] || 0) + 1;
+        if (isWaiting) {
+          waitingByName[nm] = (waitingByName[nm] || 0) + 1;
+          if (isComment) waitingCommentByName[nm] = (waitingCommentByName[nm] || 0) + 1;
+        }
         if (isOverSla) overSlaByName[nm] = (overSlaByName[nm] || 0) + 1;
       });
     });
   }
 
+  // ค่าแอดจริงรายแอดในช่วงเดียวกับยอดขาย (ใช้ทำ ROAS รายแอดมิน)
+  // null = ยังไม่ได้รัน migration ad_daily → ทุกคนได้ ROAS null (หน้าเว็บโชว์ "—" พร้อมเหตุผล)
+  const spendByAd = await loadAdSpend_(chatFrom, chatTo);
+
   // ยอดขายในช่วง group ตาม seller
   const bySeller: Record<string, any> = {}; // key = pos_user_id หรือ 'name:xxx'
+  const revByAd: Record<string, number> = {}; // ยอดขายรวมของแต่ละแอด (ทุกแอดมิน) — ตัวหารตอนปันค่าแอด
   orders.forEach((o) => {
     if (!inRange_(o._at, r) || o._excluded) return;
     if (channel && orderChannel_(o) !== channel) return;
@@ -258,12 +336,19 @@ export async function apiAdminPerf(params: any) {
     if (!bySeller[k2]) {
       bySeller[k2] = {
         name: String(o.seller_name || o.creator_name || 'ไม่ระบุ'),
-        revenue: 0, orders: 0, products: {} as Record<string, number>, pages: {} as Record<string, number>, lastOrderAt: null as number | null,
+        revenue: 0, orders: 0, products: {} as Record<string, number>, pages: {} as Record<string, number>,
+        adRev: {} as Record<string, number>, lastOrderAt: null as number | null,
       };
     }
     const s = bySeller[k2];
     s.revenue += o.total_price;
     s.orders++;
+    // ยอดที่ผูกแอดได้ — เก็บรายแอดไว้ปันค่าแอดตามสัดส่วนทีหลัง (ROAS รายคน)
+    const adId = String(o.ad_id || '');
+    if (adId) {
+      s.adRev[adId] = (s.adRev[adId] || 0) + o.total_price;
+      revByAd[adId] = (revByAd[adId] || 0) + o.total_price;
+    }
     try {
       parseItems_(o.items_json).forEach((it: any) => {
         if (it.name) s.products[it.name] = (s.products[it.name] || 0) + (it.qty || 1);
@@ -306,7 +391,7 @@ export async function apiAdminPerf(params: any) {
   /** รวมยอดขายจากหลาย key (posId + name) ของคนเดียวกัน */
   function mergeSales(parts: any[]) {
     if (!parts.length) return null;
-    const m = { revenue: 0, orders: 0, products: {} as Record<string, number>, pages: {} as Record<string, number>, lastOrderAt: null as number | null };
+    const m = { revenue: 0, orders: 0, products: {} as Record<string, number>, pages: {} as Record<string, number>, adRev: {} as Record<string, number>, lastOrderAt: null as number | null };
     parts.forEach((p) => {
       m.revenue += p.revenue;
       m.orders += p.orders;
@@ -316,9 +401,42 @@ export async function apiAdminPerf(params: any) {
       Object.keys(p.pages).forEach((k2) => {
         m.pages[k2] = (m.pages[k2] || 0) + p.pages[k2];
       });
+      Object.keys(p.adRev || {}).forEach((k2) => {
+        m.adRev[k2] = (m.adRev[k2] || 0) + p.adRev[k2];
+      });
       if (p.lastOrderAt && (!m.lastOrderAt || p.lastOrderAt > m.lastOrderAt)) m.lastOrderAt = p.lastOrderAt;
     });
     return m;
+  }
+
+  /**
+   * ROAS รายแอดมิน — ปันค่าแอดตาม ad_id ถ่วงด้วย "สัดส่วนยอดขายในแอดนั้น" (บอสเลือกวิธีนี้)
+   *   spend_admin = Σ_ad [ spend(ad) × rev_admin_ad / rev_ad_total ]
+   *   ROAS_admin  = rev_admin_from_ads / spend_admin      (ตัวตั้ง = ยอด POS จริง ไม่ใช่ตัวเลข Meta)
+   *
+   * ⚠️ ข้อจำกัดที่ต้องสื่อสารบนหน้าเว็บ: ในแอดเดียวกัน ROAS ของทุกคน "เท่ากันโดยบังคับ"
+   *    (ค่าแอดถูกหารตามยอดขาย) ความต่างระหว่างคนจึงมาจาก "ไปอยู่แอดไหน" ไม่ใช่ "ใครปิดเก่งกว่า"
+   *    — 1 แอดมักมีหลายแอดมินขาย (2 คน = 870 แอด, 3 คน = 285 แอด เมื่อ 2026-07-27)
+   *
+   * นับเฉพาะแอดที่ "มีค่าแอดจริง > 0" ทั้งตัวตั้งและตัวหาร — แอดที่ ad_daily ไม่มี/spend 0
+   * ถ้าเอายอดมาใส่ตัวตั้งด้วยจะทำให้ ROAS พองโดยไม่มีค่าแอดรองรับ
+   * คืน null เมื่อคนนั้นไม่มียอดผูก ad_id เลย (สาย LINE) — บอสสั่ง "ห้ามเดา" ให้โชว์ "—"
+   */
+  function roasOf(adRev: Record<string, number> | null | undefined) {
+    if (!spendByAd || !adRev) return { adRevenue: 0, adSpend: 0, roas: null as number | null };
+    let rev = 0, spend = 0;
+    Object.keys(adRev).forEach((adId) => {
+      const adSpend = spendByAd[adId] || 0;
+      const adTotal = revByAd[adId] || 0;
+      if (!(adSpend > 0) || !(adTotal > 0)) return;
+      rev += adRev[adId];
+      spend += adSpend * (adRev[adId] / adTotal);
+    });
+    return {
+      adRevenue: Math.round(rev),
+      adSpend: Math.round(spend),
+      roas: spend > 0 ? Math.round((rev / spend) * 100) / 100 : null,
+    };
   }
 
   // รวมเป็นแถว ranking: เริ่มจากแอดมินทุกคนในตาราง admins แล้วเติมยอด
@@ -360,9 +478,11 @@ export async function apiAdminPerf(params: any) {
     const revenue = sale ? sale.revenue : 0;
     const nOrders = sale ? sale.orders : 0;
     const chats = chat ? chat.chats : 0;
+    const ad = roasOf(sale ? sale.adRev : null);
     rows.push({
       id: String(a.user_id),
       name: name,
+      nickname: nicknameOf(name, nickById[String(a.user_id)]), // พิมพ์ทับ > เดาจากคำแรก
       online: toBool_(a.is_online),
       revenue: Math.round(revenue),
       orders: nOrders,
@@ -371,13 +491,17 @@ export async function apiAdminPerf(params: any) {
       phones: chat ? chat.phones : 0,
       closeRate: chats ? Math.min(100, Math.round(nOrders / chats * 1000) / 10) : null,
       avgRespMins: (chat && chat.respWeight) ? Math.round(chat.respWSum / chat.respWeight / 60 * 10) / 10 : null,
-      avgOrder: nOrders ? Math.round(revenue / nOrders) : 0,
+      avgOrder: nOrders ? Math.round(revenue / nOrders) : 0, // "เปอร์บิล" = ยอดเฉลี่ยต่อบิล
       topProduct: sale ? topKey(sale.products) : '',
       topPage: sale ? topKey(sale.pages) : '',
       lastOrderAt: (sale && sale.lastOrderAt) ? fmtDateTime_(new Date(sale.lastOrderAt)) : '',
       productGroups: groupsById[String(a.user_id)] || '',
+      adRevenue: ad.adRevenue, // ยอด POS ที่ผูก ad_id (เฉพาะแอดที่มีค่าแอดจริง)
+      adSpend: ad.adSpend,     // ค่าแอดที่ปันมาให้คนนี้ (บาท)
+      roas: ad.roas,           // null = ไม่มียอดผูกแอดเลย → หน้าเว็บโชว์ "—"
       activeNow: activeByName[name] || 0,   // แชทที่ดูแล (ถูกมอบหมาย) ตอนนี้ 24 ชม. — ไม่ขึ้นกับช่วงที่เลือก
       waitingNow: waitingByName[name] || 0, // แชทที่ลูกค้ารอตอบตอนนี้ (= "แชทค้าง" ตัวจริง)
+      waitingCommentNow: waitingCommentByName[name] || 0, // ในนั้นเป็นคอมเมนต์ใต้โพสต์กี่รายการ
       overSla: overSlaByName[name] || 0,    // แชทรอเกินเกณฑ์ SLA ตอนนี้ (proxy)
     });
   });
@@ -386,9 +510,11 @@ export async function apiAdminPerf(params: any) {
   Object.keys(bySeller).forEach((k2) => {
     if (usedSellerKeys[k2]) return;
     const s = bySeller[k2];
+    const ad = roasOf(s.adRev);
     rows.push({
       id: 'seller:' + k2,
       name: s.name,
+      nickname: nicknameOf(s.name, ''), // ไม่มีแถวใน admin_settings → เดาจากคำแรกอย่างเดียว
       online: false,
       revenue: Math.round(s.revenue),
       orders: s.orders,
@@ -399,8 +525,12 @@ export async function apiAdminPerf(params: any) {
       topPage: topKey(s.pages),
       lastOrderAt: s.lastOrderAt ? fmtDateTime_(new Date(s.lastOrderAt)) : '',
       productGroups: '',
+      adRevenue: ad.adRevenue,
+      adSpend: ad.adSpend,
+      roas: ad.roas,
       activeNow: activeByName[s.name] || 0,
       waitingNow: waitingByName[s.name] || 0,
+      waitingCommentNow: waitingCommentByName[s.name] || 0,
       overSla: overSlaByName[s.name] || 0,
     });
   });
@@ -417,6 +547,9 @@ export async function apiAdminPerf(params: any) {
     offline: adminRows.filter((a) => !disabledIds[String(a.user_id)] && !toBool_(a.is_online)).length,
   };
 
+  // เป้า KPI ต่อคน/วัน ที่ทีมตั้งไว้ (แถบความคืบหน้าฝั่ง client) — เก็บใน sync_state เหมือน scoreConfig
+  const kpiTargets = await getKpiTargets();
+
   return {
     rangeLabel: r.label,
     rows: rows,
@@ -424,6 +557,16 @@ export async function apiAdminPerf(params: any) {
     newCustomers: newCustomers,
     teamHourly: teamHourly,   // ลูกค้าทักรายชั่วโมง (รวมทุกวันในช่วง, กรอง channel แล้ว)
     overSlaTotal: overSlaTotal, // แชทรอเกินเกณฑ์ SLA ตอนนี้ (นับ conversation ไม่ซ้ำ)
+    // แชทรอตอบตอนนี้ทั้งทีม แยกอินบ็อกซ์/คอมเมนต์ (นับ conversation ไม่ซ้ำ — รายคนบวกกันแล้วเกินได้
+    // เพราะ 1 บทสนทนามอบหมายได้หลายคน)
+    waitingTotal: waitingTotal,
+    waitingCommentTotal: waitingCommentTotal,
     slaMins: slaMins,
+    kpiTargets: kpiTargets,
+    // alias ชื่อสั้น — หน้า "ผลงานของฉัน" (lib/api/me.ts) อ่าน perf.targets เพื่อวาดแถบเทียบเป้า
+    // ให้ใช้เป้าชุดเดียวกับหน้า Ranking (ตั้งที่เดียว ทุกหน้าตรงกัน)
+    targets: kpiTargets,
+    // ยังไม่ได้รัน migration ad_daily (หรือยังไม่มี sync รอบแรก) → ROAS รายคนคิดไม่ได้ทั้งกระดาน
+    adSetupNeeded: spendByAd === null,
   };
 }

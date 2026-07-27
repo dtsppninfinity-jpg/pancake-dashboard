@@ -7,7 +7,9 @@ import {
   pageChatStats, pageConversations, pageUserStats, pageUsers, pageAdStats, pageCustomerEngagements,
 } from '../../lib/pancake';
 import { mapOrder, mapChatHour, mapConversation, mapAd, mapAdDaily, mapEngagementDaily } from '../../lib/mappers';
-import { metaListAdAccounts, metaAccountAdInsights } from '../../lib/meta';
+import {
+  metaListAdAccounts, metaAccountAdInsights, metaAccountAdCreatives, metaAdCreativesByIds, metaPool,
+} from '../../lib/meta';
 import { supabase, upsertRows, replaceTable } from '../../lib/supabase';
 
 /* ---------------- helper: โหลดเพจ + token จาก DB ---------------- */
@@ -163,9 +165,12 @@ export async function syncConversations(): Promise<string> {
 
 /**
  * ดึงค่าแอดรายแอดของทุกเพจ ลง ad_daily (1 วัน = 1 ชุด)
- * แหล่ง: pages /statistics/ads?type=by_id — ตัวเดียวที่ให้ spend จริง
+ * แหล่ง: pages /statistics/ads?type=by_id — ตัวเดียวของ Pancake ที่ให้ spend
  * (POS /ads_manager/ads_v2 คืน 0 แถวเสมอ ตาราง `ads` เดิมจึงว่างมาตลอด)
- * เรียกทุกรอบ sync (15 นาที) สำหรับ "วันนี้" → หน้าเว็บได้ค่าแอดสดตามเวลา sync
+ *
+ * รอบจริง: ชั่วโมงละครั้ง (runHourly) — วนทุกเพจ 130+ เพจ × sleep 80ms ช้าเกินรอบ 15 นาที
+ * หน้าที่หลักคือเติม page_id / ชื่อแอด / สถานะ ให้ ad_daily ส่วน spend ที่แม่นยำมาจาก
+ * syncMetaAds* (Meta Marketing API) ซึ่งรันทุก 15 นาทีและทับค่า spend ทีหลัง
  */
 export async function syncAdStatsForDate(dateStr: string): Promise<string> {
   requireCredentials();
@@ -197,6 +202,9 @@ export const syncAdStatsYesterday = () => syncAdStatsForDate(fmtDateBkk(daysAgo(
 
 /* ---------------- META ADS (ค่าแอด "จริง" จาก Meta Marketing API) ---------------- */
 
+/** ยิงกี่บัญชีพร้อมกัน — 125 บัญชีแบบทีละตัวใช้ ~3.5 นาที ซึ่งดันรอบ fast (15 นาที) จนเกือบชน */
+const META_POOL = 4;
+
 /**
  * ดึง spend/impressions/clicks/purchases/value ระดับแอด จาก Meta ของ "ทุกบัญชีที่ยิงจริง"
  * แล้วทับลง ad_daily (merge — คงค่า page_id/name ที่ Pancake ใส่) → ค่าแอดตรงจอ Meta เป๊ะ
@@ -211,7 +219,7 @@ export async function syncMetaAdsRange(since: string, until: string): Promise<st
   const errors: string[] = [];
   let spend = 0;
   const now = new Date().toISOString();
-  for (const acc of active) {
+  await metaPool(active, META_POOL, async (acc) => {
     try {
       const ins = await metaAccountAdInsights(acc.account_id, since, until);
       for (const it of ins) {
@@ -226,7 +234,7 @@ export async function syncMetaAdsRange(since: string, until: string): Promise<st
       }
     } catch (e: any) { errors.push(`${acc.account_id}: ${e.message}`); }
     await sleep(120);
-  }
+  });
   if (rows.length) await upsertRows('ad_daily', rows, 'date,ad_id');
   const range = since === until ? since : `${since}..${until}`;
   let msg = `meta ads ${range}: ${rows.length} แถว จาก ${active.length}/${accounts.length} บัญชี | spend ฿${spend.toFixed(2)}`;
@@ -237,6 +245,119 @@ export async function syncMetaAdsRange(since: string, until: string): Promise<st
 export const syncMetaAdsForDate = (dateStr: string) => syncMetaAdsRange(dateStr, dateStr);
 export const syncMetaAdsToday = () => syncMetaAdsForDate(fmtDateBkk(new Date()));
 export const syncMetaAdsYesterday = () => syncMetaAdsForDate(fmtDateBkk(daysAgo(1)));
+
+/* ---------------- AD CREATIVE (รูป/คลิป/ลิงก์โพสต์ของแอด) ---------------- */
+
+/** เพดานต่อรอบ — กันวันที่มีแอดใหม่พรวดเดียวเป็นหมื่นแล้วงาน daily ค้างยาว (ที่เหลือไปรอบหน้า) */
+const CREATIVE_CAP = 4000;
+
+/**
+ * ad_id ไม่ซ้ำที่มีใน ad_daily ตั้งแต่ N วันก่อน (วนเอง — PostgREST คืนสูงสุด 1000 แถว/ครั้ง)
+ * ต้อง order ด้วย (ad_id, date) = pk เต็ม — เรียงด้วย ad_id เฉยๆ ไม่ unique แล้วแถวจะข้ามเงียบๆ ตอนแบ่งหน้า
+ */
+async function adIdsFromDaily_(days: number): Promise<string[]> {
+  const from = fmtDateBkk(daysAgo(Math.max(0, days - 1)));
+  const set: Record<string, 1> = {};
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await supabase.from('ad_daily').select('ad_id,date')
+      .gte('date', from)
+      .order('ad_id', { ascending: true }).order('date', { ascending: true })
+      .range(offset, offset + 999);
+    if (error) throw new Error(`อ่าน ad_daily ไม่ได้: ${error.message}`);
+    const batch = data || [];
+    batch.forEach((r: any) => { const id = String(r.ad_id || ''); if (id) set[id] = 1; });
+    if (batch.length < 1000) break;
+    offset += 1000;
+  }
+  return Object.keys(set);
+}
+
+/** ad_id ที่มีครีเอทีฟแล้ว — null = ยังไม่ได้สร้างตาราง (ให้ job ข้ามแบบไม่ล้ม) */
+async function existingCreativeIds_(): Promise<Record<string, 1> | null> {
+  const have: Record<string, 1> = {};
+  let offset = 0;
+  for (;;) {
+    // ad_id เป็น pk อยู่แล้ว → order ตัวเดียวก็ unique พอสำหรับแบ่งหน้า
+    const { data, error } = await supabase.from('ad_creative').select('ad_id')
+      .order('ad_id', { ascending: true }).range(offset, offset + 999);
+    if (error) {
+      const m = String(error.message || '');
+      // ยังไม่ได้รัน migration → ข้ามแบบไม่ล้ม; error อื่น (เน็ต/สิทธิ์) ต้องฟ้อง ไม่ใช่กลืน
+      if (m.includes('ad_creative') || m.includes('schema cache')) return null;
+      throw new Error(`อ่าน ad_creative ไม่ได้: ${error.message}`);
+    }
+    const batch = data || [];
+    batch.forEach((r: any) => { have[String(r.ad_id)] = 1; });
+    if (batch.length < 1000) break;
+    offset += 1000;
+  }
+  return have;
+}
+
+/**
+ * เติมครีเอทีฟของแอดที่เรามีใน ad_daily แต่ยังไม่มีใน ad_creative
+ *
+ * ครีเอทีฟไม่เปลี่ยนรายวัน → รันวันละครั้งพอ และดึงเฉพาะ "ตัวที่ยังไม่มี" (รอบแรกหนัก รอบต่อไปแทบว่าง)
+ * แอดที่ Meta ปฏิเสธ (ถูกลบ / token ไม่มีสิทธิ์) เขียนแถวเปล่าไว้กันวนถามซ้ำทุกวัน —
+ * อยากลองใหม่ให้รัน `npm run backfill:ad-creatives <วัน> force`
+ */
+export async function syncAdCreatives(days = 14, refresh = false): Promise<string> {
+  const token = process.env.META_ACCESS_TOKEN || '';
+  if (!token) return 'ข้าม: ยังไม่ได้ตั้ง META_ACCESS_TOKEN';
+  const have = await existingCreativeIds_();
+  if (!have) return 'ข้าม: ยังไม่มีตาราง ad_creative (รัน db/migrations/2026-07-27-ad-creative.sql ก่อน)';
+
+  const ids = await adIdsFromDaily_(days);
+  const want = refresh ? ids : ids.filter((id) => !have[id]);
+  if (!want.length) return `ad creatives: ครบแล้ว (${ids.length} แอดใน ${days} วันล่าสุด)`;
+  const capped = want.slice(0, CREATIVE_CAP);
+
+  const now = new Date().toISOString();
+  const { rows, missing } = await metaAdCreativesByIds(capped);
+  const payload: any[] = rows.map((r) => ({ ...r, updated_at: now }));
+  // แถวเปล่าของแอดที่ดึงไม่ได้ — มีไว้เป็น "เครื่องหมายว่าเคยลองแล้ว" ไม่ให้รอบหน้าถามซ้ำ
+  missing.forEach((id) => payload.push({
+    ad_id: id, account_id: '', name: '', thumb_url: '', image_url: '', video_id: '',
+    object_type: '', post_id: '', permalink: '', ig_permalink: '', cta: '', link_url: '',
+    updated_at: now,
+  }));
+  const n = await upsertRows('ad_creative', payload, 'ad_id');
+
+  const withMedia = rows.filter((r) => r.image_url || r.thumb_url).length;
+  const withPost = rows.filter((r) => r.permalink || r.ig_permalink).length;
+  let msg = `ad creatives: ขอ ${capped.length} แอด → ได้ ${rows.length} (upsert ${n}) | ` +
+    `มีรูป ${withMedia} | มีลิงก์โพสต์ ${withPost}`;
+  if (missing.length) msg += ` | ดึงไม่ได้ ${missing.length}`;
+  if (want.length > capped.length) msg += ` | เหลือ ${want.length - capped.length} ไว้รอบหน้า`;
+  return msg;
+}
+
+/**
+ * กวาดครีเอทีฟของ "ทุกแอดในทุกบัญชี" ผ่าน /act_{id}/ads (ไม่อิง ad_daily)
+ * ใช้กับ backfill ครั้งแรกเมื่ออยากได้ครบจริงๆ — ช้ากว่าแบบ by-id มาก (25k+ แอด)
+ */
+export async function syncAdCreativesAllAccounts(): Promise<string> {
+  const token = process.env.META_ACCESS_TOKEN || '';
+  if (!token) return 'ข้าม: ยังไม่ได้ตั้ง META_ACCESS_TOKEN';
+  const accounts = await metaListAdAccounts();
+  const active = accounts.filter((a) => a.account_status === 1);
+  const now = new Date().toISOString();
+  const errors: string[] = [];
+  let total = 0;
+  await metaPool(active, META_POOL, async (acc) => {
+    try {
+      const rows = await metaAccountAdCreatives(acc.account_id);
+      if (rows.length) {
+        await upsertRows('ad_creative', rows.map((r) => ({ ...r, updated_at: now })), 'ad_id');
+        total += rows.length;
+      }
+    } catch (e: any) { errors.push(`${acc.account_id}: ${e.message}`); }
+  });
+  let msg = `ad creatives (ทุกบัญชี): ${total} แอด จาก ${active.length} บัญชี`;
+  if (errors.length) msg += ` | ผิดพลาด ${errors.length} บัญชี: ${errors.slice(0, 2).join('; ')}`;
+  return msg;
+}
 
 /* ---------------- ADS (ตารางเดิม — POS endpoint ตายแล้ว) ---------------- */
 

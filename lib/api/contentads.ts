@@ -145,6 +145,38 @@ async function loadAdsFromDaily_(days: number): Promise<{ ads: AdRow[]; daysCove
   return { ads, daysCovered: Object.keys(seenDates).length };
 }
 
+/** สื่อ/ครีเอทีฟที่ผูกกับแอด (มาจาก Meta) — เก็บแยกตาราง เพราะไม่เปลี่ยนรายวัน */
+interface CreativeRow {
+  ad_id: string; name?: string | null; thumb_url?: string | null; image_url?: string | null;
+  video_id?: string | null; object_type?: string | null; post_id?: string | null;
+  permalink?: string | null; ig_permalink?: string | null; cta?: string | null; link_url?: string | null;
+}
+
+/**
+ * ครีเอทีฟของ ad_id ที่ระบุ → map ต่อ ad_id
+ * แบ่ง .in() ทีละ 300 id — ยัดหลายพัน id ใน URL เดียว PostgREST จะตอบ 414 (URI ยาวเกิน)
+ * ตารางยังไม่ถูกสร้าง (ยังไม่รัน migration) → คืน {} เงียบๆ หน้าเว็บทำงานต่อได้แค่ไม่มีรูป
+ */
+async function loadCreatives_(adIds: string[]): Promise<Record<string, CreativeRow>> {
+  const out: Record<string, CreativeRow> = {};
+  if (!adIds.length) return out;
+  const CHUNK = 300;
+  const cols = 'ad_id,name,thumb_url,image_url,video_id,object_type,post_id,permalink,ig_permalink,cta,link_url';
+  try {
+    for (let i = 0; i < adIds.length; i += CHUNK) {
+      const part = adIds.slice(i, i + CHUNK);
+      const rows = await fetchAll<CreativeRow>(
+        () => db.from('ad_creative').select(cols).in('ad_id', part), 'ad_id');
+      rows.forEach(function (r) { out[String(r.ad_id)] = r; });
+    }
+  } catch (e: any) {
+    const m = String((e && e.message) || e || '');
+    if (m.includes('ad_creative')) return {};   // ยังไม่รัน 2026-07-27-ad-creative.sql
+    throw e;
+  }
+  return out;
+}
+
 export async function apiContentAds(params?: any) {
   // ช่วงวันที่ย้อนหลัง (วัน) — เดิมไม่มีตัวกรองเวลาเลย ทุกตัวเลขเป็นยอดสะสมตั้งแต่ต้น
   // จึงเทียบกับ Pancake ที่ดูรายวัน/รายสัปดาห์ไม่ได้เลย
@@ -239,6 +271,10 @@ export async function apiContentAds(params?: any) {
   // เพราะ POS /ads_manager/ads_v2 คืน 0 แถวเสมอ
   const { ads, daysCovered: adDaysCovered } = await loadAdsFromDaily_(days);
 
+  // สื่อของแต่ละแอด (รูป/คลิป/ลิงก์โพสต์) — join ต่อ ad_id
+  const creatives = await loadCreatives_(ads.map(function (a) { return String(a.ad_id); }));
+  let creativeCount = 0;
+
   const items = ads.map(function (a) {
     const adId = String(a.ad_id);
     const spend = toNum_(a.spend);
@@ -279,9 +315,30 @@ export async function apiContentAds(params?: any) {
     }
 
     const topPageId = topKey_(pageByAd[adId]);
+    // สื่อของแอด — image_url เป็นรูปคมสุด, thumb เป็นตัวสำรอง (URL ของ Meta มีวันหมดอายุ
+    // หน้าเว็บจึงต้องมี fallback ทั้งคู่ก่อนตกไปที่กล่องเปล่า)
+    const cr = creatives[adId];
+    let media: any = null;
+    if (cr && (cr.image_url || cr.thumb_url || cr.permalink || cr.ig_permalink)) {
+      creativeCount++;
+      media = {
+        img: String(cr.image_url || cr.thumb_url || ''),
+        imgAlt: String(cr.thumb_url || ''),
+        video: String(cr.video_id || ''),
+        type: String(cr.object_type || ''),
+        postId: String(cr.post_id || ''),
+        permalink: String(cr.permalink || ''),
+        ig: String(cr.ig_permalink || ''),
+        cta: String(cr.cta || ''),
+        link: String(cr.link_url || ''),
+        title: String(cr.name || ''),
+      };
+    }
+
     return {
       adId: adId,
       name: String(a.name || ''),
+      media: media,
       campaign: String(a.campaign_name || a.campaign_id || ''),
       adsetId: String(a.adset_id || ''),
       ageDays: ageDays,
@@ -355,6 +412,9 @@ export async function apiContentAds(params?: any) {
       return {
         adId: 'post:' + pid,
         name: (pageName || 'ไม่ระบุเพจ') + ' — โพสต์ …' + shortId.slice(-8),
+        // โพสต์ organic ไม่ผ่าน Meta Ads จึงไม่มีครีเอทีฟให้ดึง — แต่ post_id คือลิงก์โพสต์จริงอยู่แล้ว
+        media: { img: '', imgAlt: '', video: '', type: 'POST', postId: pid,
+          permalink: 'https://www.facebook.com/' + pid, ig: '', cta: '', link: '', title: '' },
         campaign: 'Organic (ไม่ใช้งบแอด)',
         adsetId: '',
         ageDays: null as number | null,
@@ -448,6 +508,8 @@ export async function apiContentAds(params?: any) {
     items: (items as any[]).concat(organicItems),
     days,
     needAdSetup: ads.length === 0,   // ยังไม่ได้รัน migration ad_daily (หรือยังไม่มี sync รอบแรก)
+    // กี่แอดที่มีสื่อ/ลิงก์โพสต์แล้ว — 0 ทั้งที่มีแอด = ยังไม่รัน 2026-07-27-ad-creative.sql
+    creativeCount,
     // ค่าแอดครอบคลุมกี่วันจากที่เลือก — น้อยกว่า days = ROAS สูงเกินจริง หน้าเว็บต้องเตือน
     adDaysCovered,
     adDaysWarning: (ads.length > 0 && adDaysCovered < days)

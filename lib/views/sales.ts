@@ -20,7 +20,6 @@ import {
   downloadCSV,
   downloadXLS,
   openModal,
-  closeModal,
 } from '@/lib/ui/helpers';
 import { svgHourlyLine, miniBars, hbarRows, bindChartTips, hideChartTip } from '@/lib/ui/charts';
 import { salesSkel } from '@/lib/ui/skeletons';
@@ -43,6 +42,10 @@ interface SalesState {
 
 interface SalesData {
   rangeLabel?: string;
+  prevLabel?: string | null;    // ชื่อหน้าต่างเทียบ เช่น '1 วันที่แล้ว' (server คำนวณให้)
+  prevWindow?: string | null;   // ช่วงจริงที่เทียบ เช่น '24 ก.ค. 00:00–14:32 น.'
+  needCheckOrders?: any[];      // รายออเดอร์ "ต้องตรวจ" ของช่วงที่เลือก (สูงสุด 200 ใบล่าสุด)
+  waiting?: { total: number; inbox: number; comment: number } | null;
   kpis?: any;
   trends?: any;
   channels?: any;
@@ -69,23 +72,6 @@ let lastData: SalesData | null = null;
 // default = Facebook: ยอดขายส่วนใหญ่มาจาก FB และแอดทั้งหมดอยู่บน FB (บอสสั่ง 2026-07-24)
 // LINE/อื่นๆ ดูได้โดยคลิกช่องช่องทางด้านล่าง
 const state: SalesState = { preset: 'today', from: '', to: '', channel: 'facebook', compare: 'prev' };
-
-/* ---------------- app settings (margin% — เก็บบนเซิร์ฟเวอร์ ใช้ร่วมทั้งทีม) ---------------- */
-
-interface AppSettingsView { marginPct: number; slaMins: number; }
-let appSettings: AppSettingsView | null = null;
-
-async function loadAppSettings(): Promise<void> {
-  if (appSettings) return;
-  try {
-    const res = await serverCall<{ settings: AppSettingsView }>('apiAppSettings', {});
-    if (res && res.settings) appSettings = res.settings;
-  } catch (e) { /* ใช้ค่า default ไปก่อน — เปิดหน้าครั้งถัดไปจะลองโหลดใหม่ */ }
-}
-
-function marginPct(): number {
-  return appSettings ? Number(appSettings.marginPct) : 30;
-}
 
 const CH_LABELS: Record<string, string> = { '': '🌐 ทั้งหมด', 'facebook': '📘 Facebook', 'line': '🟢 LINE OA' };
 
@@ -223,6 +209,38 @@ function roasPosTile(d: SalesData, kind: 'new' | 'all'): string {
     (cls ? ' class="sr-' + cls + '"' : '') + '>' + v.toFixed(2) + 'x</b></div>';
 }
 
+/**
+ * แถว "แชทค้างรอตอบ" ในการ์ดธุรกิจวันนี้ — แยกอินบ็อกซ์/คอมเมนต์ให้เห็นว่าค้างตรงไหน
+ * (แถว RATING ถูกรวมไว้ในอินบ็อกซ์ตั้งแต่ฝั่ง server — มีแค่หลักหน่วย ไม่คุ้มตั้งกลุ่มที่ 3)
+ * นับจาก 24 ชม.ล่าสุด ไม่ใช่ "ตั้งแต่เที่ยงคืน" — บอกไว้ในทูลทิปกันเข้าใจผิด
+ */
+function waitingRowHtml(d: SalesData): string {
+  const w = d.waiting;
+  if (!w) return '';
+  return '<div class="sr-today-row"' + tipAttrs({
+    title: '⏰ แชทค้างรอตอบ',
+    formula: 'บทสนทนาที่ลูกค้าทักล่าสุดแล้วเพจยังไม่ตอบ',
+    body: 'อินบ็อกซ์ ' + fmtNum(w.inbox) + ' + คอมเมนต์ ' + fmtNum(w.comment) +
+      ' • นับบทสนทนาที่ขยับใน 24 ชม.ล่าสุด (ไม่ใช่เฉพาะวันนี้) • คะแนนรีวิว (RATING) นับรวมในอินบ็อกซ์',
+    src: 'ตาราง conversations (waiting=true)',
+  }) + '><span>⏰ แชทค้างรอตอบ' +
+      '<i class="sr-today-note">💬 อินบ็อกซ์ ' + fmtNum(w.inbox) +
+        ' • 💭 คอมเมนต์ ' + fmtNum(w.comment) + '</i>' +
+    '</span><b' + (Number(w.total) >= 10 ? ' class="sr-red"' : '') + '>' + fmtNum(w.total) + '</b></div>';
+}
+
+/**
+ * กราฟรายชั่วโมง + ยัด data-prevlabel ให้ทูลทิป
+ * charts.ts อ่าน data-prevlabel จากวง .ch-hit แต่ svgHourlyLine ไม่เคยส่งค่านี้ออกมา
+ * → ทูลทิปขึ้นคำ default "ช่วงก่อนหน้า" เสมอ ทั้งที่อาจกำลังเทียบ 7/30 วันอยู่ (อ่านผิดง่ายมาก)
+ * แทรก attribute ตรงนี้แทนการแก้ charts.ts เพราะกราฟตัวนั้นใช้ร่วมกับหน้าอื่น
+ */
+function hourlyChartHtml_(main: number[], prev: number[] | null, prevName: string): string {
+  const svg = svgHourlyLine(main, prev);
+  if (!prev) return svg;
+  return svg.split('class="ch-hit"').join('class="ch-hit" data-prevlabel="' + esc(prevName) + '"');
+}
+
 /* ---------------- render ---------------- */
 
 function render(container: HTMLElement, dArg?: SalesData | null): void {
@@ -249,10 +267,14 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       '</div>' +
       '<div class="pg-controls" style="margin-bottom:0">' +
         rangeControlsHtml(state, 'sr') +
+        // prev1/prev3 เพิ่มตามที่บอสสั่ง — เคส "วันนี้ + ช่วงก่อนหน้า" จะเทียบกับเมื่อวานแค่บางช่วง
+        // (span = ชม.ที่ผ่านไปวันนี้) ถ้าอยากเทียบวันต่อวันเต็มๆ ให้เลือก "1 วันที่แล้ว"
         '<select class="input" id="sr-compare">' +
           '<option value="prev"' + (state.compare === 'prev' ? ' selected' : '') + '>เปรียบเทียบช่วงก่อนหน้า</option>' +
-          '<option value="prev7"' + (state.compare === 'prev7' ? ' selected' : '') + '>เทียบก่อนหน้า 7 วัน</option>' +
-          '<option value="prev30"' + (state.compare === 'prev30' ? ' selected' : '') + '>เทียบก่อนหน้า 30 วัน</option>' +
+          '<option value="prev1"' + (state.compare === 'prev1' ? ' selected' : '') + '>เทียบ 1 วันที่แล้ว</option>' +
+          '<option value="prev3"' + (state.compare === 'prev3' ? ' selected' : '') + '>เทียบ 3 วันที่แล้ว</option>' +
+          '<option value="prev7"' + (state.compare === 'prev7' ? ' selected' : '') + '>เทียบ 7 วันที่แล้ว</option>' +
+          '<option value="prev30"' + (state.compare === 'prev30' ? ' selected' : '') + '>เทียบ 30 วันที่แล้ว</option>' +
           '<option value="none"' + (state.compare === 'none' ? ' selected' : '') + '>ไม่เปรียบเทียบ</option>' +
         '</select>' +
         '<button class="btn" id="sr-reload" title="โหลดข้อมูลใหม่">⟳</button>' +
@@ -261,7 +283,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       '</div>' +
     '</div>';
 
-  /* --- 2. KPI cards (3 ใบ) --- */
+  /* --- 2. KPI cards (2 ใบ — การ์ด "รายได้รวม" ถูกลบตามที่บอสสั่ง) --- */
   const closeRateBig = (k.closeRate === null || k.closeRate === undefined || isNaN(k.closeRate))
     ? '-'
     : (Math.round(Number(k.closeRate) * 10) / 10) +
@@ -293,16 +315,6 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
   }
   html += '<div class="sr-cards">' +
     '<div class="sr-card"' + tipAttrs({
-      title: '💰 รายได้รวม',
-      formula: 'Σ ยอดขายออเดอร์ "ยืนยันแล้ว"',
-      body: 'นับเฉพาะออเดอร์ยืนยันแล้ว (ตรงนิยาม Pancake "รวมสินค้าปิดการขาย") • ไม่รวมออเดอร์ใหม่/รอยืนยัน/ยกเลิก/ตีกลับ • หน่วยเป็นบาท',
-      src: 'ออเดอร์ POS จริง (ยืนยันแล้ว)',
-    }) + '>' +
-      '<div class="label">💰 รายได้รวม</div>' +
-      '<div class="big">' + THB(k.revenue || 0) + '</div>' +
-      '<div class="foot">' + fmtNum(k.orders || 0) + ' ออเดอร์' + trendChip(t.revenue) + '</div>' +
-    '</div>' +
-    '<div class="sr-card"' + tipAttrs({
       title: '🛒 คำสั่งซื้อ',
       formula: 'นับออเดอร์ที่มีสินค้าจริง',
       body: 'ตัดออเดอร์เปล่าที่ Pancake สร้างให้ทุกแชทจากแอดทิ้งแล้ว • "ยืนยันแล้ว" = ออเดอร์ที่แอดมินกดยืนยัน = ตัวที่ Pancake นับเป็น "สร้างคำสั่งซื้อ"',
@@ -311,8 +323,10 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       '<div class="label">🛒 คำสั่งซื้อ</div>' +
       '<div class="big">' + fmtNum(k.orders || 0) + confirmedSuffix(k) + '</div>' +
       '<div class="foot">📘 ' + THB(fb.revenue || 0) + ' • 🟢 ' + THB(ln.revenue || 0) +
+        // "ต้องตรวจ" กดได้ → เปิดตารางรายออเดอร์ (เดิมเป็นตัวเลขเฉยๆ ไม่รู้ว่าใบไหน)
         (Number(k.needCheck) > 0
-          ? ' <span class="sr-red">⚠ ต้องตรวจ ' + fmtNum(k.needCheck) + '</span>'
+          ? ' <button type="button" class="sr-needcheck" data-needcheck="range"' +
+              ' title="คลิกดูรายออเดอร์ที่ยังไม่ยืนยัน">⚠ ต้องตรวจ ' + fmtNum(k.needCheck) + '</button>'
           : ' ✓ ไม่มีค้างตรวจ') +
         trendChip(t.orders) +
       '</div>' +
@@ -337,9 +351,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     chBoxHtml('line', ln) +
   '</div>';
 
-  /* --- 4. KPI strip 8 ช่อง --- */
-  const m = marginPct();
-  const profit = Math.round((Number(k.revenue) || 0) * m / 100);
+  /* --- 4. KPI strip --- */
   const rr = d.returning;
   const retTile = rr
     ? '<div class="tile" title="ลูกค้าในช่วงที่เลือกที่เคยซื้อภายใน 95 วันก่อนหน้า — ' +
@@ -363,9 +375,6 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     tileHtml('🟢 ยอดขายไลน์', THB(sb.line || 0), {
       title: '🟢 ยอดขายไลน์ (LINE OA)', formula: 'Σ ยอดขาย LINE "ยืนยันแล้ว"',
       body: 'เฉพาะ LINE OA ที่ยืนยันแล้ว', src: 'ออเดอร์ POS จริง (ยืนยันแล้ว)' }) +
-    tileHtml('💰 รายได้', THB(k.revenue || 0), {
-      title: '💰 รายได้', formula: 'Σ ยอดขายออเดอร์ "ยืนยันแล้ว"',
-      body: 'รวมทุกช่องทาง เฉพาะยืนยันแล้ว (ตรง Pancake)', src: 'ออเดอร์ POS จริง (ยืนยันแล้ว)' }) +
     tileHtml('🛒 ออเดอร์', fmtNum(k.orders || 0), {
       title: '🛒 ออเดอร์', formula: 'นับออเดอร์ที่มีสินค้าจริง',
       body: 'ตัดออเดอร์เปล่าที่ Pancake สร้างให้ทุกแชทจากแอด', src: 'ออเดอร์ POS จริง' }) +
@@ -390,9 +399,6 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     tileHtml('📨 อินบ็อกซ์ใหม่', k.closeNewInbox === null || k.closeNewInbox === undefined ? fmtNum(k.newConvs || 0) : fmtNum(k.closeNewInbox), {
       title: '📨 อินบ็อกซ์ใหม่', formula: 'customer_engagement_new_inbox',
       body: 'ลูกค้าที่เปิดบทสนทนาอินบ็อกซ์ใหม่ในช่วงนี้', src: 'Pancake statistics/customer_engagements' }) +
-    '<div class="tile tile-click" id="sr-margin-tile" title="กำไรประมาณการ = รายได้ × margin ' + m +
-      '% (ตัวเลขประมาณ ไม่ใช่กำไรจริง) — คลิกเพื่อตั้งค่า margin">💚 กำไรประมาณ (' + m + '%) ⚙<b>' +
-      THB(profit) + '</b></div>' +
     retTile +
     adSpendTile(d) +
     roasPosTile(d, 'new') +
@@ -402,10 +408,15 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
   '</div>';
 
   /* --- 5. main: กราฟรายชั่วโมง + ข้อมูลธุรกิจวันนี้ --- */
+  // ชื่อ + ช่วงจริงของหน้าต่างเทียบ (server คำนวณให้) — ต้องบอกเสมอ ไม่งั้นคนอ่านนึกว่าเทียบ "เมื่อวานทั้งวัน"
+  // ทั้งที่ preset=today + ช่วงก่อนหน้า จะเทียบแค่ "เมื่อวานช่วงเดียวกับที่ผ่านไปวันนี้"
+  const prevName = d.prevLabel || 'ช่วงก่อนหน้า';
+  const prevWin = d.prevWindow ? ' (' + esc(d.prevWindow) + ')' : '';
   const legend = '<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--text-3);margin-top:8px">' +
     '<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#6c5ce7;margin-right:6px;vertical-align:middle"></span>ช่วงที่เลือก</span>' +
     (hourlyPrev
-      ? '<span><span style="display:inline-block;width:18px;height:0;border-top:2px dashed #5b6478;margin-right:6px;vertical-align:middle"></span>ช่วงเปรียบเทียบ</span>'
+      ? '<span><span style="display:inline-block;width:18px;height:0;border-top:2px dashed #5b6478;margin-right:6px;vertical-align:middle"></span>' +
+        esc(prevName) + prevWin + '</span>'
       : '') +
     '<span>ชี้ที่จุดบนเส้นเพื่อดูยอดแต่ละชั่วโมง</span>' +
   '</div>';
@@ -414,8 +425,8 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     '<div class="card">' +
       '<h3>📈 ยอดขายรายชั่วโมง</h3>' +
       '<div class="card-sub">' + esc(rangeLabel) +
-        (hourlyPrev ? ' — เส้นประ = ช่วงก่อนหน้า' : '') + '</div>' +
-      svgHourlyLine(hourly, hourlyPrev) +
+        (hourlyPrev ? ' — เส้นประ = ' + esc(prevName) + prevWin : '') + '</div>' +
+      hourlyChartHtml_(hourly, hourlyPrev, prevName) +
       legend +
     '</div>' +
     '<div class="card sr-live">' +
@@ -430,9 +441,13 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       '<div class="sr-today-row"><span>📘 Facebook</span><b>' + THB(today.fb || 0) + '</b></div>' +
       '<div class="sr-today-row"><span>🟢 LINE OA</span><b>' + THB(today.line || 0) + '</b></div>' +
       '<div class="sr-today-row"><span>🆕 ลูกค้าใหม่</span><b>' + fmtNum(today.newCust || 0) + ' คน</b></div>' +
-      '<div class="sr-today-row"><span>⚠ ออเดอร์ที่ต้องตรวจ</span><b' +
-        (Number(today.needCheck) > 0 ? ' class="sr-red"' : '') + '>' +
-        fmtNum(today.needCheck || 0) + '</b></div>' +
+      '<div class="sr-today-row"><span>⚠ ออเดอร์ที่ต้องตรวจ</span>' +
+        (Number(today.needCheck) > 0
+          ? '<button type="button" class="sr-needcheck" data-needcheck="today"' +
+            ' title="คลิกดูรายออเดอร์ที่ยังไม่ยืนยัน">' + fmtNum(today.needCheck) + '</button>'
+          : '<b>0</b>') +
+      '</div>' +
+      waitingRowHtml(d) +
     '</div>' +
   '</div>';
 
@@ -513,9 +528,12 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         '<div class="alert-body">' +
           '<div class="alert-title">' + esc(a.title) + '</div>' +
           '<div class="alert-reason">' + esc(a.reason) + '</div>' +
-          (a.view && VIEW_META[a.view]
-            ? '<div style="margin-top:6px"><button class="btn-mini" data-goview="' + esc(a.view) + '">ดูรายละเอียด →</button></div>'
-            : '') +
+          // drill = เปิด modal ในหน้าเดิม (แจ้งเตือนออเดอร์รอตรวจเคยชี้ view:'sales' = หน้าเดียวกัน กดแล้วไม่เกิดอะไร)
+          (a.drill === 'needcheck'
+            ? '<div style="margin-top:6px"><button class="btn-mini" data-needcheck="today">ดูรายละเอียด →</button></div>'
+            : a.view && VIEW_META[a.view]
+              ? '<div style="margin-top:6px"><button class="btn-mini" data-goview="' + esc(a.view) + '">ดูรายละเอียด →</button></div>'
+              : '') +
         '</div>' +
       '</div>';
     }).join('') + '</div>';
@@ -594,8 +612,12 @@ function bindEvents(container: HTMLElement): void {
   const allPagesBtn = container.querySelector('#sr-allpages');
   if (allPagesBtn) allPagesBtn.addEventListener('click', function () { openAllPages(state.channel); });
 
-  const marginTile = container.querySelector('#sr-margin-tile');
-  if (marginTile) marginTile.addEventListener('click', function () { openMarginEditor(container); });
+  // "ออเดอร์ที่ต้องตรวจ" กดได้ทุกจุด (การ์ดคำสั่งซื้อ / การ์ดธุรกิจวันนี้ / ปุ่มในแจ้งเตือน)
+  container.querySelectorAll('[data-needcheck]').forEach(function (el) {
+    el.addEventListener('click', function () {
+      openNeedCheckDrill(el.getAttribute('data-needcheck') === 'today' ? 'today' : 'range');
+    });
+  });
 
   bindChartTips(container); // ทูลทิป hover ของกราฟยอดขายรายชั่วโมง
 }
@@ -807,45 +829,58 @@ function openAllPages(chKey: string): void {
   bindDrillRows(document.getElementById('modal-root'), chKey);
 }
 
-/* ---------------- margin editor (กำไรประมาณการ) ---------------- */
+/* ---------------- ออเดอร์ที่ต้องตรวจ (สถานะ ใหม่/รอยืนยัน) ---------------- */
 
-function openMarginEditor(container: HTMLElement): void {
+/**
+ * ตารางรายออเดอร์ที่ยังไม่ยืนยัน
+ * scope 'range' = ตามตัวกรอง 📅 + ช่องทางด้านบน | 'today' = การ์ดธุรกิจวันนี้ (ทุกช่องทาง)
+ * server ส่งมาสูงสุด 200 ใบล่าสุด — ถ้ามีมากกว่านั้นบอกไว้ท้ายตาราง
+ */
+function openNeedCheckDrill(scope: 'range' | 'today'): void {
+  const d = lastData || {};
+  const today = d.today || {};
+  const list: any[] = (scope === 'today' ? today.needCheckOrders : d.needCheckOrders) || [];
+  const total = Number(scope === 'today' ? today.needCheck : (d.kpis || {}).needCheck) || 0;
+  if (!total) { toast('✓ ไม่มีออเดอร์ค้างตรวจ'); return; }
+  const where = scope === 'today'
+    ? 'วันนี้ • ทุกช่องทาง'
+    : esc(d.rangeLabel || '') + ' • ' + CH_LABELS[state.channel];
+  const rows = list.map(function (o: any) {
+    // 0 = ใหม่ (ยังไม่มีใครแตะ) | 17 = รอยืนยัน (แอดมินคีย์แล้วรอกดยืนยัน)
+    const cls = Number(o.status) === 0 ? 'info' : 'admin';
+    return '<tr>' +
+      '<td style="white-space:nowrap">' + esc(o.at) + '</td>' +
+      '<td>' + esc(o.code) + '</td>' +
+      '<td>' + esc(o.customer || '—') + '</td>' +
+      '<td>' + esc(o.page || '—') + '</td>' +
+      '<td style="white-space:nowrap">' + THB(o.total) + '</td>' +
+      '<td>' + fmtNum(o.items) + '</td>' +
+      '<td><span class="badge ' + cls + '">' + esc(o.statusName) + '</span></td>' +
+      '<td>' + esc(o.seller || '—') + '</td>' +
+    '</tr>';
+  }).join('');
+  const sumVal = list.reduce(function (s: number, o: any) { return s + (Number(o.total) || 0); }, 0);
   openModal(
-    '<div class="modal-head"><h3>⚙️ ตั้งค่า margin กำไรประมาณการ</h3>' +
+    '<div class="modal-head"><h3>⚠ ออเดอร์ที่ต้องตรวจ (' + fmtNum(total) + ')</h3>' +
       '<button class="modal-close">✕</button></div>' +
-    '<div style="font-size:12.5px;color:var(--text-2);margin-bottom:12px">' +
-      'กำไรประมาณการ = รายได้ × margin% — เป็น<b>ตัวเลขประมาณ</b>ไว้ดูแนวโน้ม ไม่ใช่กำไรจริงจากบัญชี<br>' +
-      'ค่านี้เก็บบนเซิร์ฟเวอร์ — ตั้งครั้งเดียว ทุกคนในทีมเห็นเหมือนกัน</div>' +
-    '<div style="display:flex;align-items:center;gap:8px">' +
-      '<input type="number" class="input" id="margin-input" min="0" max="95" step="0.5" value="' +
-        marginPct() + '" style="width:110px"><span>%</span>' +
+    '<div class="card-sub" style="margin-bottom:10px">' + where + '</div>' +
+    '<div class="hint-box" style="margin-bottom:10px">ออเดอร์สถานะ <b>ใหม่ / รอยืนยัน</b> จาก Pancake — ' +
+      '<b>ยังไม่ถูกนับเป็นรายได้</b> จนกว่าแอดมินจะกดยืนยัน (ยอดขายทุกตัวเลขบนหน้านี้นับเฉพาะ "ยืนยันแล้ว")</div>' +
+    '<div class="pill-grid" style="margin-bottom:12px">' +
+      '<span class="chip">🧾 ' + fmtNum(total) + ' ใบ</span>' +
+      '<span class="chip">💰 ' + THB(sumVal) + ' (ถ้ายืนยันครบ)</span>' +
     '</div>' +
-    '<div class="modal-actions">' +
-      '<button class="btn" id="margin-cancel">ยกเลิก</button>' +
-      '<button class="btn primary" id="margin-save">💾 บันทึก</button>' +
-    '</div>'
+    (list.length
+      ? '<div class="table-scroll"><table class="tbl"><thead><tr>' +
+          '<th>เวลา</th><th>เลขออเดอร์</th><th>ลูกค้า</th><th>เพจ</th><th>ยอด</th>' +
+          '<th>ชิ้น</th><th>สถานะ</th><th>คนขาย</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table></div>'
+      : '<div class="empty-note">ไม่มีรายละเอียดออเดอร์ (ลองกด ⟳ โหลดใหม่)</div>') +
+    (total > list.length
+      ? '<div style="font-size:11px;color:var(--text-3);margin-top:10px">' +
+        'แสดง ' + fmtNum(list.length) + ' ใบล่าสุดจากทั้งหมด ' + fmtNum(total) + ' ใบ</div>'
+      : '')
   );
-  const root = document.getElementById('modal-root')!;
-  const cancel = root.querySelector('#margin-cancel');
-  if (cancel) cancel.addEventListener('click', closeModal);
-  const save = root.querySelector('#margin-save') as HTMLButtonElement | null;
-  if (save) save.addEventListener('click', function () {
-    const inp = root.querySelector('#margin-input') as HTMLInputElement | null;
-    const v = inp ? Number(inp.value) : NaN;
-    if (!isFinite(v) || v < 0 || v > 95) { toast('⚠️ margin ต้องอยู่ระหว่าง 0-95%'); return; }
-    save.disabled = true;
-    serverCall<{ settings: AppSettingsView }>('apiAppSettings', { settings: { marginPct: v } })
-      .then(function (res) {
-        if (res && res.settings) appSettings = res.settings;
-        closeModal();
-        toast('💾 ตั้ง margin ' + marginPct() + '% แล้ว — ทุกคนเห็นค่าเดียวกัน');
-        if (lastData) render(container, lastData);
-      })
-      .catch(function () {
-        save.disabled = false;
-        toast('⚠️ บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
-      });
-  });
 }
 
 /* ---------------- fetch ---------------- */
@@ -921,10 +956,11 @@ function buildReportRows(): unknown[][] | null {
   rows.push(['ยอดขายจากแอด', Math.round(Number(k.adRevenue) || 0)]);
   rows.push(['บทสนทนาใหม่ (statistics/pages)', Number(k.newConvs) || 0]);
   rows.push(['ออเดอร์ที่ต้องตรวจ', Number(k.needCheck) || 0]);
-  rows.push(['กำไรประมาณการ (margin ' + marginPct() + '%)', Math.round((Number(k.revenue) || 0) * marginPct() / 100)]);
   rows.push(['ลูกค้าเก่า (เคยซื้อใน 95 วัน)', d.returning ? Number(d.returning.returning) || 0 : '-']);
-  rows.push(['เทียบช่วงก่อนหน้า — รายได้ (%)', (t.revenue === null || t.revenue === undefined) ? '-' : t.revenue]);
-  rows.push(['เทียบช่วงก่อนหน้า — ออเดอร์ (%)', (t.orders === null || t.orders === undefined) ? '-' : t.orders]);
+  // ระบุหน้าต่างที่เทียบให้ชัด — ไฟล์ที่ export ไปแล้วจะได้ไม่ต้องเดาว่าเทียบกับช่วงไหน
+  const cmpName = (d.prevLabel || 'ช่วงก่อนหน้า') + (d.prevWindow ? ' (' + d.prevWindow + ')' : '');
+  rows.push(['เทียบ ' + cmpName + ' — รายได้ (%)', (t.revenue === null || t.revenue === undefined) ? '-' : t.revenue]);
+  rows.push(['เทียบ ' + cmpName + ' — ออเดอร์ (%)', (t.orders === null || t.orders === undefined) ? '-' : t.orders]);
   rows.push([]);
 
   rows.push(['— ช่องทาง —']);
@@ -978,7 +1014,6 @@ function buildReportRows(): unknown[][] | null {
 
 export const sales = {
   load: async (container: HTMLElement, force: boolean): Promise<void> => {
-    await loadAppSettings(); // margin% สำหรับ tile กำไรประมาณการ (cache แล้วไม่ยิงซ้ำ)
     if (lastData && !force) {
       // มี cache → แสดงทันที แล้วดึงข้อมูลใหม่เบื้องหลัง
       render(container, lastData);

@@ -12,6 +12,7 @@ import {
   startOfDayBkk,
 } from '@/lib/config';
 import { defaultRolePerms, effectiveStatus, capacityOf, normalizeRolePermsShape, DEFAULT_MAX_ACTIVE } from '@/lib/adminconfig';
+import { nicknameOf } from '@/lib/api/adminsettings';
 import { getAppSettings } from '@/lib/api/appsettings';
 import { allocateReached } from '@/lib/api/chat-reached';
 
@@ -59,6 +60,15 @@ function missingTable_(table: string): (e: any) => null {
 function convInWindow_(c: any, cutoff: number): boolean {
   const upd = toDate_(c.updated_at);
   return !!upd && upd.getTime() >= cutoff;
+}
+
+/**
+ * บทสนทนาแถวนี้เป็น "คอมเมนต์ใต้โพสต์" ไหม (conversations.type)
+ * ค่าจริงในตาราง: INBOX / COMMENT / RATING — RATING มีแค่หลักหน่วย จึงนับรวมกับอินบ็อกซ์
+ * (ไม่ใช่คอมเมนต์ และแยกเป็นช่องที่สามก็ไม่มีใครใช้)
+ */
+function isComment_(c: any): boolean {
+  return String((c && c.type) || '').toUpperCase() === 'COMMENT';
 }
 
 /* ---------------- online history (จาก admin_online_log) ---------------- */
@@ -164,10 +174,11 @@ export async function apiAdmins(_params?: any) {
           .gte('inserted_at', todayStartIso)
       ),
       // Conversations — กรองเฉพาะที่อัปเดตใน 24 ชม. ล่าสุด
+      // ต้องมี type ด้วย: "แชทรอตอบ" ~41% เป็นคอมเมนต์ใต้โพสต์ ไม่ใช่อินบ็อกซ์ — คนละงานกัน
       fetchAll<any>(() =>
         db
           .from('conversations')
-          .select('waiting,updated_at,assignees')
+          .select('waiting,updated_at,assignees,type')
           .gte('updated_at', new Date(convCutoff_()).toISOString())
       ),
       // ตั้งค่าแอดมิน (catch เฉพาะกรณีตารางยังไม่ถูกสร้าง — error อื่นโยนต่อ)
@@ -268,9 +279,11 @@ export async function apiAdmins(_params?: any) {
   // แชทต่อแอดมิน (จาก assignees ใน Conversations, เฉพาะ 24 ชม. ล่าสุด)
   // active = ทุกบทสนทนาที่ถูกมอบหมาย (วัด workload) / waiting = เฉพาะที่ลูกค้ารอตอบ
   const waitingByName: Record<string, number> = {};
+  const waitingCommentByName: Record<string, number> = {}; // ในนั้นเป็นคอมเมนต์ใต้โพสต์กี่รายการ
   const activeByName: Record<string, number> = {};
   const overSlaByName: Record<string, number> = {};
   let waitingTotal = 0;
+  let waitingCommentTotal = 0;
   let overSlaTotal = 0;
   const waitCutoff = convCutoff_();
   // SLA proxy: แชทที่ "ลูกค้ารอ" และข้อความล่าสุด (updated_at) เก่ากว่าเกณฑ์ที่ตั้งไว้
@@ -280,7 +293,11 @@ export async function apiAdmins(_params?: any) {
   convRows.forEach((c) => {
     if (!convInWindow_(c, waitCutoff)) return;
     const isWaiting = toBool_(c.waiting);
-    if (isWaiting) waitingTotal++;
+    const isComment = isComment_(c);
+    if (isWaiting) {
+      waitingTotal++;
+      if (isComment) waitingCommentTotal++;
+    }
     const upd = toDate_(c.updated_at);
     const isOverSla = isWaiting && !!upd && upd.getTime() <= slaCutoff;
     if (isOverSla) overSlaTotal++;
@@ -290,7 +307,10 @@ export async function apiAdmins(_params?: any) {
         nm = nm.trim();
         if (!nm) return;
         activeByName[nm] = (activeByName[nm] || 0) + 1;
-        if (isWaiting) waitingByName[nm] = (waitingByName[nm] || 0) + 1;
+        if (isWaiting) {
+          waitingByName[nm] = (waitingByName[nm] || 0) + 1;
+          if (isComment) waitingCommentByName[nm] = (waitingCommentByName[nm] || 0) + 1;
+        }
         if (isOverSla) overSlaByName[nm] = (overSlaByName[nm] || 0) + 1;
       });
   });
@@ -349,6 +369,10 @@ export async function apiAdmins(_params?: any) {
       id: uid,
       posId: String(a.pos_user_id || ''),
       name: String(a.name || ''),
+      // ชื่อเล่น: ที่พิมพ์ทับไว้ใน admin_settings > เดาจากคำแรกของชื่อ Pancake
+      // (คอลัมน์ nickname มาจาก migration 2026-07-27 — ยังไม่รัน = s.nickname undefined → ใช้ค่าเดา)
+      nickname: nicknameOf(a.name, s.nickname),
+      nicknameSet: String(s.nickname || ''), // ค่าที่พิมพ์ทับไว้จริง ('' = ยังใช้ค่าเดา) — ให้ฟอร์มแก้ไข
       email: String(a.email || ''),
       online,
       statusInPage: String(a.status_in_page || ''),
@@ -369,6 +393,7 @@ export async function apiAdmins(_params?: any) {
         revenue: Math.round(sales.revenue),
       },
       waiting: waitingByName[String(a.name)] || 0,
+      waitingComment: waitingCommentByName[String(a.name)] || 0, // ในนั้นเป็นคอมเมนต์กี่รายการ
       overSla: overSlaByName[String(a.name)] || 0, // แชทรอเกินเกณฑ์ SLA (proxy)
       active,
       // ---- ส่วนตั้งค่า (จาก admin_settings — default เมื่อยังไม่ตั้ง) ----
@@ -413,6 +438,9 @@ export async function apiAdmins(_params?: any) {
     withSalesToday: enabledAdmins.filter((a) => a.today.orders > 0).length,
     repliedToday: enabledAdmins.filter((a) => a.today.replies > 0).length,
     waitingTotal: waitingTotal,
+    // แยกอินบ็อกซ์/คอมเมนต์ (คนละงานสำหรับแอดมิน) — นับ conversation ไม่ซ้ำ
+    waitingCommentTotal: waitingCommentTotal,
+    waitingInboxTotal: waitingTotal - waitingCommentTotal,
     overSlaTotal: overSlaTotal,
     phonesToday: enabledAdmins.reduce((s2, a) => s2 + a.today.phones, 0),
   };

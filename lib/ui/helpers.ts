@@ -202,8 +202,13 @@ export interface RangeState {
   to?: string;
 }
 
+// เรียงลำดับตามหน้าเว็บแอด (วันนี้ → เมื่อวาน → 3/7/30 วัน → เดือนนี้ → กำหนดเอง) ตามที่บอสขอ
+// ⚠️ ทุก key ที่เพิ่มตรงนี้ ต้องมี case ใน resolveRange_ ของ lib/api/sales.ts และ lib/api/adminperf.ts ด้วย
+//    ไม่งั้นมันจะตกไป default: = "วันนี้" เงียบๆ (ปุ่ม active แต่ตัวเลขไม่เปลี่ยน)
 export const RANGE_PRESETS = [
   { key: 'today', label: '📅 วันนี้' },
+  { key: 'yesterday', label: '📆 เมื่อวานนี้' },
+  { key: '3d', label: '🗓 3 วันล่าสุด' },
   { key: '7d', label: '🗓 7 วันล่าสุด' },
   { key: '30d', label: '🗓 30 วันล่าสุด' },
   { key: 'month', label: '🗓 เดือนนี้' },

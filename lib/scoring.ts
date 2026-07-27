@@ -90,6 +90,66 @@ export function normalizeConfig(raw: unknown): MetricConfig[] {
   });
 }
 
+/* ================================================================
+ * เป้า KPI ต่อคน/ต่อวัน (หน้า Admin Performance — แถบความคืบหน้า realtime)
+ *
+ * ทำไมเก็บชุดเดียวใน sync_state (ไม่ใช่ต่อคนใน admin_settings):
+ *   บอสตั้ง "เป้าต่อคนต่อวัน" แบบเดียวกันทั้งทีม (ยอดขาย/ออเดอร์/%ปิด/ตอบเฉลี่ย) เหมือน
+ *   scoreConfig และ appSettings — ตั้งครั้งเดียวทุกคนเห็นเกณฑ์เดียวกัน ไม่ต้องแตะ schema
+ *   และไม่ต้องไล่ตั้งทีละคนตอนมีแอดมินใหม่ (ถ้าวันหนึ่งต้องการเป้ารายคนค่อยเพิ่ม
+ *   คอลัมน์ override ใน admin_settings ทับชุดกลางนี้)
+ * ================================================================ */
+
+export interface KpiTargets {
+  revenue: number;      // ยอดขาย/คน/วัน (บาทจริง)
+  orders: number;       // ออเดอร์/คน/วัน
+  closeRate: number;    // % ปิดการขาย
+  avgRespMins: number;  // เวลาตอบเฉลี่ย (นาที) — ยิ่งน้อยยิ่งดี
+}
+
+/** ตัวชี้วัดที่ตั้งเป้าได้ + ทิศทาง (ใช้วาดฟอร์ม/แถบความคืบหน้าฝั่ง client) */
+export const KPI_TARGET_METRICS: { key: keyof KpiTargets; label: string; unit: string; dir: 'high' | 'low' }[] = [
+  { key: 'revenue',     label: 'ยอดขาย',          unit: '฿',    dir: 'high' },
+  { key: 'orders',      label: 'ออเดอร์',          unit: '',     dir: 'high' },
+  { key: 'closeRate',   label: '% ปิดการขาย',     unit: '%',    dir: 'high' },
+  { key: 'avgRespMins', label: 'เวลาตอบเฉลี่ย',    unit: 'นาที', dir: 'low'  },
+];
+
+// ค่าเริ่มต้น: อิงเป้าเดิมของ scoreConfig (revenue 5,000 / closeRate 30 / ตอบ 5 นาที)
+// เพื่อไม่ให้ทีมเจอสองเกณฑ์ที่ขัดกันเองในหน้าเดียวกัน
+export const DEFAULT_KPI_TARGETS: KpiTargets = { revenue: 5000, orders: 20, closeRate: 30, avgRespMins: 5 };
+
+/** ตรวจ/เติมเป้า KPI ให้อยู่ในช่วงที่ใช้งานได้เสมอ (0 = ปิดตัวชี้วัดนั้น ไม่โชว์แถบ) */
+export function normalizeKpiTargets(raw: unknown): KpiTargets {
+  const r = (raw || {}) as Record<string, unknown>;
+  const num = (v: unknown, dv: number, max: number): number => {
+    const n = Number(v);
+    if (!isFinite(n) || n < 0) return dv;
+    return Math.min(max, Math.round(n * 10) / 10);
+  };
+  return {
+    revenue: num(r.revenue, DEFAULT_KPI_TARGETS.revenue, 100000000),
+    orders: num(r.orders, DEFAULT_KPI_TARGETS.orders, 100000),
+    closeRate: num(r.closeRate, DEFAULT_KPI_TARGETS.closeRate, 100),
+    avgRespMins: num(r.avgRespMins, DEFAULT_KPI_TARGETS.avgRespMins, 1440),
+  };
+}
+
+/**
+ * % ความคืบหน้าเทียบเป้า (0..100+ — เกินเป้าได้ ให้เห็นว่าทำได้กี่ %)
+ * null = ไม่มีข้อมูล/ไม่ได้ตั้งเป้า → หน้าเว็บต้องโชว์ "—" ไม่ใช่ 0%
+ */
+export function kpiProgress(value: number | null | undefined, target: number, dir: 'high' | 'low'): number | null {
+  if (!(target > 0)) return null;
+  if (value === null || value === undefined || isNaN(Number(value))) return null;
+  const v = Number(value);
+  if (dir === 'low') {
+    if (v <= 0) return null;              // เวลาตอบ 0 = ไม่มีข้อมูลจริง
+    return Math.round((target / v) * 1000) / 10;
+  }
+  return Math.round((v / target) * 1000) / 10;
+}
+
 /** คะแนนย่อย 0..100 ของตัวชี้วัดเดียว (null = ไม่มีข้อมูล/คิดไม่ได้) */
 export function subScore(value: number | null | undefined, m: Metric, target: number): number | null {
   if (value === null || value === undefined || isNaN(Number(value))) return null;

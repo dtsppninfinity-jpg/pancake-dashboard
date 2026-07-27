@@ -15,6 +15,8 @@ import { contentads } from '@/lib/views/contentads';
 import { admins } from '@/lib/views/admins';
 import { adminperf } from '@/lib/views/adminperf';
 import { umap } from '@/lib/views/umap';
+import { me } from '@/lib/views/me';
+import { users } from '@/lib/views/users';
 
 /* ---------------- types ---------------- */
 
@@ -43,6 +45,8 @@ const Views: Record<string, ViewModule> = {
   admins,
   adminperf,
   umap,
+  me,
+  users,
 };
 
 const VIEW_META: Record<string, { title: string; sub: string }> = {
@@ -52,6 +56,8 @@ const VIEW_META: Record<string, { title: string; sub: string }> = {
   admins:     { title: 'Admin Management', sub: 'รายชื่อแอดมิน • สถานะออนไลน์ • สิทธิ์' },
   adminperf:  { title: 'Admin Performance', sub: 'Ranking ยอดขาย • Top 3 🥇🥈🥉' },
   umap:       { title: 'U Map', sub: 'แอดมินอยู่ U ไหน — จับคู่ • เพิ่ม/ลบ U • มี API ให้ระบบอื่นดึง' },
+  me:         { title: 'ผลงานของฉัน', sub: 'ยอดขาย • KPI • อันดับของคุณ' },
+  users:      { title: 'ผู้ใช้งาน', sub: 'บัญชีเข้าระบบ • ระดับสิทธิ์' },
 };
 
 /* ---------- สลับธีม สว่าง/มืด (จำค่าไว้ใน localStorage) ---------- */
@@ -69,6 +75,15 @@ function toggleTheme(): void {
   setTheme(cur === 'light' ? 'dark' : 'light');
 }
 
+/* ---------- เมนูบนมือถือ: sidebar เลื่อนเข้าจากซ้าย + ฉากหลังทึบ ---------- */
+
+function setNavOpen(open: boolean): void {
+  const app = document.getElementById('app');
+  if (app) app.classList.toggle('nav-open', open);
+  // ล็อกไม่ให้หน้าเลื่อนตอนเมนูเปิด (ไม่งั้นนิ้วปัดแล้วพื้นหลังไหลตาม)
+  document.body.style.overflow = open ? 'hidden' : '';
+}
+
 /* ---------------- App core ---------------- */
 
 const App = {
@@ -79,8 +94,31 @@ const App = {
     document.querySelectorAll('.nav-item').forEach(function (btn) {
       btn.addEventListener('click', function () {
         self.switchView(btn.getAttribute('data-view') as string);
+        setNavOpen(false); // เลือกเมนูบนมือถือแล้วต้องปิดเมนูเอง ไม่งั้นบังหน้าจอ
       });
     });
+
+    const navBtn = document.getElementById('btn-nav');
+    if (navBtn) {
+      navBtn.addEventListener('click', function () {
+        const app = document.getElementById('app');
+        setNavOpen(!(app && app.classList.contains('nav-open')));
+      });
+    }
+    const backdrop = document.getElementById('nav-backdrop');
+    if (backdrop) backdrop.addEventListener('click', function () { setNavOpen(false); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') setNavOpen(false);
+    });
+
+    const logout = document.getElementById('btn-logout');
+    if (logout) {
+      logout.addEventListener('click', function () {
+        fetch('/api/logout', { method: 'POST' })
+          .then(function () { window.location.href = '/login'; })
+          .catch(function () { window.location.href = '/login'; });
+      });
+    }
     document.getElementById('btn-refresh')!.addEventListener('click', function () {
       self.loadView(self.state.view, true);
       toast('⟳ กำลังโหลดข้อมูลใหม่...');
@@ -93,7 +131,15 @@ const App = {
       self.state.bootstrap = b;
       self.renderSyncInfo(b);
     }).catch(function () {});
-    this.loadView('dashboard', false);
+    // หน้าแรกขึ้นกับสิทธิ์ — page.tsx บอกมาทาง data-first-view (ระดับแอดมินเริ่มที่ "ผลงานของฉัน")
+    const first = (document.getElementById('app')?.getAttribute('data-first-view')) || 'dashboard';
+    this.state.view = first;
+    const meta = VIEW_META[first];
+    if (meta) {
+      document.getElementById('topbar-title')!.textContent = meta.title;
+      document.getElementById('topbar-sub')!.textContent = meta.sub;
+    }
+    this.loadView(first, false);
     // รีเฟรชหน้าปัจจุบันอัตโนมัติทุก 5 นาที — แบบเบื้องหลัง (force=false = render จาก cache
     // แล้วค่อยดึงใหม่) และข้ามรอบถ้าแท็บถูกซ่อนหรือผู้ใช้กำลังพิมพ์/เลือกค่าอยู่
     setInterval(function () {
@@ -128,6 +174,8 @@ const App = {
 
   switchView(view: string): void {
     if (!VIEW_META[view]) return;
+    // ไม่มีช่อง view นี้ในหน้า = สิทธิ์นี้เปิดไม่ได้ (page.tsx render เฉพาะที่อนุญาต) — เงียบไว้
+    if (!document.getElementById('view-' + view)) return;
     hideChartTip(); // กันทูลทิปกราฟ (body singleton) ค้างลอยข้ามหน้าเมื่อสลับ view ด้วยคีย์บอร์ด
     hideInfoTip();  // เช่นเดียวกัน — กันกรอบอธิบายค้างข้ามหน้า
     this.state.view = view;
@@ -143,7 +191,8 @@ const App = {
   },
 
   loadView(view: string, force: boolean): void {
-    const container = document.getElementById('view-' + view) as HTMLElement;
+    const container = document.getElementById('view-' + view) as HTMLElement | null;
+    if (!container) return; // view ที่สิทธิ์นี้เปิดไม่ได้ — ไม่มีช่องให้ render
     const v = Views[view];
     if (v && typeof v.load === 'function') {
       v.load(container, force);

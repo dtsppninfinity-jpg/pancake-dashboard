@@ -169,12 +169,12 @@ export function salesSkel(): string {
       chips([60, 96, 108, 84, 96], '30px') + inputSk('150px') + inputSk('80px') +
     '</div>' +
   '</div>';
-  h += '<div class="sr-cards">' + srCard() + srCard() + srCard() + '</div>';
+  h += '<div class="sr-cards">' + srCard() + srCard() + '</div>';   // 2 การ์ด (คำสั่งซื้อ / %ปิดการขาย)
   h += '<div class="sr-channels">' + chBox() + chBox() + chBox() + '</div>';
   h += '<div class="sr-strip">' + tile() + tile() + tile() + tile() + tile() + tile() + '</div>';
   h += '<div class="sr-main">' +
     '<div class="card">' + head() + hourlyBars() + '</div>' +
-    '<div class="card">' + head() + line('48%', '26px', '12px') + line('30%', '11px', '8px') + miniBars() + todayRows(4) + '</div>' +
+    '<div class="card">' + head() + line('48%', '26px', '12px') + line('30%', '11px', '8px') + miniBars() + todayRows(5) + '</div>' +
   '</div>';
   h += '<div class="sr-bottom">' +
     '<div class="card">' + head() + tableRows(5) + '</div>' +

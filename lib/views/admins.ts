@@ -53,6 +53,8 @@ interface Admin {
   id: string | number;
   posId?: string | number;
   name?: string;
+  nickname?: string;    // ชื่อเล่นที่ใช้แสดง (พิมพ์ทับ > เดาจากคำแรกของชื่อ)
+  nicknameSet?: string; // ค่าที่พิมพ์ทับไว้จริง ('' = ยังใช้ค่าเดา) — ใช้เติมในฟอร์มแก้ไข
   email?: string;
   online?: boolean;
   statusInPage?: string;
@@ -64,6 +66,7 @@ interface Admin {
   avatar?: string;
   today?: AdminToday;
   waiting?: number;
+  waitingComment?: number; // ในแชทรอตอบ เป็นคอมเมนต์ใต้โพสต์กี่รายการ (ที่เหลือ = อินบ็อกซ์)
   overSla?: number;
   active?: number;
   /* ---- ตั้งค่า (admin_settings) ---- */
@@ -92,6 +95,8 @@ interface AdminsKpis {
   withSalesToday?: number;
   repliedToday?: number;
   waitingTotal?: number;
+  waitingInboxTotal?: number;   // ในแชทรอตอบรวม เป็นอินบ็อกซ์กี่รายการ
+  waitingCommentTotal?: number; // ...และคอมเมนต์ใต้โพสต์กี่รายการ
   overSlaTotal?: number;
   phonesToday?: number;
 }
@@ -175,6 +180,23 @@ function statusOf(a: Admin): string {
   return a.status || effectiveStatus(a.enabled !== false, String(a.statusOverride || ''), !!a.online);
 }
 
+/** ชื่อเล่น (ฝั่ง server เดาจากคำแรกให้แล้วถ้ายังไม่พิมพ์ทับ) — ชื่อหลักที่ใช้เรียกบนการ์ด */
+function nickOf(a: Admin): string {
+  return String(a.nickname || a.name || '');
+}
+
+/** ชื่อเต็มเฉพาะเมื่อต่างจากชื่อเล่น (ไม่งั้นซ้ำ) */
+function fullNameSub(a: Admin): string {
+  const full = String(a.name || '');
+  return full && full !== nickOf(a) ? full : '';
+}
+
+/** ชื่อเล่นที่ระบบจะเดาให้ถ้าไม่พิมพ์ทับ = คำแรกของชื่อ Pancake (ใช้เป็น placeholder ในฟอร์ม) */
+function autoNick(a: Admin): string {
+  const s = String(a.name || '').trim().replace(/\s+/g, ' ');
+  return s ? s.split(' ')[0].slice(0, 40) : '';
+}
+
 /** เวลาที่ online ครั้งล่าสุดวันนี้ (จาก log จริง) — 'ตอนนี้' ถ้ายังออนไลน์อยู่ */
 function lastOnlineStr(a: Admin): string {
   if (a.online) return 'ตอนนี้ 🟢';
@@ -194,13 +216,15 @@ function capOf(a: Admin): { key: string; label: string; cls: string } {
   return a.capacity || capacityOf(Number(a.active) || 0, Number(a.maxActive) || DEFAULT_MAX_ACTIVE);
 }
 
-function pgsItem(val: string | number, label: string, cls: string): string {
-  return '<div class="pgs-item' + (cls ? ' ' + cls : '') + '">' +
+function pgsItem(val: string | number, label: string, cls: string, title?: string): string {
+  return '<div class="pgs-item' + (cls ? ' ' + cls : '') + '"' +
+    (title ? ' title="' + esc(title) + '"' : '') + '>' +
     '<b>' + val + '</b><span>' + esc(label) + '</span></div>';
 }
 
-function cellHtml(val: string | number, label: string, cls: string): string {
-  return '<div class="cell' + (cls ? ' ' + cls : '') + '">' +
+function cellHtml(val: string | number, label: string, cls: string, title?: string): string {
+  return '<div class="cell' + (cls ? ' ' + cls : '') + '"' +
+    (title ? ' title="' + esc(title) + '"' : '') + '>' +
     '<b>' + val + '</b><span>' + esc(label) + '</span></div>';
 }
 
@@ -286,8 +310,10 @@ function saveAdmin(
 
 function matches(a: Admin): boolean {
   if (filter.q) {
+    // ค้นได้ทั้งชื่อเต็มและชื่อเล่น — ทีมเรียกกันด้วยชื่อเล่นเป็นหลัก
     const q = filter.q.toLowerCase();
-    if (String(a.name || '').toLowerCase().indexOf(q) === -1) return false;
+    const hay = (String(a.name || '') + ' ' + nickOf(a)).toLowerCase();
+    if (hay.indexOf(q) === -1) return false;
   }
   if (filter.status && statusOf(a) !== filter.status) return false;
   if (filter.role && String(a.role || '') !== filter.role) return false;
@@ -356,13 +382,18 @@ function cardHtml(a: Admin): string {
     : '<span class="badge neutral" title="เริ่มเก็บประวัติออนไลน์อัตโนมัติ — จะแสดงเมื่อมีข้อมูล">🕐 รอเก็บข้อมูล</span>';
   const pages = a.pages || '';
 
+  // แชทรอตอบ แยกอินบ็อกซ์/คอมเมนต์ — คนละงานกันสำหรับแอดมิน (คอมเมนต์ใต้โพสต์ ~41% ของที่ค้าง)
+  const waitCmt = Number(a.waitingComment) || 0;
+  const waitInbox = Math.max(0, waiting - waitCmt);
   const cells =
     cellHtml(fmtNum(t.replies || 0), 'ตอบวันนี้', '') +
     cellHtml(fmtNum(active) + '/' + fmtNum(maxActive), 'แชทดูแล (24ชม.)',
       cap.key === 'full' ? 'warn' : '') +
     cellHtml(fmtNum(waiting) + (maxPending > 0 ? '/' + fmtNum(maxPending) : ''),
-      'รอตอบ' + (maxPending > 0 ? ' (เพดาน)' : ''),
-      overPending || waiting > 0 ? 'warn' : '') +
+      'รอตอบ 💬' + fmtNum(waitInbox) + ' 💭' + fmtNum(waitCmt) + (maxPending > 0 ? ' (เพดาน)' : ''),
+      overPending || waiting > 0 ? 'warn' : '',
+      'แชทที่ลูกค้ารอตอบตอนนี้ (24 ชม.ล่าสุด) — 💬 อินบ็อกซ์ ' + fmtNum(waitInbox) +
+        ' • 💭 คอมเมนต์ใต้โพสต์ ' + fmtNum(waitCmt) + ' (คนละงานกัน จึงแยกให้เห็น)') +
     cellHtml(esc(respFmt(t.respMins)), 'ตอบเฉลี่ย', '') +
     cellHtml(fmtNum(t.orders || 0), 'ออเดอร์วันนี้', '') +
     cellHtml(esc(THB(t.revenue || 0)), 'ยอดขาย', '');
@@ -376,7 +407,10 @@ function cardHtml(a: Admin): string {
     '<div class="admin-head">' +
       avatarHtml(a.id, a.name, !!a.online && enabled) +
       '<div style="flex:1;min-width:0">' +
-        '<div class="admin-name">' + esc(a.name) + '</div>' +
+        // ชื่อเล่นเป็นตัวหลัก (ทีมเรียกกันแบบนี้) + ชื่อเต็มจาก Pancake เป็นตัวรอง
+        '<div class="admin-name" title="' + esc(String(a.name || '')) + '">' + esc(nickOf(a)) +
+          (fullNameSub(a) ? '<span class="admin-fullname">' + esc(fullNameSub(a)) + '</span>' : '') +
+        '</div>' +
         '<div class="admin-meta" title="' + esc(meta) + '">' + esc(meta) + '</div>' +
       '</div>' +
       '<div style="margin-left:auto;flex-shrink:0;display:flex;flex-direction:column;gap:4px;align-items:flex-end">' +
@@ -410,11 +444,13 @@ function cardHtml(a: Admin): string {
 
 function openSettings(a: Admin, container: HTMLElement): void {
   const groupsVal = String(a.productGroups || '');
+  const savedNick = String(a.nicknameSet || ''); // '' = ยังไม่พิมพ์ทับ (ช่องว่างไว้ ให้เห็น placeholder)
   const html =
     '<div class="modal-head">' +
       '<div style="display:flex;gap:12px;align-items:center;min-width:0">' +
         avatarHtml(a.id, a.name, !!a.online) +
-        '<div style="min-width:0"><h3>✏️ ' + esc(a.name) + '</h3>' +
+        '<div style="min-width:0"><h3>✏️ ' + esc(nickOf(a)) + '</h3>' +
+        (fullNameSub(a) ? '<div class="admin-meta">' + esc(fullNameSub(a)) + '</div>' : '') +
         '<div style="margin-top:5px">' + statusBadge(a) + '</div></div>' +
       '</div>' +
       '<button class="modal-close">✕</button>' +
@@ -450,7 +486,11 @@ function openSettings(a: Admin, container: HTMLElement): void {
         '<input class="input" id="adf-max" type="number" min="1" max="9999" value="' + esc(String(a.maxActive || DEFAULT_MAX_ACTIVE)) + '"></label>' +
       '<label class="adm-field"><span>เพดานแชทรอตอบ (0 = ไม่กำหนด)</span>' +
         '<input class="input" id="adf-maxpend" type="number" min="0" max="9999" value="' + esc(String(a.maxPending || 0)) + '"></label>' +
-      '<label class="adm-field" style="grid-column:1/-1"><span>โน้ต (เห็นเฉพาะทีมเรา)</span>' +
+      // ชื่อเล่น: เว้นว่าง = ใช้คำแรกของชื่อ Pancake อัตโนมัติ (ไม่ต้องกรอกทีละคน)
+      '<label class="adm-field"><span>ชื่อเล่น (เว้นว่าง = ใช้ "' + esc(autoNick(a)) + '" อัตโนมัติ)</span>' +
+        '<input class="input" id="adf-nick" maxlength="40" value="' + esc(savedNick) +
+        '" placeholder="' + esc(autoNick(a)) + '"></label>' +
+      '<label class="adm-field"><span>โน้ต (เห็นเฉพาะทีมเรา)</span>' +
         '<input class="input" id="adf-note" value="' + esc(String(a.note || '')) + '" placeholder="เช่น ถนัดปิดการขาย LINE"></label>' +
     '</div>' +
     '<div class="modal-actions">' +
@@ -489,7 +529,11 @@ function openSettings(a: Admin, container: HTMLElement): void {
     const before = {
       role: a.role, channels: a.channels, productGroups: a.productGroups,
       maxActive: a.maxActive, maxPending: a.maxPending, note: a.note,
+      nickname: a.nickname, nicknameSet: a.nicknameSet,
     };
+    // ชื่อเล่น: เว้นว่าง = กลับไปใช้ค่าเดาอัตโนมัติ (คำแรกของชื่อ Pancake)
+    a.nicknameSet = String($id('adf-nick').value || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+    a.nickname = a.nicknameSet || autoNick(a);
     a.role = String($id('adf-role').value || '');
     a.channels = String($id('adf-channel').value || 'both');
     a.productGroups = String($id('adf-groups').value || '').slice(0, 200);
@@ -507,9 +551,9 @@ function openSettings(a: Admin, container: HTMLElement): void {
     renderBody(container);
     saveAdmin(a, {
       role: a.role, channels: a.channels, product_groups: a.productGroups,
-      max_active: a.maxActive, max_pending: a.maxPending, note: a.note,
+      max_active: a.maxActive, max_pending: a.maxPending, nickname: a.nicknameSet, note: a.note,
     }, function () { Object.assign(a, before); }, container,
-      '💾 บันทึกตั้งค่า "' + String(a.name) + '" แล้ว');
+      '💾 บันทึกตั้งค่า "' + nickOf(a) + '" แล้ว');
   });
 }
 
@@ -570,7 +614,8 @@ function openStats(a: Admin): void {
       '<div style="display:flex;gap:12px;align-items:center;min-width:0">' +
         avatarHtml(a.id, a.name, !!a.online) +
         '<div style="min-width:0">' +
-          '<h3>' + esc(a.name) + '</h3>' +
+          '<h3>' + esc(nickOf(a)) + '</h3>' +
+          (fullNameSub(a) ? '<div class="admin-meta">' + esc(fullNameSub(a)) + '</div>' : '') +
           '<div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap">' + statusBadge(a) +
             (a.role ? '<span class="badge brand">' + esc(a.role) + '</span>' : '') +
             (function () {
@@ -679,8 +724,9 @@ function exportCsv(): void {
     return;
   }
   const rows: unknown[][] = [[
-    'ชื่อ', 'อีเมล', 'Role', 'เปิดใช้งาน', 'สถานะ', 'ช่องทาง', 'กลุ่มสินค้า', 'แผนก', 'กลุ่มขาย', 'เพจ',
-    'ตอบวันนี้', 'แชทดูแล(24ชม.)', 'เพดาน', 'รอตอบ', 'เพดานรอตอบ', 'เกิน SLA', 'ตอบเฉลี่ย(นาที)',
+    'ชื่อเล่น', 'ชื่อ', 'อีเมล', 'Role', 'เปิดใช้งาน', 'สถานะ', 'ช่องทาง', 'กลุ่มสินค้า', 'แผนก', 'กลุ่มขาย', 'เพจ',
+    'ตอบวันนี้', 'แชทดูแล(24ชม.)', 'เพดาน', 'รอตอบ', 'รอตอบ-อินบ็อกซ์', 'รอตอบ-คอมเมนต์',
+    'เพดานรอตอบ', 'เกิน SLA', 'ตอบเฉลี่ย(นาที)',
     'ออเดอร์วันนี้', 'ยอดขายวันนี้', 'คะแนน Overall (วันนี้)', 'ออนไลน์วันนี้(นาที)', 'หายนานสุด(นาที)', 'โน้ต'
   ]];
   list.forEach(function (a) {
@@ -688,11 +734,14 @@ function exportCsv(): void {
     const st = ADMIN_STATUS_META[statusOf(a)] || ADMIN_STATUS_META.offline;
     const ot = a.onlineToday;
     const sc = scoreOf(a);
+    const waitN = Number(a.waiting) || 0;
+    const waitCmt = Number(a.waitingComment) || 0;
     rows.push([
-      a.name || '', a.email || '', a.role || '', a.enabled !== false ? 'ใช่' : 'ไม่',
+      nickOf(a), a.name || '', a.email || '', a.role || '', a.enabled !== false ? 'ใช่' : 'ไม่',
       st.label.replace(/^[^ ]+ /, ''), a.channels || 'both', a.productGroups || '', a.department || '',
       a.saleGroup || '', a.pages || '',
-      t.replies || 0, Number(a.active) || 0, Number(a.maxActive) || DEFAULT_MAX_ACTIVE, Number(a.waiting) || 0,
+      t.replies || 0, Number(a.active) || 0, Number(a.maxActive) || DEFAULT_MAX_ACTIVE, waitN,
+      Math.max(0, waitN - waitCmt), waitCmt,
       Number(a.maxPending) || 0, Number(a.overSla) || 0,
       (t.respMins === null || t.respMins === undefined) ? '' : t.respMins,
       t.orders || 0, t.revenue || 0, sc === null ? '' : sc,
@@ -747,6 +796,9 @@ function render(container: HTMLElement): void {
   if (filter.dept && !seen[filter.dept]) filter.dept = '';
 
   const waitingTotal = Number(k.waitingTotal) || 0;
+  const waitingCmt = Number(k.waitingCommentTotal) || 0;
+  const waitingInbox = (k.waitingInboxTotal === undefined)
+    ? Math.max(0, waitingTotal - waitingCmt) : Number(k.waitingInboxTotal) || 0;
   const overSlaTotal = Number(k.overSlaTotal) || 0;
   const slaMins = Number(d.slaMins) || 60;
   const disabledN = Number(k.disabled) || 0;
@@ -826,7 +878,12 @@ function render(container: HTMLElement): void {
       pgsItem(fmtNum(fullN), 'เต็ม Capacity', fullN > 0 ? 'warn' : '') +
       pgsItem(fmtNum(k.withSalesToday || 0), 'มียอดขายวันนี้', 'ok') +
       pgsItem(fmtNum(k.activeTotal || 0), 'แชทที่ดูแลรวม (24ชม.)', '') +
-      pgsItem(fmtNum(waitingTotal), 'แชทรอตอบรวม', waitingTotal > 0 ? 'warn' : '') +
+      // แชทรอตอบ = อินบ็อกซ์ + คอมเมนต์ใต้โพสต์ (คนละงานกัน — ~41% ที่ค้างเป็นคอมเมนต์)
+      pgsItem(fmtNum(waitingTotal),
+        '⏰ แชทรอตอบ (💬 ' + fmtNum(waitingInbox) + ' • 💭 ' + fmtNum(waitingCmt) + ')',
+        waitingTotal > 0 ? 'warn' : '',
+        'แชทที่ลูกค้ารอตอบตอนนี้ (24 ชม.ล่าสุด) — 💬 อินบ็อกซ์ ' + fmtNum(waitingInbox) +
+          ' • 💭 คอมเมนต์ใต้โพสต์ ' + fmtNum(waitingCmt) + ' (คนละงานกัน จึงแยกให้เห็น)') +
       pgsItem(fmtNum(overSlaTotal), 'เกิน SLA ' + slaMins + ' น.', overSlaTotal > 0 ? 'warn' : '') +
       pgsItem(fmtNum(k.phonesToday || 0), 'เบอร์โทรวันนี้', '') +
     '</div>' +
@@ -903,7 +960,7 @@ function bindEvents(container: HTMLElement): void {
             renderBody(container);
             saveAdmin(a, { enabled: a.enabled, status_override: String(a.statusOverride || '') },
               function () { Object.assign(a, before); }, container,
-              (a.enabled ? '▶ เปิด' : '⏸ ปิด') + 'ใช้งาน "' + String(a.name) + '" แล้ว');
+              (a.enabled ? '▶ เปิด' : '⏸ ปิด') + 'ใช้งาน "' + nickOf(a) + '" แล้ว');
           }
           return;
         }
@@ -939,7 +996,7 @@ function bindEvents(container: HTMLElement): void {
       const st = ADMIN_STATUS_META[statusOf(a)] || ADMIN_STATUS_META.offline;
       saveAdmin(a, { status_override: String(a.statusOverride || '') },
         function () { Object.assign(a, before); }, container,
-        'เปลี่ยนสถานะ "' + String(a.name) + '" → ' + st.label);
+        'เปลี่ยนสถานะ "' + nickOf(a) + '" → ' + st.label);
       return;
     }
     if (el.classList && el.classList.contains('perm-cb')) {

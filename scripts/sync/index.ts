@@ -35,13 +35,18 @@ async function runFast(): Promise<void> {
   // สถิติตอบแชทรายแอดมิน (ตอบวันนี้ / เวลาตอบเฉลี่ย) — ย้ายจาก hourly มา fast (ทุก 15 นาที)
   // เพราะแอดมินที่ยุ่งมากยิงข้อความเร็ว เลขจะคลาดกับจอ Pancake หลายร้อยถ้าอัปเดตแค่ชั่วโมงละครั้ง
   await runJob('admin-chat-today', jobs.syncAdminChatToday);
+  // ค่าแอดจริง (Meta) — ย้ายจาก hourly มา fast: เดิมค่าแอดบนหน้าเว็บช้าได้ถึง 75 นาที
+  // ยิง Meta ตรงๆ ไม่ต้องวนเพจ จึงเร็วพอสำหรับรอบ 15 นาที (ต่างจาก ad-stats-today ของ Pancake)
+  await runJob('meta-ads-today', jobs.syncMetaAdsToday);
 }
 
 async function runHourly(): Promise<boolean> {
   const a = await runJob('ads', jobs.syncAds);
   const b = await runJob('admins-roster', jobs.syncAdminsRoster);
-  // ค่าแอดวันนี้: Pancake ก่อน (ให้ page_id/ชื่อแอด) → Meta ทับ spend จริง (ต้องรันหลัง Pancake)
+  // Pancake เป็นตัวเติม page_id / ชื่อแอด / สถานะ ให้ ad_daily (วนทุกเพจ จึงหนักเกินรอบ 15 นาที)
   const c = await runJob('ad-stats-today', jobs.syncAdStatsToday);
+  // ต้องยิง Meta ซ้ำ "ปิดท้าย" รอบ hourly ด้วย — เพราะ runFast (Meta) เดินก่อน runHourly (Pancake)
+  // ในโปรเซสเดียวกัน ถ้าไม่ทับกลับ ค่า spend จะกลายเป็นของ Pancake (ต่ำกว่าจริง ~7%) ไปจนรอบหน้า
   const d = await runJob('meta-ads-today', jobs.syncMetaAdsToday);
   return a && b && c && d;
 }
@@ -54,8 +59,10 @@ async function runDaily(): Promise<boolean> {
   const f = await runJob('meta-ads-yesterday', jobs.syncMetaAdsYesterday);
   // ปิดยอดของเมื่อวานให้ครบ (ออเดอร์ที่ยืนยันข้ามคืนทำให้ order_count ขยับได้)
   const e = await runJob('engagements-yesterday', jobs.syncEngagementsYesterday);
+  // สื่อ/ครีเอทีฟของแอด — ครีเอทีฟไม่เปลี่ยนรายวัน วันละครั้งพอ (ดึงเฉพาะแอดที่ยังไม่มีในตาราง)
+  const g = await runJob('ad-creatives', () => jobs.syncAdCreatives(14));
   const c = await runJob('prune', jobs.prune);
-  return a && b && c && d && e && f;
+  return a && b && c && d && e && f && g;
 }
 
 const MODE = (process.argv[2] || 'fast').toLowerCase();

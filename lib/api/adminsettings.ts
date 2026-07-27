@@ -3,8 +3,48 @@
 // ตารางสิทธิ์ (role → perms) เก็บเป็น JSON ใน sync_state — pattern เดียวกับ scoreconfig
 import { db } from '@/lib/db';
 import { ADMIN_ROLES, defaultRolePerms, normalizeRolePermsShape, RolePerms, DEFAULT_MAX_ACTIVE } from '@/lib/adminconfig';
+import { normalizeKpiTargets, DEFAULT_KPI_TARGETS, type KpiTargets } from '@/lib/scoring';
 
 const ROLE_PERMS_KEY = 'admin_role_permissions';
+const KPI_TARGETS_KEY = 'adminperf_kpi_targets';
+
+/**
+ * คอลัมน์ที่มาจาก migration รอบหลัง — ฐานที่ยังไม่ได้รันจะ error ที่คอลัมน์นั้น
+ * (ตัดทีละตัวแล้วบันทึกส่วนที่เหลือ ดีกว่าเซฟไม่ได้ทั้งแถว — แต่ต้องบอกความจริงกลับไปด้วย)
+ */
+const OPTIONAL_COLS = ['nickname', 'max_pending', 'pos_user_id', 'snap_name'];
+
+/** ป้ายอธิบาย migration ที่ยังไม่ได้รัน (ใช้ประกอบข้อความเตือนบนหน้าเว็บ) */
+const COL_LABEL: Record<string, string> = {
+  nickname: '"ชื่อเล่น" (migration 2026-07-27-admin-nickname.sql)',
+  max_pending: '"เพดานแชทรอตอบ" (migration v3 max_pending)',
+};
+
+/**
+ * เดาชื่อเล่นจากชื่อเต็มของ Pancake = คำแรก
+ * ("หมีน้อย สีน้ำตาล" → "หมีน้อย", "Eiei Eiei" → "Eiei")
+ * ใช้เมื่อยังไม่มีใครพิมพ์ทับ — ให้การ์ด/ranking อ่านง่ายตั้งแต่วันแรกโดยไม่ต้องกรอกทีละคน
+ */
+export function autoNickname(fullName: unknown): string {
+  const s = String(fullName || '').trim().replace(/\s+/g, ' ');
+  if (!s) return '';
+  return s.split(' ')[0].slice(0, 40);
+}
+
+/** ชื่อเล่นที่ใช้แสดงจริง: ที่พิมพ์ทับไว้ > เดาจากคำแรก */
+export function nicknameOf(fullName: unknown, saved: unknown): string {
+  const n = String(saved || '').trim();
+  return n || autoNickname(fullName);
+}
+
+/** เป้า KPI ต่อคน/วัน ที่ทีมตั้งไว้ (ให้ apiAdminPerf ใช้ตอนวาดแถบความคืบหน้า) */
+export async function getKpiTargets(): Promise<KpiTargets> {
+  const { data } = await db.from('sync_state').select('value').eq('key', KPI_TARGETS_KEY).maybeSingle();
+  if (data && data.value) {
+    try { return normalizeKpiTargets(JSON.parse(data.value)); } catch { /* ใช้ค่าเริ่มต้น */ }
+  }
+  return { ...DEFAULT_KPI_TARGETS };
+}
 
 /** ตาราง admin_settings ยังไม่ถูกสร้าง (migration ยังไม่ได้รัน) */
 function isMissingTable(err: any): boolean {
@@ -15,7 +55,8 @@ function isMissingTable(err: any): boolean {
 /** ตรวจ/เติมค่า setting ของแอดมิน 1 คนให้อยู่ในช่วงที่ถูกต้องเสมอ */
 export function normalizeAdminSetting(raw: any): {
   user_id: string; enabled: boolean; status_override: string; role: string;
-  channels: string; product_groups: string; max_active: number; max_pending: number; note: string;
+  channels: string; product_groups: string; max_active: number; max_pending: number;
+  nickname: string; note: string;
 } | null {
   const userId = String((raw && raw.user_id) || '').trim();
   if (!userId || userId.length > 100) return null;
@@ -37,6 +78,8 @@ export function normalizeAdminSetting(raw: any): {
     product_groups: String((raw && raw.product_groups) || '').slice(0, 200),
     max_active: maxActive,
     max_pending: maxPending,
+    // '' = ไม่พิมพ์ทับ → ฝั่งอ่านจะเดาจากคำแรกของชื่อ Pancake ให้เอง (nicknameOf)
+    nickname: String((raw && raw.nickname) || '').trim().replace(/\s+/g, ' ').slice(0, 40),
     note: String((raw && raw.note) || '').slice(0, 300),
   };
 }
@@ -67,7 +110,8 @@ export async function apiAdminSettings(params: any) {
       existing = data;
     }
     const provided: Record<string, any> = {};
-    ['enabled', 'status_override', 'role', 'channels', 'product_groups', 'max_active', 'max_pending', 'note']
+    ['enabled', 'status_override', 'role', 'channels', 'product_groups', 'max_active', 'max_pending',
+      'nickname', 'note']
       .forEach((k) => { if (p.admin[k] !== undefined) provided[k] = p.admin[k]; });
     const clean = normalizeAdminSetting({ ...(existing || {}), ...provided, user_id: userId });
     if (!clean) return { ok: false, error: 'ข้อมูลไม่ถูกต้อง' };
@@ -84,22 +128,17 @@ export async function apiAdminSettings(params: any) {
 
     const now = new Date().toISOString();
     const payload: Record<string, any> = { ...clean, ...snap, updated_at: now };
-    let droppedMaxPending = false;
-    let { error } = await db
-      .from('admin_settings')
-      .upsert(payload, { onConflict: 'user_id' });
-    if (error && String(error.message || '').includes('max_pending')) {
-      // คอลัมน์ max_pending ยังไม่ถูกสร้าง (migration v3) — ตัดออกแล้วบันทึกส่วนที่เหลือ
-      // แต่ต้อง "บอกความจริง" กลับไปด้วย ไม่ใช่ปล่อยให้ user คิดว่าค่านี้ถูกบันทึกแล้ว
-      delete payload.max_pending;
-      droppedMaxPending = true;
+    // คอลัมน์จาก migration รอบหลังอาจยังไม่มีในฐาน → ตัด "เฉพาะตัวที่ error พูดถึง" แล้วลองใหม่
+    // (ดีกว่าเซฟไม่ได้ทั้งแถว) แต่ต้องจำไว้ว่าตัดอะไรไป เพื่อบอกความจริงกลับไปที่หน้าเว็บ
+    const dropped: string[] = [];
+    let { error } = await db.from('admin_settings').upsert(payload, { onConflict: 'user_id' });
+    for (let i = 0; error && i < OPTIONAL_COLS.length; i++) {
+      const msg = String(error.message || '');
+      const col = OPTIONAL_COLS.find((c) => c in payload && msg.includes(c));
+      if (!col) break;
+      delete payload[col];
+      dropped.push(col);
       ({ error } = await db.from('admin_settings').upsert(payload, { onConflict: 'user_id' }));
-    }
-    if (error && Object.keys(snap).length) {
-      // คอลัมน์ snapshot อาจยังไม่ถูกสร้าง (migration v2) — บันทึกส่วนหลักไปก่อน
-      const p2: Record<string, any> = { ...clean, updated_at: now };
-      if (!('max_pending' in payload)) delete p2.max_pending;
-      ({ error } = await db.from('admin_settings').upsert(p2, { onConflict: 'user_id' }));
     }
     if (error) {
       if (isMissingTable(error)) {
@@ -107,13 +146,31 @@ export async function apiAdminSettings(params: any) {
       }
       return { ok: false, error: error.message };
     }
+    // เตือนเฉพาะ field ที่ "ผู้ใช้ตั้งใจแก้รอบนี้" แล้วบันทึกไม่ได้จริง
+    const lostLabels = dropped
+      .filter((c) => p.admin[c] !== undefined && COL_LABEL[c])
+      .map((c) => COL_LABEL[c]);
     return {
       ok: true,
       admin: clean,
-      warning: droppedMaxPending && p.admin.max_pending !== undefined
-        ? 'บันทึกแล้ว ยกเว้น "เพดานแชทรอตอบ" — ต้องรัน migration v3 (max_pending) ใน Supabase ก่อน'
+      warning: lostLabels.length
+        ? 'บันทึกแล้ว ยกเว้น ' + lostLabels.join(' และ ') + ' — ต้องรัน migration ใน Supabase ก่อน'
         : undefined,
     };
+  }
+
+  // ---- บันทึกเป้า KPI ต่อคน/วัน (หน้า Admin Performance) ----
+  // เก็บใน sync_state key เดียว — pattern เดียวกับ scoreConfig/rolePerms (ทุกคนเห็นเป้าเดียวกัน)
+  if (p.kpiTargets) {
+    const clean = normalizeKpiTargets(p.kpiTargets);
+    const { error } = await db
+      .from('sync_state')
+      .upsert(
+        { key: KPI_TARGETS_KEY, value: JSON.stringify(clean), updated_at: new Date().toISOString() },
+        { onConflict: 'key' }
+      );
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, kpiTargets: clean };
   }
 
   // ---- บันทึกตารางสิทธิ์ role ----
@@ -145,5 +202,6 @@ export async function apiAdminSettings(params: any) {
   if (rp && rp.value) {
     try { rolePerms = normalizeRolePerms(JSON.parse(rp.value)); } catch { /* ใช้ default */ }
   }
-  return { ok: true, settings, rolePerms, needSetup };
+  const kpiTargets = await getKpiTargets();
+  return { ok: true, settings, rolePerms, needSetup, kpiTargets };
 }

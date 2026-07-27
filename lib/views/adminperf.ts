@@ -24,7 +24,12 @@ import {
   METRIC_BY_KEY,
   normalizeConfig,
   computeScore,
+  KPI_TARGET_METRICS,
+  DEFAULT_KPI_TARGETS,
+  normalizeKpiTargets,
+  kpiProgress,
   type MetricConfig,
+  type KpiTargets,
 } from '@/lib/scoring';
 import { hbarRows, svgHourlyLine, bindChartTips, hideChartTip } from '@/lib/ui/charts';
 import { adminperfSkel } from '@/lib/ui/skeletons';
@@ -34,6 +39,7 @@ import { adminperfSkel } from '@/lib/ui/skeletons';
 interface PerfRow {
   id: string | number;
   name: string;
+  nickname?: string;    // ชื่อเล่น (พิมพ์ทับใน Admin Management > เดาจากคำแรก) — ใช้เป็นชื่อหลักบนหน้านี้
   online: boolean;
   revenue: number;
   orders: number;
@@ -42,13 +48,17 @@ interface PerfRow {
   phones: number;
   closeRate: number | null;
   avgRespMins: number | null;
-  avgOrder: number;
+  avgOrder: number;     // "เปอร์บิล" = ยอดขาย ÷ ออเดอร์
   topProduct: string;
   topPage: string;
   lastOrderAt: string;
   productGroups?: string;
+  adRevenue?: number;   // ยอด POS ที่ผูก ad_id (เฉพาะแอดที่มีค่าแอดจริง)
+  adSpend?: number;     // ค่าแอดที่ปันมาให้คนนี้ตามสัดส่วนยอดขายในแต่ละแอด
+  roas?: number | null; // null = ไม่มียอดผูกแอดเลย (สาย LINE) → โชว์ "—" ห้ามเดา
   activeNow?: number;   // แชทที่ดูแล (ถูกมอบหมาย) ตอนนี้ 24 ชม. — ไม่ขึ้นกับช่วงที่เลือก
   waitingNow?: number;  // แชทที่ลูกค้ารอตอบตอนนี้ (= แชทค้างตัวจริง)
+  waitingCommentNow?: number; // ในนั้นเป็นคอมเมนต์ใต้โพสต์กี่รายการ (ที่เหลือ = อินบ็อกซ์)
   overSla?: number;     // แชทรอเกินเกณฑ์ SLA ตอนนี้ (proxy)
   _score?: number | null;   // คำนวณฝั่ง client
 }
@@ -60,7 +70,11 @@ interface PerfData {
   newCustomers?: number;
   teamHourly?: number[];
   overSlaTotal?: number;
+  waitingTotal?: number;        // แชทรอตอบตอนนี้ทั้งทีม (นับ conversation ไม่ซ้ำ)
+  waitingCommentTotal?: number; // ในนั้นเป็นคอมเมนต์กี่รายการ
   slaMins?: number;
+  kpiTargets?: KpiTargets;      // เป้าต่อคน/วัน (ตั้งจากหน้านี้ เก็บใน sync_state)
+  adSetupNeeded?: boolean;      // ยังไม่มีตาราง ad_daily → ROAS คิดไม่ได้ทั้งกระดาน
 }
 
 interface PerfState extends RangeState {
@@ -71,13 +85,20 @@ interface PerfState extends RangeState {
   group: string;
   mode: string;
   panelOpen: boolean;
+  kpiOpen: boolean;   // แผงตั้งเป้า KPI เปิดอยู่ไหม
 }
 
 let lastData: PerfData | null = null;
 let reqSeq = 0;
 let scoreConfig: MetricConfig[] = normalizeConfig(null);
 let configLoaded = false;
-const state: PerfState = { preset: 'today', from: '', to: '', channel: '', group: '', mode: 'overall', panelOpen: false };
+let kpiTargets: KpiTargets = { ...DEFAULT_KPI_TARGETS }; // sync จาก data ทุกครั้งที่โหลดสำเร็จ
+let lastFetchAt: number | null = null;                   // เวลาที่ได้ข้อมูลชุดล่าสุด (ไฟกระพริบ)
+/* ---- auto-refresh (เฉพาะช่วง "วันนี้" — ช่วงอื่นข้อมูลปิดวันแล้ว ไม่ต้องดึงซ้ำ) ---- */
+const AUTO_MS = 75000;                                   // 75 วิ — ถี่พอสำหรับ realtime แต่ไม่ถล่ม API
+let autoOn = true;                                       // ผู้ใช้กดปิด/เปิดได้จากปุ่มบนหน้า
+let autoTimer: ReturnType<typeof setInterval> | null = null;
+const state: PerfState = { preset: 'today', from: '', to: '', channel: '', group: '', mode: 'overall', panelOpen: false, kpiOpen: false };
 
 /* ---------- filter กลุ่มสินค้า (จาก admin_settings — client-side) ---------- */
 
@@ -131,6 +152,136 @@ function respShort(r: PerfRow): string { // '3.5น.' | '-'
 
 function respLong(r: PerfRow): string { // '3.5 น.' | '-'
   return hasResp(r) ? fmtNum(respRound(r.avgRespMins)) + ' น.' : '-';
+}
+
+/* ---------- ชื่อเล่น / เปอร์บิล / ROAS ---------- */
+
+/** ชื่อที่ใช้เรียกบนหน้านี้ = ชื่อเล่น (ไม่มีก็ชื่อเต็ม) */
+function nickOf(r: PerfRow): string {
+  return String(r.nickname || r.name || '');
+}
+
+/** ชื่อเต็มที่ต่างจากชื่อเล่นเท่านั้น (ไม่งั้นซ้ำซ้อน) */
+function fullNameSub(r: PerfRow): string {
+  const full = String(r.name || '');
+  return full && full !== nickOf(r) ? full : '';
+}
+
+/** ชื่อเล่นตัวหลัก + ชื่อเต็มตัวรอง (คลาส .rank-fullname) */
+function nameHtml(r: PerfRow): string {
+  const sub = fullNameSub(r);
+  return esc(nickOf(r)) +
+    (sub ? ' <span class="rank-fullname" title="ชื่อเต็มใน Pancake">' + esc(sub) + '</span>' : '');
+}
+
+const ROAS_NA_TIP = 'ยอดขายของคนนี้ไม่ได้มาจากแอด (ออเดอร์ไม่มี ad_id — มักเป็นสาย LINE) จึงคิด ROAS ไม่ได้';
+const ROAS_TIP = 'ROAS รายคน = ยอดขายจากออเดอร์ที่ผูกแอด ÷ ค่าแอดที่ปันมาให้ ' +
+  '(ค่าแอดของแต่ละแอดถูกหารตามสัดส่วนยอดขายของคนที่ขายในแอดนั้น) • ' +
+  'ในแอดเดียวกันทุกคนได้ ROAS เท่ากันโดยบังคับ — ความต่างจึงมาจาก "ไปอยู่แอดไหน" ไม่ใช่ "ใครปิดเก่งกว่า"';
+
+/** '📣 ROAS 2.59x' หรือ '—' พร้อมเหตุผล (ห้ามเดาเมื่อไม่มียอดผูกแอด) */
+function roasHtml(r: PerfRow): string {
+  const v = r.roas;
+  if (v === null || v === undefined || isNaN(Number(v))) {
+    const setup = lastData && lastData.adSetupNeeded;
+    return '<span title="' + esc(setup
+      ? 'ยังไม่มีข้อมูลค่าแอด (ต้องรัน db/migrations/2026-07-23-ad-daily.sql แล้วรอ sync รอบถัดไป)'
+      : ROAS_NA_TIP) + '">📣 ROAS —</span>';
+  }
+  const tip = ROAS_TIP + ' • ยอดจากแอด ' + THB(Number(r.adRevenue) || 0) +
+    ' ÷ ค่าแอด ' + THB(Number(r.adSpend) || 0);
+  return '<span title="' + esc(tip) + '">📣 ROAS ' + esc(String(Number(v).toFixed(2))) + 'x</span>';
+}
+
+/** เปอร์บิล = ยอดขาย ÷ ออเดอร์ (โชว์ทุกโหมด ไม่ใช่เฉพาะโหมดที่ไม่ใช่ Overall) */
+function perBillHtml(r: PerfRow): string {
+  return '<span title="เปอร์บิล = ยอดขาย ÷ จำนวนออเดอร์ ในช่วงเวลาที่เลือก">🧾 เปอร์บิล ' +
+    esc(THB(r.avgOrder)) + '</span>';
+}
+
+/* ---------- KPI realtime (เป้าต่อคน/วัน + แถบความคืบหน้า) ---------- */
+
+/** เหลืออีกกี่นาทีจะหมดวัน (เวลาไทย) — เทียบความคืบหน้ากับเวลาที่เหลือจริง */
+function minsLeftToday(): number {
+  const p = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date()).reduce(function (a: Record<string, string>, x) {
+    a[x.type] = x.value;
+    return a;
+  }, {});
+  const mins = Number(p.hour) * 60 + Number(p.minute);
+  return Math.max(0, 1440 - mins);
+}
+
+function timeLeftTxt(): string {
+  const m = minsLeftToday();
+  const h = Math.floor(m / 60);
+  return h >= 1 ? 'เหลือ ' + h + ' ชม.' : 'เหลือ ' + m + ' นาที';
+}
+
+/** เป้าใช้ได้เฉพาะ preset 'วันนี้' — เป้าเป็น "ต่อคน/ต่อวัน" เทียบกับช่วง 7/30 วันไม่ได้ */
+function kpiActive(): boolean {
+  return state.preset === 'today';
+}
+
+function progCls(pct: number | null): string {
+  if (pct === null) return 'na';
+  if (pct >= 100) return 'good';
+  if (pct >= 60) return 'mid';
+  return 'low';
+}
+
+// ใครมี "บทบาท" ด้านไหน — กติกาเดียวกับ computeScore (lib/scoring.ts) เพื่อไม่ให้แอดมินสายแชท
+// ติดแถบยอดขาย 0% สีแดงทั้งที่ไม่ใช่หน้าที่เขา
+function hasSalesRole(r: PerfRow): boolean {
+  return (Number(r.orders) || 0) > 0 || (Number(r.revenue) || 0) > 0;
+}
+
+function hasChatRole(r: PerfRow): boolean {
+  return (Number(r.chats) || 0) > 0 || (Number(r.replies) || 0) > 0;
+}
+
+/** แถบความคืบหน้ายอดขาย: "฿57,036 / ฿60,000 (95%)" + สีตามสถานะ */
+function kpiBarHtml(r: PerfRow): string {
+  const target = Number(kpiTargets.revenue) || 0;
+  if (!kpiActive() || !(target > 0) || !hasSalesRole(r)) return '';
+  const pct = kpiProgress(Number(r.revenue) || 0, target, 'high');
+  const w = Math.max(0, Math.min(100, pct === null ? 0 : pct));
+  const tip = 'เป้ายอดขายต่อคนต่อวัน ' + THB(target) + ' • ' + timeLeftTxt() +
+    ' (ปรับเป้าได้ที่ปุ่ม 🎯 เป้า KPI ด้านบน)';
+  return '<div class="kpi-bar ' + progCls(pct) + '" title="' + esc(tip) + '">' +
+      '<div class="kpi-bar-track"><i style="width:' + w + '%"></i></div>' +
+      '<div class="kpi-bar-txt">' + esc(THB(r.revenue)) + ' / ' + esc(THB(target)) +
+        ' <b>(' + esc(pctFmt(pct)) + ')</b></div>' +
+    '</div>';
+}
+
+/** บรรทัดเทียบเป้าอีก 3 ตัว (ออเดอร์ / %ปิด / ตอบเฉลี่ย) — สีบอกถึงเป้าหรือยัง */
+function kpiChipsHtml(r: PerfRow): string {
+  if (!kpiActive()) return '';
+  const chips: string[] = [];
+  KPI_TARGET_METRICS.forEach(function (m) {
+    if (m.key === 'revenue') return; // ตัวนี้เป็นแถบใหญ่ไปแล้ว
+    const target = Number(kpiTargets[m.key]) || 0;
+    if (!(target > 0)) return;
+    if (m.key === 'orders' && !hasSalesRole(r)) return; // สายแชทล้วน ไม่ต้องขึ้นเป้าออเดอร์
+    if (m.key !== 'orders' && !hasChatRole(r)) return;  // ไม่มีข้อมูลแชท ก็ไม่มี %ปิด/เวลาตอบ
+    const raw = m.key === 'orders' ? Number(r.orders) || 0
+      : m.key === 'closeRate' ? r.closeRate
+      : r.avgRespMins;
+    const pct = kpiProgress(raw as number | null, target, m.dir);
+    // หน่วยท้ายตัวเลขให้อ่านแบบคนไทยพูด: 'ออเดอร์' ไม่มีหน่วย, '%' ติดเลข, เวลาใช้ ' น.'
+    const suffix = m.key === 'closeRate' ? '%' : (m.key === 'avgRespMins' ? ' น.' : '');
+    const val = m.key === 'orders' ? fmtNum(Number(raw) || 0)
+      : m.key === 'closeRate' ? pctFmt(raw as number | null)
+      : respLong(r);
+    const icon = m.key === 'orders' ? '🛒' : (m.key === 'closeRate' ? '🎯' : '⚡');
+    chips.push('<span class="kpi-chip ' + progCls(pct) + '" title="' +
+      esc('เป้า' + m.label + 'ต่อคน/วัน = ' + target + ' ' + m.unit +
+        (m.dir === 'low' ? ' (ยิ่งน้อยยิ่งดี)' : '')) + '">' +
+      icon + ' ' + esc(val) + ' / ' + esc(String(target) + suffix) + '</span>');
+  });
+  return chips.length ? '<div class="kpi-chips">' + chips.join('') + '</div>' : '';
 }
 
 function scoreFmt(v: number | null | undefined): string {
@@ -235,30 +386,78 @@ function groupSelectHtml(data: PerfData | null): string {
     }).join('') + '</select>';
 }
 
+/** ไฟกระพริบ + เวลาอัปเดตล่าสุด (เห็นได้ทันทีว่าตัวเลขบนจอสดแค่ไหน) */
+function liveChipHtml(): string {
+  const t = lastFetchAt
+    ? new Date(lastFetchAt).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' })
+    : '—';
+  const on = autoOn && kpiActive();
+  return '<span class="chip live-chip" title="' + esc(on
+    ? 'อัปเดตอัตโนมัติทุก ' + Math.round(AUTO_MS / 1000) + ' วินาที (ข้ามรอบเมื่อเปิดหน้าต่างแก้ไข/สลับไปแท็บอื่น)'
+    : 'ปิดอัปเดตอัตโนมัติอยู่ — กด ⏸ เพื่อเปิด') + '">' +
+    '<span class="live-dot' + (on ? ' on' : '') + '"></span>อัปเดต ' + esc(t) + '</span>';
+}
+
 function controlsHtml(data: PerfData | null): string {
   const modeBtns = RANK_MODES.map(function (m) {
     return '<button class="btn-mini' + (state.mode === m.key ? ' primary' : '') +
       '" data-rkmode="' + m.key + '">' + m.label + '</button>';
   }).join('');
+  // ปุ่มอัตโนมัติโชว์เฉพาะ preset 'วันนี้' — ช่วงอื่นเป็นข้อมูลปิดวันแล้ว ไม่ต้องรีเฟรช
+  const autoBtn = kpiActive()
+    ? '<button class="btn' + (autoOn ? ' primary' : '') + '" id="rk-auto" title="รีเฟรชอัตโนมัติทุก ' +
+      Math.round(AUTO_MS / 1000) + ' วินาที (เฉพาะช่วง &quot;วันนี้&quot;)">' +
+      (autoOn ? '⏸ หยุดอัตโนมัติ' : '▶ อัปเดตอัตโนมัติ') + '</button>'
+    : '';
   return '<div class="pg-controls">' +
       rangeControlsHtml(state, 'rk') +
       channelSelectHtml() +
       groupSelectHtml(data) +
       '<div class="spacer"></div>' +
+      (kpiActive() ? liveChipHtml() : '') +
+      autoBtn +
       '<button class="btn" id="rk-csv">📄 CSV</button>' +
     '</div>' +
     '<div class="pg-controls">' +
       modeBtns +
       '<div class="spacer"></div>' +
+      '<button class="btn' + (state.kpiOpen ? ' primary' : '') + '" id="rk-kpi-toggle">🎯 เป้า KPI</button>' +
       '<button class="btn' + (state.panelOpen ? ' primary' : '') + '" id="rk-toggle">⚙️ เกณฑ์การให้คะแนน</button>' +
-      '<span class="chip">' + esc((data && data.rangeLabel) || '') + '</span>' +
+      '<span class="chip">' + esc((data && data.rangeLabel) || '') +
+        (kpiActive() ? ' • ⏱ ' + esc(timeLeftTxt()) : '') + '</span>' +
+    '</div>';
+}
+
+/* ---------- HTML: แผงตั้งเป้า KPI ต่อคน/วัน ---------- */
+
+function kpiPanelHtml(): string {
+  const rows = KPI_TARGET_METRICS.map(function (m) {
+    const dirTxt = m.dir === 'low' ? '↓ ยิ่งน้อยยิ่งดี' : '↑ ยิ่งมากยิ่งดี';
+    return '<div class="sp-row" data-kpikey="' + m.key + '">' +
+      '<label class="sp-metric"><span>' + esc(m.label) + '</span></label>' +
+      '<div class="sp-field">เป้าต่อคน/วัน <input type="number" min="0" class="input sp-num kpi-target" value="' +
+        esc(String(kpiTargets[m.key])) + '"><span class="sp-u">' + esc(m.unit) + '</span></div>' +
+      '<div class="sp-dir">' + dirTxt + '</div>' +
+      '</div>';
+  }).join('');
+  return '<div class="score-panel' + (state.kpiOpen ? '' : ' collapsed') + '" id="rk-kpi-panel">' +
+      '<div class="sp-hint">ตั้ง <b>เป้าต่อคน/ต่อวัน</b> — แถบความคืบหน้าบนการ์ดแต่ละคนจะเทียบกับเป้านี้ ' +
+        '(0 = ไม่ตั้งเป้าตัวนั้น ไม่ต้องโชว์) • ใช้เฉพาะช่วง "วันนี้" เพราะเป็นเป้ารายวัน • ' +
+        'เก็บบนเซิร์ฟเวอร์ ทุกคนเห็นเป้าเดียวกัน • ตอนนี้' + esc(timeLeftTxt()) + 'ของวัน</div>' +
+      '<div class="sp-list">' + rows + '</div>' +
+      '<div class="sp-foot">' +
+        '<div class="spacer" style="flex:1"></div>' +
+        '<button class="btn" id="rk-kpi-reset">↺ ค่าเริ่มต้น</button>' +
+        '<button class="btn primary" id="rk-kpi-save">💾 บันทึกเป้า</button>' +
+      '</div>' +
     '</div>';
 }
 
 /* ---------- HTML: KPI ทีมรวม + เปรียบเทียบตอบ ---------- */
 
-function pgsItem(val: string | number, label: string, cls: string): string {
-  return '<div class="pgs-item' + (cls ? ' ' + cls : '') + '">' +
+function pgsItem(val: string | number, label: string, cls: string, title?: string): string {
+  return '<div class="pgs-item' + (cls ? ' ' + cls : '') + '"' +
+    (title ? ' title="' + esc(title) + '"' : '') + '>' +
     '<b>' + val + '</b><span>' + esc(label) + '</span></div>';
 }
 
@@ -293,8 +492,16 @@ function kpiStripHtml(data: PerfData | null): string {
     const bN = b ? Number(b.waitingNow) || 0 : 0;
     const overSlaN = Number(data && data.overSlaTotal) || 0;
     const slaMins = Number(data && data.slaMins) || 60;
+    // แชทรอตอบทั้งทีม แยก อินบ็อกซ์/คอมเมนต์ — คนละงานกัน (คอมเมนต์ใต้โพสต์ ~41% ของที่ค้าง)
+    const waitN = Number(data && data.waitingTotal) || 0;
+    const waitCmt = Number(data && data.waitingCommentTotal) || 0;
     nowItems =
-      pgsItem(bN > 0 ? esc(String((b as PerfRow).name).slice(0, 10)) : '—',
+      pgsItem(fmtNum(waitN),
+        '⏰ แชทรอตอบ (💬 ' + fmtNum(waitN - waitCmt) + ' • 💭 ' + fmtNum(waitCmt) + ')',
+        waitN > 0 ? 'warn' : '',
+        'แชทที่ลูกค้ารอตอบตอนนี้ (24 ชม.ล่าสุด) — 💬 อินบ็อกซ์ ' + fmtNum(waitN - waitCmt) +
+          ' • 💭 คอมเมนต์ใต้โพสต์ ' + fmtNum(waitCmt) + ' (คนละงานกัน จึงแยกให้เห็น)') +
+      pgsItem(bN > 0 ? esc(nickOf(b as PerfRow).slice(0, 10)) : '—',
         'แชทค้างรอตอบมากสุดตอนนี้' + (bN > 0 ? ' (' + fmtNum(bN) + ')' : ''), bN > 0 ? 'warn' : '') +
       // overSlaTotal เป็นยอดรวมทั้งทีม (ตาม filter ช่องทาง) — ไม่ตามตัวกรองกลุ่มสินค้า จึงติดป้ายให้ชัด
       pgsItem(fmtNum(overSlaN), 'เกิน SLA ' + slaMins + ' น. (ทั้งทีม)', overSlaN > 0 ? 'warn' : '');
@@ -307,7 +514,7 @@ function kpiStripHtml(data: PerfData | null): string {
     pgsItem(fmtNum(chatsSum), 'คนทักในช่วงนี้', '') +
     pgsItem(fmtNum(repliesSum), 'ข้อความที่ตอบ', '') +
     pgsItem(avgResp === null ? '—' : avgResp + ' น.', 'Response เฉลี่ย', '') +
-    pgsItem(f ? esc(String(f.name).slice(0, 10)) : '—',
+    pgsItem(f ? esc(nickOf(f).slice(0, 10)) : '—',
       'ตอบเร็วสุด' + (f ? ' (' + f.avgRespMins + ' น.)' : ''), f ? 'ok' : '') +
     pgsItem(fmtNum((data && data.newCustomers) || 0), 'ลูกค้าใหม่ (ทีมรวม)', '') +
     nowItems +
@@ -320,7 +527,7 @@ function replyCompareHtml(data: PerfData | null): string {
     .slice()
     .sort(function (a, b) { return (Number(b.replies) || 0) - (Number(a.replies) || 0); })
     .slice(0, 10)
-    .map(function (r) { return { label: String(r.name || '-'), value: Number(r.replies) || 0 }; });
+    .map(function (r) { return { label: nickOf(r) || '-', value: Number(r.replies) || 0 }; });
   if (!rows.length) return '';
   return '<div class="card">' +
     '<h3>📊 เปรียบเทียบข้อความที่ตอบ (Top 10)</h3>' +
@@ -376,14 +583,18 @@ function panelHtml(): string {
 function podiumCard(r: PerfRow | null, rank: number): string {
   if (!r) return '<div></div>';
   const cls = (rank === 1) ? 'gold first' : ((rank === 2) ? 'silver' : 'bronze');
+  const full = fullNameSub(r);
   return '<div class="top3-card ' + cls + '">' +
     '<div class="medal">' + MEDALS[rank - 1] + '</div>' +
     avatarHtml(r.id, r.name, r.online) +
-    '<div class="nm">' + esc(r.name) + '</div>' +
+    '<div class="nm" title="' + esc(r.name) + '">' + esc(nickOf(r)) + '</div>' +
+    (full ? '<div class="nm-full">' + esc(full) + '</div>' : '') +
     '<div class="val">' + esc(modeValue(r)) + '</div>' +
     '<div>' + scoreBadge(r._score) + '</div>' +
     '<div class="sub">🛒 ' + esc(fmtNum(r.orders)) + ' • 🎯 ' + esc(pctFmt(r.closeRate)) +
       ' • ⚡ ' + esc(respShort(r)) + '</div>' +
+    // เปอร์บิล + ROAS โชว์ทุกโหมด (บอสใช้ดูคุณภาพบิล/คุ้มค่าแอด ไม่ใช่แค่ตอนจัดอันดับยอดขาย)
+    '<div class="sub">' + perBillHtml(r) + ' • ' + roasHtml(r) + '</div>' +
     '</div>';
 }
 
@@ -417,20 +628,32 @@ function rankCardHtml(r: PerfRow, idx: number): string {
     esc(fmtNum(r.chats)) + ' คนทัก</span> • ↩ ' + esc(fmtNum(r.replies)) + ' ตอบ • 📞 ' + esc(fmtNum(r.phones)) + ' เบอร์';
   const sub2 = '📦 ' + esc(r.topProduct || '-') + ' • 📄 ' + esc(r.topPage || '-') +
     (r.lastOrderAt ? ' • ออเดอร์ล่าสุด ' + esc(relTime(r.lastOrderAt)) : '');
+  // แชทรอตอบตอนนี้ของคนนี้ แยกอินบ็อกซ์/คอมเมนต์ (ค่า "ตอนนี้" 24 ชม. ไม่ขึ้นกับช่วงที่เลือก)
+  const waitN = Number(r.waitingNow) || 0;
+  const waitCmt = Number(r.waitingCommentNow) || 0;
+  const sub3 = waitN > 0
+    ? '<div class="rank-sub" title="แชทที่ลูกค้ารอตอบตอนนี้ (24 ชม.ล่าสุด) — คอมเมนต์ใต้โพสต์นับแยกจากอินบ็อกซ์">' +
+      '⏰ แชทรอตอบ ' + esc(fmtNum(waitN)) + ' (💬 อินบ็อกซ์ ' + esc(fmtNum(waitN - waitCmt)) +
+      ' • 💭 คอมเมนต์ ' + esc(fmtNum(waitCmt)) + ')</div>'
+    : '';
   // โหมด Overall โชว์คะแนนเป็นตัวใหญ่ + ยอดขายเป็นตัวรอง; โหมดอื่นโชว์ยอดขายเป็นตัวใหญ่
   const big = (state.mode === 'overall')
     ? '<div class="rank-big">' + esc(scoreFmt(r._score)) + '<span class="rank-big-u"> คะแนน</span></div>'
     : '<div class="rank-big">' + esc(THB(r.revenue)) + '</div>';
+  // เปอร์บิล + ROAS อยู่ในทุกโหมด (เดิมเปอร์บิลโผล่เฉพาะโหมดที่ไม่ใช่ Overall)
   const mini = (state.mode === 'overall' ? '💰 ' + esc(THB(r.revenue)) + ' • ' : '') +
     '<span title="%ปิดการขาย = ออเดอร์ ÷ คนทัก (อินบ็อกซ์ใหม่+ความคิดเห็น)">🎯 ' + esc(pctFmt(r.closeRate)) + '</span> • ⚡ ' + esc(respLong(r)) +
-    (state.mode === 'overall' ? '' : ' • เฉลี่ย ' + esc(THB(r.avgOrder)));
+    '<br>' + perBillHtml(r) + ' • ' + roasHtml(r);
   return '<div class="' + cardCls + '">' +
     noHtml +
     avatarHtml(r.id, r.name, r.online, 'sm') +
     '<div class="rank-mid">' +
-      '<div class="rank-name">' + esc(r.name) + ' ' + badge + ' ' + scoreBadge(r._score) + slaBadge + '</div>' +
+      '<div class="rank-name">' + nameHtml(r) + ' ' + badge + ' ' + scoreBadge(r._score) + slaBadge + '</div>' +
       '<div class="rank-sub">' + sub1 + '</div>' +
       '<div class="rank-sub">' + sub2 + '</div>' +
+      sub3 +
+      kpiBarHtml(r) +
+      kpiChipsHtml(r) +
     '</div>' +
     '<div class="rank-right">' +
       big +
@@ -464,10 +687,12 @@ function render(container: HTMLElement, data: PerfData | null): void {
   container.innerHTML =
     controlsHtml(data) +
     kpiStripHtml(data) +
+    kpiPanelHtml() +
     panelHtml() +
     dashRow +
     '<div id="rk-ranking">' + rankingHtml(data) + '</div>';
   bindEvents(container);
+  startAuto(container); // ตั้งรอบรีเฟรชใหม่ทุกครั้งที่วาดจอ (นับ 75 วิ จากภาพล่าสุดที่ผู้ใช้เห็น)
 }
 
 /** อัปเดตเฉพาะส่วนอันดับ — ไม่แตะแผงเกณฑ์ (กัน focus ในช่องกรอกหลุดตอนพิมพ์) */
@@ -514,6 +739,58 @@ function bindEvents(container: HTMLElement): void {
       });
       if (lastData) updateRanking(container);
     });
+  });
+
+  // เปิด/ปิดรีเฟรชอัตโนมัติ
+  const autoBtn = container.querySelector('#rk-auto');
+  if (autoBtn) {
+    autoBtn.addEventListener('click', function () {
+      autoOn = !autoOn;
+      autoBtn.classList.toggle('primary', autoOn);
+      autoBtn.textContent = autoOn ? '⏸ หยุดอัตโนมัติ' : '▶ อัปเดตอัตโนมัติ';
+      const dot = container.querySelector('.live-dot');
+      if (dot) dot.classList.toggle('on', autoOn);
+      if (autoOn) startAuto(container); else stopAuto();
+      toast(autoOn ? '🔄 เปิดอัปเดตอัตโนมัติทุก ' + Math.round(AUTO_MS / 1000) + ' วินาที' : '⏸ ปิดอัปเดตอัตโนมัติแล้ว');
+    });
+  }
+
+  // toggle แผงตั้งเป้า KPI
+  const kpiTg = container.querySelector('#rk-kpi-toggle');
+  if (kpiTg) {
+    kpiTg.addEventListener('click', function () {
+      state.kpiOpen = !state.kpiOpen;
+      const panel = container.querySelector('#rk-kpi-panel');
+      if (panel) panel.classList.toggle('collapsed', !state.kpiOpen);
+      kpiTg.classList.toggle('primary', state.kpiOpen);
+    });
+  }
+
+  // ช่องกรอกเป้า KPI — พิมพ์แล้วแถบความคืบหน้าขยับทันที (ยังไม่บันทึกจนกดปุ่ม)
+  container.querySelectorAll('#rk-kpi-panel .sp-row').forEach(function (rowEl) {
+    const key = rowEl.getAttribute('data-kpikey') as keyof KpiTargets | null;
+    const inp = rowEl.querySelector('.kpi-target') as HTMLInputElement | null;
+    if (!key || !inp) return;
+    inp.addEventListener('input', function () {
+      const n = Number(inp.value);
+      kpiTargets = normalizeKpiTargets({ ...kpiTargets, [key]: (isFinite(n) && n >= 0) ? n : 0 });
+      updateRanking(container);
+    });
+  });
+
+  const kpiSave = container.querySelector('#rk-kpi-save');
+  if (kpiSave) kpiSave.addEventListener('click', function () {
+    serverCall('apiAdminSettings', { kpiTargets: kpiTargets })
+      .then(function () { toast('💾 บันทึกเป้า KPI แล้ว — ทุกคนจะเห็นเป้าเดียวกัน'); })
+      .catch(function () { toast('⚠️ บันทึกเป้า KPI ไม่สำเร็จ'); });
+  });
+
+  const kpiReset = container.querySelector('#rk-kpi-reset');
+  if (kpiReset) kpiReset.addEventListener('click', function () {
+    kpiTargets = { ...DEFAULT_KPI_TARGETS };
+    state.kpiOpen = true;
+    render(container, lastData);
+    toast('↺ กลับไปใช้เป้าเริ่มต้นแล้ว (ยังไม่บันทึก)');
   });
 
   // toggle แผงเกณฑ์
@@ -588,13 +865,19 @@ function exportCSV(): void {
     ['Admin Performance Ranking'],
     ['ช่วงเวลา: ' + (lastData!.rangeLabel || '-') + ' • โหมดจัดอันดับ: ' + modeLabel(state.mode) +
       (state.group ? ' • กลุ่มสินค้า: ' + state.group : '')],
-    ['อันดับ', 'แอดมิน', 'สถานะ', 'Overall คะแนน', 'ยอดขาย', 'ออเดอร์', 'คนทัก(อินบ็อกซ์ใหม่+คอมเมนต์)', 'ข้อความที่ตอบ',
-      '% ปิดการขาย', 'ตอบเฉลี่ย(นาที)', 'เฉลี่ย/ออเดอร์', 'สินค้าขายดี', 'เพจยอดดีสุด',
-      'กลุ่มสินค้า', 'แชทที่ดูแลตอนนี้(24ชม.)', 'แชทรอตอบตอนนี้', 'เกิน SLA ตอนนี้'],
+    ['อันดับ', 'ชื่อเล่น', 'แอดมิน (ชื่อเต็ม)', 'สถานะ', 'Overall คะแนน', 'ยอดขาย', 'ออเดอร์',
+      'คนทัก(อินบ็อกซ์ใหม่+คอมเมนต์)', 'ข้อความที่ตอบ',
+      '% ปิดการขาย', 'ตอบเฉลี่ย(นาที)', 'เปอร์บิล', 'ROAS', 'ยอดจากแอด', 'ค่าแอดที่ปันส่วน',
+      'สินค้าขายดี', 'เพจยอดดีสุด',
+      'กลุ่มสินค้า', 'แชทที่ดูแลตอนนี้(24ชม.)', 'แชทรอตอบตอนนี้', 'รอตอบ-อินบ็อกซ์', 'รอตอบ-คอมเมนต์',
+      'เกิน SLA ตอนนี้'],
   ];
   sorted.forEach(function (r, i) {
+    const waitN = Number(r.waitingNow) || 0;
+    const waitCmt = Number(r.waitingCommentNow) || 0;
     out.push([
       i + 1,
+      nickOf(r),
       r.name,
       r.online ? 'ออนไลน์' : 'ออฟไลน์',
       (r._score === null || r._score === undefined) ? '-' : r._score,
@@ -605,15 +888,52 @@ function exportCSV(): void {
       hasClose(r) ? respRound(r.closeRate) : '-',
       hasResp(r) ? respRound(r.avgRespMins) : '-',
       Math.round(Number(r.avgOrder) || 0),
+      (r.roas === null || r.roas === undefined) ? '-' : r.roas, // '-' = ยอดไม่ได้มาจากแอด (ห้ามเดา)
+      Math.round(Number(r.adRevenue) || 0),
+      Math.round(Number(r.adSpend) || 0),
       r.topProduct || '-',
       r.topPage || '-',
       r.productGroups || '',
       Number(r.activeNow) || 0,
-      Number(r.waitingNow) || 0,
+      waitN,
+      waitN - waitCmt,
+      waitCmt,
       Number(r.overSla) || 0,
     ]);
   });
   downloadCSV(out, 'admin-ranking');
+}
+
+/* ---------- auto-refresh (realtime เฉพาะช่วง "วันนี้") ---------- */
+
+function stopAuto(): void {
+  if (autoTimer) {
+    clearInterval(autoTimer);
+    autoTimer = null;
+  }
+}
+
+/**
+ * ตั้งรอบรีเฟรชอัตโนมัติ — เปิดเฉพาะ preset 'วันนี้' และเมื่อผู้ใช้ไม่ได้ปิดไว้
+ *
+ * โปรเจกต์นี้ไม่มี hook unmount ของ view (App.switchView แค่สลับคลาส .active ของ section
+ * ตาม lib/ui/app-core.ts) — ตัวจับเวลาจึงต้อง "เช็คเองแล้ว clearInterval" เมื่อออกจากหน้า
+ * ไม่งั้นมันจะยิง API ต่อไปเรื่อยๆ ทั้งที่ผู้ใช้ไปหน้าอื่นแล้ว
+ */
+function startAuto(container: HTMLElement): void {
+  stopAuto();
+  if (!autoOn || !kpiActive()) return;
+  autoTimer = setInterval(function () {
+    // ออกจากหน้านี้ไปแล้ว (view ไม่ active / container หลุด DOM) → เลิกจับเวลา
+    if (!container.isConnected || !container.classList.contains('active')) { stopAuto(); return; }
+    if (state.preset !== 'today' || !autoOn) { stopAuto(); return; }
+    if (document.hidden) return;                       // แท็บถูกซ่อน — ไม่ต้องเสีย quota
+    const modalRoot = document.getElementById('modal-root');
+    if (modalRoot && modalRoot.innerHTML) return;      // มี modal เปิดอยู่ — วาดใหม่จะกระตุกจอ
+    const ae = document.activeElement as HTMLElement | null;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')) return; // กำลังพิมพ์อยู่
+    fetchData(container, true);
+  }, AUTO_MS);
 }
 
 /* ---------- data loading ---------- */
@@ -628,6 +948,9 @@ function fetchData(container: HTMLElement, background: boolean): void {
   }).then(function (data) {
     if (seq !== reqSeq) return; // มี request ใหม่กว่าแล้ว — ทิ้งผลนี้
     lastData = data;
+    lastFetchAt = Date.now();
+    // เป้า KPI ที่บันทึกไว้บนเซิร์ฟเวอร์ — แต่ถ้าแผงเปิดอยู่แปลว่าผู้ใช้กำลังปรับค่า ห้ามทับ
+    if (data && data.kpiTargets && !state.kpiOpen) kpiTargets = normalizeKpiTargets(data.kpiTargets);
     render(container, data);
   }).catch(function (err) {
     if (seq !== reqSeq) return;

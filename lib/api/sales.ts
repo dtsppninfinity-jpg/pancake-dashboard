@@ -6,6 +6,7 @@ import { getPageUnitMap } from './umap';
 import {
   EXCLUDED_STATUSES,
   NEED_CHECK_STATUSES,
+  ORDER_STATUS_TH,
   BKK_OFFSET_MS,
   num,
   money_,
@@ -24,6 +25,8 @@ interface Range {
   prevStart: Date;
   prevEnd: Date;
   label: string;
+  prevLabel: string;   // ชื่อสั้นของหน้าต่างเทียบ เช่น '1 วันที่แล้ว' (ทูลทิปกราฟใช้)
+  prevWindow: string;  // ช่วงจริงที่เทียบ เช่น '24 ก.ค. 00:00–14:32 น.' (legend/caption ใช้)
 }
 
 /* ---------------- utilities (พอร์ตจาก WebApi.gs) ---------------- */
@@ -52,6 +55,21 @@ function toDateStr_(v: unknown): string {
 /** ชั่วโมงของวัน (0-23) ตามเวลาไทย — แทน Date.getHours() เดิม (GAS รันบนโซนไทย) */
 function bkkHour_(d: Date): number {
   return new Date(d.getTime() + BKK_OFFSET_MS).getUTCHours();
+}
+
+const TH_MON_ = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+/** 'HH:mm' เวลาไทย */
+function bkkHm_(d: Date): string {
+  const t = new Date(d.getTime() + BKK_OFFSET_MS);
+  return ('0' + t.getUTCHours()).slice(-2) + ':' + ('0' + t.getUTCMinutes()).slice(-2);
+}
+
+/** '24 ก.ค. 14:32' (หรือ '24 ก.ค.' เมื่อ withTime=false) — เวลาไทย ไว้บอกช่วงให้คนอ่านเข้าใจ */
+function bkkDT_(d: Date, withTime = true): string {
+  const ymd = fmtDateBkk(d);
+  const s = Number(ymd.slice(8, 10)) + ' ' + (TH_MON_[Number(ymd.slice(5, 7)) - 1] || '');
+  return withTime ? s + ' ' + bkkHm_(d) : s;
 }
 
 /**
@@ -90,15 +108,28 @@ function convCutoff_(): number {
 
 /**
  * แปลง params ช่วงเวลา → {start, end, prevStart, prevEnd, label}
- * preset: today | 7d | 30d | month | custom (from/to = 'yyyy-MM-dd')
+ * preset: today | yesterday | 3d | 7d | 30d | month | custom (from/to = 'yyyy-MM-dd')
+ * ⚠️ ต้องมีครบทุก key ใน RANGE_PRESETS (lib/ui/helpers.ts) — key ที่ไม่มี case จะตกไป default = วันนี้ เงียบๆ
  */
 function resolveRange_(params: any): Range {
   const p = params || {};
+  const preset = p.preset || 'today';
   const now = new Date();
   let start: Date;
   let end: Date = now;
   let label: string;
-  switch (p.preset || 'today') {
+  switch (preset) {
+    case 'yesterday':
+      // เมื่อวาน = ทั้งวัน 00:00:00.000–23:59:59.999 เวลาไทย
+      // (ไม่ตัดที่ "ตอนนี้" เหมือน preset อื่น — วันมันจบไปแล้ว ต้องได้ยอดเต็มวัน)
+      start = daysAgo(1);
+      end = new Date(startOfDayBkk(now).getTime() - 1);
+      label = 'เมื่อวานนี้';
+      break;
+    case '3d':
+      start = daysAgo(2); // 3 วันล่าสุด "รวมวันนี้" — กติกาเดียวกับ 7d/30d
+      label = '3 วันล่าสุด';
+      break;
     case '7d':
       start = daysAgo(6);
       label = '7 วันล่าสุด';
@@ -124,20 +155,38 @@ function resolveRange_(params: any): Range {
       label = 'วันนี้';
   }
   const span = end.getTime() - start.getTime();
-  // ช่วงเปรียบเทียบ: 'prev' = เลื่อนถอยเท่าช่วงที่เลือก | 'prev7'/'prev30' = เลื่อนถอย 7/30 วันตรงๆ
-  // (เช่น "วันนี้ + เทียบก่อน 7 วัน" = เทียบกับวันเดียวกันสัปดาห์ก่อน)
+  // ช่วงเปรียบเทียบ: 'prev' = เลื่อนถอยเท่าช่วงที่เลือก | 'prevN' = เลื่อนถอย N วันตรงๆ
+  // (เช่น "วันนี้ + เทียบ 7 วันที่แล้ว" = เทียบกับวันเดียวกันสัปดาห์ก่อน)
   // clamp ไม่ให้เลื่อนน้อยกว่าความยาวช่วง — ไม่งั้นหน้าต่างเทียบซ้อนกับช่วงที่เลือกเอง เทรนด์เพี้ยน
-  // (เลือก 30 วัน + เทียบก่อน 7 วัน → ถอยเท่าช่วงแทน = เทียบช่วงก่อนหน้าปกติ)
+  // (เลือก 30 วัน + เทียบ 7 วันที่แล้ว → ถอยเท่าช่วงแทน = เทียบช่วงก่อนหน้าปกติ)
   let shiftMs = span;
-  if (p.compare === 'prev7') shiftMs = Math.max(7 * 86400000, span);
-  else if (p.compare === 'prev30') shiftMs = Math.max(30 * 86400000, span);
+  // 'yesterday' จบที่ 23:59:59.999 → span สั้นกว่าวันจริง 1ms ถ้าเลื่อนถอยเท่า span
+  // ช่วงเทียบจะเริ่ม 00:00:00.001 แล้วออเดอร์ตอนเที่ยงคืนตรงของวันก่อนหน้าหลุด — เลื่อนเต็มวันแทน
+  if (preset === 'yesterday') shiftMs = 86400000;
+  // prev1/prev3 (บอสสั่งเพิ่ม) ใช้กติกาเดียวกับ prev7/prev30 เป๊ะ — คง clamp ไว้เหมือนเดิม
+  const shiftDaysWant = ({ prev1: 1, prev3: 3, prev7: 7, prev30: 30 } as Record<string, number>)[String(p.compare)];
+  if (shiftDaysWant) shiftMs = Math.max(shiftDaysWant * 86400000, span);
   const prevStart = new Date(start.getTime() - shiftMs);
+  const prevEnd = new Date(prevStart.getTime() + span);
+  // ---- ป้ายบอกว่า "เทียบกับอะไร" (เดิมหน้าเว็บเขียน "ช่วงก่อนหน้า" ตายตัว ทั้งที่อาจเทียบ 7/30 วัน) ----
+  // clamp อาจดันหน้าต่างเทียบให้ถอยไกลกว่าที่ผู้ใช้เลือก → บอกตามจริงว่ากลายเป็นช่วงก่อนหน้า
+  const shiftDaysReal = Math.round(shiftMs / 86400000);
+  const prevLabel = (shiftDaysWant && shiftDaysReal <= shiftDaysWant)
+    ? shiftDaysWant + ' วันที่แล้ว'
+    : 'ช่วงก่อนหน้า';
+  // ⚠️ เคสที่คนอ่านผิดบ่อย: preset=today + เทียบช่วงก่อนหน้า → span = แค่ชั่วโมงที่ผ่านไปวันนี้
+  //    หน้าต่างเทียบเลยเป็น "เมื่อวานช่วงบ่าย-ดึก" ไม่ใช่ทั้งวัน — จึงส่งช่วงจริงไปโชว์เสมอ
+  const prevWindow = fmtDateBkk(prevStart) === fmtDateBkk(prevEnd)
+    ? bkkDT_(prevStart) + '–' + bkkHm_(prevEnd) + ' น.'
+    : bkkDT_(prevStart) + ' – ' + bkkDT_(prevEnd) + ' น.';
   return {
     start,
     end,
     prevStart,
-    prevEnd: new Date(prevStart.getTime() + span),
+    prevEnd,
     label,
+    prevLabel,
+    prevWindow,
   };
 }
 
@@ -158,7 +207,11 @@ function parseItems_(v: any): any[] {
 // items_count ต้องมีเสมอ — isPlaceholderOrder() ใช้ตัดออเดอร์เปล่า ถ้าไม่ดึงมาจะอ่านเป็น 0
 // แล้วออเดอร์จริงที่ราคา 0 (ของแถม/แลกแต้ม) จะถูกทิ้งทั้งที่มีของ
 const LIGHT_COLS = 'inserted_at,status,status_name,total_price,items_count,customer_id,ad_id,platform';
-const FULL_COLS = LIGHT_COLS + ',page_id,account_name,items_json';
+// คอลัมน์ที่ใช้ทำ "ตารางออเดอร์ที่ต้องตรวจ" (modal) — ต้องมีในช่วงที่เลือก + ช่วงวันนี้ แต่ไม่ต้องมีในช่วงเทียบ
+const DETAIL_COLS = 'id,display_id,customer_name,seller_name,creator_name';
+const FULL_COLS = LIGHT_COLS + ',page_id,account_name,items_json,' + DETAIL_COLS;
+// ก้อน "วันนี้" ไม่ต้องมี items_json (ไม่ได้ทำ Top สินค้า) แต่ต้องมีชื่อเพจ + รายละเอียดออเดอร์
+const TODAY_COLS = LIGHT_COLS + ',page_id,account_name,' + DETAIL_COLS;
 
 /**
  * อ่านออเดอร์จาก Postgres แปลงชนิดข้อมูลให้พร้อมใช้ (แถวละ object)
@@ -353,7 +406,7 @@ export async function apiSales(params: any) {
   //   [prevStart, start)   คอลัมน์เบา (ช่วงเปรียบเทียบ)
   //   [start, end+1s)      คอลัมน์เต็ม (ทำ Top เพจ/สินค้า — จำกัดขอบบนตามช่วงที่เลือก
   //                        ไม่งั้น custom range ในอดีตจะลาก items_json หลายเดือนมาทิ้ง)
-  //   [วันนี้ 00:00, now)  คอลัมน์เบา เฉพาะเมื่อช่วงที่เลือกจบก่อนวันนี้ (การ์ด "ธุรกิจวันนี้" ใช้)
+  //   [วันนี้ 00:00, now)  คอลัมน์เบา+รายละเอียด เฉพาะเมื่อช่วงที่เลือกจบก่อนวันนี้ (การ์ด "ธุรกิจวันนี้" ใช้)
   const startIso = r.start.toISOString();
   const endExclusiveIso = new Date(r.end.getTime() + 1000).toISOString(); // inRange_ รวม r.end — บวก 1 วิกันแถวตรงขอบหลุด
   const todayStartForFetch = startOfDayBkk(new Date());
@@ -364,7 +417,7 @@ export async function apiSales(params: any) {
       : Promise.resolve([] as Row[]),
     loadOrders_(startIso, endExclusiveIso, FULL_COLS),
     needTodayChunk
-      ? loadOrders_(todayStartForFetch.toISOString(), null, LIGHT_COLS)
+      ? loadOrders_(todayStartForFetch.toISOString(), null, TODAY_COLS)
       : Promise.resolve([] as Row[]),
   ]);
   const orders = prevRows.concat(curRows, todayChunk);
@@ -508,6 +561,31 @@ export async function apiSales(params: any) {
     const pageRows = await fetchAll<Row>(() => db.from('pages').select('page_id,name'), 'page_id');
     pageRows.forEach((p) => { pageNames[String(p.page_id)] = String(p.name || ''); });
   }
+  // ---- รายออเดอร์ "ต้องตรวจ" (สถานะ ใหม่/รอยืนยัน) ให้หน้าเว็บกดดูได้ว่าเป็นใบไหนบ้าง ----
+  // เดิมส่งมาแค่ตัวเลข กดแล้วไม่มีอะไรให้ดู แอดมินต้องไปไล่หาเองใน Pancake
+  // จำกัด 200 แถวล่าสุด (ใหม่→เก่า) กัน payload บวมตอนเลือกช่วงยาว
+  const NEEDCHK_LIMIT = 200;
+  function needCheckList_(list: Row[]) {
+    return list
+      .filter((o) => o._needCheck)
+      .sort((a, b) => b._at.getTime() - a._at.getTime())
+      .slice(0, NEEDCHK_LIMIT)
+      .map((o) => ({
+        id: String(o.id || ''),
+        // display_id = เลขที่ออเดอร์ที่แอดมินเห็นในจอ Pancake (บางใบยังไม่มี → ใช้ id แทน)
+        code: String(o.display_id || '') || String(o.id || ''),
+        at: bkkDT_(o._at),
+        customer: String(o.customer_name || ''),
+        page: pageNames[String(o.page_id || '')] || String(o.account_name || ''),
+        total: Math.round(o.total_price),
+        items: toNum_(o.items_count),
+        status: o.status,                                   // 0 = ใหม่ | 17 = รอยืนยัน
+        statusName: String(o.status_name || '') || ORDER_STATUS_TH[o.status] || String(o.status),
+        // "คนขาย" ของ Pancake = seller ; ออเดอร์ใหม่บางใบมีแค่คนสร้าง (แอดมินที่กดสร้างจากแชท)
+        seller: String(o.seller_name || o.creator_name || ''),
+      }));
+  }
+
   // แผนที่ เพจ→ยูนิต (U/สินค้า) จาก U Map — ใช้จัดกลุ่มยอดขายตามยูนิตแบบทีมแอด
   // เพจที่ยังไม่จับคู่ = กลุ่ม "ยังไม่จัดกลุ่ม" (บอสไปจับใน U Map ได้)
   let pageUnit: Record<string, { u: string; product: string }> = {};
@@ -653,29 +731,40 @@ export async function apiSales(params: any) {
       title: 'ออเดอร์รอตรวจ/รอยืนยัน',
       reason: 'วันนี้มี ' + todayNeedCheck + ' ออเดอร์ที่ยังไม่ยืนยัน',
       level: 'orange',
-      view: 'sales',
+      // drill = เปิด modal รายออเดอร์ในหน้าเดิม (เดิมใส่ view:'sales' → กดแล้วสลับมาหน้าเดียวกัน = ไม่เกิดอะไร)
+      drill: 'needcheck',
     });
   }
   const alertCutoff = convCutoff_();
   // conversations เกิน 1000 แถวได้ → กรอง waiting + updated_at >= cutoff ที่ query แล้วนับ
+  // ดึง type มาด้วยเพื่อแยก อินบ็อกซ์ / คอมเมนต์ (เดิมนับรวมกันหมด บอสอ่านแล้วแยกไม่ออกว่าค้างตรงไหน)
   const cutoffIso = new Date(alertCutoff).toISOString();
   const waitingRows = await fetchAll<Row>(() =>
-    db.from('conversations').select('id').eq('waiting', true).gte('updated_at', cutoffIso)
+    db.from('conversations').select('id,type').eq('waiting', true).gte('updated_at', cutoffIso)
   );
+  let waitingInbox = 0;
+  let waitingComment = 0;
+  waitingRows.forEach((c) => {
+    // type ที่เจอจริง: INBOX / COMMENT / RATING — RATING มีแค่หลักหน่วย รวมไปกับอินบ็อกซ์
+    // (เป็นข้อความในกล่องแชทเหมือนกัน ไม่คุ้มที่จะตั้งกลุ่มที่ 3 ให้หน้าจอรก)
+    if (String(c.type || '').toUpperCase() === 'COMMENT') waitingComment++;
+    else waitingInbox++;
+  });
   const waitingConvs = waitingRows.length;
+  const waitingSplit = '💬 อินบ็อกซ์ ' + waitingInbox + ' • 💭 คอมเมนต์ ' + waitingComment;
   if (waitingConvs >= 10) {
     alerts.push({
       icon: '💬',
-      title: 'แชทค้างรอตอบเยอะ',
-      reason: 'มี ' + waitingConvs + ' บทสนทนาที่ลูกค้ารอการตอบกลับ',
+      title: '⏰ แชทค้างรอตอบ ' + waitingConvs,
+      reason: waitingSplit + ' — ลูกค้ารอการตอบกลับ (24 ชม.ล่าสุด)',
       level: 'red',
       view: 'dashboard',
     });
   } else if (waitingConvs > 0) {
     alerts.push({
       icon: '💬',
-      title: 'แชทรอตอบ',
-      reason: 'มี ' + waitingConvs + ' บทสนทนารอการตอบกลับ',
+      title: '⏰ แชทค้างรอตอบ ' + waitingConvs,
+      reason: waitingSplit + ' — รอการตอบกลับ (24 ชม.ล่าสุด)',
       level: 'yellow',
       view: 'dashboard',
     });
@@ -730,6 +819,13 @@ export async function apiSales(params: any) {
 
   return {
     rangeLabel: r.label,
+    // ป้ายหน้าต่างเปรียบเทียบ (null เมื่อ "ไม่เปรียบเทียบ") — หน้าเว็บเอาไปใส่ legend/ทูลทิปกราฟ
+    prevLabel: compare ? r.prevLabel : null,
+    prevWindow: compare ? r.prevWindow : null,
+    // รายออเดอร์ที่ต้องตรวจของช่วงที่เลือก (ตามช่องทางที่กรอง) — modal ในการ์ด "คำสั่งซื้อ"
+    needCheckOrders: needCheckList_(curCh),
+    // แชทค้างรอตอบ แยกตามชนิด (RATING รวมอยู่ใน inbox)
+    waiting: { total: waitingConvs, inbox: waitingInbox, comment: waitingComment },
     kpis: {
       revenue: Math.round(sCur.revenue),
       orders: sCur.orders,
@@ -801,6 +897,8 @@ export async function apiSales(params: any) {
       line: Math.round(todayLine),
       newCust: todayNewCust,
       needCheck: todayNeedCheck,
+      // รายออเดอร์ที่ต้องตรวจของ "วันนี้" (ทุกช่องทาง) — modal ในการ์ดธุรกิจวันนี้ + ปุ่มในแจ้งเตือน
+      needCheckOrders: needCheckList_(todayOrders),
       hourly: hourlyBuckets(todayOrders),
     },
     sources: sources,

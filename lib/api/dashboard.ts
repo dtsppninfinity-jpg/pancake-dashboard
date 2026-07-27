@@ -53,22 +53,106 @@ function dayOfWeekBkk_(d: Date): number {
   return WD_MAP[wd] ?? 0;
 }
 
+/* ---------------- ช่วงเวลาที่เลือก (preset) ---------------- */
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+interface DayRange {
+  startStr: string;  // 'YYYY-MM-DD' เวลาไทย
+  endStr: string;
+  days: number;
+  label: string;
+}
+
+/** 'YYYY-MM-DD' (เวลาไทย) → Date ของเที่ยงคืนไทยวันนั้น */
+function dayStart_(ds: string): Date {
+  return new Date(ds + 'T00:00:00+07:00');
+}
+
+/** จำนวนวันในช่วง (รวมวันแรกและวันสุดท้าย) */
+function dayCount_(startStr: string, endStr: string): number {
+  const n = Math.round((dayStart_(endStr).getTime() - dayStart_(startStr).getTime()) / 86400000) + 1;
+  return isNaN(n) ? 1 : Math.max(1, n);
+}
+
+/** ลิสต์ Date เที่ยงคืนไทย n วันย้อนหลังจาก endStr (เรียงเก่า → ใหม่) */
+function dayList_(endStr: string, n: number): Date[] {
+  const end = dayStart_(endStr).getTime();
+  const out: Date[] = [];
+  for (let i = n - 1; i >= 0; i--) out.push(new Date(end - i * 86400000));
+  return out;
+}
+
+/**
+ * แปลง params ช่วงเวลา → ช่วง "วัน" ที่ใช้กรอง chat_hourly / chat_engagement_daily
+ * preset: today | yesterday | 3d | 7d | 30d | month | custom (from/to = 'yyyy-MM-dd')
+ * ⚠️ ต้องมีครบทุก key ใน RANGE_PRESETS (lib/ui/helpers.ts) — key ที่ไม่มี case จะตกไป default = วันนี้ เงียบๆ
+ * (กติกาเดียวกับ resolveRange_ ของ lib/api/adminperf.ts แต่หน้านี้อ่านตารางที่คีย์เป็น "วัน" ไม่ใช่
+ *  timestamp จึงคืนเป็นสตริงวันที่ และไม่ต้องมี prevStart/prevEnd — Dashboard ไม่เทียบช่วงก่อนหน้า)
+ */
+function resolveRange_(params: any): DayRange {
+  const p = params || {};
+  const preset = p.preset || 'today';
+  const todayStr = fmtDateBkk(new Date());
+  let startStr = todayStr, endStr = todayStr, label = 'วันนี้';
+  switch (preset) {
+    case 'yesterday':
+      // เมื่อวาน = ทั้งวัน (วันมันจบไปแล้ว — ไม่ตัดที่ "ตอนนี้" เหมือน preset อื่น)
+      startStr = endStr = fmtDateBkk(daysAgo(1));
+      label = 'เมื่อวานนี้';
+      break;
+    case '3d':
+      startStr = fmtDateBkk(daysAgo(2)); // 3 วันล่าสุด "รวมวันนี้" — กติกาเดียวกับ 7d/30d
+      label = '3 วันล่าสุด';
+      break;
+    case '7d':
+      startStr = fmtDateBkk(daysAgo(6));
+      label = '7 วันล่าสุด';
+      break;
+    case '30d':
+      startStr = fmtDateBkk(daysAgo(29));
+      label = '30 วันล่าสุด';
+      break;
+    case 'month':
+      startStr = todayStr.slice(0, 8) + '01';
+      label = 'เดือนนี้';
+      break;
+    case 'custom': {
+      // ค่าจาก date picker ของผู้ใช้ — ตรวจรูปแบบก่อนเสมอ (ค่าเพี้ยนทำให้ label/ช่วงพัง)
+      const f = String(p.from || '');
+      const t = String(p.to || '');
+      startStr = DATE_RE.test(f) ? f : todayStr;
+      endStr = DATE_RE.test(t) ? t : todayStr;
+      if (endStr > todayStr) endStr = todayStr;   // ไม่มีข้อมูลอนาคต
+      if (startStr > endStr) startStr = endStr;   // ผู้ใช้เลือกสลับกัน — กันช่วงว่าง
+      label = startStr === endStr ? startStr : startStr + ' ถึง ' + endStr;
+      break;
+    }
+    default: // today
+      break;
+  }
+  return { startStr, endStr, days: dayCount_(startStr, endStr), label };
+}
+
 /* ================================================================
  * 1) DASHBOARD — ภาพรวมแชทวันนี้
  * ================================================================ */
 
 /**
- * สถิติลูกค้าของ "วันนี้" จาก chat_engagement_daily (ต้นทาง: statistics/customer_engagements)
+ * สถิติลูกค้าในช่วงที่เลือก จาก chat_engagement_daily (ต้นทาง: statistics/customer_engagements)
  * คืน null เมื่อยังไม่มีตาราง — หน้าเว็บต้องโชว์ "—" ไม่ใช่ 0
+ * ⚠️ ตัวเลขเป็น "รายวันต่อเพจ" — ช่วงหลายวันคือผลรวมรายวัน (คนเดิมที่ทักคนละวันถูกนับซ้ำ)
+ *    ไม่มีทางรู้ unique ข้ามวันจาก endpoint นี้ — หน้าเว็บติดป้ายบอกไว้แทน
  */
-async function loadEngagementToday_(
-  todayStr: string, channel: string, commentMode: boolean,
+async function loadEngagementRange_(
+  range: DayRange, channel: string, commentMode: boolean,
 ): Promise<{ total: number; reached: number; newInbox: number; comment: number; orders: number } | null> {
   try {
     const rows = await fetchAll<any>(() =>
       db.from('chat_engagement_daily')
         .select('key,platform,total,comment,new_inbox,order_count')
-        .eq('date', todayStr),
+        .gte('date', range.startStr)
+        .lte('date', range.endStr),
       'key'
     );
     const out = { total: 0, reached: 0, newInbox: 0, comment: 0, orders: 0 };
@@ -89,21 +173,37 @@ async function loadEngagementToday_(
   }
 }
 
-export async function apiDashboard(params?: { channel?: string }): Promise<any> {
+/**
+ * กราฟแท่งรายวันของหน้านี้ (svgWeekBars) วางแท่ง+ตัวเลขทับกันถ้าวันเยอะเกิน ~14
+ * และช่วงสั้น (วันนี้/เมื่อวาน) ก็ยังอยากเห็นเทรนด์สัปดาห์เหมือนเดิม → บีบอยู่ระหว่าง 7-14 วัน
+ * ช่วงที่ยาวกว่านั้น KPI ยังรวมทั้งช่วง แต่กราฟโชว์แค่ท้ายช่วง (weekNote บอกผู้ใช้ตรงๆ)
+ */
+const CHART_MIN_DAYS = 7;
+const CHART_MAX_DAYS = 14;
+
+export async function apiDashboard(
+  params?: { channel?: string; preset?: string; from?: string; to?: string },
+): Promise<any> {
   const channel = (params && params.channel) || '';
   // โหมดพิเศษ: channel='comment' = มุมมองเฉพาะคอมเมนต์ (ทุก platform, นับคู่ *_comment_count)
   const commentMode = channel === 'comment';
   const todayStr = fmtDateBkk(new Date());
+  const range = resolveRange_(params);
 
-  // อ่าน chat_hourly แค่ 7 วันล่าสุด (ลดจำนวนแถว) — วนจนครบ กัน 1000-row cap
-  const weekStartStr = fmtDateBkk(daysAgo(6));
+  // วันที่ของกราฟ (ยึดวันท้ายช่วงแล้วถอยหลัง) — อาจย้อนก่อนช่วงที่เลือกเมื่อช่วงสั้นกว่า 7 วัน
+  const chartDays = Math.min(Math.max(range.days, CHART_MIN_DAYS), CHART_MAX_DAYS);
+  const chartDates = dayList_(range.endStr, chartDays);
+  const chartStartStr = fmtDateBkk(chartDates[0]);
+  // ดึงเท่าที่ใช้จริง = ช่วงที่เลือก ∪ ช่วงกราฟ (ลดจำนวนแถว) — วนจนครบ กัน 1000-row cap
+  const fetchStartStr = chartStartStr < range.startStr ? chartStartStr : range.startStr;
   const chatRows = await fetchAll<any>(() =>
     db
       .from('chat_hourly')
       .select(
         'platform,page_name,date,customer_inbox_count,customer_comment_count,page_inbox_count,page_comment_count,new_inbox_count,new_customer_count,uniq_phone_number_count'
       )
-      .gte('date', weekStartStr),
+      .gte('date', fetchStartStr)
+      .lte('date', range.endStr),
     'key'
   );
   const chat = chatRows.filter((r: any) => {
@@ -112,13 +212,15 @@ export async function apiDashboard(params?: { channel?: string }): Promise<any> 
     return true;
   });
 
-  // KPI วันนี้ (โหมดคอมเมนต์นับเฉพาะคู่ *_comment_count)
+  // KPI ของ "ช่วงที่เลือก" (โหมดคอมเมนต์นับเฉพาะคู่ *_comment_count)
+  // weekMap เก็บทุกวันที่ดึงมา เพราะกราฟอาจกว้างกว่าช่วงที่เลือก (ช่วงสั้นกว่า 7 วัน)
   const k = { convsToday: 0, custMsgs: 0, newCustomers: 0, pageReplies: 0, phones: 0 };
   const weekMap: Record<string, { total: number; replied: number }> = {}; // date -> {total, replied}
-  const commentPage: Record<string, { count: number; platform: string }> = {}; // คอมเมนต์วันนี้ต่อเพจ
+  const commentPage: Record<string, { count: number; platform: string }> = {}; // คอมเมนต์ในช่วงต่อเพจ
   chat.forEach((r: any) => {
     const dateStr = toDateStr_(r.date);
-    if (dateStr === todayStr) {
+    const inRange = dateStr >= range.startStr && dateStr <= range.endStr; // 'YYYY-MM-DD' เทียบสตริงได้ตรงๆ
+    if (inRange) {
       const cc = toNum_(r.customer_comment_count);
       if (cc > 0) {
         const pn = String(r.page_name || 'ไม่ระบุเพจ');
@@ -135,7 +237,7 @@ export async function apiDashboard(params?: { channel?: string }): Promise<any> 
     if (!weekMap[dateStr]) weekMap[dateStr] = { total: 0, replied: 0 };
     weekMap[dateStr].total += total;
     weekMap[dateStr].replied += replied;
-    if (dateStr === todayStr) {
+    if (inRange) {
       k.convsToday += commentMode ? toNum_(r.customer_comment_count) : toNum_(r.new_inbox_count);
       k.custMsgs += total;
       k.newCustomers += toNum_(r.new_customer_count);
@@ -144,22 +246,35 @@ export async function apiDashboard(params?: { channel?: string }): Promise<any> 
     }
   });
 
-  // กราฟ 7 วัน (วันนี้อยู่ขวาสุด)
+  // กราฟรายวัน (วันท้ายช่วงอยู่ขวาสุด) — เกิน 8 วันใช้ป้าย d/M แทนชื่อวัน ไม่งั้นชื่อวันซ้ำจนอ่านไม่รู้เรื่อง
   const thaiDays = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
   const week: any[] = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = daysAgo(i);
+  chartDates.forEach((d) => {
     const ds = fmtDateBkk(d);
     const m = weekMap[ds] || { total: 0, replied: 0 };
     week.push({
       date: ds,
-      label: i === 0 ? 'วันนี้' : thaiDays[dayOfWeekBkk_(d)],
+      label: ds === todayStr
+        ? 'วันนี้'
+        : (chartDays > 8 ? Number(ds.slice(8, 10)) + '/' + Number(ds.slice(5, 7)) : thaiDays[dayOfWeekBkk_(d)]),
       total: m.total,
       replied: m.replied,
     });
-  }
+  });
+  const weekLabel = range.endStr === todayStr
+    ? chartDays + ' วันล่าสุด'
+    : chartDays + ' วัน (ถึง ' + Number(range.endStr.slice(8, 10)) + '/' + Number(range.endStr.slice(5, 7)) + ')';
+  // ช่วงยาวกว่ากราฟ → บอกตรงๆ ว่ากราฟไม่ได้ครอบทั้งช่วง (KPI ด้านบนยังรวมทั้งช่วง)
+  const weekNote = range.days > chartDays
+    ? 'ช่วงที่เลือกยาว ' + range.days + ' วัน — กราฟแสดง ' + chartDays + ' วันท้ายของช่วง'
+    : '';
 
   // บทสนทนา 24 ชม. ล่าสุด (ตารางเก็บไว้ถึง 14 วัน — กรองเวลาเองให้ตรงป้าย "24 ชม.")
+  // ⚠️ ทุกอย่างที่คำนวณจากก้อนนี้ (donut / replyRate / waiting / byType / tags / byPage / attention)
+  //    เป็น "สถานะตอนนี้" ไม่ขึ้นกับช่วงที่เลือก และแกล้งทำให้ย้อนหลังไม่ได้:
+  //    conversations เก็บ "สถานะล่าสุด" ของแต่ละบทสนทนา (1 แถว/บทสนทนา ทับของเดิม) ไม่ใช่ประวัติรายวัน
+  //    เลือก '30 วันล่าสุด' แล้วกรอง updated_at ย้อนหลังจะได้ "แชทที่ยังค้างอยู่ตอนนี้" ปนกับของเก่า
+  //    ซึ่งอ่านผิดเป็น "แชทที่ค้างเมื่อ 30 วันก่อน" — หน้าเว็บจึงติดป้ายกำกับว่าเป็นค่าตอนนี้แทน
   const cutoff = convCutoff_();
   const cutoffIso = new Date(cutoff).toISOString();
   const convRows = await fetchAll<any>(() =>
@@ -217,10 +332,15 @@ export async function apiDashboard(params?: { channel?: string }): Promise<any> 
   // ตัวเลขชุดเดียวกับหน้าสถิติแชทของ Pancake (chat_engagement_daily) — ใช้ยืนยันว่า
   // "ลูกค้าใหม่" ที่เราโชว์ตรงกับที่บอสเห็นบนจอ Pancake จริง
   // null = ยังไม่ได้รัน migration 2026-07-23-chat-engagement.sql → หน้าเว็บโชว์ "—"
-  const eng = await loadEngagementToday_(todayStr, channel, commentMode);
+  const eng = await loadEngagementRange_(range, channel, commentMode);
 
   const replyBase = donut.replied + donut.ai + donut.waiting;
   return {
+    // ป้ายช่วงเวลา — หน้าเว็บเอาไปแทนคำว่า "วันนี้" ที่เคย hard-code ไว้ทุกการ์ด
+    rangeLabel: range.label,
+    rangeDays: range.days,
+    weekLabel: weekLabel,
+    weekNote: weekNote,
     kpis: {
       convsToday: k.convsToday,
       custMsgs: k.custMsgs,

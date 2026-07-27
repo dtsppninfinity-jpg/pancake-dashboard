@@ -13,6 +13,8 @@ import { contentadsSkel } from '@/lib/ui/skeletons';
 let lastData: any = null;
 const filter = { q: '', status: '', account: '', page: '', product: '', rank: 'revenue' };
 let alertShowAll = false;
+/** มีข้อมูลครีเอทีฟให้โชว์ไหม — ยังไม่ได้รัน migration ad_creative ก็ไม่ต้องขึ้นกล่องรูปเปล่าทุกใบ */
+let hasCreatives = false;
 /** ช่วงย้อนหลังที่ดึงจาก server (วัน) — เดิมหน้านี้ไม่มีตัวกรองเวลาเลย เป็นยอดสะสมตั้งแต่ต้น */
 let rangeDays = 7;
 
@@ -145,6 +147,99 @@ function uniqueProducts(items: any[]): string[] {
     .slice(0, 30);
 }
 
+/* ---------------- สื่อ/ครีเอทีฟของแอด (รูป / คลิป / ลิงก์โพสต์จริง) ---------------- */
+
+/**
+ * กล่องรูปครีเอทีฟ — URL รูปจาก Meta มีวันหมดอายุ (ทั้ง scontent และ /ads/image)
+ * จึงใส่ตัวสำรองไว้ใน data-ca-fallback แล้วให้ bindImgFallback_() สลับให้เมื่อโหลดพลาด
+ * ถ้าพังทั้งคู่ → กล่องว่างมีไอคอน ไม่ปล่อยเป็นรูปแตก
+ */
+function mediaBoxHtml_(it: any, cls: string): string {
+  const m = it && it.media;
+  const isVid = !!(m && m.video);
+  const icon = isVid ? '🎬' : (it && it.organicPost ? '📝' : '🖼');
+  const img = safeUrl_(m && m.img);
+  const alt = safeUrl_(m && m.imgAlt);
+  // ไม่มีรูปเลย → เรนเดอร์กล่องว่างตั้งแต่แรก (ไม่ต้องรอ error)
+  if (!img) {
+    return '<div class="' + cls + ' broken"><span class="ca-ph">' + icon + '</span></div>';
+  }
+  return '<div class="' + cls + '">' +
+    '<img src="' + esc(img) + '" alt="" loading="lazy" decoding="async"' +
+    (alt && alt !== img ? ' data-ca-fallback="' + esc(alt) + '"' : ' data-ca-fallback=""') + '>' +
+    '<span class="ca-ph">' + icon + '</span>' +
+    (isVid ? '<span class="ca-play">▶</span>' : '') +
+    '</div>';
+}
+
+/** ผูก fallback ของรูปทุกใบใน root (การ์ด + modal ใช้ตัวเดียวกัน) */
+function bindImgFallback_(root: HTMLElement | Document): void {
+  root.querySelectorAll('img[data-ca-fallback]').forEach(function (el) {
+    const img = el as HTMLImageElement;
+    img.addEventListener('error', function () {
+      const next = img.getAttribute('data-ca-fallback') || '';
+      if (next && next !== img.getAttribute('src')) {
+        img.setAttribute('data-ca-fallback', '');  // ให้ลองได้ครั้งเดียว กันวนไม่รู้จบ
+        img.setAttribute('src', next);
+        return;
+      }
+      const box = img.parentElement;
+      if (box) box.classList.add('broken');
+    });
+  });
+}
+
+/** อนุญาตเฉพาะ http(s) — ค่ามาจาก Meta ก็จริง แต่ href ที่หลุด javascript: เข้ามาคือ XSS */
+function safeUrl_(u: any): string {
+  const s = String(u || '');
+  return /^https?:\/\//i.test(s) ? s : '';
+}
+
+/** ลิงก์เปิดโพสต์จริง — dark post ใช้ effective_object_story_id จึงเปิดได้เหมือนกัน */
+function mediaLinksHtml_(it: any): string {
+  const m = it && it.media;
+  if (!m) return '';
+  const btn = function (href: any, label: string): string {
+    const u = safeUrl_(href);
+    if (!u) return '';
+    return '<a class="btn-mini" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' +
+      label + '</a>';
+  };
+  let h = '';
+  h += btn(m.permalink, 'เปิดโพสต์จริงบน Facebook ↗');
+  h += btn(m.ig, '📸 โพสต์ Instagram ↗');
+  if (m.video) h += btn('https://www.facebook.com/' + String(m.video), '🎬 วิดีโอต้นฉบับ ↗');
+  h += btn(m.link, '🌐 ลิงก์ปลายทาง ↗');
+  return h;
+}
+
+/** บล็อกสื่อในหน้าวิเคราะห์ (รูปใหญ่ + ปุ่มเล่นวิดีโอ + ลิงก์โพสต์) */
+function mediaPanelHtml_(it: any): string {
+  const m = it && it.media;
+  const links = mediaLinksHtml_(it);
+  if (!m || (!m.img && !links)) return '';
+  let h = '<div class="ca-media">';
+  h += '<div class="ca-media-frame" id="ca-media-frame">' + mediaBoxHtml_(it, 'ca-media-img') + '</div>';
+  h += '<div class="ca-media-side">';
+  if (m.title) h += '<div class="ca-media-title">' + esc(String(m.title)) + '</div>';
+  const tags: string[] = [];
+  if (m.type) tags.push(String(m.type));
+  if (m.cta) tags.push(String(m.cta));
+  if (tags.length) {
+    h += '<div class="pill-grid" style="margin:0 0 6px">' + tags.map(function (t) {
+      return '<span class="badge neutral">' + esc(t) + '</span>';
+    }).join('') + '</div>';
+  }
+  h += '<div class="ca-media-actions">';
+  if (m.video) h += '<button class="btn-mini primary" id="ca-media-play">▶ เล่นวิดีโอตรงนี้</button>';
+  h += links;
+  h += '</div>';
+  h += '<div class="ca-media-note">รูป/คลิปดึงจาก Meta โดยตรง — ลิงก์รูปมีวันหมดอายุ ' +
+    'ถ้าไม่ขึ้นให้กด "เปิดโพสต์จริง"</div>';
+  h += '</div></div>';
+  return h;
+}
+
 /* ---------------- rule-based analysis (deterministic, ไม่เรียก server) ---------------- */
 
 function computeProblems(it: any): any[] {
@@ -227,6 +322,9 @@ function openAnalysis(data: any, adId: any): void {
       ? '<span class="badge ai">🧑‍💼 ปิดขายมากสุด: ' + esc(item.topSeller) + '</span>' : '') +
     '</div>';
 
+  // สื่อของแอด (รูป/คลิป/ลิงก์โพสต์) — วางบนสุดเพราะทีมแอดต้อง "เห็นครีเอทีฟ" ก่อนอ่านตัวเลข
+  html += mediaPanelHtml_(item);
+
   // ---- รายละเอียดการขายจริง (จากออเดอร์ POS ที่ผูก ad_id นี้) — แบบเดียวกับหน้า PAGE POS เดิม ----
   const closers = Array.isArray(item.closers) ? item.closers : [];
   const dRow = function (label: string, val: string): string {
@@ -287,6 +385,25 @@ function openAnalysis(data: any, adId: any): void {
   openModal(html);
   const ok = document.getElementById('ca-modal-ok');
   if (ok) ok.addEventListener('click', closeModal);
+  // ผูกเฉพาะใน modal — ถ้าผูกทั้ง document รูปบนการ์ดจะโดน handler ซ้ำแล้วขึ้น .broken ทั้งที่กำลังลองตัวสำรอง
+  const modalRoot = document.getElementById('modal-root');
+  if (modalRoot) bindImgFallback_(modalRoot);
+
+  // เล่นวิดีโอในกล่องเลย (facebook video plugin) — คลิปที่เป็น dark post อาจโหลดไม่ขึ้น
+  // จึงคงปุ่ม "วิดีโอต้นฉบับ ↗" ไว้เป็นทางออกเสมอ
+  const play = document.getElementById('ca-media-play');
+  const frame = document.getElementById('ca-media-frame');
+  if (play && frame && item.media && item.media.video) {
+    play.addEventListener('click', function () {
+      const src = 'https://www.facebook.com/plugins/video.php?href=' +
+        encodeURIComponent('https://www.facebook.com/' + String(item.media.video)) +
+        '&show_text=false&autoplay=true&width=560';
+      frame.innerHTML = '<iframe class="ca-media-video" src="' + esc(src) + '" ' +
+        'frameborder="0" allowfullscreen scrolling="no" ' +
+        'allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"></iframe>';
+      (play as HTMLButtonElement).disabled = true;
+    });
+  }
 }
 
 /* ---------------- CSV ---------------- */
@@ -453,6 +570,8 @@ function cardHtml(it: any, rank: number): string {
 
   let h = '<div class="ca-card">';
   h += '<div class="ca-rank">' + rank + '</div>';
+  // รูปครีเอทีฟย่อ — ทีมแอดจำแอดจาก "ภาพ" ไม่ใช่ชื่อแอดที่ตั้งว่า VP4/A1
+  if (hasCreatives) h += mediaBoxHtml_(it, 'ca-thumb');
   h += '<div class="ca-main">';
   h += '<div class="ca-id">' + esc(it.name || ('Ad ' + it.adId)) +
     ' <span class="badge ' + esc(st.cls || 'neutral') + '">' + esc(st.label || '-') + '</span>' +
@@ -537,12 +656,18 @@ function render(container: HTMLElement, data: any): void {
   if (filter.account && uniqueAccounts(items).indexOf(filter.account) < 0) filter.account = '';
   if (filter.page && uniquePages(items).indexOf(filter.page) < 0) filter.page = '';
   if (filter.product && uniqueProducts(items).indexOf(filter.product) < 0) filter.product = '';
+  hasCreatives = num(data && data.creativeCount) > 0;
   const list = filteredItems(data);
   let html = '';
   // ค่าแอดไม่ครบช่วง = ROAS สูงเกินจริง — ต้องเตือนก่อนตัวเลข ไม่ใช่ปล่อยให้อ่านผิด
   if (data && data.adDaysWarning) {
     html += '<div class="hint-box" style="border-color:var(--red,#e17055);color:var(--red,#e17055)">⚠️ ' +
       esc(data.adDaysWarning) + '</div>';
+  }
+  // มีแอดแต่ไม่มีสื่อสักตัว = ยังไม่ได้เปิดใช้ตาราง ad_creative (บอกให้ชัด ไม่ใช่ปล่อยกล่องรูปว่าง)
+  if (data && !data.needAdSetup && items.length && !num(data.creativeCount)) {
+    html += '<div class="hint-box">🖼 ยังไม่มีรูปครีเอทีฟ — รัน <b>db/migrations/2026-07-27-ad-creative.sql</b> ' +
+      'ใน Supabase แล้วสั่ง <b>npm run backfill:ad-creatives</b> (หลังจากนั้นเติมเองอัตโนมัติวันละครั้ง)</div>';
   }
   if (data && data.note) html += '<div class="hint-box">' + esc(data.note) + '</div>';
   html += controlsHtml(items);
@@ -609,6 +734,8 @@ function bind(container: HTMLElement, data: any): void {
       openAnalysis(current(), btn.getAttribute('data-ca-view'));
     });
   });
+
+  bindImgFallback_(container);
 }
 
 /* ---------------- fetch + register ---------------- */
