@@ -404,7 +404,9 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 .ca-media-img { width: 100%; aspect-ratio: 1 / 1; }
 .ca-media-img img { object-fit: contain; background: var(--surface); }
 .ca-media-img .ca-play { width: 26px; height: 26px; font-size: 13px; line-height: 26px; right: 6px; bottom: 6px; }
-.ca-media-video { width: 100%; aspect-ratio: 1 / 1; border: 0; border-radius: 10px; display: block; }
+/* กรอบรูปครีเอทีฟกดได้ = เปิดโพสต์จริง (ปุ่มเล่นวิดีโอในเว็บถูกถอดออก — dark post เล่นไม่ได้) */
+.ca-media-frame.clickable { cursor: pointer; }
+.ca-media-frame.clickable:hover { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 12px; }
 .ca-media-side { flex: 1 1 220px; min-width: 0; }
 .ca-media-title {
   font-size: 12.5px; font-weight: 600; line-height: 1.45; margin-bottom: 8px;

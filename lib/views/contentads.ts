@@ -206,9 +206,16 @@ function mediaLinksHtml_(it: any): string {
       label + '</a>';
   };
   let h = '';
+  // Ads Manager = ที่เดียวที่ดูครีเอทีฟของแอด (รวม dark post + วิดีโอ) ได้ครบจริง
+  // ต้องล็อกอิน Facebook ที่มีสิทธิ์บัญชีโฆษณานั้นก่อน — ทีมแอดมีอยู่แล้ว
+  const acc = String((it && it.accountId) || '').replace(/^act_/, '');
+  const adId = String((it && it.adId) || '');
+  if (acc && adId) {
+    h += btn('https://adsmanager.facebook.com/adsmanager/manage/ads?act=' + encodeURIComponent(acc) +
+      '&selected_ad_ids=' + encodeURIComponent(adId), '📊 เปิดใน Ads Manager ↗');
+  }
   h += btn(m.permalink, 'เปิดโพสต์จริงบน Facebook ↗');
   h += btn(m.ig, '📸 โพสต์ Instagram ↗');
-  if (m.video) h += btn('https://www.facebook.com/' + String(m.video), '🎬 วิดีโอต้นฉบับ ↗');
   h += btn(m.link, '🌐 ลิงก์ปลายทาง ↗');
   return h;
 }
@@ -230,12 +237,13 @@ function mediaPanelHtml_(it: any): string {
       return '<span class="badge neutral">' + esc(t) + '</span>';
     }).join('') + '</div>';
   }
-  h += '<div class="ca-media-actions">';
-  if (m.video) h += '<button class="btn-mini primary" id="ca-media-play">▶ เล่นวิดีโอตรงนี้</button>';
-  h += links;
-  h += '</div>';
-  h += '<div class="ca-media-note">รูป/คลิปดึงจาก Meta โดยตรง — ลิงก์รูปมีวันหมดอายุ ' +
-    'ถ้าไม่ขึ้นให้กด "เปิดโพสต์จริง"</div>';
+  h += '<div class="ca-media-actions">' + links + '</div>';
+  // เคยมีปุ่ม "เล่นวิดีโอตรงนี้" (facebook video plugin) แต่ใช้ไม่ได้จริง:
+  // คลิปของแอดเป็น dark post ไม่ได้เผยแพร่สาธารณะ plugin จึงขึ้น "วิดีโอไม่พร้อมใช้งาน" เสมอ
+  // และดึงไฟล์ตรงจาก Graph API ก็ไม่ได้ (error 10 — app ไม่มีสิทธิ์) จึงส่งไป Ads Manager แทน
+  h += '<div class="ca-media-note">' +
+    (m.video ? '🎬 คลิปของแอดดูได้ที่ <b>Ads Manager</b> (ต้องล็อกอิน Facebook ที่มีสิทธิ์บัญชีโฆษณา) — ' : '') +
+    'รูปดึงจาก Meta โดยตรง ลิงก์มีวันหมดอายุ ถ้าไม่ขึ้นให้กด "เปิดโพสต์จริง"</div>';
   h += '</div></div>';
   return h;
 }
@@ -389,19 +397,14 @@ function openAnalysis(data: any, adId: any): void {
   const modalRoot = document.getElementById('modal-root');
   if (modalRoot) bindImgFallback_(modalRoot);
 
-  // เล่นวิดีโอในกล่องเลย (facebook video plugin) — คลิปที่เป็น dark post อาจโหลดไม่ขึ้น
-  // จึงคงปุ่ม "วิดีโอต้นฉบับ ↗" ไว้เป็นทางออกเสมอ
-  const play = document.getElementById('ca-media-play');
+  // รูปครีเอทีฟกดได้ = เปิดโพสต์จริง (ทางลัดแทนการไล่หาปุ่มด้านขวา)
   const frame = document.getElementById('ca-media-frame');
-  if (play && frame && item.media && item.media.video) {
-    play.addEventListener('click', function () {
-      const src = 'https://www.facebook.com/plugins/video.php?href=' +
-        encodeURIComponent('https://www.facebook.com/' + String(item.media.video)) +
-        '&show_text=false&autoplay=true&width=560';
-      frame.innerHTML = '<iframe class="ca-media-video" src="' + esc(src) + '" ' +
-        'frameborder="0" allowfullscreen scrolling="no" ' +
-        'allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"></iframe>';
-      (play as HTMLButtonElement).disabled = true;
+  const post = item.media && item.media.permalink;
+  if (frame && post && /^https?:\/\//i.test(String(post))) {
+    frame.classList.add('clickable');
+    frame.setAttribute('title', 'กดเพื่อเปิดโพสต์จริงบน Facebook');
+    frame.addEventListener('click', function () {
+      window.open(String(post), '_blank', 'noopener,noreferrer');
     });
   }
 }

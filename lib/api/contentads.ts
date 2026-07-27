@@ -349,6 +349,7 @@ export async function apiContentAds(params?: any) {
       products: topProducts_(adId),
       organicPost: false,
       account: String(a.ad_account_name || ''),
+      accountId: String(a.ad_account_name || ''), // = account_id ของ Meta — ใช้ทำลิงก์ไป Ads Manager
       effStatus: effStatus,
       active: active,
       spend: Math.round(spend),

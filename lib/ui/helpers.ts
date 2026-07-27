@@ -114,8 +114,9 @@ export function openModal(html: string): void {
   root.querySelector('.modal-overlay')!.addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeModal();
   });
-  const x = root.querySelector('.modal-close');
-  if (x) x.addEventListener('click', closeModal);
+  // ต้อง querySelectorAll — modal ส่วนใหญ่มีปุ่มปิด 2 ตัว (✕ มุมบน + "ยกเลิก" ท้ายฟอร์ม)
+  // ถ้า bind แค่ตัวแรก ปุ่ม "ยกเลิก" จะกดไม่ติด (เคยเป็นบั๊กจริงบนหน้าจัดการผู้ใช้)
+  root.querySelectorAll('.modal-close').forEach((x) => x.addEventListener('click', closeModal));
 }
 
 export function closeModal(): void {
