@@ -20,6 +20,7 @@ import {
   downloadCSV,
   downloadXLS,
   openModal,
+  closeModal,
 } from '@/lib/ui/helpers';
 import { svgHourlyLine, miniBars, hbarRows, bindChartTips, hideChartTip } from '@/lib/ui/charts';
 import { salesSkel } from '@/lib/ui/skeletons';
@@ -74,6 +75,8 @@ interface SalesData {
 }
 
 let lastData: SalesData | null = null;
+// container ล่าสุดที่ render — โมดัลที่บันทึกข้อมูลแล้วต้องสั่งโหลดใหม่ ต้องรู้ว่าจะ render ที่ไหน
+let lastContainer: HTMLElement | null = null;
 // default = Facebook: ยอดขายส่วนใหญ่มาจาก FB และแอดทั้งหมดอยู่บน FB (บอสสั่ง 2026-07-24)
 // LINE/อื่นๆ ดูได้โดยคลิกช่องช่องทางด้านล่าง
 const state: SalesState = { preset: 'today', from: '', to: '', channel: 'facebook', compare: 'prev' };
@@ -485,8 +488,11 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         '<td class="num ' + roasCls + '">' + (u.roas === null ? '—' : u.roas.toFixed(2)) + '</td>' +
         '<td class="num">' + (u.costPerMsg === null ? '—' : THB(u.costPerMsg)) + '</td>' +
         '<td class="num">' + (u.closeRate === null ? '—' : pctFmt(u.closeRate)) + '</td>' +
+        '<td class="num">' + (u.target ? THB(u.target) : '—') + '</td>' +
+        '<td class="num ' + attainCls_(u.attain) + '">' + (u.attain === null ? '—' : pctFmt(u.attain)) + '</td>' +
         '</tr>';
     }).join('');
+    const anyTarget = units.some(function (u: any) { return u.target > 0; });
     const pageCount = (topCh.pagesFull || []).length;
     html += '<div class="sr-bottom">' +
       '<div class="card">' +
@@ -501,15 +507,20 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       '<div class="card">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
           '<h3>🧩 ยอดขายตามยูนิต (สินค้า)</h3>' +
-          (pageCount > 0 ? '<button class="btn-mini" id="sr-allpages">📋 ดูทุกเพจ (' + fmtNum(pageCount) + ')</button>' : '') +
+          '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+            '<button class="btn-mini" id="sr-targets">🎯 ตั้งเป้ารายเดือน</button>' +
+            (pageCount > 0 ? '<button class="btn-mini" id="sr-allpages">📋 ดูทุกเพจ (' + fmtNum(pageCount) + ')</button>' : '') +
+          '</div>' +
         '</div>' +
         '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] +
           ' — ค่าแอดจริงจาก Meta • ค่าทัก = ค่าแอด ÷ บทสนทนาที่แอดเปิดได้ • %ปิด = ออเดอร์จากแชท ÷ คนทัก' +
-          ' • 👆 คลิกยูนิตเพื่อดูรายเพจ + ยอดรายสัปดาห์</div>' +
+          ' • 👆 คลิกยูนิตเพื่อดูรายเพจ + ยอดรายสัปดาห์' +
+          (anyTarget ? ' • <b>เป้า/%บรรลุ = ของเดือนนี้เสมอ</b> ไม่ขึ้นกับช่วงวันที่ที่เลือก' : '') + '</div>' +
         (unitTable
           ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>ยูนิต</th><th class="num">ยอดขาย</th>' +
             '<th class="num">สัดส่วน</th><th class="num">ค่าแอด</th><th class="num">ROAS</th>' +
-            '<th class="num">ค่าทัก</th><th class="num">%ปิด</th></tr></thead><tbody>' + unitTable + '</tbody></table></div>'
+            '<th class="num">ค่าทัก</th><th class="num">%ปิด</th>' +
+            '<th class="num">เป้า/เดือน</th><th class="num">%บรรลุ</th></tr></thead><tbody>' + unitTable + '</tbody></table></div>'
           : '<div class="empty-note">ยังไม่มีออเดอร์ในช่วงนี้</div>') +
       '</div>' +
     '</div>';
@@ -578,6 +589,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     '</div>' +
   '</div>';
 
+  lastContainer = container;
   container.innerHTML = html;
   bindEvents(container);
 }
@@ -594,6 +606,9 @@ function bindEvents(container: HTMLElement): void {
     state.compare = cmp.value;
     refetch(container);
   });
+
+  const tgBtn = container.querySelector('#sr-targets');
+  if (tgBtn) tgBtn.addEventListener('click', openTargetEditor);
 
   const cancelBtn = container.querySelector('#sr-cancels');
   if (cancelBtn) cancelBtn.addEventListener('click', openCancelDrill);
@@ -741,6 +756,63 @@ function bindDrillRows(root: ParentNode | null, chKey: string): void {
 }
 
 /** ยูนิต (สินค้า) → เพจในยูนิตนั้นขายได้เท่าไร (คลิกเพจเจาะดูสินค้าต่อได้) */
+/** สีของ %บรรลุเป้า — ถึงเป้า = เขียว, ต่ำกว่าครึ่ง = แดง */
+function attainCls_(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '';
+  return v >= 100 ? 'txt-good' : (v < 50 ? 'txt-bad' : '');
+}
+
+/**
+ * โมดัลตั้ง "เป้ายอดขายต่อเดือน" รายยูนิต
+ * เก็บไว้ใน u_map ที่เดียวกับยูนิต (ไม่ใช่ตารางใหม่) — ทีมแก้เองได้ ไม่ต้องรัน migration
+ */
+function openTargetEditor(): void {
+  const units = (topOf('all').units || []).filter(function (u: any) { return u.mapped; });
+  if (!units.length) { toast('ยังไม่มียูนิตให้ตั้งเป้า'); return; }
+  const rows = units.map(function (u: any) {
+    return '<tr><td>' + esc(u.product || u.u) + ' <span class="chip">' + esc(u.u) + '</span></td>' +
+      '<td class="num">' + THB(u.monthRevenue || 0) + '</td>' +
+      '<td><input class="input tg-inp" data-u="' + esc(u.u) + '" type="number" min="0" step="10000" ' +
+      'value="' + (u.target || '') + '" placeholder="0 = ไม่ตั้งเป้า" style="width:130px"></td>' +
+      '<td class="num">' + (u.needPerDay === null ? '—' : THB(u.needPerDay) + '/วัน') + '</td></tr>';
+  }).join('');
+  openModal(
+    '<div class="modal-head"><h3>🎯 เป้ายอดขายต่อเดือน</h3><button class="modal-close">✕</button></div>' +
+    '<div class="card-sub" style="margin-bottom:10px">เป้าเป็นยอด<b>ทั้งเดือน</b> เทียบกับยอดเดือนปัจจุบันเสมอ ' +
+      '(ไม่ขึ้นกับช่วงวันที่ที่เลือกบนหน้า) • ใส่ 0 หรือเว้นว่าง = ไม่ตั้งเป้า</div>' +
+    '<div class="table-scroll"><table class="tbl"><thead><tr><th>ยูนิต</th><th class="num">ยอดเดือนนี้</th>' +
+      '<th>เป้า/เดือน (บาท)</th><th class="num">ต้องขายอีก</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    '<div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">' +
+      '<button class="btn-mini modal-close">ยกเลิก</button>' +
+      '<button class="btn-mini" id="tg-save">💾 บันทึกเป้า</button></div>'
+  );
+  const root = document.getElementById('modal-root');
+  const saveBtn = root && root.querySelector('#tg-save');
+  if (saveBtn) saveBtn.addEventListener('click', function () {
+    const targets: Record<string, number> = {};
+    (root as HTMLElement).querySelectorAll('.tg-inp').forEach(function (el) {
+      const inp = el as HTMLInputElement;
+      const u = inp.getAttribute('data-u') || '';
+      const v = Number(inp.value || 0);
+      if (u && isFinite(v) && v >= 0) targets[u] = Math.round(v);
+    });
+    (saveBtn as HTMLButtonElement).disabled = true;
+    saveBtn.textContent = 'กำลังบันทึก...';
+    serverCall('apiUMap', { action: 'setTargets', targets: targets })
+      .then(function (res: any) {
+        if (res && res.ok === false) throw new Error(res.error || 'บันทึกไม่สำเร็จ');
+        closeModal();
+        toast('✅ บันทึกเป้าแล้ว');
+        if (lastContainer) refetch(lastContainer);
+      })
+      .catch(function (e: any) {
+        (saveBtn as HTMLButtonElement).disabled = false;
+        saveBtn.textContent = '💾 บันทึกเป้า';
+        toast('❌ ' + (e && e.message ? e.message : 'บันทึกไม่สำเร็จ'));
+      });
+  });
+}
+
 /**
  * แถบสรุป "ยกเลิก/ตีกลับ" ใต้การ์ดแหล่งที่มา + ปุ่มเปิดตารางรายคน/รายเดือน
  * นับจากสถานะบนใบออเดอร์ ไม่ใช่ใบคืนสินค้า — Pancake /orders_returned ของร้านนี้ว่างเปล่า

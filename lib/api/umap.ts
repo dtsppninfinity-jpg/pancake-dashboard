@@ -8,7 +8,8 @@ const KEY = 'u_map';
 
 export interface UMember { id: string; name: string }
 // pages = เพจที่อยู่ในยูนิตนี้ (id = page_id, name = ชื่อเพจ) — ใช้จัดกลุ่มยอดขายตาม U
-export interface UUnit { u: string; product: string; admins: UMember[]; pages: UMember[] }
+// target = เป้ายอดขาย "ต่อเดือน" (บาท) 0 = ยังไม่ตั้งเป้า
+export interface UUnit { u: string; product: string; admins: UMember[]; pages: UMember[]; target: number }
 export interface UMapDoc { units: UUnit[]; updatedAt: string }
 
 /* ---------------- seed (รายการตั้งต้นจากทีม 2026-07-21) ---------------- */
@@ -77,7 +78,10 @@ function normalizeDoc(raw: any): UMapDoc {
       pageIds.add(id);
       pages.push({ id, name });
     }
-    out.units.push({ u, product: normProduct(it && it.product), admins, pages });
+    // เป้าอาจถูกมือแก้ใน Supabase — กันค่าติดลบ/NaN/ใหญ่เกินจริง (เพดาน 1,000 ล้าน/เดือน)
+    const t = Number((it && it.target) || 0);
+    const target = isFinite(t) && t > 0 ? Math.min(Math.round(t), 1e9) : 0;
+    out.units.push({ u, product: normProduct(it && it.product), admins, pages, target });
   }
   sortUnits_(out.units);
   return out;
@@ -110,7 +114,7 @@ export async function getUMapDoc(): Promise<UMapDoc> {
     return normalizeDoc(parsed);
   }
   const doc: UMapDoc = {
-    units: SEED_UNITS.map(([u, product]) => ({ u, product, admins: [], pages: [] })),
+    units: SEED_UNITS.map(([u, product]) => ({ u, product, admins: [], pages: [], target: 0 })),
     updatedAt: '',
   };
   sortUnits_(doc.units);
@@ -183,13 +187,33 @@ export async function apiUMap(params: any) {
     const product = normProduct(p.product);
     if (!product) return { ok: false, error: 'กรอกชื่อผลิตภัณฑ์ด้วย' };
     if (doc.units.some((x) => x.u === u)) return { ok: false, error: u + ' มีอยู่แล้ว' };
-    doc.units.push({ u, product, admins: [], pages: [] });
+    doc.units.push({ u, product, admins: [], pages: [], target: 0 });
   } else if (action === 'editUnit') {
     const unit = doc.units.find((x) => x.u === u);
     if (!unit) return { ok: false, error: 'ไม่พบ ' + (u || 'U ที่ระบุ') };
     const product = normProduct(p.product);
     if (!product) return { ok: false, error: 'กรอกชื่อผลิตภัณฑ์ด้วย' };
     unit.product = product;
+  } else if (action === 'setTarget') {
+    // เป้ายอดขายต่อเดือนของยูนิต (บาท) — ส่ง 0 = ล้างเป้า
+    const unit = doc.units.find((x) => x.u === u);
+    if (!unit) return { ok: false, error: 'ไม่พบ ' + (u || 'U ที่ระบุ') };
+    const raw = Number(p.target);
+    if (!isFinite(raw) || raw < 0) return { ok: false, error: 'เป้าต้องเป็นตัวเลขไม่ติดลบ' };
+    if (raw > 1e9) return { ok: false, error: 'เป้าสูงเกินจริง (เกิน 1,000 ล้าน/เดือน)' };
+    unit.target = Math.round(raw);
+  } else if (action === 'setTargets') {
+    // ตั้งหลายยูนิตพร้อมกัน (โมดัลกรอกทีเดียวทั้งตาราง) — ยูนิตที่ไม่ได้ส่งมาไม่ถูกแตะ
+    const map = (p && p.targets) || {};
+    if (!map || typeof map !== 'object') return { ok: false, error: 'ข้อมูลเป้าไม่ถูกต้อง' };
+    for (const key of Object.keys(map)) {
+      const code = normCode(key);
+      const unit = code ? doc.units.find((x) => x.u === code) : null;
+      if (!unit) continue;
+      const raw = Number(map[key]);
+      if (!isFinite(raw) || raw < 0 || raw > 1e9) continue;
+      unit.target = Math.round(raw);
+    }
   } else if (action === 'removeUnit') {
     if (!doc.units.some((x) => x.u === u)) return { ok: false, error: 'ไม่พบ ' + (u || 'U ที่ระบุ') };
     doc.units = doc.units.filter((x) => x.u !== u);
@@ -291,6 +315,14 @@ export async function publicUMapPayload(uFilter?: string) {
       pages: (x.pages || []).map((m) => m.name),
     })),
   };
+}
+
+/** เป้ายอดขายต่อเดือนของแต่ละยูนิต (บาท) — ยูนิตที่ยังไม่ตั้งเป้าจะไม่อยู่ใน map */
+export async function getUnitTargets(): Promise<Record<string, number>> {
+  const doc = await getUMapDoc();
+  const out: Record<string, number> = {};
+  for (const unit of doc.units) if (unit.target > 0) out[unit.u] = unit.target;
+  return out;
 }
 
 /** map page_id → {u, product} จาก u_map — ให้หน้า Sales จัดกลุ่มยอดขายตามยูนิต */

@@ -2,7 +2,7 @@
 // server-side เท่านั้น: import { db, fetchAll } จาก @/lib/db
 // เปลี่ยนแค่แหล่งอ่าน (readTable_ → fetchAll) + กรองช่วงเวลาใน query เพื่อเลี่ยง 1000-row cap
 import { db, fetchAll } from '@/lib/db';
-import { getPageUnitMap } from './umap';
+import { getPageUnitMap, getUnitTargets } from './umap';
 import {
   EXCLUDED_STATUSES,
   NEED_CHECK_STATUSES,
@@ -505,7 +505,8 @@ function unitRows_(
   unitWeekly: Record<string, Record<string, number>>,
   unitCust: Record<string, Record<string, number[]>>,
   cost: Record<string, UnitCost>,
-  unmappedKey: string
+  unmappedKey: string,
+  goal: { targets: Record<string, number>; monthRevenue: Record<string, number>; daysLeft: number }
 ) {
   // ยูนิตที่ "ยิงแอดแต่ยังไม่มียอด" ต้องโผล่ด้วย ไม่งั้นค่าแอดที่จ่ายไปหายจากหน้าจอเงียบๆ
   const keys = Array.from(new Set(Object.keys(unitAgg).concat(Object.keys(cost))));
@@ -541,6 +542,15 @@ function unitRows_(
         repeatCustomers: rep.repeat,
         repeatRate: rep.rate,
         repeatCycleDays: rep.cycleDays,
+        // เป้า/ความคืบหน้า — ของ "เดือนปัจจุบัน" เสมอ ไม่ขึ้นกับช่วงวันที่ที่เลือก
+        // (เป้าที่ทีมตั้งเป็นเป้าต่อเดือน เอาไปเทียบกับช่วง 7 วันแล้วอ่านผิดทันที)
+        target: goal.targets[k] || 0,
+        monthRevenue: Math.round(goal.monthRevenue[k] || 0),
+        attain: goal.targets[k]
+          ? Math.round(((goal.monthRevenue[k] || 0) / goal.targets[k]) * 1000) / 10 : null,
+        // ต้องขายอีกวันละเท่าไหร่ถึงจะถึงเป้าสิ้นเดือน (ถึงเป้าแล้ว = 0)
+        needPerDay: goal.targets[k]
+          ? Math.max(0, Math.round((goal.targets[k] - (goal.monthRevenue[k] || 0)) / goal.daysLeft)) : null,
         weekly: Object.keys(unitWeekly[k] || {})
           .sort()
           .map((w) => ({ week: w, revenue: Math.round(unitWeekly[k][w]) })),
@@ -580,6 +590,20 @@ export async function apiSales(params: any) {
       : Promise.resolve([] as Row[]),
   ]);
   const orders = prevRows.concat(curRows, todayChunk);
+
+  /* ---- ความคืบหน้าเทียบเป้า "ของเดือนนี้" (ไม่ขึ้นกับฟิลเตอร์ช่วงวันที่) ----
+   * เป้าที่ทีมตั้งเป็นเป้า "ต่อเดือน" ถ้าเอาไปเทียบกับช่วงที่ผู้ใช้เลือก (เช่น 7 วัน) จะอ่านผิดทันที
+   * จึงยิงอีกคิวรีสั้นๆ เฉพาะเดือนปัจจุบัน แล้วรายงานคู่กันเสมอ — แบบเดียวกับการ์ด "วันนี้"
+   */
+  const monthStart = new Date(fmtDateBkk(new Date()).slice(0, 7) + '-01T00:00:00+07:00');
+  const unitTargets = await getUnitTargets().catch(() => ({} as Record<string, number>));
+  // ประหยัดคิวรี 2 ทาง: (1) ยังไม่มีใครตั้งเป้า = ไม่ต้องรู้ยอดเดือนนี้เลย
+  // (2) ช่วงที่เลือกครอบเดือนนี้อยู่แล้ว = ใช้ orders ที่โหลดมาแล้วได้ ไม่ต้องยิงซ้ำ
+  const hasTargets = Object.keys(unitTargets).length > 0;
+  const rangeCoversMonth = r.start.getTime() <= monthStart.getTime() && r.end.getTime() >= Date.now() - 60_000;
+  const monthRows: Row[] = !hasTargets ? []
+    : rangeCoversMonth ? orders
+    : await loadOrders_(monthStart.toISOString(), null, 'inserted_at,status,total_price,items_count,page_id');
 
   function matchChannel(o: Row): boolean {
     return !channel || orderChannel_(o) === channel;
@@ -757,6 +781,22 @@ export async function apiSales(params: any) {
   // ค่าแอด/คนทัก รายยูนิต — โหลดครั้งเดียว ใช้ร่วมกันทั้ง 3 แท็บช่องทาง
   const unitCost = await loadUnitCost_(r, pageUnit, pagePlatform, UNMAPPED);
 
+  // ยอดเดือนนี้ต่อยูนิต (ไว้เทียบเป้า) — นับเฉพาะออเดอร์ที่ยืนยันแล้ว เหมือนยอดขายหลัก
+  const monthByUnit: Record<string, number> = {};
+  monthRows.forEach((o) => {
+    if (o._excluded || o._needCheck) return;
+    const um = pageUnit[String(o.page_id || '')];
+    const key = um ? um.u : UNMAPPED;
+    monthByUnit[key] = (monthByUnit[key] || 0) + o.total_price;
+  });
+  // เหลืออีกกี่วันในเดือน (รวมวันนี้) — ใช้คิด "ต้องขายอีกวันละเท่าไหร่ถึงจะถึงเป้า"
+  const daysLeftInMonth = (() => {
+    const today = fmtDateBkk(new Date());
+    const y = Number(today.slice(0, 4)), m = Number(today.slice(5, 7));
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();   // วันสุดท้ายของเดือนนี้
+    return Math.max(1, lastDay - Number(today.slice(8, 10)) + 1);
+  })();
+
   function topAgg(list: Row[], chanKey: 'all' | 'facebook' | 'line' = 'all') {
     const pages: Record<string, { revenue: number; orders: number }> = {};
     const products: Record<string, { qty: number; value: number; orders: number }> = {};
@@ -845,7 +885,8 @@ export async function apiSales(params: any) {
         .sort((a, b) => (b.value - a.value) || (b.qty - a.qty))
         .slice(0, 10),
       // ยอดขายจัดกลุ่มตามยูนิต (U/สินค้า) — เจาะ U→เพจ→สินค้า ได้ (กลุ่ม "ยังไม่จัดกลุ่ม" ต่อท้ายเสมอ)
-      units: unitRows_(unitAgg, unitPages, unitWeekly, unitCust, unitCost[chanKey] || {}, UNMAPPED),
+      units: unitRows_(unitAgg, unitPages, unitWeekly, unitCust, unitCost[chanKey] || {}, UNMAPPED,
+        { targets: unitTargets, monthRevenue: monthByUnit, daysLeft: daysLeftInMonth }),
       pageProducts,   // เพจ→รายการสินค้าที่ขายได้
       productPages,   // สินค้า→เพจที่ขายได้
     };
