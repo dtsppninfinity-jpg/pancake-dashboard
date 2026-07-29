@@ -65,8 +65,10 @@ async function runDaily(): Promise<boolean> {
   const g = await runJob('ad-creatives', () => jobs.syncAdCreatives(14));
   // ต้องหลัง ad-creatives — งานนี้อาศัย post_id ของครีเอทีฟเติมเพจให้แถวที่ Pancake ผูกไม่ได้
   const i = await runJob('ad-page-fill', () => jobs.syncAdPageFill(45));
+  // ตีกลับจากชีทของทีม — ทีมกรอกมือรายวัน วันละครั้งพอ (ไม่ต้องถี่กว่านี้)
+  const j = await runJob('returns', jobs.syncReturns);
   const c = await runJob('prune', jobs.prune);
-  return a && b && c && d && e && f && g && h && i;
+  return a && b && c && d && e && f && g && h && i && j;
 }
 
 const MODE = (process.argv[2] || 'fast').toLowerCase();

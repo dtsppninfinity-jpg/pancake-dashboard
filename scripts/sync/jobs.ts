@@ -12,6 +12,7 @@ import {
   metaListAdAccounts, metaAccountAdInsights, metaAccountAdCreatives, metaAdCreativesByIds, metaPool,
 } from '../../lib/meta';
 import { supabase, upsertRows, replaceTable } from '../../lib/supabase';
+import { googleConfigured, driveListSheets, sheetTabs, sheetValuesBatch } from '../../lib/google';
 
 /* ---------------- helper: โหลดเพจ + token จาก DB ---------------- */
 
@@ -29,6 +30,122 @@ async function platformByPage(): Promise<Record<string, string>> {
   const m: Record<string, string> = {};
   (data || []).forEach((p: any) => { m[String(p.page_id)] = p.platform; });
   return m;
+}
+
+/* ---------------- RETURNS (สินค้าตีกลับ — จาก Google Sheets ของทีม) ---------------- */
+
+/** โฟลเดอร์ "สรุปตีกลับ PN 2569" — ทีมย้ายไฟล์รายเดือนมารวมไว้ที่นี่ (เปลี่ยนได้ผ่าน env) */
+const RETURNS_FOLDER = process.env.RETURNS_FOLDER_ID || '1-TRsabuDqS6x9KynI7niTncbCqwMh1Pd';
+
+/** 'd/m/yyyy' (รูปแบบที่ชีทใช้) → 'YYYY-MM-DD' — คืน null ถ้าอ่านไม่ออก */
+function parseSheetDate_(s: unknown): string | null {
+  const t = String(s || '').trim();
+  if (!t) return null;
+  const m = t.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
+  if (m) {
+    const [, d, mo, y] = m;
+    return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+  const iso = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return iso ? iso[0] : null;
+}
+
+function sheetNum_(s: unknown): number {
+  const n = Number(String(s || '').replace(/,/g, '').trim());
+  return isFinite(n) ? n : 0;
+}
+
+/**
+ * ดึงสินค้าตีกลับจากชีทรายเดือนทั้งโฟลเดอร์ ลงตาราง `returns`
+ *
+ * โครงตารางในชีท: หัวตารางคือแถวที่มีทั้ง "วันที่สั่งซื้อ" และ "พนักงาน"
+ * คอลัมน์ถัดจากนั้น: เลขพัสดุขาออก | ลูกค้า | เบอร์โทร | วันที่รับตีกลับ | เลขพัสดุขากลับ |
+ *                    ชื่อสินค้า | ราคา | จำนวนชิ้น | พนักงาน | เดือนที่รับตีกลับ
+ * ตำแหน่งคอลัมน์อ่านจากหัวตารางจริง ไม่ fix index — ทีมแทรกคอลัมน์เพิ่มได้โดยไม่พัง
+ *
+ * ⚠️ บางไฟล์มีแท็บที่เนื้อหาซ้ำกันเป๊ะ (ก๊อปไว้ให้ฝ่ายแพ็ค) จึงตัดซ้ำด้วยลายนิ้วมือของแถว
+ * ไม่งั้นยอดตีกลับจะเบิ้ลเป็นสองเท่าแบบเงียบๆ
+ */
+export async function syncReturns(): Promise<string> {
+  if (!googleConfigured()) return 'ข้าม: ยังไม่ได้ตั้ง GOOGLE_SA_KEY';
+  const files = await driveListSheets(RETURNS_FOLDER);
+  if (!files.length) return `ไม่พบไฟล์ในโฟลเดอร์ ${RETURNS_FOLDER}`;
+
+  let total = 0;
+  const parts: string[] = [];
+  for (const f of files) {
+    const tabs = await sheetTabs(f.id);
+    const ranges = tabs.map((t) => `'${t.replace(/'/g, "''")}'!A1:R2000`);
+    const batch = await sheetValuesBatch(f.id, ranges);
+
+    const rows: any[] = [];
+    const seen = new Set<string>();
+    let rowNo = 0;
+    for (const rangeKey of Object.keys(batch)) {
+      const grid = batch[rangeKey];
+      // หาแถวหัวตาราง
+      let head = -1;
+      const idx: Record<string, number> = {};
+      for (let i = 0; i < grid.length && head < 0; i++) {
+        const cells = grid[i].map((c) => String(c || '').trim());
+        if (cells.indexOf('วันที่สั่งซื้อ') >= 0 && cells.indexOf('พนักงาน') >= 0) {
+          head = i;
+          cells.forEach((c, j) => { if (c && idx[c] === undefined) idx[c] = j; });
+        }
+      }
+      if (head < 0) continue;
+
+      const at = (r: string[], name: string) => {
+        const j = idx[name];
+        return j === undefined ? '' : String(r[j] || '').trim();
+      };
+      let blanks = 0;
+      for (let i = head + 1; i < grid.length; i++) {
+        const r = grid[i];
+        const orderDate = parseSheetDate_(at(r, 'วันที่สั่งซื้อ'));
+        const staff = at(r, 'พนักงาน');
+        if (!orderDate || !staff) {
+          if (++blanks > 30) break;   // เจอช่องว่างยาว = จบตาราง (เว้นบรรทัดคั่นกลางมีบ้าง)
+          continue;
+        }
+        blanks = 0;
+        const product = at(r, 'ชื่อสินค้า');
+        const price = sheetNum_(at(r, 'ราคา'));
+        const shipTracking = at(r, 'เลขพัสดุขาออก');
+        // ลายนิ้วมือกันแท็บซ้ำ — ออเดอร์เดียวกันของพนักงานคนเดียวกัน สินค้าเดียวกัน ราคาเดียวกัน
+        const fp = [orderDate, shipTracking, product, staff, price].join('|');
+        if (seen.has(fp)) continue;
+        seen.add(fp);
+
+        const returnDate = parseSheetDate_(at(r, 'วันที่รับตีกลับ'));
+        rows.push({
+          key: `${f.id}#${++rowNo}`,
+          file_id: f.id,
+          month: (returnDate || orderDate).slice(0, 7),
+          order_date: orderDate,
+          ship_tracking: shipTracking,
+          customer: at(r, 'ลูกค้า'),
+          phone: at(r, 'เบอร์โทร'),
+          return_date: returnDate,
+          return_tracking: at(r, 'เลขพัสดุขากลับ'),
+          product,
+          price,
+          qty: sheetNum_(at(r, 'จำนวนชิ้น')) || 1,
+          staff,
+          is_crm: /^crm/i.test(staff),
+          updated_at: new Date().toISOString(),
+        });
+      }
+    }
+
+    // ลบของไฟล์นี้ทิ้งก่อนใส่ใหม่ — ทีมแทรก/ลบแถวกลางตารางได้ การ upsert อย่างเดียวจะเหลือขยะค้าง
+    const { error: delErr } = await supabase.from('returns').delete().eq('file_id', f.id);
+    if (delErr) throw new Error(`ลบ returns ของ ${f.name} ไม่สำเร็จ: ${delErr.message}`);
+    if (rows.length) await upsertRows('returns', rows, 'key');
+    total += rows.length;
+    parts.push(`${f.name.replace(/^📦สรุปตีกลับ\s*/, '').trim()}=${rows.length}`);
+  }
+  return `returns: ${total} ใบ จาก ${files.length} ไฟล์ (${parts.join(', ')})`;
 }
 
 /* ---------------- PAGES ---------------- */
