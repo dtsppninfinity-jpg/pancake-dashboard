@@ -37,6 +37,29 @@ export function nicknameOf(fullName: unknown, saved: unknown): string {
   return n || autoNickname(fullName);
 }
 
+/**
+ * map "ชื่อเต็มที่ Pancake ใช้" → "ชื่อเล่น" สำหรับหน้าที่มีแต่ชื่อ ไม่มี user_id
+ * (เช่นคนขายในออเดอร์ POS — เก็บมาเป็น seller_name ล้วนๆ ไม่มีรหัส)
+ *
+ * ชื่อเล่นที่ทีมพิมพ์ทับมาก่อนเสมอ ถ้ายังไม่เคยพิมพ์จึงเดาจากคำแรก — ชื่อ Pancake หลายคน
+ * เป็นนามแฝงคนละเรื่องกับตัวจริง ("Gary C. Madsen" = ก้า) เดายังไงก็ไม่ถูก ต้องพิมพ์ทับเท่านั้น
+ */
+export async function nicknameByName(): Promise<Record<string, string>> {
+  const out: Record<string, string> = {};
+  const { data: admins } = await db.from('admins').select('user_id,name');
+  if (!admins || !admins.length) return out;
+  let st = await db.from('admin_settings').select('user_id,nickname');
+  // คอลัมน์ nickname มาจาก migration 2026-07-27 — ฐานที่ยังไม่รันจะ error ตรงนี้ ให้ถอยไปใช้ค่าเดา
+  if (st.error && String(st.error.message || '').includes('nickname')) st = { data: [], error: null } as any;
+  const saved: Record<string, string> = {};
+  (st.data || []).forEach((s: any) => { if (s.nickname) saved[String(s.user_id)] = String(s.nickname); });
+  (admins as any[]).forEach((a) => {
+    const nm = String(a.name || '').replace(/\s+/g, ' ').trim();
+    if (nm) out[nm] = nicknameOf(nm, saved[String(a.user_id)]);
+  });
+  return out;
+}
+
 /** เป้า KPI ต่อคน/วัน ที่ทีมตั้งไว้ (ให้ apiAdminPerf ใช้ตอนวาดแถบความคืบหน้า) */
 export async function getKpiTargets(): Promise<KpiTargets> {
   const { data } = await db.from('sync_state').select('value').eq('key', KPI_TARGETS_KEY).maybeSingle();

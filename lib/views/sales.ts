@@ -1025,7 +1025,8 @@ function openNeedCheckDrill(scope: 'range' | 'today'): void {
       '<td style="white-space:nowrap">' + THB(o.total) + '</td>' +
       '<td>' + fmtNum(o.items) + '</td>' +
       '<td><span class="badge ' + cls + '">' + esc(o.statusName) + '</span></td>' +
-      '<td>' + esc(o.seller || '—') + '</td>' +
+      // แสดงชื่อเล่นเป็นหลัก ชื่อจริงอยู่ในทูลทิป (ทีมจำกันด้วยชื่อเล่น แต่ยันยอดใช้ชื่อจริง)
+      '<td title="' + esc(o.sellerFull || o.seller || '') + '">' + esc(o.seller || '—') + '</td>' +
     '</tr>';
   }).join('');
   const sumVal = list.reduce(function (s: number, o: any) { return s + (Number(o.total) || 0); }, 0);

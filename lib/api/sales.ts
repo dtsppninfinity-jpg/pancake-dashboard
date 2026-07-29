@@ -3,6 +3,7 @@
 // เปลี่ยนแค่แหล่งอ่าน (readTable_ → fetchAll) + กรองช่วงเวลาใน query เพื่อเลี่ยง 1000-row cap
 import { db, fetchAll } from '@/lib/db';
 import { getPageUnitMap, getUnitTargets } from './umap';
+import { nicknameByName } from './adminsettings';
 import {
   EXCLUDED_STATUSES,
   NEED_CHECK_STATUSES,
@@ -597,6 +598,12 @@ export async function apiSales(params: any) {
    */
   const monthStart = new Date(fmtDateBkk(new Date()).slice(0, 7) + '-01T00:00:00+07:00');
   const unitTargets = await getUnitTargets().catch(() => ({} as Record<string, number>));
+  // ชื่อเล่นแอดมิน — ทีมขอให้แสดงชื่อเล่นเป็นหลัก (ชื่อจริงยังเก็บไว้ ส่งไปด้วยเป็น fullName)
+  const nickBy = await nicknameByName().catch(() => ({} as Record<string, string>));
+  const nick_ = (n: unknown) => {
+    const nm = String(n || '').replace(/\s+/g, ' ').trim();
+    return nm ? (nickBy[nm] || nm) : '';
+  };
   // ประหยัดคิวรี 2 ทาง: (1) ยังไม่มีใครตั้งเป้า = ไม่ต้องรู้ยอดเดือนนี้เลย
   // (2) ช่วงที่เลือกครอบเดือนนี้อยู่แล้ว = ใช้ orders ที่โหลดมาแล้วได้ ไม่ต้องยิงซ้ำ
   const hasTargets = Object.keys(unitTargets).length > 0;
@@ -769,7 +776,8 @@ export async function apiSales(params: any) {
         status: o.status,                                   // 0 = ใหม่ | 17 = รอยืนยัน
         statusName: String(o.status_name || '') || ORDER_STATUS_TH[o.status] || String(o.status),
         // "คนขาย" ของ Pancake = seller ; ออเดอร์ใหม่บางใบมีแค่คนสร้าง (แอดมินที่กดสร้างจากแชท)
-        seller: String(o.seller_name || o.creator_name || ''),
+        seller: nick_(o.seller_name || o.creator_name),
+        sellerFull: String(o.seller_name || o.creator_name || ''),
       }));
   }
 
@@ -912,7 +920,7 @@ export async function apiSales(params: any) {
     list.forEach((o) => {
       value += o.total_price;
       const st = String(o.status_name || '') || ORDER_STATUS_TH[o.status] || String(o.status);
-      const person = String(o.seller_name || o.creator_name || '') || 'ไม่ระบุคนขาย';
+      const person = nick_(o.seller_name || o.creator_name) || 'ไม่ระบุคนขาย';
       const month = fmtDateBkk(o._at).slice(0, 7);
       for (const [bucket, key] of [[byStatus, st], [byPerson, person], [byMonth, month]] as const) {
         const b = bucket as Record<string, { orders: number; value: number }>;
