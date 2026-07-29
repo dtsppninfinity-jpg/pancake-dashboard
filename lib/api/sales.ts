@@ -394,6 +394,55 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
   }
 }
 
+/* ---------------- สินค้าตีกลับ (ตาราง returns) ---------------- */
+
+/**
+ * รวมสินค้าตีกลับในช่วงที่เลือก แยกตามเดือน / คน / สินค้า
+ *
+ * ที่มาของข้อมูลคือชีทที่ทีมกรอกมือ ไม่ใช่ Pancake (Pancake ไม่มีใบตีกลับเลยสักใบ)
+ * คืน null เมื่อยังไม่ได้รัน migration returns → หน้าเว็บซ่อนการ์ดนี้แทนที่จะโชว์ 0 ที่ไม่จริง
+ */
+async function loadReturns_(r: Range) {
+  const from = fmtDateBkk(r.start), to = fmtDateBkk(r.end);
+  const rows = await fetchAll<Row>(() =>
+    db.from('returns').select('key,month,staff,is_crm,price,qty,product,return_date')
+      .gte('return_date', from).lte('return_date', to), 'key');
+
+  const byMonth: Record<string, { orders: number; value: number }> = {};
+  const byStaff: Record<string, { orders: number; value: number }> = {};
+  const byProduct: Record<string, { orders: number; value: number }> = {};
+  let value = 0, crmOrders = 0, crmValue = 0;
+  rows.forEach((x) => {
+    const v = toNum_(x.price) * (toNum_(x.qty) || 1);
+    value += v;
+    if (x.is_crm) { crmOrders++; crmValue += v; }
+    const add = (b: Record<string, { orders: number; value: number }>, k: string) => {
+      const key = k || 'ไม่ระบุ';
+      if (!b[key]) b[key] = { orders: 0, value: 0 };
+      b[key].orders++; b[key].value += v;
+    };
+    add(byMonth, String(x.month || ''));
+    add(byStaff, String(x.staff || ''));
+    add(byProduct, String(x.product || ''));
+  });
+  const list = (b: Record<string, { orders: number; value: number }>, sortByName?: boolean) =>
+    Object.keys(b)
+      .map((k) => ({ name: k, orders: b[k].orders, value: Math.round(b[k].value) }))
+      .sort((a, x) => (sortByName ? (a.name < x.name ? -1 : 1) : x.orders - a.orders));
+
+  return {
+    orders: rows.length,
+    value: Math.round(value),
+    crmOrders,
+    crmValue: Math.round(crmValue),
+    adminOrders: rows.length - crmOrders,
+    adminValue: Math.round(value - crmValue),
+    byMonth: list(byMonth, true),
+    byStaff: list(byStaff).slice(0, 60),
+    byProduct: list(byProduct).slice(0, 40),
+  };
+}
+
 /* ---------------- ต้นทุน/คนทัก แยกตามยูนิต ---------------- */
 
 /** วันจันทร์ของสัปดาห์ที่วันนั้นอยู่ (เวลาไทย) เป็น 'YYYY-MM-DD' */
@@ -942,6 +991,12 @@ export async function apiSales(params: any) {
     };
   })();
 
+  /* ---- สินค้าตีกลับจริง (ตาราง returns — มาจากชีทรายเดือนของทีม) ----
+   * คนละเรื่องกับ "ยกเลิก" ด้านบน: ยกเลิก = ปิดใบก่อนส่ง / ตีกลับ = ส่งไปแล้วของกลับมา
+   * นับตาม "วันที่รับตีกลับ" ไม่ใช่วันที่สั่ง — ของที่สั่งเดือนก่อนแล้วกลับมาเดือนนี้ต้องอยู่เดือนนี้
+   */
+  const returns = await loadReturns_(r).catch(() => null);
+
   // ---- ลูกค้าเก่า (เคยซื้อภายใน 95 วันก่อนช่วงที่เลือก) — นับฝั่ง Postgres ผ่าน RPC ----
   // RPC ยังไม่ถูกสร้าง (migration ไม่ได้รัน) → คืน null ให้หน้าเว็บแสดง "—" ไม่ใช่เลขปลอม
   let returning: { total: number; returning: number; pct: number | null } | null = null;
@@ -1076,8 +1131,10 @@ export async function apiSales(params: any) {
     needCheckOrders: needCheckList_(curCh),
     // แชทค้างรอตอบ แยกตามชนิด (RATING รวมอยู่ใน inbox)
     waiting: { total: waitingConvs, inbox: waitingInbox, comment: waitingComment },
-    // ยกเลิก/ตีกลับ ของช่วงที่เลือก (รวม + รายสถานะ + รายคน + รายเดือน)
+    // ยกเลิก (ปิดใบก่อนส่ง) ของช่วงที่เลือก — รวม + รายสถานะ + รายคน + รายเดือน
     cancels: cancels,
+    // สินค้าตีกลับจริง (ส่งไปแล้วของกลับมา) จากชีทของทีม — null = ยังไม่ได้รัน migration returns
+    returns: returns,
     kpis: {
       revenue: Math.round(sCur.revenue),
       orders: sCur.orders,

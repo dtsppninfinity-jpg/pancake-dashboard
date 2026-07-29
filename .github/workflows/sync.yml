@@ -36,6 +36,8 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          # กุญแจบัญชีระบบ Google (อ่านชีทตีกลับของทีม) — ไม่ตั้ง = งาน returns ข้ามเงียบๆ
+          GOOGLE_SA_KEY: ${{ secrets.GOOGLE_SA_KEY }}
         run: |
           MODE="${{ github.event.inputs.mode || 'fast' }}"
           echo "mode = $MODE"

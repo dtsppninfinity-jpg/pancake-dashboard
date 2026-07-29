@@ -52,6 +52,12 @@ interface SalesData {
     orders: number; value: number; rate: number | null;
     byStatus: any[]; byPerson: any[]; byMonth: any[];
   } | null;
+  // สินค้าตีกลับจริง (ส่งไปแล้วของกลับมา) จากชีทของทีม — null = ยังไม่ได้รัน migration returns
+  returns?: {
+    orders: number; value: number;
+    crmOrders: number; crmValue: number; adminOrders: number; adminValue: number;
+    byMonth: any[]; byStaff: any[]; byProduct: any[];
+  } | null;
   kpis?: any;
   trends?: any;
   channels?: any;
@@ -581,6 +587,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         ? '<div class="pill-grid" style="margin:12px 0 0">' + statusPills + '</div>'
         : '') +
       cancelSummary_(d.cancels) +
+      returnSummary_(d.returns) +
     '</div>' +
     '<div class="card">' +
       '<h3>🔔 สิ่งที่ควรตรวจวันนี้</h3>' +
@@ -612,6 +619,9 @@ function bindEvents(container: HTMLElement): void {
 
   const cancelBtn = container.querySelector('#sr-cancels');
   if (cancelBtn) cancelBtn.addEventListener('click', openCancelDrill);
+
+  const retBtn = container.querySelector('#sr-returns');
+  if (retBtn) retBtn.addEventListener('click', openReturnDrill);
 
   const csvBtn = container.querySelector('#sr-csv');
   if (csvBtn) csvBtn.addEventListener('click', exportCsv);
@@ -825,6 +835,51 @@ function cancelSummary_(c: any): string {
     (c.rate === null ? '' : '<span class="chip">' + pctFmt(c.rate) + ' ของใบทั้งหมด</span>') +
     '<button class="btn-mini" id="sr-cancels">📋 ดูรายคน / รายเดือน</button>' +
     '</div>';
+}
+
+/**
+ * แถบสรุป "สินค้าตีกลับ" — คนละก้อนกับยกเลิก
+ * ยกเลิก = ปิดใบก่อนส่ง (อยู่ในสถานะออเดอร์ของ Pancake)
+ * ตีกลับ = ส่งไปแล้วของเดินทางกลับ (Pancake ไม่มีข้อมูลนี้เลย ทีมกรอกมือในชีทรายเดือน)
+ */
+function returnSummary_(t: any): string {
+  if (!t || !t.orders) return '';
+  return '<div class="pill-grid" style="margin:8px 0 0;align-items:center">' +
+    '<span class="badge urgent">📦 ตีกลับ ' + fmtNum(t.orders) + ' ใบ</span>' +
+    '<span class="chip">' + THB(t.value) + '</span>' +
+    '<span class="chip">แอดมิน ' + fmtNum(t.adminOrders) + ' / CRM ' + fmtNum(t.crmOrders) + '</span>' +
+    '<button class="btn-mini" id="sr-returns">📋 ดูรายคน / รายสินค้า</button>' +
+    '</div>';
+}
+
+function openReturnDrill(): void {
+  const t = (lastData && lastData.returns) || null;
+  if (!t || !t.orders) { toast('ไม่มีสินค้าตีกลับในช่วงนี้'); return; }
+  const tbl = function (title: string, rows: any[], firstCol: string) {
+    if (!rows.length) return '';
+    const body = rows.map(function (x: any, i: number) {
+      return '<tr><td>' + (i + 1) + '</td><td>' + esc(x.name) + '</td>' +
+        '<td class="num">' + fmtNum(x.orders) + '</td><td class="num">' + THB(x.value) + '</td></tr>';
+    }).join('');
+    return '<h4 style="margin:10px 0 6px">' + title + '</h4>' +
+      '<div class="table-scroll"><table class="tbl"><thead><tr><th>#</th><th>' + firstCol +
+      '</th><th class="num">ใบ</th><th class="num">มูลค่า</th></tr></thead><tbody>' + body + '</tbody></table></div>';
+  };
+  openModal(
+    '<div class="modal-head"><h3>📦 สินค้าตีกลับ</h3><button class="modal-close">✕</button></div>' +
+    '<div class="card-sub" style="margin-bottom:10px">' + esc((lastData && lastData.rangeLabel) || '') +
+      ' — นับตาม<b>วันที่รับตีกลับ</b> (ของที่สั่งเดือนก่อนแล้วกลับมาเดือนนี้ จะอยู่ในเดือนนี้) • ' +
+      'ที่มา: ชีท "สรุปตีกลับ" ที่ทีมกรอก ไม่ใช่ข้อมูลจาก Pancake</div>' +
+    '<div class="pill-grid" style="margin-bottom:6px">' +
+      '<span class="chip">🧾 ' + fmtNum(t.orders) + ' ใบ</span>' +
+      '<span class="chip">💰 ' + THB(t.value) + '</span>' +
+      '<span class="chip">👤 แอดมิน ' + fmtNum(t.adminOrders) + ' ใบ / ' + THB(t.adminValue) + '</span>' +
+      '<span class="chip">🎧 CRM ' + fmtNum(t.crmOrders) + ' ใบ / ' + THB(t.crmValue) + '</span>' +
+      '</div>' +
+    tbl('📅 แยกตามเดือน', t.byMonth || [], 'เดือน') +
+    tbl('👤 แยกตามคน (แอดมิน + CRM)', t.byStaff || [], 'ชื่อเล่น') +
+    tbl('📦 แยกตามสินค้า', t.byProduct || [], 'สินค้า')
+  );
 }
 
 function openCancelDrill(): void {

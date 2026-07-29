@@ -10,6 +10,14 @@ out/
 
 # ข้อมูลธุรกิจ/PII จากชีตเดิม — ห้ามขึ้น git
 *.xlsx
+
+# กุญแจ service account ของ Google (ไฟล์ .json ที่ Cloud Console ให้ดาวน์โหลด)
+# ค่าจริงอยู่ใน .env.local (GOOGLE_SA_KEY) และ GitHub Secrets — ตัวไฟล์ไม่ควรค้างในเครื่องด้วยซ้ำ
+*-service-account*.json
+*iam.gserviceaccount*.json
+pos-pancake-dashboard-sheets-*.json
+gcp-*.json
+service-account*.json
 # build cache ของ TypeScript
 *.tsbuildinfo
 
