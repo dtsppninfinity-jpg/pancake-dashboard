@@ -182,7 +182,7 @@ async function loadAdSpend_(fromDate: string, toDate: string): Promise<Record<st
   try {
     const rows = await fetchAll<any>(() =>
       db.from('ad_daily').select('date,ad_id,spend').gte('date', fromDate).lte('date', toDate),
-      'ad_id'
+      'date,ad_id'
     );
     const byAd: Record<string, number> = {};
     rows.forEach((a) => {

@@ -11,13 +11,25 @@ async function main() {
   const days = Math.max(1, Math.min(400, Math.round(Number(process.argv[2]) || 90)));
   const CHUNK = 30; // แบ่งเป็นหน้าต่าง ~30 วัน กัน range ยาวเกินของ Meta insights
   console.log(`▶ backfill Meta ads ย้อนหลัง ${days} วัน (ทีละ ${CHUNK} วัน)`);
+  const failed: string[] = [];
   for (let start = days; start >= 1; start -= CHUNK) {
     const since = fmtDateBkk(daysAgo(start));
     const untilOffset = Math.max(1, start - CHUNK + 1);
     const until = fmtDateBkk(daysAgo(untilOffset));
     const t0 = Date.now();
-    const msg = await syncMetaAdsRange(since, until);
-    console.log(`  ✅ ${msg} (${Math.round((Date.now() - t0) / 1000)}s)`);
+    // ช่วงหนึ่งพังไม่ควรทิ้งช่วงที่เหลือ (รอบก่อนเน็ตหลุดตอนเขียน DB แล้วงานตายทั้งดุ้น)
+    try {
+      const msg = await syncMetaAdsRange(since, until);
+      console.log(`  ✅ ${msg} (${Math.round((Date.now() - t0) / 1000)}s)`);
+    } catch (e: any) {
+      failed.push(`${since}..${until}`);
+      console.log(`  ❌ ${since}..${until}: ${e?.message || e} (${Math.round((Date.now() - t0) / 1000)}s)`);
+    }
+  }
+  if (failed.length) {
+    console.log(`■ จบแบบไม่ครบ — ${failed.length} ช่วงล้มเหลว: ${failed.join(', ')} (รันซ้ำได้ ทุกอย่างเป็น upsert)`);
+    process.exitCode = 1;
+    return;
   }
   console.log('■ เสร็จ');
 }

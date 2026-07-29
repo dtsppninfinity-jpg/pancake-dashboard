@@ -326,7 +326,7 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
           .select('date,ad_id,page_id,name,status,spend,pos_orders,meta_purchases,meta_purchase_value,msgs_started,updated_at')
           .gte('date', dateOf(r.prevStart))
           .lte('date', dateOf(r.end)),
-        'ad_id'
+        'date,ad_id'
       );
     } catch (e2: any) {
       if (!String((e2 && e2.message) || '').includes('meta_purchase')) throw e2;
@@ -335,7 +335,7 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
           .select('date,ad_id,page_id,name,status,spend,pos_orders,msgs_started,updated_at')
           .gte('date', dateOf(r.prevStart))
           .lte('date', dateOf(r.end)),
-        'ad_id'
+        'date,ad_id'
       );
     }
     const curFrom = dateOf(r.start), curTo = dateOf(r.end);
@@ -391,6 +391,129 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
     if (m.includes('ad_daily') && (m.includes('does not exist') || m.includes('schema cache'))) return null;
     throw e;
   }
+}
+
+/* ---------------- ต้นทุน/คนทัก แยกตามยูนิต ---------------- */
+
+/** วันจันทร์ของสัปดาห์ที่วันนั้นอยู่ (เวลาไทย) เป็น 'YYYY-MM-DD' */
+function bkkWeekStart_(d: Date): string {
+  // ยึดเที่ยงวันไทยเป็นหลัก — บวกลบวันข้ามเดือน/ข้ามปีแล้วไม่หลุดไปวันข้างเคียง
+  const noon = new Date(fmtDateBkk(d) + 'T12:00:00+07:00');
+  const dow = (noon.getUTCDay() + 6) % 7;   // จันทร์ = 0
+  return fmtDateBkk(new Date(noon.getTime() - dow * 86400000));
+}
+
+export interface UnitCost { spend: number; msgs: number; reached: number; engOrders: number }
+type UnitCostByChannel = Record<string, Record<string, UnitCost>>;
+
+/**
+ * ค่าแอด (ad_daily) + คนทัก (chat_engagement_daily) รวมเป็นรายยูนิต
+ *
+ * ทั้งสองตารางเก็บเป็น "รายเพจต่อวัน" จึงจับเข้ายูนิตผ่าน pageUnit ได้ตรงๆ
+ * แยกเก็บ 3 ช่อง (all / facebook / line) ตาม platform ของเพจ เพื่อให้สลับแท็บช่องทาง
+ * แล้วตัวเลขต้นทุนขยับตามยอดขาย ไม่ใช่ค้างเป็นยอดรวมทุกช่อง
+ *
+ * เพจที่ยังไม่จับคู่ยูนิตตกกลุ่ม UNMAPPED เหมือนฝั่งยอดขาย — ตัวเลขจึงบวกกลับได้ครบเสมอ
+ */
+async function loadUnitCost_(
+  r: Range,
+  pageUnit: Record<string, { u: string; product: string }>,
+  pagePlatform: Record<string, string>,
+  unmappedKey: string
+): Promise<UnitCostByChannel> {
+  const from = fmtDateBkk(r.start), to = fmtDateBkk(r.end);
+  const out: UnitCostByChannel = { all: {}, facebook: {}, line: {} };
+  const bump = (pageId: string, patch: Partial<UnitCost>) => {
+    const um = pageUnit[pageId];
+    const key = um ? um.u : unmappedKey;
+    const ch = platformChannel_(pagePlatform[pageId] || '');
+    for (const bucket of ['all', ch]) {
+      if (!out[bucket]) continue;   // ch = 'other' ไม่มีถัง — นับเฉพาะ all
+      if (!out[bucket][key]) out[bucket][key] = { spend: 0, msgs: 0, reached: 0, engOrders: 0 };
+      const t = out[bucket][key];
+      t.spend += patch.spend || 0;
+      t.msgs += patch.msgs || 0;
+      t.reached += patch.reached || 0;
+      t.engOrders += patch.engOrders || 0;
+    }
+  };
+
+  try {
+    const ads = await fetchAll<Row>(() =>
+      db.from('ad_daily').select('ad_id,date,page_id,spend,msgs_started')
+        .gte('date', from).lte('date', to), 'date,ad_id');
+    ads.forEach((a) => {
+      const pid = String(a.page_id || '');
+      if (!pid) return;   // แอดที่ Pancake ยังไม่ผูกเพจ — ยัดเข้ายูนิตไหนก็มั่ว ทิ้งดีกว่าเดา
+      bump(pid, { spend: toNum_(a.spend), msgs: toNum_(a.msgs_started) });
+    });
+  } catch { /* ยังไม่มีตาราง ad_daily — ปล่อยค่าเป็น 0 แล้วให้ฝั่ง UI โชว์ "—" */ }
+
+  try {
+    const eng = await fetchAll<Row>(() =>
+      db.from('chat_engagement_daily').select('key,date,page_id,new_inbox,comment,order_count')
+        .gte('date', from).lte('date', to), 'key');
+    eng.forEach((e) => {
+      const pid = String(e.page_id || '');
+      if (!pid) return;
+      bump(pid, { reached: toNum_(e.new_inbox) + toNum_(e.comment), engOrders: toNum_(e.order_count) });
+    });
+  } catch { /* ยังไม่มีตาราง chat_engagement_daily */ }
+
+  return out;
+}
+
+/**
+ * ประกอบแถว "ยูนิต" ที่ส่งให้หน้าเว็บ — ยอดขาย + ต้นทุนแอด + คนทัก + รายสัปดาห์
+ *
+ * ตัวหาร 0 คืน null ไม่ใช่ 0 ทุกจุด — หน้าเว็บจะได้แสดง "—" แทนเลขที่อ่านเหมือนวัดแล้วได้ศูนย์
+ * (เช่นยูนิตที่ไม่ยิงแอดเลย ROAS ไม่ใช่ 0 แต่ "ไม่มีค่า")
+ */
+function unitRows_(
+  unitAgg: Record<string, { u: string; product: string; revenue: number; orders: number }>,
+  unitPages: Record<string, Record<string, { revenue: number; orders: number }>>,
+  unitWeekly: Record<string, Record<string, number>>,
+  cost: Record<string, UnitCost>,
+  unmappedKey: string
+) {
+  // ยูนิตที่ "ยิงแอดแต่ยังไม่มียอด" ต้องโผล่ด้วย ไม่งั้นค่าแอดที่จ่ายไปหายจากหน้าจอเงียบๆ
+  const keys = Array.from(new Set(Object.keys(unitAgg).concat(Object.keys(cost))));
+  const grand = keys.reduce((s, k) => s + ((unitAgg[k] && unitAgg[k].revenue) || 0), 0);
+  return keys
+    .map((k) => {
+      const agg = unitAgg[k] || { u: k === unmappedKey ? '' : k, product: k === unmappedKey ? 'ยังไม่จัดกลุ่ม' : '', revenue: 0, orders: 0 };
+      const c = cost[k] || { spend: 0, msgs: 0, reached: 0, engOrders: 0 };
+      const revenue = Math.round(agg.revenue);
+      const spend = Math.round(c.spend);
+      return {
+        key: k,
+        u: agg.u,
+        product: agg.product,
+        revenue,
+        orders: agg.orders,
+        mapped: k !== unmappedKey,
+        spend,
+        // ROAS = ยอดขาย POS ÷ ค่าแอดจริงจาก Meta (ไม่ใช่ ROAS ที่ Meta ตีเองจาก pixel)
+        roas: c.spend > 0 ? Math.round((agg.revenue / c.spend) * 100) / 100 : null,
+        // "ค่าทัก" = ค่าแอดต่อ 1 บทสนทนาที่แอดเปิดได้ (messaging_conversation_started)
+        costPerMsg: c.msgs > 0 ? Math.round((c.spend / c.msgs) * 100) / 100 : null,
+        msgs: Math.round(c.msgs),
+        reached: Math.round(c.reached),
+        // %ปิด = ออเดอร์จากแชท ÷ คนทัก (สูตรเดียวกับ KPI ด้านบน — ตัวเลขทั้งคู่มาจาก Pancake)
+        closeRate: c.reached > 0 ? Math.round((c.engOrders / c.reached) * 1000) / 10 : null,
+        // สัดส่วนยอดของยูนิตนี้ต่อยอดรวมทั้งหมดในช่วง
+        share: grand > 0 ? Math.round((agg.revenue / grand) * 1000) / 10 : null,
+        // กำไรขั้นต้นแบบหยาบ: ยอดขาย - ค่าแอด (ยังไม่มีต้นทุนสินค้าในระบบ ห้ามเรียกว่า "กำไร")
+        afterAds: c.spend > 0 ? revenue - spend : null,
+        weekly: Object.keys(unitWeekly[k] || {})
+          .sort()
+          .map((w) => ({ week: w, revenue: Math.round(unitWeekly[k][w]) })),
+        pages: Object.keys(unitPages[k] || {})
+          .map((nm) => ({ name: nm, revenue: Math.round(unitPages[k][nm].revenue), orders: unitPages[k][nm].orders }))
+          .sort((a, b) => b.revenue - a.revenue),
+      };
+    })
+    .sort((a, b) => (a.mapped === b.mapped) ? (b.revenue - a.revenue) : (a.mapped ? -1 : 1));
 }
 
 /* ================================================================
@@ -557,9 +680,13 @@ export async function apiSales(params: any) {
 
   // ---- Top เพจ / Top สินค้า ของช่วงที่เลือก (ใช้ทั้ง hbar บนหน้า + drilldown modal) ----
   const pageNames: Record<string, string> = {};
+  const pagePlatform: Record<string, string> = {};
   {
-    const pageRows = await fetchAll<Row>(() => db.from('pages').select('page_id,name'), 'page_id');
-    pageRows.forEach((p) => { pageNames[String(p.page_id)] = String(p.name || ''); });
+    const pageRows = await fetchAll<Row>(() => db.from('pages').select('page_id,name,platform'), 'page_id');
+    pageRows.forEach((p) => {
+      pageNames[String(p.page_id)] = String(p.name || '');
+      pagePlatform[String(p.page_id)] = String(p.platform || '');
+    });
   }
   // ---- รายออเดอร์ "ต้องตรวจ" (สถานะ ใหม่/รอยืนยัน) ให้หน้าเว็บกดดูได้ว่าเป็นใบไหนบ้าง ----
   // เดิมส่งมาแค่ตัวเลข กดแล้วไม่มีอะไรให้ดู แอดมินต้องไปไล่หาเองใน Pancake
@@ -591,8 +718,10 @@ export async function apiSales(params: any) {
   let pageUnit: Record<string, { u: string; product: string }> = {};
   try { pageUnit = await getPageUnitMap(); } catch { pageUnit = {}; }
   const UNMAPPED = '__none__';
+  // ค่าแอด/คนทัก รายยูนิต — โหลดครั้งเดียว ใช้ร่วมกันทั้ง 3 แท็บช่องทาง
+  const unitCost = await loadUnitCost_(r, pageUnit, pagePlatform, UNMAPPED);
 
-  function topAgg(list: Row[]) {
+  function topAgg(list: Row[], chanKey: 'all' | 'facebook' | 'line' = 'all') {
     const pages: Record<string, { revenue: number; orders: number }> = {};
     const products: Record<string, { qty: number; value: number; orders: number }> = {};
     // cross-tab สำหรับ drilldown: เพจ→สินค้า และ สินค้า→เพจ (นับยอดขายรายคู่)
@@ -601,6 +730,8 @@ export async function apiSales(params: any) {
     // จัดกลุ่มตามยูนิต: unitAgg = ยอดรวมต่อยูนิต, unitPages = เพจในยูนิต (สำหรับเจาะ U→เพจ)
     const unitAgg: Record<string, { u: string; product: string; revenue: number; orders: number }> = {};
     const unitPages: Record<string, Record<string, { revenue: number; orders: number }>> = {};
+    // ยอดรายสัปดาห์ต่อยูนิต (key = วันจันทร์ของสัปดาห์) — บรีฟขอ "ยอดขายรายสัปดาห์ของเดือน"
+    const unitWeekly: Record<string, Record<string, number>> = {};
     list.forEach((o) => {
       if (o._needCheck) return;   // Top เพจ/สินค้า นับเฉพาะยืนยันแล้ว (ตรงกับยอดขายหลัก)
       const pg = pageNames[String(o.page_id || '')] || String(o.account_name || '') || 'ไม่ระบุเพจ';
@@ -619,6 +750,9 @@ export async function apiSales(params: any) {
       if (!unitPages[ukey][pg]) unitPages[ukey][pg] = { revenue: 0, orders: 0 };
       unitPages[ukey][pg].revenue += o.total_price;
       unitPages[ukey][pg].orders++;
+      const wk = bkkWeekStart_(o._at);
+      if (!unitWeekly[ukey]) unitWeekly[ukey] = {};
+      unitWeekly[ukey][wk] = (unitWeekly[ukey][wk] || 0) + o.total_price;
       parseItems_(o.items_json).forEach((it: any) => {
         const nm = String((it && it.name) || '').trim();
         if (!nm) return;
@@ -668,28 +802,16 @@ export async function apiSales(params: any) {
         .sort((a, b) => (b.value - a.value) || (b.qty - a.qty))
         .slice(0, 10),
       // ยอดขายจัดกลุ่มตามยูนิต (U/สินค้า) — เจาะ U→เพจ→สินค้า ได้ (กลุ่ม "ยังไม่จัดกลุ่ม" ต่อท้ายเสมอ)
-      units: Object.keys(unitAgg)
-        .map((k) => ({
-          key: k,
-          u: unitAgg[k].u,
-          product: unitAgg[k].product,
-          revenue: Math.round(unitAgg[k].revenue),
-          orders: unitAgg[k].orders,
-          mapped: k !== UNMAPPED,
-          pages: Object.keys(unitPages[k] || {})
-            .map((nm) => ({ name: nm, revenue: Math.round(unitPages[k][nm].revenue), orders: unitPages[k][nm].orders }))
-            .sort((a, b) => b.revenue - a.revenue),
-        }))
-        .sort((a, b) => (a.mapped === b.mapped) ? (b.revenue - a.revenue) : (a.mapped ? -1 : 1)),
+      units: unitRows_(unitAgg, unitPages, unitWeekly, unitCost[chanKey] || {}, UNMAPPED),
       pageProducts,   // เพจ→รายการสินค้าที่ขายได้
       productPages,   // สินค้า→เพจที่ขายได้
     };
   }
 
   const top = {
-    all: topAgg(cur),
-    facebook: topAgg(cur.filter((o) => orderChannel_(o) === 'facebook')),
-    line: topAgg(cur.filter((o) => orderChannel_(o) === 'line')),
+    all: topAgg(cur, 'all'),
+    facebook: topAgg(cur.filter((o) => orderChannel_(o) === 'facebook'), 'facebook'),
+    line: topAgg(cur.filter((o) => orderChannel_(o) === 'line'), 'line'),
   };
 
   // ---- ลูกค้าเก่า (เคยซื้อภายใน 95 วันก่อนช่วงที่เลือก) — นับฝั่ง Postgres ผ่าน RPC ----

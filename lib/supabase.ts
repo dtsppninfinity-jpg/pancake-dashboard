@@ -28,10 +28,32 @@ export async function upsertRows(table: string, rows: any[], onConflict: string)
   const CHUNK = 500;
   for (let i = 0; i < unique.length; i += CHUNK) {
     const batch = unique.slice(i, i + CHUNK);
-    const { error } = await supabase.from(table).upsert(batch, { onConflict });
-    if (error) throw new Error(`upsert ${table} ล้มเหลว: ${error.message}`);
+    // เน็ตสะดุด/Supabase คืน 5xx ชั่วคราว ไม่ควรทำงาน backfill ที่รันมาแล้วครึ่งชั่วโมงพังทั้งดุ้น
+    // ลองซ้ำ 3 ครั้งแบบถอยเวลา แล้วค่อยโยน — ข้อผิดพลาดของข้อมูลเอง (schema/constraint) ไม่ลองซ้ำ
+    let lastErr = '';
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const { error } = await supabase.from(table).upsert(batch, { onConflict });
+        if (!error) { lastErr = ''; break; }
+        lastErr = error.message;
+        if (!isTransient_(lastErr)) break;
+      } catch (e: any) {
+        lastErr = String((e && e.message) || e);
+        if (!isTransient_(lastErr)) break;
+      }
+      if (attempt < 3) await new Promise((r) => setTimeout(r, attempt * 5000));
+    }
+    if (lastErr) throw new Error(`upsert ${table} ล้มเหลว: ${lastErr}`);
   }
   return unique.length;
+}
+
+/** ข้อผิดพลาดชั่วคราวที่ลองใหม่แล้วมีโอกาสผ่าน (เน็ต/เกตเวย์) — ไม่ใช่ปัญหาที่ตัวข้อมูล */
+function isTransient_(msg: string): boolean {
+  const m = String(msg || '').toLowerCase();
+  return m.includes('fetch failed') || m.includes('timeout') || m.includes('etimedout') ||
+    m.includes('econnreset') || m.includes('socket') || m.includes('network') ||
+    m.includes('502') || m.includes('503') || m.includes('504');
 }
 
 /** เขียนทับทั้งตาราง (ลบเก่าทั้งหมด แล้วใส่ใหม่) — สำหรับ ads / admins snapshot */

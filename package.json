@@ -22,7 +22,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "backfill:recover": "tsx scripts/setup/backfill-recover.ts"
+    "backfill:recover": "tsx scripts/setup/backfill-recover.ts",
+    "fill:ad-pages": "tsx scripts/setup/fill-ad-pages.ts",
+    "seed:page-units": "tsx scripts/setup/seed-page-units.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

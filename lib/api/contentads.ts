@@ -73,7 +73,7 @@ async function loadAdsFromDaily_(days: number): Promise<{ ads: AdRow[]; daysCove
         'link_clicks,ctr,cpm,msgs_started,first_replies,phones,pos_orders,' +
         'meta_purchases,meta_purchase_value,optimization_goal,updated_at'
       ).gte('date', from),
-      'ad_id'
+      'date,ad_id'
     );
   } catch (e: any) {
     const m = String((e && e.message) || e || '');
@@ -84,7 +84,7 @@ async function loadAdsFromDaily_(days: number): Promise<{ ads: AdRow[]; daysCove
           'date,ad_id,page_id,page_name,name,status,account_id,spend,impressions,reach,clicks,' +
           'link_clicks,ctr,cpm,msgs_started,first_replies,phones,pos_orders,optimization_goal,updated_at'
         ).gte('date', from),
-        'ad_id'
+        'date,ad_id'
       );
     } else if (m.includes('ad_daily') && (m.includes('does not exist') || m.includes('schema cache'))) {
       return { ads: [], daysCovered: 0 };

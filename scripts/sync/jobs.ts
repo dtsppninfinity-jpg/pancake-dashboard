@@ -342,6 +342,64 @@ export const syncMetaAdsForDate = (dateStr: string) => syncMetaAdsRange(dateStr,
 export const syncMetaAdsToday = () => syncMetaAdsForDate(fmtDateBkk(new Date()));
 export const syncMetaAdsYesterday = () => syncMetaAdsForDate(fmtDateBkk(daysAgo(1)));
 
+/**
+ * เติม page_id ให้แถว ad_daily ที่ Pancake ผูกเพจให้ไม่ได้ โดยอ่านจากครีเอทีฟของแอด
+ *
+ * ที่มาของรู: แถวจาก Meta ถูกเขียนโดยไม่มี page_id (Meta insights ไม่ได้บอกเพจ) แล้วรอ
+ * syncAdStats ของ Pancake มาเติมให้ทีหลัง — แต่แอดที่ Pancake มองไม่เห็นก็ไม่มีใครเติม
+ * ผลคือค่าแอดก้อนนั้นผูกยูนิตไม่ได้ (ตรวจ 2026-07-29: ฿885,725 = 9.6% ของ 30 วัน)
+ *
+ * ad_creative.post_id ของ Meta อยู่ในรูป "<page_id>_<post_id>" — ตัดหน้ามาใช้ได้ตรงๆ
+ * ครอบคลุม 99.4% ของยอดที่ขาด (เหลือ 101 แอดที่ยังไม่มีครีเอทีฟในระบบ)
+ */
+export async function syncAdPageFill(days = 45): Promise<string> {
+  const from = fmtDateBkk(daysAgo(days));
+  const holes: any[] = [];
+  for (let page = 0; ; page++) {
+    const { data, error } = await supabase.from('ad_daily')
+      .select('date,ad_id').eq('page_id', '').gte('date', from)
+      .order('date', { ascending: true }).order('ad_id', { ascending: true })
+      .range(page * 1000, page * 1000 + 999);
+    if (error) throw new Error(`อ่าน ad_daily ล้มเหลว: ${error.message}`);
+    holes.push(...(data || []));
+    if ((data || []).length < 1000) break;
+  }
+  if (!holes.length) return 'ad page fill: ไม่มีแถวที่ขาดเพจ';
+
+  const wanted = new Set(holes.map((h) => String(h.ad_id)));
+  const pageOfAd: Record<string, string> = {};
+  for (let page = 0; ; page++) {
+    const { data, error } = await supabase.from('ad_creative')
+      .select('ad_id,post_id').order('ad_id', { ascending: true })
+      .range(page * 1000, page * 1000 + 999);
+    if (error) throw new Error(`อ่าน ad_creative ล้มเหลว: ${error.message}`);
+    (data || []).forEach((c: any) => {
+      const adId = String(c.ad_id);
+      if (!wanted.has(adId)) return;
+      const pid = String(c.post_id || '').split('_')[0];
+      if (pid) pageOfAd[adId] = pid;
+    });
+    if ((data || []).length < 1000) break;
+  }
+
+  const { data: pgs } = await supabase.from('pages').select('page_id,name');
+  const nameOf: Record<string, string> = {};
+  (pgs || []).forEach((p: any) => { nameOf[String(p.page_id)] = String(p.name || ''); });
+
+  const rows = holes
+    .filter((h) => pageOfAd[String(h.ad_id)])
+    .map((h) => ({
+      date: h.date, ad_id: String(h.ad_id),
+      page_id: pageOfAd[String(h.ad_id)],
+      page_name: nameOf[pageOfAd[String(h.ad_id)]] || '',
+      updated_at: new Date().toISOString(),
+    }));
+  if (rows.length) await upsertRows('ad_daily', rows, 'date,ad_id');
+  const stillMissing = new Set(holes.filter((h) => !pageOfAd[String(h.ad_id)]).map((h) => String(h.ad_id)));
+  return `ad page fill: เติม ${rows.length}/${holes.length} แถว` +
+    (stillMissing.size ? ` | ยังไม่มีครีเอทีฟ ${stillMissing.size} แอด` : '');
+}
+
 /* ---------------- AD CREATIVE (รูป/คลิป/ลิงก์โพสต์ของแอด) ---------------- */
 
 /** เพดานต่อรอบ — กันวันที่มีแอดใหม่พรวดเดียวเป็นหมื่นแล้วงาน daily ค้างยาว (ที่เหลือไปรอบหน้า) */

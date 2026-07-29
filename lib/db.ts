@@ -16,10 +16,15 @@ export async function fetchAll<T = any>(build: () => any, orderColumn = 'id', as
   const PAGE = 1000;
   let from = 0;
   const out: T[] = [];
+  // รับหลายคอลัมน์คั่นด้วยคอมมาได้ (เช่น 'date,ad_id') — ตารางที่ primary key เป็นคู่คอลัมน์
+  // ต้องเรียงครบทุกคอลัมน์ ไม่งั้นลำดับยังไม่ unique และ pagination ก็ยังข้ามแถวได้อยู่ดี
+  const cols = orderColumn.split(',').map((s) => s.trim()).filter(Boolean);
   for (;;) {
     // ต้อง .order() บนคอลัมน์ที่ unique (มัก = primary key) — ไม่งั้น PostgREST อาจคืนลำดับไม่คงที่
     // ข้าม page เมื่อข้อมูลเกิน 1000 แถว → ข้าม/นับซ้ำ → ยอดผิดเงียบๆ
-    const { data, error } = await build().order(orderColumn, { ascending }).range(from, from + PAGE - 1);
+    let q = build();
+    for (const c of cols) q = q.order(c, { ascending });
+    const { data, error } = await q.range(from, from + PAGE - 1);
     if (error) throw new Error(`fetchAll: ${error.message}`);
     const rows = data || [];
     out.push(...rows);

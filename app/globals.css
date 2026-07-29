@@ -227,6 +227,8 @@ table.tbl tr.clickable:hover td { background: rgba(108,92,231,.12); }
 }
 /* กลุ่มยอดขายที่ยังไม่จับคู่ยูนิต — สีส้มเตือนให้ไปจับคู่ใน U Map */
 .hbar-fill.sr-unmapped { background: linear-gradient(90deg, #e8a13a, #e17055); }
+/* แถวยูนิต "ยังไม่จัดกลุ่ม" ในตาราง — เตือนด้วยพื้นส้มจางว่ายอดก้อนนี้ยังไม่มีเจ้าของ */
+table.tbl tr.sr-unmapped td { background: rgba(232,161,58,.09); }
 .hbar-fill.green { background: linear-gradient(90deg, #16a06b, #2dd4bf); }
 .hbar-fill.blue { background: linear-gradient(90deg, #1877f2, #38bdf8); }
 .hbar-fill.amber { background: linear-gradient(90deg, #d97706, #fbbf24); }
@@ -370,6 +372,9 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 .ca-num span { font-size: 10.5px; color: var(--text-3); }
 .txt-good { color: var(--green); }
 .txt-bad { color: var(--red); }
+
+/* คอลัมน์ตัวเลขในตาราง — ชิดขวา + เลขความกว้างเท่ากันเพื่อให้หลักตรงกันทุกแถว */
+table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ---------- สื่อ/ครีเอทีฟของแอด (รูปจาก Meta — URL มีวันหมดอายุ จึงต้องมีกล่องสำรอง) ---------- */
 .ca-thumb, .ca-media-img {

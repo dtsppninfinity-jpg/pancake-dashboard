@@ -463,17 +463,25 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       };
     });
     // การ์ดขวา = ยอดขายจัดกลุ่มตามยูนิต (U/สินค้า) — เหมือนที่ทีมแอดจัด (แผนที่ใน U Map)
+    // เป็นตารางไม่ใช่กราฟแท่ง เพราะทีมต้องเทียบ ยอด/ค่าแอด/ROAS/ค่าทัก/%ปิด พร้อมกันในบรรทัดเดียว
     const units = (topCh.units || []);
-    const unitRows = units.map(function (u: any) {
+    const unitTable = units.map(function (u: any) {
       const label = u.mapped
-        ? (u.product || u.u) + (u.u ? ' (' + u.u + ')' : '')
+        ? esc(u.product || u.u) + (u.u ? ' <span class="chip">' + esc(u.u) + '</span>' : '')
         : '⚠️ ยังไม่จัดกลุ่ม';
-      return {
-        label: label, value: u.revenue, display: THB(u.revenue),
-        cls: u.mapped ? '' : 'sr-unmapped',
-        attr: 'data-drill-unit="' + esc(u.key) + '" title="คลิกดูรายเพจในยูนิตนี้"',
-      };
-    });
+      // ROAS ต่ำกว่า 1 = ขายได้ไม่คุ้มค่าแอด ต้องเห็นแต่ไกล
+      const roasCls = u.roas === null || u.roas === undefined ? '' : (u.roas < 1 ? 'txt-bad' : (u.roas >= 3 ? 'txt-good' : ''));
+      return '<tr class="clickable' + (u.mapped ? '' : ' sr-unmapped') + '" data-drill-unit="' + esc(u.key) + '"' +
+        ' title="คลิกดูรายเพจ + ยอดรายสัปดาห์ของยูนิตนี้">' +
+        '<td>' + label + '</td>' +
+        '<td class="num">' + THB(u.revenue) + '</td>' +
+        '<td class="num">' + (u.share === null ? '—' : pctFmt(u.share)) + '</td>' +
+        '<td class="num">' + (u.spend ? THB(u.spend) : '—') + '</td>' +
+        '<td class="num ' + roasCls + '">' + (u.roas === null ? '—' : u.roas.toFixed(2)) + '</td>' +
+        '<td class="num">' + (u.costPerMsg === null ? '—' : THB(u.costPerMsg)) + '</td>' +
+        '<td class="num">' + (u.closeRate === null ? '—' : pctFmt(u.closeRate)) + '</td>' +
+        '</tr>';
+    }).join('');
     const pageCount = (topCh.pagesFull || []).length;
     html += '<div class="sr-bottom">' +
       '<div class="card">' +
@@ -491,8 +499,13 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
           (pageCount > 0 ? '<button class="btn-mini" id="sr-allpages">📋 ดูทุกเพจ (' + fmtNum(pageCount) + ')</button>' : '') +
         '</div>' +
         '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] +
-          ' — จัดกลุ่มตามยูนิต • 👆 คลิกยูนิตเพื่อดูรายเพจ • จับคู่เพจ→U ได้ที่หน้า U Map</div>' +
-        '<div class="hbar-wide">' + hbarRows(unitRows, { empty: 'ยังไม่มีออเดอร์ในช่วงนี้' }) + '</div>' +
+          ' — ค่าแอดจริงจาก Meta • ค่าทัก = ค่าแอด ÷ บทสนทนาที่แอดเปิดได้ • %ปิด = ออเดอร์จากแชท ÷ คนทัก' +
+          ' • 👆 คลิกยูนิตเพื่อดูรายเพจ + ยอดรายสัปดาห์</div>' +
+        (unitTable
+          ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>ยูนิต</th><th class="num">ยอดขาย</th>' +
+            '<th class="num">สัดส่วน</th><th class="num">ค่าแอด</th><th class="num">ROAS</th>' +
+            '<th class="num">ค่าทัก</th><th class="num">%ปิด</th></tr></thead><tbody>' + unitTable + '</tbody></table></div>'
+          : '<div class="empty-note">ยังไม่มีออเดอร์ในช่วงนี้</div>') +
       '</div>' +
     '</div>';
   }
@@ -719,6 +732,21 @@ function bindDrillRows(root: ParentNode | null, chKey: string): void {
 }
 
 /** ยูนิต (สินค้า) → เพจในยูนิตนั้นขายได้เท่าไร (คลิกเพจเจาะดูสินค้าต่อได้) */
+/** ยอดขายรายสัปดาห์ของยูนิต — แท่งเทียบกันในช่วงที่เลือก (บรีฟ: "ยอดขายรายสัปดาห์ของเดือน") */
+function weeklyBlock_(weekly: any[]): string {
+  if (!weekly || weekly.length < 2) return '';   // สัปดาห์เดียวไม่มีอะไรให้เทียบ
+  const items = weekly.map(function (w: any) {
+    const d = String(w.week || '').slice(5).split('-');   // 'YYYY-MM-DD' → ['MM','DD']
+    return {
+      label: 'สัปดาห์ ' + (d.length === 2 ? d[1] + '/' + d[0] : String(w.week || '')),
+      value: w.revenue || 0,
+      display: THB(w.revenue),
+    };
+  });
+  return '<h4 style="margin:6px 0">📅 ยอดขายรายสัปดาห์ (วันที่กำกับ = วันจันทร์ต้นสัปดาห์)</h4>' +
+    '<div class="hbar-wide" style="margin-bottom:12px">' + hbarRows(items) + '</div>';
+}
+
 function openUnitDrill(unitKey: string, chKey: string): void {
   const top = topOf(chKey);
   const unit = (top.units || []).filter(function (u: any) { return String(u.key) === String(unitKey); })[0];
@@ -737,9 +765,18 @@ function openUnitDrill(unitKey: string, chKey: string): void {
     '<div class="pill-grid" style="margin-bottom:12px">' +
       '<span class="chip">💰 ' + THB(unit.revenue) + '</span>' +
       '<span class="chip">🛒 ' + fmtNum(unit.orders) + ' ออเดอร์</span>' +
-      '<span class="chip">📄 ' + fmtNum(pages.length) + ' เพจ</span></div>' +
+      '<span class="chip">📄 ' + fmtNum(pages.length) + ' เพจ</span>' +
+      (unit.share === null ? '' : '<span class="chip">🧮 สัดส่วน ' + pctFmt(unit.share) + '</span>') +
+      (unit.spend ? '<span class="chip">📣 ค่าแอด ' + THB(unit.spend) + '</span>' : '') +
+      (unit.roas === null ? '' : '<span class="chip">📈 ROAS ' + unit.roas.toFixed(2) + '</span>') +
+      (unit.afterAds === null ? '' : '<span class="chip">💵 หลังหักค่าแอด ' + THB(unit.afterAds) + '</span>') +
+      (unit.costPerMsg === null ? '' : '<span class="chip">💬 ค่าทัก ' + THB(unit.costPerMsg) + '</span>') +
+      (unit.reached ? '<span class="chip">🙋 คนทัก ' + fmtNum(unit.reached) + '</span>' : '') +
+      (unit.closeRate === null ? '' : '<span class="chip">🎯 %ปิด ' + pctFmt(unit.closeRate) + '</span>') +
+      '</div>' +
     (unit.mapped ? '' : '<div class="hint-box" style="margin-bottom:10px">เพจกลุ่มนี้ยังไม่ถูกจับคู่กับยูนิต — ' +
       'ไปจับคู่ได้ที่หน้า <b>U Map</b> เพื่อให้รวมยอดถูกกลุ่ม</div>') +
+    weeklyBlock_(unit.weekly || []) +
     '<h4 style="margin:6px 0">📄 เพจในยูนิตนี้ (คลิกเพจเพื่อดูสินค้าที่ขายได้)</h4>' +
     (pages.length
       ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>#</th><th>เพจ</th><th>รายได้</th>' +
