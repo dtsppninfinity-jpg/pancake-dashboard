@@ -47,6 +47,26 @@ export async function syncOrders(): Promise<string> {
 }
 
 /**
+ * "ยอดเรียลไทม์": เฉพาะออเดอร์ที่ขยับใน N นาทีล่าสุด — เบาพอให้ยิงได้ทุก 1 นาที
+ *
+ * ต่างจาก syncOrders ตรงที่ตัวนั้นกวาดย้อน 48 ชม. (สูงสุด 120 หน้า ~30 วิ) ซึ่งหนักเกินรอบ 1 นาที
+ * ตัวนี้ทีมทำ ~2,800 ใบ/วัน = ~40 ใบ/20 นาที → 1 หน้าเกือบทุกครั้ง จบใน ~2-3 วิ
+ *
+ * หน้าต่างกว้าง 20 นาที (ไม่ใช่ 1 นาทีตามคาบ) เพื่อให้รอบที่พลาด/ดีเลย์ 19 ครั้งติดยังไม่เกิดรู
+ * — ถึงพลาดยาวกว่านั้น รอบ fast ทุก 15 นาที (48 ชม.) ก็ยังตามเก็บให้อยู่ดี
+ */
+export async function syncOrdersDelta(minutes = 20): Promise<string> {
+  requireCredentials();
+  const since = new Date(Date.now() - Math.max(1, minutes) * 60 * 1000);
+  const until = new Date(Date.now() + 60 * 1000);
+  const raw = await posFetchOrders(since, until, 20);
+  const map = await platformByPage();
+  const rows = raw.map((o) => mapOrder(o, map));
+  const n = await upsertRows('orders', rows, 'id');
+  return `delta ${minutes} นาที: ${raw.length} รายการ (upsert ${n})`;
+}
+
+/**
  * Backfill ออเดอร์ย้อนหลัง (GitHub Actions ไม่มีลิมิต 6 นาที → ทำรวดเดียวได้เลย)
  * slice ทีละ 2 วัน + เพดาน 120 หน้า (12,000 ออเดอร์/slice) — ทีมทำ ~2,800/วัน
  * ⚠️ ห้ามกลับไปใช้ slice 7 วัน + 50 หน้า (5,000 cap) — เคยทำข้อมูล 1-4 ก.ค. 2026 หายเงียบๆ มาแล้ว

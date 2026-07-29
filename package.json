@@ -21,7 +21,8 @@
     "watch": "tsx scripts/watch.ts",
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "backfill:recover": "tsx scripts/setup/backfill-recover.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

@@ -6,7 +6,9 @@ import { syncMetaAdsRange } from '../sync/jobs';
 import { fmtDateBkk, daysAgo } from '../../lib/config';
 
 async function main() {
-  const days = Math.max(1, Math.min(95, Math.round(Number(process.argv[2]) || 90)));
+  // เพดาน 400 วันให้ตรงกับ RETENTION_DAYS.AD_DAILY (เดิม 95 = ดึงย้อนได้ไม่เกิน retention เก่า)
+  // ต้นทาง Meta เก็บ insights ได้ 37 เดือน แต่ธุรกิจนี้เพิ่งเริ่ม ~มี.ค. 2026 ยิงเกินไปก็ได้ 0
+  const days = Math.max(1, Math.min(400, Math.round(Number(process.argv[2]) || 90)));
   const CHUNK = 30; // แบ่งเป็นหน้าต่าง ~30 วัน กัน range ยาวเกินของ Meta insights
   console.log(`▶ backfill Meta ads ย้อนหลัง ${days} วัน (ทีละ ${CHUNK} วัน)`);
   for (let start = days; start >= 1; start -= CHUNK) {
