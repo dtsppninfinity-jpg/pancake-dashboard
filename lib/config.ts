@@ -42,8 +42,27 @@ export function money_(v: unknown): number {
   return num(v) / MONEY_SCALE;
 }
 
-/** เก็บข้อมูลย้อนหลังกี่วันในแต่ละตาราง (งาน prune รายวันจะลบที่เก่ากว่านี้) */
-export const RETENTION_DAYS = { ORDERS: 95, CHAT_HOURLY: 60, CONVERSATIONS: 14, ADMIN_CHAT_DAILY: 60, ADMIN_ONLINE_LOG: 35, AD_DAILY: 95, CHAT_ENGAGEMENT: 95 };
+/**
+ * เก็บข้อมูลย้อนหลังกี่วันในแต่ละตาราง (งาน prune รายวันจะลบที่เก่ากว่านี้)
+ *
+ * ⚠️ ขยายเป็น 400 วัน (2026-07-29) เพราะบรีฟขอ "เทียบทั้งปี / กำไรรายปี / ท็อปเซลประจำปี"
+ * ของเดิม 95 วันกำลังกิน ad_daily วันละ ~1,500 แถวถาวร (min อยู่ที่ 94 วันพอดี = ชนเพดาน)
+ * และข้อมูลที่ถูกลบแล้ว **ดึงคืนไม่ได้** ถ้าต้นทางหมดอายุก่อน
+ *
+ * ประมาณการพื้นที่ที่ 400 วัน: orders ~1.0M แถว (~800 MB) + ad_daily ~700k (~340 MB)
+ * ถ้าโตเกินแพลน Supabase ให้ทำตารางสรุปรายวัน (rollup) แล้วค่อยลดค่าพวกนี้ลง
+ *
+ * CONVERSATIONS ยังสั้นเหมือนเดิม — เก็บ "สถานะล่าสุด" ไม่ใช่ประวัติ ย้อนหลังไปก็ไม่มีความหมาย
+ */
+export const RETENTION_DAYS = {
+  ORDERS: 400,
+  CHAT_HOURLY: 400,
+  CONVERSATIONS: 14,
+  ADMIN_CHAT_DAILY: 400,
+  ADMIN_ONLINE_LOG: 120,
+  AD_DAILY: 400,
+  CHAT_ENGAGEMENT: 400,
+};
 
 /** credentials อ่านจาก environment (ตั้งใน .env.local หรือ GitHub Secrets) */
 export const cfg = {
