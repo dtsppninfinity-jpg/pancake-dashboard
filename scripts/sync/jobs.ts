@@ -5,6 +5,7 @@ import {
 import {
   posFetchOrders, posFetchUsers, posFetchAds, posFetchCampaigns,
   pageChatStats, pageConversations, pageUserStats, pageUsers, pageAdStats, pageCustomerEngagements,
+  pagesListPages, pagesGenerateToken,
 } from '../../lib/pancake';
 import { mapOrder, mapChatHour, mapConversation, mapAd, mapAdDaily, mapEngagementDaily } from '../../lib/mappers';
 import {
@@ -28,6 +29,63 @@ async function platformByPage(): Promise<Record<string, string>> {
   const m: Record<string, string> = {};
   (data || []).forEach((p: any) => { m[String(p.page_id)] = p.platform; });
   return m;
+}
+
+/* ---------------- PAGES ---------------- */
+
+/**
+ * ค้นเพจทั้งหมดจาก Pancake → upsert ตาราง `pages` + ออก page_access_token ให้เพจที่ยังไม่มี
+ *
+ * ⚠️ เดิมงานนี้อยู่แค่ใน scripts/setup/discover-pages.ts ที่ "รันมือครั้งเดียวตอน setup"
+ * เพจที่เปิดใหม่หลังจากนั้นจึงไม่เคยเข้าตาราง pages เลย → ออเดอร์ของเพจพวกนั้นไม่มีชื่อ ไม่มียูนิต
+ * และไม่ถูกดึงสถิติแชท (ตรวจ 2026-07-29 พบ 12 page_id มียอดขายจริงรวม ~฿134k/90 วัน แต่ไม่มีในตาราง)
+ * จึงย้ายมาเป็นงานรายวัน — ทีมเปิดเพจใหม่แล้วระบบเห็นเองภายใน 1 วัน ไม่ต้องเรียกให้ใครรันมือ
+ *
+ * ไม่แตะคอลัมน์ในโพสต์อื่น (เช่น in_pos_shop) — upsert ของ PostgREST อัปเดตเฉพาะคอลัมน์ที่ส่งไป
+ */
+export async function syncPages(): Promise<string> {
+  requireCredentials();
+  const pages = await pagesListPages();
+  if (!pages.length) throw new Error('ไม่พบเพจเลย — เช็คว่า PANCAKE_ACCESS_TOKEN ยังไม่หมดอายุ (~90 วัน)');
+
+  const { data: existTok } = await supabase.from('page_tokens').select('page_id');
+  const have = new Set((existTok || []).map((t: any) => String(t.page_id)));
+  const { data: existPages } = await supabase.from('pages').select('page_id');
+  const known = new Set((existPages || []).map((p: any) => String(p.page_id)));
+
+  const rows = pages.map((p: any) => ({
+    page_id: String(p.id),
+    name: p.name || '',
+    platform: String(p.platform || 'facebook').toLowerCase(),
+    has_token: have.has(String(p.id)),
+    updated_at: new Date().toISOString(),
+  }));
+  // pages ต้องมีก่อน page_tokens (FK อ้างอยู่)
+  const { error: pErr } = await supabase.from('pages').upsert(rows, { onConflict: 'page_id' });
+  if (pErr) throw new Error(`บันทึก pages ล้มเหลว: ${pErr.message}`);
+
+  // ออก token ให้เฉพาะเพจใหม่ (เพจเก่ามี token อยู่แล้ว — ยิงซ้ำทุกวันเปลืองและเสี่ยงโดน rate limit)
+  const fresh = pages.filter((p: any) => !have.has(String(p.id)));
+  const tokRows: any[] = [];
+  const fail: string[] = [];
+  for (const p of fresh) {
+    try {
+      const tok = await pagesGenerateToken(String(p.id));
+      tokRows.push({ page_id: String(p.id), token: tok, updated_at: new Date().toISOString() });
+      await sleep(300);
+    } catch { fail.push(p.name || String(p.id)); }
+  }
+  if (tokRows.length) {
+    const { error: tErr } = await supabase.from('page_tokens').upsert(tokRows, { onConflict: 'page_id' });
+    if (tErr) throw new Error(`บันทึก page_tokens ล้มเหลว: ${tErr.message}`);
+    await supabase.from('pages').upsert(
+      tokRows.map((t) => ({ page_id: t.page_id, has_token: true, updated_at: t.updated_at })),
+      { onConflict: 'page_id' }
+    );
+  }
+  const added = pages.filter((p: any) => !known.has(String(p.id))).length;
+  return `pages: ${pages.length} เพจ (ใหม่ ${added}, ออก token ${tokRows.length}` +
+    (fail.length ? `, ออกไม่ได้ ${fail.length}: ${fail.slice(0, 5).join(', ')}` : '') + ')';
 }
 
 /* ---------------- ORDERS ---------------- */
@@ -75,17 +133,35 @@ export async function syncOrdersBackfill(days = 30): Promise<string> {
   requireCredentials();
   const map = await platformByPage();
   let count = 0;
+  const failed: string[] = [];
   for (let start = days; start > 0; start -= 2) {
     const since = daysAgo(start);
     const until = start - 2 <= 0 ? new Date(Date.now() + 3600 * 1000) : daysAgo(start - 2);
-    const raw = await posFetchOrders(since, until, 120);
+    const label = since.toISOString().slice(0, 10);
+
+    // เน็ตสะดุดครั้งเดียว (fetch failed) ไม่ควรทิ้งงานที่ทำมาแล้ว 10-20 นาที — ลองซ้ำ 3 ครั้ง
+    // ถอยเวลาเพิ่มขึ้นเรื่อยๆ แล้วค่อยข้ามไป slice ถัดไป (เก็บชื่อไว้ฟ้องตอนจบ ไม่เงียบ)
+    let raw: any[] | null = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try { raw = await posFetchOrders(since, until, 120); break; }
+      catch (e: any) {
+        if (attempt === 3) { failed.push(label); break; }
+        await sleep(attempt * 10000);
+      }
+    }
+    if (!raw) continue;
+
     if (raw.length >= 12000) {
       // ชนเพดาน = มีข้อมูลถูกตัดแน่นอน — ฟ้องดังๆ ดีกว่าเงียบ
-      throw new Error(`backfill slice ${since.toISOString().slice(0, 10)} ชนเพดาน 12,000 ออเดอร์ — ลด slice ให้เล็กลง`);
+      throw new Error(`backfill slice ${label} ชนเพดาน 12,000 ออเดอร์ — ลด slice ให้เล็กลง`);
     }
     const rows = raw.map((o) => mapOrder(o, map));
     await upsertRows('orders', rows, 'id');
     count += raw.length;
+  }
+  if (failed.length) {
+    throw new Error(`backfill ออเดอร์ ${days} วัน: ได้ ${count} รายการ แต่ ${failed.length} ช่วงล้มเหลว ` +
+      `(${failed.join(', ')}) — รันซ้ำเฉพาะช่วงนั้น ข้อมูลยังไม่ครบ`);
   }
   return `backfill ออเดอร์ ${days} วัน: ${count} รายการ`;
 }

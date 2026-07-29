@@ -4,7 +4,8 @@
 // ตัวนี้ไล่กู้ "รู" ที่เกิดจาก retention เดิม 95 วัน + ช่วงที่ sync พลาด
 // รันได้ซ้ำ (ทุก job เป็น upsert by key) — ช้าแต่ปลอดภัย
 //
-// ใช้: npx tsx scripts/setup/backfill-recover.ts [days]   (default 100)
+// ใช้: npx tsx scripts/setup/backfill-recover.ts [days] [--only=orders|chat|admin]
+//      (default 100 วัน, ทำครบทั้ง 3 ขั้น) — --only ไว้รันซ้ำเฉพาะขั้นที่ล้มเหลว
 import '../../lib/env';
 import { requireCredentials, daysAgo } from '../../lib/config';
 import * as jobs from '../sync/jobs';
@@ -22,15 +23,19 @@ async function step(label: string, fn: () => Promise<string>) {
 
 async function main() {
   requireCredentials();
-  const days = Math.max(1, Math.round(Number(process.argv[2]) || 100));
-  console.log(`🚑 กู้ข้อมูลย้อนหลัง ${days} วัน — ต้นทางมีข้อมูลตั้งแต่ ~30 เม.ย. 2026 เท่านั้น\n`);
+  const args = process.argv.slice(2);
+  const days = Math.max(1, Math.round(Number(args.find((a) => /^\d+$/.test(a))) || 100));
+  const onlyArg = (args.find((a) => a.startsWith('--only=')) || '').slice(7);
+  const want = (s: string) => !onlyArg || onlyArg === s;
+  console.log(`🚑 กู้ข้อมูลย้อนหลัง ${days} วัน${onlyArg ? ` (เฉพาะ ${onlyArg})` : ''}` +
+    ` — ต้นทางมีข้อมูลตั้งแต่ ~30 เม.ย. 2026 เท่านั้น\n`);
 
   // ออเดอร์ก่อน — เป็นตัวที่มีรูจริง (มิ.ย. หายหลายช่วง) และเป็นฐานของทุกยอด
-  await step(`ออเดอร์ ${days} วัน`, () => jobs.syncOrdersBackfill(days));
+  if (want('orders')) await step(`ออเดอร์ ${days} วัน`, () => jobs.syncOrdersBackfill(days));
   // สถิติแชทรายชั่วโมง — Pancake statistics/pages ย้อนได้ถึง ~มี.ค. 2026
-  await step(`สถิติแชท ${days} วัน`, () => jobs.syncChatStats(daysAgo(days), new Date()));
+  if (want('chat')) await step(`สถิติแชท ${days} วัน`, () => jobs.syncChatStats(daysAgo(days), new Date()));
   // สถิติรายแอดมิน — ยิงทีละวัน ช้าสุดในชุดนี้
-  await step(`สถิติแอดมิน ${days} วัน`, () => jobs.syncAdminChatBackfill(days));
+  if (want('admin')) await step(`สถิติแอดมิน ${days} วัน`, () => jobs.syncAdminChatBackfill(days));
 
   console.log('\n✅ เสร็จ — ค่าแอด Meta ให้รันแยก: npm run backfill:meta-ads -- <days>');
 }

@@ -52,6 +52,8 @@ async function runHourly(): Promise<boolean> {
 }
 
 async function runDaily(): Promise<boolean> {
+  // ต้องมาก่อนงานอื่น — เพจใหม่ที่เพิ่งเข้าตารางจะได้ถูกดึงสถิติในรอบเดียวกันเลย
+  const h = await runJob('pages', jobs.syncPages);
   const a = await runJob('chat-yesterday', jobs.syncChatYesterday);
   const b = await runJob('admin-chat-2d', () => jobs.syncAdminChatBackfill(2));
   // Meta ปรับยอด spend ย้อนหลังได้อีก 1-2 วัน — เก็บซ้ำของเมื่อวานให้ตรง (Pancake ก่อน → Meta ทับ)
@@ -62,7 +64,7 @@ async function runDaily(): Promise<boolean> {
   // สื่อ/ครีเอทีฟของแอด — ครีเอทีฟไม่เปลี่ยนรายวัน วันละครั้งพอ (ดึงเฉพาะแอดที่ยังไม่มีในตาราง)
   const g = await runJob('ad-creatives', () => jobs.syncAdCreatives(14));
   const c = await runJob('prune', jobs.prune);
-  return a && b && c && d && e && f && g;
+  return a && b && c && d && e && f && g && h;
 }
 
 const MODE = (process.argv[2] || 'fast').toLowerCase();
