@@ -464,6 +464,36 @@ async function loadUnitCost_(
 }
 
 /**
+ * %ซื้อซ้ำ + ระยะห่างรอบซื้อ ของลูกค้ากลุ่มหนึ่ง (นับ "ภายในช่วงที่เลือก" เท่านั้น)
+ *
+ * ⚠️ ตัวเลขนี้ต่ำกว่าความจริงเสมอเมื่อช่วงสั้น — ลูกค้าที่ซื้อครั้งแรกเดือนก่อนแล้วซื้อซ้ำเดือนนี้
+ * จะถูกนับเป็น "ซื้อครั้งเดียว" หน้าเว็บจึงต้องเขียนกำกับว่าเป็นการซื้อซ้ำในช่วงที่เลือก
+ * (ตัวเลข "ลูกค้าเก่า" ที่มองย้อน 95 วันอยู่ที่ KPI ด้านบน คนละนิยามกัน)
+ *
+ * รอบซื้อใช้ค่ามัธยฐาน ไม่ใช่ค่าเฉลี่ย — ลูกค้าที่ซื้อรัวๆ วันเดียวกันจะดึงค่าเฉลี่ยเพี้ยน
+ */
+function repeatStats_(byCustomer: Record<string, number[]>) {
+  const ids = Object.keys(byCustomer);
+  let repeat = 0;
+  const gaps: number[] = [];
+  ids.forEach((id) => {
+    const ts = byCustomer[id];
+    if (ts.length < 2) return;
+    repeat++;
+    ts.sort((a, b) => a - b);
+    for (let i = 1; i < ts.length; i++) gaps.push((ts[i] - ts[i - 1]) / 86400000);
+  });
+  gaps.sort((a, b) => a - b);
+  const median = gaps.length ? gaps[Math.floor(gaps.length / 2)] : null;
+  return {
+    customers: ids.length,
+    repeat,
+    rate: ids.length ? Math.round((repeat / ids.length) * 1000) / 10 : null,
+    cycleDays: median === null ? null : Math.round(median * 10) / 10,
+  };
+}
+
+/**
  * ประกอบแถว "ยูนิต" ที่ส่งให้หน้าเว็บ — ยอดขาย + ต้นทุนแอด + คนทัก + รายสัปดาห์
  *
  * ตัวหาร 0 คืน null ไม่ใช่ 0 ทุกจุด — หน้าเว็บจะได้แสดง "—" แทนเลขที่อ่านเหมือนวัดแล้วได้ศูนย์
@@ -473,6 +503,7 @@ function unitRows_(
   unitAgg: Record<string, { u: string; product: string; revenue: number; orders: number }>,
   unitPages: Record<string, Record<string, { revenue: number; orders: number }>>,
   unitWeekly: Record<string, Record<string, number>>,
+  unitCust: Record<string, Record<string, number[]>>,
   cost: Record<string, UnitCost>,
   unmappedKey: string
 ) {
@@ -485,6 +516,7 @@ function unitRows_(
       const c = cost[k] || { spend: 0, msgs: 0, reached: 0, engOrders: 0 };
       const revenue = Math.round(agg.revenue);
       const spend = Math.round(c.spend);
+      const rep = repeatStats_(unitCust[k] || {});
       return {
         key: k,
         u: agg.u,
@@ -505,6 +537,10 @@ function unitRows_(
         share: grand > 0 ? Math.round((agg.revenue / grand) * 1000) / 10 : null,
         // กำไรขั้นต้นแบบหยาบ: ยอดขาย - ค่าแอด (ยังไม่มีต้นทุนสินค้าในระบบ ห้ามเรียกว่า "กำไร")
         afterAds: c.spend > 0 ? revenue - spend : null,
+        customers: rep.customers,
+        repeatCustomers: rep.repeat,
+        repeatRate: rep.rate,
+        repeatCycleDays: rep.cycleDays,
         weekly: Object.keys(unitWeekly[k] || {})
           .sort()
           .map((w) => ({ week: w, revenue: Math.round(unitWeekly[k][w]) })),
@@ -732,6 +768,8 @@ export async function apiSales(params: any) {
     const unitPages: Record<string, Record<string, { revenue: number; orders: number }>> = {};
     // ยอดรายสัปดาห์ต่อยูนิต (key = วันจันทร์ของสัปดาห์) — บรีฟขอ "ยอดขายรายสัปดาห์ของเดือน"
     const unitWeekly: Record<string, Record<string, number>> = {};
+    // เวลาซื้อของลูกค้าแต่ละคนในยูนิต — ใช้คิด %ซื้อซ้ำ + ระยะห่างรอบซื้อ
+    const unitCust: Record<string, Record<string, number[]>> = {};
     list.forEach((o) => {
       if (o._needCheck) return;   // Top เพจ/สินค้า นับเฉพาะยืนยันแล้ว (ตรงกับยอดขายหลัก)
       const pg = pageNames[String(o.page_id || '')] || String(o.account_name || '') || 'ไม่ระบุเพจ';
@@ -753,6 +791,11 @@ export async function apiSales(params: any) {
       const wk = bkkWeekStart_(o._at);
       if (!unitWeekly[ukey]) unitWeekly[ukey] = {};
       unitWeekly[ukey][wk] = (unitWeekly[ukey][wk] || 0) + o.total_price;
+      const cid = String(o.customer_id || '');
+      if (cid) {
+        if (!unitCust[ukey]) unitCust[ukey] = {};
+        (unitCust[ukey][cid] = unitCust[ukey][cid] || []).push(o._at.getTime());
+      }
       parseItems_(o.items_json).forEach((it: any) => {
         const nm = String((it && it.name) || '').trim();
         if (!nm) return;
@@ -802,7 +845,7 @@ export async function apiSales(params: any) {
         .sort((a, b) => (b.value - a.value) || (b.qty - a.qty))
         .slice(0, 10),
       // ยอดขายจัดกลุ่มตามยูนิต (U/สินค้า) — เจาะ U→เพจ→สินค้า ได้ (กลุ่ม "ยังไม่จัดกลุ่ม" ต่อท้ายเสมอ)
-      units: unitRows_(unitAgg, unitPages, unitWeekly, unitCost[chanKey] || {}, UNMAPPED),
+      units: unitRows_(unitAgg, unitPages, unitWeekly, unitCust, unitCost[chanKey] || {}, UNMAPPED),
       pageProducts,   // เพจ→รายการสินค้าที่ขายได้
       productPages,   // สินค้า→เพจที่ขายได้
     };
@@ -813,6 +856,42 @@ export async function apiSales(params: any) {
     facebook: topAgg(cur.filter((o) => orderChannel_(o) === 'facebook'), 'facebook'),
     line: topAgg(cur.filter((o) => orderChannel_(o) === 'line'), 'line'),
   };
+
+  /* ---- ออเดอร์ที่ "ไม่เป็นยอด": ยกเลิก / ตีกลับ / ลบ ----
+   * บรีฟขอภาพรวมสินค้าตีกลับ (รวม รายคน รายเดือน) แต่ Pancake /orders_returned คืน 0 ใบเสมอ
+   * — ทีมไม่ได้เดินสถานะตีกลับในระบบจริง ตัวที่ "มีข้อมูลจริง" คือสถานะยกเลิก/ตีกลับบนใบออเดอร์
+   * จึงรายงานจากตรงนั้นแทน และเขียนกำกับบนหน้าเว็บว่านับจากสถานะใบออเดอร์ ไม่ใช่ใบคืนสินค้า
+   */
+  const cancels = (() => {
+    const list = orders.filter((o) => inRange_(o._at, r) && o._excluded && matchChannel(o));
+    const byStatus: Record<string, { orders: number; value: number }> = {};
+    const byPerson: Record<string, { orders: number; value: number }> = {};
+    const byMonth: Record<string, { orders: number; value: number }> = {};
+    let value = 0;
+    list.forEach((o) => {
+      value += o.total_price;
+      const st = String(o.status_name || '') || ORDER_STATUS_TH[o.status] || String(o.status);
+      const person = String(o.seller_name || o.creator_name || '') || 'ไม่ระบุคนขาย';
+      const month = fmtDateBkk(o._at).slice(0, 7);
+      for (const [bucket, key] of [[byStatus, st], [byPerson, person], [byMonth, month]] as const) {
+        const b = bucket as Record<string, { orders: number; value: number }>;
+        if (!b[key]) b[key] = { orders: 0, value: 0 };
+        b[key].orders++; b[key].value += o.total_price;
+      }
+    });
+    const toList = (b: Record<string, { orders: number; value: number }>) =>
+      Object.keys(b).map((k) => ({ name: k, orders: b[k].orders, value: Math.round(b[k].value) }));
+    const okOrders = curCh.length;
+    return {
+      orders: list.length,
+      value: Math.round(value),
+      // สัดส่วนต่อ "ใบทั้งหมดในช่วง" (ใบที่ยังอยู่ + ใบที่ยกเลิก) — ไม่ใช่ต่อยอดขาย
+      rate: (okOrders + list.length) ? Math.round((list.length / (okOrders + list.length)) * 1000) / 10 : null,
+      byStatus: toList(byStatus).sort((a, b) => b.orders - a.orders),
+      byPerson: toList(byPerson).sort((a, b) => b.orders - a.orders).slice(0, 50),
+      byMonth: toList(byMonth).sort((a, b) => (a.name < b.name ? -1 : 1)),
+    };
+  })();
 
   // ---- ลูกค้าเก่า (เคยซื้อภายใน 95 วันก่อนช่วงที่เลือก) — นับฝั่ง Postgres ผ่าน RPC ----
   // RPC ยังไม่ถูกสร้าง (migration ไม่ได้รัน) → คืน null ให้หน้าเว็บแสดง "—" ไม่ใช่เลขปลอม
@@ -948,6 +1027,8 @@ export async function apiSales(params: any) {
     needCheckOrders: needCheckList_(curCh),
     // แชทค้างรอตอบ แยกตามชนิด (RATING รวมอยู่ใน inbox)
     waiting: { total: waitingConvs, inbox: waitingInbox, comment: waitingComment },
+    // ยกเลิก/ตีกลับ ของช่วงที่เลือก (รวม + รายสถานะ + รายคน + รายเดือน)
+    cancels: cancels,
     kpis: {
       revenue: Math.round(sCur.revenue),
       orders: sCur.orders,

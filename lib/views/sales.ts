@@ -46,6 +46,11 @@ interface SalesData {
   prevWindow?: string | null;   // ช่วงจริงที่เทียบ เช่น '24 ก.ค. 00:00–14:32 น.'
   needCheckOrders?: any[];      // รายออเดอร์ "ต้องตรวจ" ของช่วงที่เลือก (สูงสุด 200 ใบล่าสุด)
   waiting?: { total: number; inbox: number; comment: number } | null;
+  // ยกเลิก/ตีกลับ ของช่วงที่เลือก — รายการย่อยแยกตามสถานะ / คนขาย / เดือน
+  cancels?: {
+    orders: number; value: number; rate: number | null;
+    byStatus: any[]; byPerson: any[]; byMonth: any[];
+  } | null;
   kpis?: any;
   trends?: any;
   channels?: any;
@@ -564,6 +569,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       (statusPills
         ? '<div class="pill-grid" style="margin:12px 0 0">' + statusPills + '</div>'
         : '') +
+      cancelSummary_(d.cancels) +
     '</div>' +
     '<div class="card">' +
       '<h3>🔔 สิ่งที่ควรตรวจวันนี้</h3>' +
@@ -588,6 +594,9 @@ function bindEvents(container: HTMLElement): void {
     state.compare = cmp.value;
     refetch(container);
   });
+
+  const cancelBtn = container.querySelector('#sr-cancels');
+  if (cancelBtn) cancelBtn.addEventListener('click', openCancelDrill);
 
   const csvBtn = container.querySelector('#sr-csv');
   if (csvBtn) csvBtn.addEventListener('click', exportCsv);
@@ -732,6 +741,49 @@ function bindDrillRows(root: ParentNode | null, chKey: string): void {
 }
 
 /** ยูนิต (สินค้า) → เพจในยูนิตนั้นขายได้เท่าไร (คลิกเพจเจาะดูสินค้าต่อได้) */
+/**
+ * แถบสรุป "ยกเลิก/ตีกลับ" ใต้การ์ดแหล่งที่มา + ปุ่มเปิดตารางรายคน/รายเดือน
+ * นับจากสถานะบนใบออเดอร์ ไม่ใช่ใบคืนสินค้า — Pancake /orders_returned ของร้านนี้ว่างเปล่า
+ */
+function cancelSummary_(c: any): string {
+  if (!c || !c.orders) return '';
+  return '<div class="pill-grid" style="margin:12px 0 0;align-items:center">' +
+    '<span class="badge urgent">🚫 ยกเลิก/ตีกลับ ' + fmtNum(c.orders) + ' ใบ</span>' +
+    '<span class="chip">' + THB(c.value) + '</span>' +
+    (c.rate === null ? '' : '<span class="chip">' + pctFmt(c.rate) + ' ของใบทั้งหมด</span>') +
+    '<button class="btn-mini" id="sr-cancels">📋 ดูรายคน / รายเดือน</button>' +
+    '</div>';
+}
+
+function openCancelDrill(): void {
+  const c = (lastData && lastData.cancels) || null;
+  if (!c || !c.orders) { toast('ไม่มีใบยกเลิก/ตีกลับในช่วงนี้'); return; }
+  const tbl = function (title: string, rows: any[], firstCol: string) {
+    if (!rows.length) return '';
+    const body = rows.map(function (x: any, i: number) {
+      return '<tr><td>' + (i + 1) + '</td><td>' + esc(x.name) + '</td>' +
+        '<td class="num">' + fmtNum(x.orders) + '</td><td class="num">' + THB(x.value) + '</td></tr>';
+    }).join('');
+    return '<h4 style="margin:10px 0 6px">' + title + '</h4>' +
+      '<div class="table-scroll"><table class="tbl"><thead><tr><th>#</th><th>' + firstCol +
+      '</th><th class="num">ใบ</th><th class="num">มูลค่า</th></tr></thead><tbody>' + body + '</tbody></table></div>';
+  };
+  openModal(
+    '<div class="modal-head"><h3>🚫 ออเดอร์ยกเลิก / ตีกลับ</h3><button class="modal-close">✕</button></div>' +
+    '<div class="card-sub" style="margin-bottom:10px">' + esc((lastData && lastData.rangeLabel) || '') +
+      ' — นับจาก<b>สถานะบนใบออเดอร์</b> (ยกเลิก / ตีกลับ / ตีกลับบางส่วน / ลบ) ' +
+      'ไม่ใช่ใบคืนสินค้า เพราะระบบคืนสินค้าของ Pancake ยังไม่มีใบไหนถูกเปิดเลย</div>' +
+    '<div class="pill-grid" style="margin-bottom:6px">' +
+      '<span class="chip">🧾 ' + fmtNum(c.orders) + ' ใบ</span>' +
+      '<span class="chip">💰 ' + THB(c.value) + '</span>' +
+      (c.rate === null ? '' : '<span class="chip">📉 ' + pctFmt(c.rate) + ' ของใบทั้งหมด</span>') +
+      '</div>' +
+    tbl('📊 แยกตามสถานะ', c.byStatus || [], 'สถานะ') +
+    tbl('📅 แยกตามเดือน', c.byMonth || [], 'เดือน') +
+    tbl('👤 แยกตามคนขาย (สูงสุด 50 คน)', c.byPerson || [], 'คนขาย')
+  );
+}
+
 /** ยอดขายรายสัปดาห์ของยูนิต — แท่งเทียบกันในช่วงที่เลือก (บรีฟ: "ยอดขายรายสัปดาห์ของเดือน") */
 function weeklyBlock_(weekly: any[]): string {
   if (!weekly || weekly.length < 2) return '';   // สัปดาห์เดียวไม่มีอะไรให้เทียบ
@@ -773,7 +825,15 @@ function openUnitDrill(unitKey: string, chKey: string): void {
       (unit.costPerMsg === null ? '' : '<span class="chip">💬 ค่าทัก ' + THB(unit.costPerMsg) + '</span>') +
       (unit.reached ? '<span class="chip">🙋 คนทัก ' + fmtNum(unit.reached) + '</span>' : '') +
       (unit.closeRate === null ? '' : '<span class="chip">🎯 %ปิด ' + pctFmt(unit.closeRate) + '</span>') +
+      (unit.customers ? '<span class="chip">👥 ' + fmtNum(unit.customers) + ' ลูกค้า</span>' : '') +
+      (unit.repeatRate === null ? '' : '<span class="chip" title="ลูกค้าที่ซื้อ 2 ครั้งขึ้นไปภายในช่วงที่เลือก">' +
+        '🔁 ซื้อซ้ำ ' + pctFmt(unit.repeatRate) + ' (' + fmtNum(unit.repeatCustomers) + ' คน)</span>') +
+      (unit.repeatCycleDays === null ? '' : '<span class="chip" title="ค่ามัธยฐานของระยะห่างระหว่างออเดอร์ของลูกค้าคนเดียวกัน">' +
+        '⏱ รอบซื้อ ' + unit.repeatCycleDays + ' วัน</span>') +
       '</div>' +
+    (unit.repeatRate === null ? '' : '<div class="card-sub" style="margin:-4px 0 10px">' +
+      'ซื้อซ้ำนับเฉพาะภายในช่วงที่เลือก — คนที่ซื้อครั้งแรกก่อนช่วงนี้จะยังไม่ถูกนับว่าซื้อซ้ำ ' +
+      'เลือกช่วงยาวขึ้นตัวเลขจะสูงขึ้นตามจริง</div>') +
     (unit.mapped ? '' : '<div class="hint-box" style="margin-bottom:10px">เพจกลุ่มนี้ยังไม่ถูกจับคู่กับยูนิต — ' +
       'ไปจับคู่ได้ที่หน้า <b>U Map</b> เพื่อให้รวมยอดถูกกลุ่ม</div>') +
     weeklyBlock_(unit.weekly || []) +
