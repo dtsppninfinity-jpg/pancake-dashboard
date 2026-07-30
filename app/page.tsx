@@ -23,6 +23,7 @@ const NAV_OVERVIEW: NavItem[] = [
   { view: 'dashboard', icon: '📊', title: 'Dashboard', sub: 'ภาพรวมแชทวันนี้' },
   { view: 'sales', icon: '💰', title: 'Sales Dashboard', sub: 'ยอดขาย FB/LINE + Ranking' },
   { view: 'contentads', icon: '🎯', title: 'Content & Ads Performance', sub: 'แอดที่กำลังยิง + คำแนะนำ' },
+  { view: 'profit', icon: '💹', title: 'กำไร & ตีกลับ', sub: 'กำไรจริงรายยูนิต/เดือน/ปี' },
 ];
 const NAV_ADMIN: NavItem[] = [
   { view: 'admins', icon: '👥', title: 'Admin Management', sub: 'รายชื่อ • สถานะ • สิทธิ์' },
