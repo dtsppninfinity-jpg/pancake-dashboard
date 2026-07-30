@@ -1,6 +1,6 @@
 // lib/api/adminperf.ts — พอร์ตจาก WebApi.gs apiAdminPerf
 // อ่านจาก Postgres (Supabase) แทน Google Sheet — logic รวมยอดตรงกับของเดิม
-import { db, fetchAll } from '@/lib/db';
+import { db, fetchAll, fetchAllSliced } from '@/lib/db';
 import {
   EXCLUDED_STATUSES,
   fmtDateBkk,
@@ -150,15 +150,17 @@ function parseItems_(v: any): any[] {
 
 /* ---------------- data loaders ---------------- */
 
-/** อ่านออเดอร์ในช่วง แปลงชนิดข้อมูลให้พร้อมใช้ (กรองช่วงเวลาที่ query แล้ว) */
+/** อ่านออเดอร์ในช่วง แปลงชนิดข้อมูลให้พร้อมใช้ (กรองช่วงเวลาที่ query แล้ว)
+ *  หั่นช่วงเป็นก้อนดึงขนาน — ช่วงยาวๆ (30 วัน = ~90k แถว) OFFSET ลึกจะช้า+ชน statement timeout */
 async function loadOrders_(r: { start: Date; end: Date }) {
-  const rows = await fetchAll<any>(() =>
+  const rows = await fetchAllSliced<any>((f, t) =>
     db
       .from('orders')
       // ad_id = แอดที่ออเดอร์นี้มาจาก (มีจริง ~92% ของยอด — ใช้ทำ ROAS รายแอดมิน)
       .select('inserted_at,status,total_price,platform,seller_id,seller_name,creator_name,items_json,page_id,account_name,ad_id')
-      .gte('inserted_at', r.start.toISOString())
-      .lte('inserted_at', r.end.toISOString())
+      .gte('inserted_at', f)
+      .lt('inserted_at', t),
+    r.start, r.end
   );
   return rows
     .map((o) => {

@@ -1,7 +1,7 @@
 // lib/api/sales.ts — พอร์ตจาก WebApi.gs::apiSales (อ่านจาก Sheet → อ่านจาก Postgres)
 // server-side เท่านั้น: import { db, fetchAll } จาก @/lib/db
 // เปลี่ยนแค่แหล่งอ่าน (readTable_ → fetchAll) + กรองช่วงเวลาใน query เพื่อเลี่ยง 1000-row cap
-import { db, fetchAll } from '@/lib/db';
+import { db, fetchAll, fetchAllSliced } from '@/lib/db';
 import { getPageUnitMap, getUnitTargets } from './umap';
 import { nicknameByName } from './adminsettings';
 import {
@@ -219,11 +219,12 @@ const TODAY_COLS = LIGHT_COLS + ',page_id,account_name,' + DETAIL_COLS;
  * untilIso = null → ไม่จำกัดขอบบน (ถึงปัจจุบัน)
  */
 async function loadOrders_(sinceIso: string, untilIso: string | null, cols: string): Promise<Row[]> {
-  const rows = await fetchAll<Row>(() => {
-    let q = db.from('orders').select(cols).gte('inserted_at', sinceIso);
-    if (untilIso) q = q.lt('inserted_at', untilIso);
-    return q;
-  });
+  // หั่นช่วงเป็นก้อนดึงขนาน — ช่วงยาวๆ OFFSET ลึกช้าและชน statement timeout (ดู fetchAllSliced)
+  const rows = await fetchAllSliced<Row>(
+    (f, t) => db.from('orders').select(cols).gte('inserted_at', f).lt('inserted_at', t),
+    new Date(sinceIso),
+    untilIso ? new Date(new Date(untilIso).getTime() - 1) : new Date(), // -1ms: ก้อนใช้ [from,to) อยู่แล้ว คงความหมาย lt เดิม
+  );
   return rows
     .map((o) => {
       o._at = toDate_(o.inserted_at);

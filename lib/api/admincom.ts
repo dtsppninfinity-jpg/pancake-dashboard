@@ -4,7 +4,7 @@
 // "Commission @Admin" กรองได้ทุกเดือน พร้อม %ปิด กับ ROAS
 //   • คงเหลือ/คอม/%ปิดลูกค้าใหม่ = ตัวเลขจากชีทตรงๆ (ทีมคิดเงื่อนไขคอมไว้แล้ว ห้ามคำนวณเอง)
 //   • ROAS = จากระบบเรา (ชีทไม่มีรายคน) — ปันค่าแอดตามสัดส่วนยอดขายในแอด วิธีเดียวกับหน้า Ranking
-import { db, fetchAll } from '@/lib/db';
+import { db, fetchAll, fetchAllSliced } from '@/lib/db';
 import { EXCLUDED_STATUSES, isPlaceholderOrder, money_ } from '@/lib/config';
 import { nicknameByName } from '@/lib/api/adminsettings';
 
@@ -80,11 +80,13 @@ export async function apiAdminCom(params: any) {
   const mEnd = new Date(`${mo === 12 ? y + 1 : y}-${String(mo === 12 ? 1 : mo + 1).padStart(2, '0')}-01T00:00:00+07:00`);
 
   const [orders, adRows] = await Promise.all([
-    fetchAll<any>(() =>
+    // หั่นเดือนเป็นก้อนดึงขนาน — เดือนเต็ม ~80k แถว OFFSET ลึกช้า+เสี่ยง statement timeout
+    fetchAllSliced<any>((f, t) =>
       db.from('orders')
         .select('inserted_at,status,total_price,items_count,seller_id,seller_name,creator_name,ad_id')
-        .gte('inserted_at', mStart.toISOString())
-        .lt('inserted_at', mEnd.toISOString())
+        .gte('inserted_at', f)
+        .lt('inserted_at', t),
+      mStart, new Date(mEnd.getTime() - 1)
     ),
     fetchAll<any>(() =>
       db.from('ad_daily').select('date,ad_id,spend').gte('date', `${month}-01`).lte('date', `${month}-31`),

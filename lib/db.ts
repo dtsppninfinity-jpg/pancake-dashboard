@@ -46,3 +46,41 @@ export async function fetchAll<T = any>(build: () => any, orderColumn = 'id', as
   }
   return out;
 }
+
+/**
+ * ดึงตารางใหญ่ที่กรองด้วยช่วงเวลา โดย "หั่นช่วงเป็นก้อนละไม่กี่วัน" แล้วดึงขนาน
+ *
+ * ทำไมไม่ใช้ fetchAll เฉยๆ: PostgREST แบ่งหน้าโดย OFFSET — ที่แถวลึกๆ (หน้า 50+)
+ * Postgres ต้องไล่สแกนแถวก่อนหน้าทั้งหมดทุกคำขอ ช้าลงเรื่อยๆ และชน statement timeout จริง
+ * (เจอ "canceling statement due to statement timeout" ตอนดึง orders 35 วัน ~90k แถว)
+ * หั่นเป็นก้อน 4 วัน offset ต่อก้อนไม่เกิน ~10 หน้า → เร็วและไม่มีทาง timeout
+ *
+ * build(fromIso, toIso) ต้องคืน query ที่กรองคอลัมน์เวลาด้วย gte(from) + lt(to) เอง
+ * ช่วงก้อนต่อกันแบบ [from, to) — แถวบนรอยต่อไม่ซ้ำไม่หาย
+ */
+export async function fetchAllSliced<T = any>(
+  build: (fromIso: string, toIso: string) => any,
+  start: Date,
+  end: Date,
+  opts: { sliceDays?: number; pool?: number; orderColumn?: string } = {},
+): Promise<T[]> {
+  const sliceMs = (opts.sliceDays || 4) * 86400000;
+  // pool 2 ก็พอ — ยิงเยอะกว่านี้คิวรีแย่ง CPU กันเองบนฐาน แล้วแต่ละตัวช้าจนชน statement timeout (~8s)
+  // (ทดลองจริง: pool 3 × 7 คำขอย่อย = ล้ม, pool 2 = ผ่าน)
+  const pool = opts.pool || 2;
+  // เรียงตามคอลัมน์เวลาที่กรอง (ตาม index → ไม่ต้อง sort ทั้งก้อนทุกหน้า) + ตาม id กันลำดับไม่ unique
+  const orderCols = opts.orderColumn || 'inserted_at,id';
+  const endMs = end.getTime() + 1; // ให้ lt(to) ครอบแถว ณ เวลา end พอดี
+  const slices: Array<{ f: string; t: string }> = [];
+  for (let t0 = start.getTime(); t0 < endMs; t0 += sliceMs) {
+    slices.push({ f: new Date(t0).toISOString(), t: new Date(Math.min(t0 + sliceMs, endMs)).toISOString() });
+  }
+  const out: T[] = [];
+  for (let i = 0; i < slices.length; i += pool) {
+    const parts = await Promise.all(
+      slices.slice(i, i + pool).map((s) => fetchAll<T>(() => build(s.f, s.t), orderCols, true)),
+    );
+    for (const p of parts) out.push(...p);
+  }
+  return out;
+}
