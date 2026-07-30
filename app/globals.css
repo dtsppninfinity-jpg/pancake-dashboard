@@ -102,7 +102,17 @@ input, select { font-family: inherit; }
   display: flex; align-items: center; gap: 10px; width: 100%;
   background: none; border: none; color: var(--sidebar-text);
   padding: 9px 10px; border-radius: 10px; text-align: left; font-size: 13px;
+  position: relative; /* จุดยึดของ .nav-badge */
 }
+/* badge ตัวเลขเรื่องด่วน มุมขวาบนของแท็บ — แบบแจ้งเตือนแอปมือถือ */
+.nav-badge {
+  position: absolute; top: 6px; right: 8px;
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+  background: #e74c3c; color: #fff; font-size: 10.5px; font-weight: 800;
+  display: inline-flex; align-items: center; justify-content: center; line-height: 1;
+  box-shadow: 0 0 0 2px var(--sidebar-bg, rgba(0,0,0,.35));
+}
+.nav-badge.warn { background: #e67e22; }
 .nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
 .nav-item.active { background: var(--primary); color: #fff; }
 .nav-item.active .nav-label-sub { color: rgba(255,255,255,.75); }

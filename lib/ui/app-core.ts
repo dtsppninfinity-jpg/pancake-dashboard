@@ -93,6 +93,37 @@ function setNavOpen(open: boolean): void {
   document.body.style.overflow = open ? 'hidden' : '';
 }
 
+/* ---------------- badge แจ้งเตือนบนเมนูข้าง (แบบแอปมือถือ) ---------------- */
+
+/** วาด/ลบตัวเลขมุมแท็บ — count 0 = เอาออก */
+function setNavBadge(view: string, count: number, warn?: boolean, tip?: string): void {
+  const btn = document.querySelector('.nav-item[data-view="' + view + '"]') as HTMLElement | null;
+  if (!btn) return;
+  let b = btn.querySelector('.nav-badge') as HTMLElement | null;
+  if (!count) { if (b) b.remove(); return; }
+  if (!b) {
+    b = document.createElement('span');
+    btn.appendChild(b);
+  }
+  b.className = 'nav-badge' + (warn ? ' warn' : '');
+  b.textContent = count > 99 ? '99+' : String(count);
+  if (tip) btn.title = tip;
+}
+
+/** ดึงจำนวนเรื่องด่วนมาแปะแท็บ Sales / Content & Ads — เงียบเมื่อพลาด (badge ไม่ใช่ของสำคัญพอให้เด้ง error) */
+function refreshNavBadges(): void {
+  // role ที่ไม่มีสองแท็บนี้ (ระดับแอดมิน) ไม่ต้องยิง API เลย
+  if (!document.querySelector('.nav-item[data-view="sales"], .nav-item[data-view="contentads"]')) return;
+  serverCall<any>('apiNavBadges').then(function (b) {
+    const s = (b && b.sales) || { urgent: 0, warn: 0 };
+    // แดง = ขาดทุน ≥2 วันติด; ไม่มีด่วนแต่มีเฝ้าระวัง → ส้ม
+    if (s.urgent > 0) setNavBadge('sales', s.urgent, false, 'ยูนิตขาดทุน ≥2 วันติด ' + s.urgent + ' ยูนิต');
+    else setNavBadge('sales', s.warn, true, s.warn ? 'ยูนิตเฝ้าระวังขาดทุน ' + s.warn + ' ยูนิต' : '');
+    const c = (b && b.contentads) || { urgent: 0 };
+    setNavBadge('contentads', c.urgent, false, c.urgent ? 'แอดที่ควรหยุด/แก้ด่วน ' + c.urgent + ' รายการ' : '');
+  }).catch(function () {});
+}
+
 /* ---------------- App core ---------------- */
 
 const App = {
@@ -149,6 +180,7 @@ const App = {
       document.getElementById('topbar-sub')!.textContent = meta.sub;
     }
     this.loadView(first, false);
+    refreshNavBadges(); // ตัวเลขเรื่องด่วนบนแท็บ Sales / Content & Ads
     // รีเฟรชหน้าปัจจุบันอัตโนมัติทุก 5 นาที — แบบเบื้องหลัง (force=false = render จาก cache
     // แล้วค่อยดึงใหม่) และข้ามรอบถ้าแท็บถูกซ่อนหรือผู้ใช้กำลังพิมพ์/เลือกค่าอยู่
     setInterval(function () {
@@ -156,6 +188,7 @@ const App = {
       const ae = document.activeElement;
       if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')) return;
       self.loadView(self.state.view, false);
+      refreshNavBadges();
       serverCall<Bootstrap>('apiBootstrap').then(function (b) {
         self.state.bootstrap = b;
         self.renderSyncInfo(b);

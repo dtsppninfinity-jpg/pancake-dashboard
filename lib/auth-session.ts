@@ -123,7 +123,7 @@ const API_BY_ROLE: Record<Role, string[]> = {
   exec: [
     'apiBootstrap', 'apiDashboard', 'apiSales', 'apiContentAds', 'apiAdmins', 'apiAdminPerf',
     'apiAdminSettings', 'apiAppSettings', 'apiScoreConfig', 'apiUMap', 'apiMe', 'apiKpi', 'apiAdminCom', 'apiProfit',
-    'apiReport', 'apiPageMedia',
+    'apiReport', 'apiPageMedia', 'apiNavBadges',
   ],
   // แอดมินเห็นเฉพาะของตัวเอง — apiMe คืนข้อมูลที่ scope ด้วย admin_user_id จาก session แล้ว
   admin: ['apiBootstrap', 'apiMe'],
