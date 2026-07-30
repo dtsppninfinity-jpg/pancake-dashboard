@@ -100,13 +100,14 @@ function setNavBadge(view: string, count: number, warn?: boolean, tip?: string):
   const btn = document.querySelector('.nav-item[data-view="' + view + '"]') as HTMLElement | null;
   if (!btn) return;
   let b = btn.querySelector('.nav-badge') as HTMLElement | null;
-  if (!count) { if (b) b.remove(); return; }
+  if (!count) { if (b) b.remove(); btn.classList.remove('has-badge'); return; }
   if (!b) {
     b = document.createElement('span');
     btn.appendChild(b);
   }
+  btn.classList.add('has-badge'); // เว้นที่ด้านขวาไม่ให้เลขทับชื่อแท็บ
   b.className = 'nav-badge' + (warn ? ' warn' : '');
-  b.textContent = count > 99 ? '99+' : String(count);
+  b.textContent = count > 9 ? '9+' : String(count); // เพดาน 9+ พอ — บอกว่า "เยอะ" ก็พอแล้ว
   if (tip) btn.title = tip;
 }
 

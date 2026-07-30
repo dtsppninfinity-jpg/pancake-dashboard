@@ -113,6 +113,8 @@ input, select { font-family: inherit; }
   box-shadow: 0 0 0 2px var(--sidebar-bg, rgba(0,0,0,.35));
 }
 .nav-badge.warn { background: #e67e22; }
+/* มี badge เมื่อไหร่ เว้นที่ขวาให้ชื่อแท็บไม่วิ่งไปใต้เลข */
+.nav-item.has-badge { padding-right: 34px; }
 .nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
 .nav-item.active { background: var(--primary); color: #fff; }
 .nav-item.active .nav-label-sub { color: rgba(255,255,255,.75); }
