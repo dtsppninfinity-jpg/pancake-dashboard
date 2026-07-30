@@ -1,7 +1,7 @@
 // lib/api/sales.ts — พอร์ตจาก WebApi.gs::apiSales (อ่านจาก Sheet → อ่านจาก Postgres)
 // server-side เท่านั้น: import { db, fetchAll } จาก @/lib/db
 // เปลี่ยนแค่แหล่งอ่าน (readTable_ → fetchAll) + กรองช่วงเวลาใน query เพื่อเลี่ยง 1000-row cap
-import { db, fetchAll, fetchAllSliced, fetchAllDateSliced } from '@/lib/db';
+import { db, fetchAll, fetchAllSliced, fetchAllDateSliced, dbStats } from '@/lib/db';
 import { getPageUnitMap, getUnitTargets } from './umap';
 import { nicknameByName } from './adminsettings';
 import {
@@ -626,7 +626,7 @@ export async function apiSales(params: any) {
   // vercel logs live-tail ใช้ไม่ได้จริง จึงต้องฝากรอยไว้ใน DB แบบ fire-and-forget
   const t0 = Date.now();
   const mark_ = (s: string) => {
-    const line = `apiSales[${r.label}] ${s}`;
+    const line = `apiSales[${r.label}] ${s} | ${dbStats()}`;
     console.log(line, Date.now() - t0 + 'ms');
     db.from('sync_log').insert({ job: 'trace-apiSales', ok: true, message: line, ms: Date.now() - t0 })
       .then(() => undefined, () => undefined);
@@ -748,6 +748,7 @@ export async function apiSales(params: any) {
       .gte('date', f).lte('date', t),
     chatSince, todayStr
   );
+  mark_('chat_hourly ' + chatRows.length);
   let newConvs = 0;
   const newConvsByCh: Record<string, number> = { facebook: 0, line: 0, other: 0 };
   let todayNewCust = 0;
@@ -824,6 +825,7 @@ export async function apiSales(params: any) {
       pagePlatform[String(p.page_id)] = String(p.platform || '');
     });
   }
+  mark_('pages');
   // ---- รายออเดอร์ "ต้องตรวจ" (สถานะ ใหม่/รอยืนยัน) ให้หน้าเว็บกดดูได้ว่าเป็นใบไหนบ้าง ----
   // เดิมส่งมาแค่ตัวเลข กดแล้วไม่มีอะไรให้ดู แอดมินต้องไปไล่หาเองใน Pancake
   // จำกัด 200 แถวล่าสุด (ใหม่→เก่า) กัน payload บวมตอนเลือกช่วงยาว

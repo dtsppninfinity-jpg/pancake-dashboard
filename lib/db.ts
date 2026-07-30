@@ -30,6 +30,11 @@ function release_(): void {
   if (w) w();
 }
 
+/** สถานะ semaphore ไว้แปะใน trace — ตามล่า slot รั่ว (inflight ค้างสูง = มีคิวรีแขวนถือ slot อยู่) */
+export function dbStats(): string {
+  return `inflight=${inflight_} waiting=${waiters_.length}`;
+}
+
 export async function fetchAll<T = any>(build: () => any, orderColumn = 'id', ascending = true): Promise<T[]> {
   const PAGE = 1000;
   const CONC = 6; // จำนวนหน้าที่ยิงพร้อมกันหลังหน้าแรกเต็ม
