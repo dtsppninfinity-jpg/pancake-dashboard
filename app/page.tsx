@@ -27,6 +27,7 @@ const NAV_OVERVIEW: NavItem[] = [
 const NAV_ADMIN: NavItem[] = [
   { view: 'admins', icon: '👥', title: 'Admin Management', sub: 'รายชื่อ • สถานะ • สิทธิ์' },
   { view: 'adminperf', icon: '🏆', title: 'Admin Performance', sub: 'Ranking ยอดขาย • Top 3 🥇🥈🥉' },
+  { view: 'kpi', icon: '📐', title: 'KPI ทีมขาย', sub: 'หัวหน้า • รอง • แอดมิน • ท็อปเซล' },
   { view: 'umap', icon: '🧩', title: 'U Map', sub: 'แอดมินอยู่ U ไหน • จับคู่' },
 ];
 const NAV_ME: NavItem[] = [

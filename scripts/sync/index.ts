@@ -72,8 +72,10 @@ async function runDaily(): Promise<boolean> {
   const j = await runJob('returns', jobs.syncReturns);
   // กำไรจริง + ค่าคอม จากชีทสรุปรายสินค้า (ต้องมาก่อน unit-alerts ที่ใช้กำไรตัดสิน)
   const k = await runJob('product-sheets', jobs.syncProductSheets);
+  // คะแนน KPI ทุกตำแหน่งจากชีท KPI กลาง (สูตรทีมคิดในชีท — เราอ่านผลอย่างเดียว)
+  const l = await runJob('kpi-sheet', jobs.syncKpiSheet);
   const c = await runJob('prune', jobs.prune);
-  return a && b && c && d && e && f && g && h && i && j && k;
+  return a && b && c && d && e && f && g && h && i && j && k && l;
 }
 
 const MODE = (process.argv[2] || 'fast').toLowerCase();

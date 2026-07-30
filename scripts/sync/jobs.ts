@@ -17,6 +17,7 @@ import { getUnitsForAlert } from '../../lib/api/umap';
 import { nicknameByName } from '../../lib/api/adminsettings';
 import { googleConfigured, driveListSheets, sheetTabs, sheetValuesBatch } from '../../lib/google';
 import { unitFromTitle, parseSalesSummary, parseCommission } from '../../lib/productsheet';
+import { parseKpiAdminMonth, parseKpiSubMonth, parseKpiHeadMonth, parseKpiAdminYear } from '../../lib/kpisheet';
 
 /* ---------------- helper: โหลดเพจ + token จาก DB ---------------- */
 
@@ -276,6 +277,44 @@ export async function syncProductSheets(): Promise<string> {
   if (skipped.length) msg += ` | อ่านรหัส U ไม่ออก ${skipped.length}: ${skipped.slice(0, 3).join(', ')}`;
   if (problems.length) msg += ` | ⚠️ ${problems.slice(0, 3).join('; ')}`;
   return msg;
+}
+
+/* ---------------- ชีท KPI กลางของทีม (คะแนน KPI ทุกตำแหน่ง) ---------------- */
+
+/** ชีท KPI — เปลี่ยนได้ผ่าน env เผื่อทีมทำชีทปีใหม่ */
+const KPI_SHEET_ID = process.env.KPI_SHEET_ID || '1J_sTV9obDUXrYuQzPK7bCyz4ZC6Fygjc8cLZrYNtgK0';
+const KPI_SHEET_YEAR = 2026; // ชีทนี้คือ KPI ปี 2026 — ปีหน้าทีมสร้างชีทใหม่ค่อยอัปเดต
+
+/**
+ * ดึงคะแนน KPI รายคนรายเดือน (แอดมิน/รองหัวหน้า/หัวหน้า + สรุปปี) จากชีท KPI ของทีม
+ * เก็บเป็น JSON ก้อนเดียวใน sync_state 'kpi_scores' — ไม่ต้องรัน migration
+ * เราไม่คำนวณคะแนนเอง (สูตรอยู่ในชีท) — อ่านผลมาแสดงอย่างเดียว ดู lib/kpisheet.ts
+ */
+export async function syncKpiSheet(): Promise<string> {
+  if (!googleConfigured()) return 'ข้าม: ยังไม่ได้ตั้ง GOOGLE_SA_KEY';
+  const ranges = [
+    `'KPI ADMIN/month'!A1:HH300`,
+    `'KPI รอง ADMIN/month'!A1:HH100`,
+    `'KPI หัวหน้า ADMIN/month'!A1:DZ60`,
+    `'KPI ADMIN/year'!A1:AB300`,
+  ];
+  const batch = await sheetValuesBatch(KPI_SHEET_ID, ranges);
+  const admin = parseKpiAdminMonth(batch[ranges[0]] || []);
+  const sub = parseKpiSubMonth(batch[ranges[1]] || []);
+  const head = parseKpiHeadMonth(batch[ranges[2]] || []);
+  const year = parseKpiAdminYear(batch[ranges[3]] || []);
+
+  const months = Object.keys(admin).map(Number).sort((a, b) => a - b);
+  if (!months.length) return '⚠️ อ่านชีท KPI ไม่เจอข้อมูลเลย — โครงชีทอาจเปลี่ยน (ดู lib/kpisheet.ts)';
+
+  await setState('kpi_scores', JSON.stringify({
+    year: KPI_SHEET_YEAR, sheetId: KPI_SHEET_ID,
+    admin, sub, head, adminYear: year,
+    updatedAt: new Date().toISOString(),
+  }));
+  const last = months[months.length - 1];
+  return `KPI sheet: แอดมิน ${months.length} เดือน (ล่าสุดเดือน ${last}: ${(admin[last] || []).length} แถว) | ` +
+    `รอง ${(sub[last] || []).length} แถว | หัวหน้า ${(head[last] || []).length} คน | สรุปปี ${year.length} คน`;
 }
 
 /* ---------------- RETURNS (สินค้าตีกลับ — จาก Google Sheets ของทีม) ---------------- */

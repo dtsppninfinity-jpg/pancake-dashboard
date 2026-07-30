@@ -26,7 +26,8 @@
     "fill:ad-pages": "tsx scripts/setup/fill-ad-pages.ts",
     "import:returns": "tsx scripts/setup/import-returns.ts",
     "import:product-sheets": "tsx scripts/setup/import-product-sheets.ts",
-    "seed:page-units": "tsx scripts/setup/seed-page-units.ts"
+    "seed:page-units": "tsx scripts/setup/seed-page-units.ts",
+    "import:kpi": "tsx scripts/setup/import-kpi.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",

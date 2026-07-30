@@ -14,6 +14,7 @@ import { sales } from '@/lib/views/sales';
 import { contentads } from '@/lib/views/contentads';
 import { admins } from '@/lib/views/admins';
 import { adminperf } from '@/lib/views/adminperf';
+import { kpi } from '@/lib/views/kpi';
 import { umap } from '@/lib/views/umap';
 import { me } from '@/lib/views/me';
 import { users } from '@/lib/views/users';
@@ -44,6 +45,7 @@ const Views: Record<string, ViewModule> = {
   contentads,
   admins,
   adminperf,
+  kpi,
   umap,
   me,
   users,
@@ -55,6 +57,7 @@ const VIEW_META: Record<string, { title: string; sub: string }> = {
   contentads: { title: 'Content & Ads Performance', sub: 'แอดที่กำลังยิง + คำแนะนำจากตัวเลขจริง' },
   admins:     { title: 'Admin Management', sub: 'รายชื่อแอดมิน • สถานะออนไลน์ • สิทธิ์' },
   adminperf:  { title: 'Admin Performance', sub: 'Ranking ยอดขาย • Top 3 🥇🥈🥉' },
+  kpi:        { title: 'KPI ทีมขาย', sub: 'หัวหน้า • รองหัวหน้า • แอดมิน — คะแนนจากชีท KPI ของทีม' },
   umap:       { title: 'U Map', sub: 'แอดมินอยู่ U ไหน — จับคู่ • เพิ่ม/ลบ U • มี API ให้ระบบอื่นดึง' },
   me:         { title: 'ผลงานของฉัน', sub: 'ยอดขาย • KPI • อันดับของคุณ' },
   users:      { title: 'ผู้ใช้งาน', sub: 'บัญชีเข้าระบบ • ระดับสิทธิ์' },
