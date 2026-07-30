@@ -162,12 +162,40 @@ export async function apiAdminCom(params: any) {
     admins: rows.length,
   };
 
+  /* ---- 🔔 แอดมินไม่ได้ค่าคอม 2 เดือนติด (บรีฟขอ) ----
+   * นับเฉพาะ "เดือนที่ปิดแล้ว" — เดือนปัจจุบันคอม 0 อาจแค่ยังไม่ถึงเป้ากลางเดือน ป้ายจะผิด
+   * เงื่อนไข: มีแถวในชีททั้งสองเดือน (ยังอยู่ทีม) และคอมรวมเป็น 0 ทั้งคู่ */
+  const curMonth = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 7);
+  const closed = months.filter((m) => m < curMonth);
+  const noComAlerts: Array<{ admin: string; realName: string; months: string[]; sales: number }> = [];
+  if (closed.length >= 2) {
+    const [m1, m2] = [closed[0], closed[1]]; // ล่าสุดที่ปิดแล้ว, ก่อนหน้า
+    const agg: Record<string, any> = {};
+    comAll.forEach((r) => {
+      const m = String(r.month);
+      if (m !== m1 && m !== m2) return;
+      const a = (agg[r.admin] = agg[r.admin] || { com: 0, sales: 0, in1: false, in2: false, realName: '' });
+      a.com += num_(r.com);
+      a.sales += num_(r.sales);
+      if (m === m1) a.in1 = true; else a.in2 = true;
+      if (!a.realName && r.real_name) a.realName = norm_(r.real_name);
+    });
+    Object.keys(agg).forEach((k) => {
+      const a = agg[k];
+      if (a.in1 && a.in2 && a.com === 0) {
+        noComAlerts.push({ admin: k, realName: a.realName, months: [m2, m1], sales: Math.round(a.sales) });
+      }
+    });
+    noComAlerts.sort((x, y) => y.sales - x.sales);
+  }
+
   return {
     setupNeeded: false,
     months,
     month,
     rows,
     totals,
+    noComAlerts,
     // เดือนที่ระบบไม่มีออเดอร์เลย (ก่อน 23 พ.ค. 2026) — ให้หน้าเว็บอธิบายว่าทำไม ROAS เป็น "—"
     hasSystemOrders: orders.length > 0,
   };

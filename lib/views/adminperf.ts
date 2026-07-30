@@ -568,6 +568,7 @@ interface ComData {
   month: string;
   rows: ComRow[];
   totals: { sales: number; returns: number; remaining: number; com: number; admins: number } | null;
+  noComAlerts?: Array<{ admin: string; realName: string; months: string[]; sales: number }>;
   hasSystemOrders?: boolean;
 }
 
@@ -631,11 +632,26 @@ function comSectionHtml(): string {
       '<td class="num">฿' + Number(t.com).toLocaleString('th-TH', { maximumFractionDigits: 2 }) + '</td>' +
       '<td></td><td></td></tr>'
     : '';
+  // 🔔 คนไม่ได้ค่าคอม 2 เดือนติด (เฉพาะเดือนที่ปิดแล้ว) — บรีฟทีมขอให้ขึ้นเตือน
+  const noCom = (d.noComAlerts || []);
+  const noComHtml = noCom.length
+    ? '<div class="loss-row lv-yellow" style="margin-bottom:10px">' +
+        '<div class="loss-icon">🔔</div><div class="loss-body">' +
+        '<div class="loss-title">ไม่ได้ค่าคอม <b>2 เดือนติด</b> (' +
+          esc(comMonthLabel(noCom[0].months[0])) + ' + ' + esc(comMonthLabel(noCom[0].months[1])) + ') — ' +
+          fmtNum(noCom.length) + ' คน</div>' +
+        '<div class="loss-reason">' + noCom.map(function (a) {
+          return '<span class="chip" title="' + esc((a.realName ? a.realName + ' • ' : '') +
+            'ยอดขายรวม 2 เดือน ' + THB(a.sales)) + '">' + esc(a.admin) + '</span>';
+        }).join(' ') + '</div>' +
+      '</div></div>'
+    : '';
   return head +
       '<select class="input" id="rk-com-month">' + opts + '</select>' +
       '<div class="spacer" style="flex:1"></div>' +
       '<button class="btn-mini" id="rk-com-csv">📄 CSV</button>' +
     '</div>' +
+    noComHtml +
     '<div class="card-sub">ยอดขาย/ตีกลับ/<b>คงเหลือ</b>/คอม/%ปิดลูกค้าใหม่ = ตารางประเมินในชีท Com:Admin ตรงๆ ' +
       '(คงเหลือ = ยอดจริงหลังหักตีกลับ+ยกเลิก — ตัวที่ทีมใช้ตัดสิน) • ROAS คิดจากระบบ' +
       (d.hasSystemOrders === false ? ' — เดือนนี้ระบบยังไม่มีออเดอร์ (เริ่มเก็บ 23 พ.ค. 2026) ROAS จึงเป็น "—"' : '') + '</div>' +
