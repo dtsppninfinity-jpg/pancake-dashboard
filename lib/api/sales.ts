@@ -1,7 +1,7 @@
 // lib/api/sales.ts — พอร์ตจาก WebApi.gs::apiSales (อ่านจาก Sheet → อ่านจาก Postgres)
 // server-side เท่านั้น: import { db, fetchAll } จาก @/lib/db
 // เปลี่ยนแค่แหล่งอ่าน (readTable_ → fetchAll) + กรองช่วงเวลาใน query เพื่อเลี่ยง 1000-row cap
-import { db, fetchAll, fetchAllSliced } from '@/lib/db';
+import { db, fetchAll, fetchAllSliced, fetchAllDateSliced } from '@/lib/db';
 import { getPageUnitMap, getUnitTargets } from './umap';
 import { nicknameByName } from './adminsettings';
 import {
@@ -321,23 +321,23 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
   const dateOf = (d: Date) => fmtDateBkk(d);
   try {
     // meta_purchases/value อาจยังไม่มีคอลัมน์ (ยังไม่รัน migration 2026-07-24) → ลองแบบเต็มก่อน
+    // หั่นตามวัน — ช่วงนี้กิน "ช่วงที่เลือก + ช่วงเทียบ" (เลือก 35 วัน = ดึง 70 วัน ~56k แถว)
+    // OFFSET ลึกช้าและโดน statement timeout ตัดจนหน้า 500 ทั้งหน้า (ดู fetchAllDateSliced)
     let rows: Row[];
     try {
-      rows = await fetchAll<Row>(() =>
+      rows = await fetchAllDateSliced<Row>((f, t) =>
         db.from('ad_daily')
           .select('date,ad_id,page_id,name,status,spend,pos_orders,meta_purchases,meta_purchase_value,msgs_started,updated_at')
-          .gte('date', dateOf(r.prevStart))
-          .lte('date', dateOf(r.end)),
-        'date,ad_id'
+          .gte('date', f).lte('date', t),
+        dateOf(r.prevStart), dateOf(r.end), { orderColumn: 'date,ad_id' }
       );
     } catch (e2: any) {
       if (!String((e2 && e2.message) || '').includes('meta_purchase')) throw e2;
-      rows = await fetchAll<Row>(() =>
+      rows = await fetchAllDateSliced<Row>((f, t) =>
         db.from('ad_daily')
           .select('date,ad_id,page_id,name,status,spend,pos_orders,msgs_started,updated_at')
-          .gte('date', dateOf(r.prevStart))
-          .lte('date', dateOf(r.end)),
-        'date,ad_id'
+          .gte('date', f).lte('date', t),
+        dateOf(r.prevStart), dateOf(r.end), { orderColumn: 'date,ad_id' }
       );
     }
     const curFrom = dateOf(r.start), curTo = dateOf(r.end);
@@ -490,9 +490,9 @@ async function loadUnitCost_(
   };
 
   try {
-    const ads = await fetchAll<Row>(() =>
+    const ads = await fetchAllDateSliced<Row>((f, t) =>
       db.from('ad_daily').select('ad_id,date,page_id,spend,msgs_started')
-        .gte('date', from).lte('date', to), 'date,ad_id');
+        .gte('date', f).lte('date', t), from, to, { orderColumn: 'date,ad_id' });
     ads.forEach((a) => {
       const pid = String(a.page_id || '');
       if (!pid) return;   // แอดที่ Pancake ยังไม่ผูกเพจ — ยัดเข้ายูนิตไหนก็มั่ว ทิ้งดีกว่าเดา
@@ -719,15 +719,15 @@ export async function apiSales(params: any) {
     return h.map((v) => Math.round(v));
   }
 
-  // สถิติแชท (ตัวหาร closeRate) — chat_hourly เกิน 1000 แถวได้ → fetchAll + กรอง date
+  // สถิติแชท (ตัวหาร closeRate) — chat_hourly ~1,200 แถว/วัน หั่นตามวันกัน OFFSET ลึก
   const todayStr = fmtDateBkk(new Date());
   const chatSince = fmtDateBkk(r.start) < todayStr ? fmtDateBkk(r.start) : todayStr;
-  const chatRows = await fetchAll<Row>(() =>
+  const chatRows = await fetchAllDateSliced<Row>((f, t) =>
     db
       .from('chat_hourly')
       .select('date,platform,new_inbox_count,new_customer_count')
-      .gte('date', chatSince),
-    'key'
+      .gte('date', f).lte('date', t),
+    chatSince, todayStr
   );
   let newConvs = 0;
   const newConvsByCh: Record<string, number> = { facebook: 0, line: 0, other: 0 };

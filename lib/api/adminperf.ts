@@ -1,6 +1,6 @@
 // lib/api/adminperf.ts — พอร์ตจาก WebApi.gs apiAdminPerf
 // อ่านจาก Postgres (Supabase) แทน Google Sheet — logic รวมยอดตรงกับของเดิม
-import { db, fetchAll, fetchAllSliced } from '@/lib/db';
+import { db, fetchAll, fetchAllSliced, fetchAllDateSliced } from '@/lib/db';
 import {
   EXCLUDED_STATUSES,
   fmtDateBkk,
@@ -182,9 +182,10 @@ async function loadOrders_(r: { start: Date; end: Date }) {
  */
 async function loadAdSpend_(fromDate: string, toDate: string): Promise<Record<string, number> | null> {
   try {
-    const rows = await fetchAll<any>(() =>
-      db.from('ad_daily').select('date,ad_id,spend').gte('date', fromDate).lte('date', toDate),
-      'date,ad_id'
+    // หั่นตามวัน — ช่วงยาว ad_daily มี ~800 แอด/วัน (35 วัน = ~28k แถว) OFFSET ลึกช้า+โดนตัด
+    const rows = await fetchAllDateSliced<any>((f, t) =>
+      db.from('ad_daily').select('date,ad_id,spend').gte('date', f).lte('date', t),
+      fromDate, toDate, { orderColumn: 'date,ad_id' }
     );
     const byAd: Record<string, number> = {};
     rows.forEach((a) => {
@@ -255,11 +256,12 @@ export async function apiAdminPerf(params: any) {
     ).catch(() => [] as any[]),
     // ไม่ catch: ตาราง chat_hourly มีแน่นอน — error จริง (503/timeout) ต้องดังให้หน้าเว็บโชว์ retry
     // ไม่ใช่แสดง "0" เนียนๆ เหมือนเป็นข้อมูลจริง
-    fetchAll<any>(() =>
+    // หั่นตามวัน — ตารางนี้แถวเยอะสุดในกลุ่มแชท (~1,200/วัน → 35 วัน = 43k แถว เคยทำ 500 ทั้งหน้า)
+    fetchAllDateSliced<any>((f, t) =>
       db.from('chat_hourly')
         .select('date,hour,platform,new_customer_count,customer_inbox_count')
-        .gte('date', chatFrom).lte('date', chatTo),
-      'key'
+        .gte('date', f).lte('date', t),
+      chatFrom, chatTo
     ),
     getAppSettings(),
     // ต้อง select type ด้วย — "แชทรอตอบ" ~41% เป็นคอมเมนต์ใต้โพสต์ ไม่ใช่อินบ็อกซ์
