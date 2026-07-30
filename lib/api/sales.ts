@@ -622,6 +622,12 @@ export async function apiSales(params: any) {
   const channel = (params && params.channel) || '';
   const compare = (params && params.compare) !== 'none';
 
+  // ⚡ ตัวโหลดอิสระ (ไม่พึ่งผล orders) ยิงตั้งแต่ตอนนี้ — เดิมรอกันเป็นทอดๆ ท้ายฟังก์ชัน
+  // ช่วงยาว 35 วันเวลารวมทะลุ 100s จน 504 (semaphore ใน lib/db คุมไม่ให้ถล่มฐานเอง)
+  const engP = loadEngagement_(r);
+  const returnsP = loadReturns_(r).catch(() => null);
+  const adCostP = loadAdCost_(r, compare);
+
   // orders ทั้งหมดที่อาจใช้ → กรองที่ query แยก 3 ก้อนกัน payload บวม:
   //   [prevStart, start)   คอลัมน์เบา (ช่วงเปรียบเทียบ)
   //   [start, end+1s)      คอลัมน์เต็ม (ทำ Top เพจ/สินค้า — จำกัดขอบบนตามช่วงที่เลือก
@@ -747,7 +753,7 @@ export async function apiSales(params: any) {
   // "คนทัก" (reached) = บทสนทนาอินบ็อกซ์ใหม่ + คอมเมนต์ ตามที่บอสระบุว่าเป็น "คนทักจริง"
   // ทั้งตัวตั้ง (order_count) และตัวหารมาจาก statistics/customer_engagements ของ Pancake
   // (สูตรเก่าใช้ total = รวม inbox ของลูกค้าเก่าด้วย ทำให้ตัวหารใหญ่เกิน %ต่ำผิด)
-  const eng = await loadEngagement_(r);
+  const eng = await engP;
   const engCh = eng
     ? (channel ? eng.byCh[channel]
        : { total: eng.total, reached: eng.reached, newInbox: eng.newInbox, comment: eng.comment, orders: eng.orders })
@@ -996,7 +1002,7 @@ export async function apiSales(params: any) {
    * คนละเรื่องกับ "ยกเลิก" ด้านบน: ยกเลิก = ปิดใบก่อนส่ง / ตีกลับ = ส่งไปแล้วของกลับมา
    * นับตาม "วันที่รับตีกลับ" ไม่ใช่วันที่สั่ง — ของที่สั่งเดือนก่อนแล้วกลับมาเดือนนี้ต้องอยู่เดือนนี้
    */
-  const returns = await loadReturns_(r).catch(() => null);
+  const returns = await returnsP;
 
   /* ---- แจ้งเตือน "ยูนิตขาดทุน" — งาน sync คำนวณไว้แล้ว หน้าเว็บแค่อ่านผล ----
    * ตัวเลขตัดสินจาก "วันที่จบแล้ว" จึงเปลี่ยนวันละครั้ง ไม่ต้องคำนวณใหม่ทุกครั้งที่เปิดหน้า
@@ -1091,7 +1097,7 @@ export async function apiSales(params: any) {
   // ---- ค่าแอดจริง (ad_daily) + ROAS ของช่วงที่เลือก ----
   // spend ใน ad_daily เป็นบาทจริง (ทศนิยม) ไม่ใช่สตางค์ — ห้ามหาร MONEY_SCALE
   // ตารางอาจยังไม่ถูกสร้าง (ยังไม่รัน migration) → คืน null ให้หน้าเว็บโชว์ "-" ไม่ใช่ 0
-  const adCost = await loadAdCost_(r, compare);
+  const adCost = await adCostP;
 
   // ---- ยอดขายแยกช่องทาง (ไม่สน channel filter — ใช้ทำ ROAS หลายแบบ) ----
   // เพจ = Facebook, ไลน์ = LINE — คิดจาก cur (ทุกช่องทางในช่วง) ตัดออเดอร์ยกเลิกแล้ว
