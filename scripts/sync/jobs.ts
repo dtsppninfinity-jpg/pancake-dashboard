@@ -16,6 +16,7 @@ import { supabase, upsertRows, replaceTable, setState } from '../../lib/supabase
 import { getUnitsForAlert } from '../../lib/api/umap';
 import { nicknameByName } from '../../lib/api/adminsettings';
 import { googleConfigured, driveListSheets, sheetTabs, sheetValuesBatch } from '../../lib/google';
+import { unitFromTitle, parseSalesSummary, parseCommission } from '../../lib/productsheet';
 
 /* ---------------- helper: โหลดเพจ + token จาก DB ---------------- */
 
@@ -157,6 +158,71 @@ export async function syncUnitAlerts(): Promise<string> {
   }));
   return `unit alerts: เตือน ${alerts.length} ยูนิต (ด่วน ${alerts.filter((a) => a.level === 'urgent').length}` +
     (noOwner ? `, ไม่มีผู้รับผิดชอบ ${noOwner}` : '') + `) ถึง ${dayList[0]}`;
+}
+
+/* ---------------- ชีทสรุปรายสินค้า (กำไรจริง + ค่าคอมแอดมิน) ---------------- */
+
+/** โฟลเดอร์ "สรุปยอดรายสินค้า" — รับได้ทั้งลิงก์เต็มและรหัสโฟลเดอร์เปล่าๆ */
+function productFolderId_(): string {
+  const raw = String(process.env.GOOGLE_DRIVE_PRODUCT_SALES_SUMMARY || '').trim();
+  const m = raw.match(/\/folders\/([A-Za-z0-9_-]+)/);
+  return m ? m[1] : raw;
+}
+
+/**
+ * ดึง "กำไรสุทธิรายวันต่อยูนิต" + "ค่าคอมแอดมินรายเดือน" จากชีทสรุปรายสินค้า
+ *
+ * ทำไมต้องเอาจากชีท: กำไรจริงคำนวณเองไม่ได้ — ต้นทุนสินค้าใน Pancake POS เป็น 0 ทุกตัว
+ * ชีทของทีมหักต้นทุน + สำรองตีกลับมาแล้ว จึงเป็นแหล่งเดียวที่บอก "กำไร" ได้จริง
+ *
+ * 1 ไฟล์ = 1 ยูนิต โดยดูรหัสจากชื่อไฟล์ (`สร. UN3 : ...` → UN3)
+ * ไฟล์ที่อ่านรหัสไม่ออกจะถูกข้ามและฟ้องชื่อไว้ท้ายข้อความ — ดีกว่าเดาแล้วยัดผิดยูนิต
+ */
+export async function syncProductSheets(): Promise<string> {
+  if (!googleConfigured()) return 'ข้าม: ยังไม่ได้ตั้ง GOOGLE_SA_KEY';
+  const folder = productFolderId_();
+  if (!folder) return 'ข้าม: ยังไม่ได้ตั้ง GOOGLE_DRIVE_PRODUCT_SALES_SUMMARY';
+
+  const files = await driveListSheets(folder);
+  if (!files.length) return `ไม่พบไฟล์ในโฟลเดอร์ ${folder}`;
+
+  const dailyRows: any[] = [];
+  const comRows: any[] = [];
+  const skipped: string[] = [];
+  const problems: string[] = [];
+  const now = new Date().toISOString();
+
+  for (const f of files) {
+    const u = unitFromTitle(f.name);
+    if (!u) { skipped.push(f.name); continue; }
+    // 2 แท็บ 1 คำขอ — ประหยัดโควตา Sheets API
+    const batch = await sheetValuesBatch(f.id, [`'สรุปยอดขาย'!A1:BZ700`, `'Com:Admin'!A1:AZ700`]);
+    const salesGrid = batch[`'สรุปยอดขาย'!A1:BZ700`] || [];
+    const comGrid = batch[`'Com:Admin'!A1:AZ700`] || [];
+
+    const daily = parseSalesSummary(salesGrid);
+    if (!daily.length) problems.push(`${u}: ไม่เจอข้อมูลในแท็บ สรุปยอดขาย`);
+    daily.forEach((d) => dailyRows.push({
+      key: `${u}|${d.date}`, u, date: d.date, file_id: f.id,
+      sales: d.sales, orders: d.orders, ads: d.ads, profit: d.profit, margin: d.margin,
+      updated_at: now,
+    }));
+
+    parseCommission(comGrid).forEach((c) => comRows.push({
+      key: `${u}|${c.month}|${c.admin}`, u, month: c.month, admin: c.admin,
+      sales: c.sales, com: c.com, com_sub: c.comSub, com_head: c.comHead,
+      updated_at: now,
+    }));
+  }
+
+  if (dailyRows.length) await upsertRows('unit_daily', dailyRows, 'key');
+  if (comRows.length) await upsertRows('admin_commission', comRows, 'key');
+
+  const units = new Set(dailyRows.map((r) => r.u));
+  let msg = `product sheets: ${units.size} ยูนิต | รายวัน ${dailyRows.length} แถว | ค่าคอม ${comRows.length} แถว`;
+  if (skipped.length) msg += ` | อ่านรหัส U ไม่ออก ${skipped.length}: ${skipped.slice(0, 3).join(', ')}`;
+  if (problems.length) msg += ` | ⚠️ ${problems.slice(0, 3).join('; ')}`;
+  return msg;
 }
 
 /* ---------------- RETURNS (สินค้าตีกลับ — จาก Google Sheets ของทีม) ---------------- */

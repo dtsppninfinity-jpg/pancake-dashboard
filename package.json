@@ -25,6 +25,7 @@
     "backfill:recover": "tsx scripts/setup/backfill-recover.ts",
     "fill:ad-pages": "tsx scripts/setup/fill-ad-pages.ts",
     "import:returns": "tsx scripts/setup/import-returns.ts",
+    "import:product-sheets": "tsx scripts/setup/import-product-sheets.ts",
     "seed:page-units": "tsx scripts/setup/seed-page-units.ts"
   },
   "dependencies": {

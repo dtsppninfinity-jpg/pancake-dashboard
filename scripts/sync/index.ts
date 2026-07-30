@@ -70,8 +70,10 @@ async function runDaily(): Promise<boolean> {
   const i = await runJob('ad-page-fill', () => jobs.syncAdPageFill(45));
   // ตีกลับจากชีทของทีม — ทีมกรอกมือรายวัน วันละครั้งพอ (ไม่ต้องถี่กว่านี้)
   const j = await runJob('returns', jobs.syncReturns);
+  // กำไรจริง + ค่าคอม จากชีทสรุปรายสินค้า (ต้องมาก่อน unit-alerts ที่ใช้กำไรตัดสิน)
+  const k = await runJob('product-sheets', jobs.syncProductSheets);
   const c = await runJob('prune', jobs.prune);
-  return a && b && c && d && e && f && g && h && i && j;
+  return a && b && c && d && e && f && g && h && i && j && k;
 }
 
 const MODE = (process.argv[2] || 'fast').toLowerCase();
