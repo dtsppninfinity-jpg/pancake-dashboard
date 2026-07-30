@@ -24,6 +24,7 @@ const NAV_OVERVIEW: NavItem[] = [
   { view: 'sales', icon: '💰', title: 'Sales Dashboard', sub: 'ยอดขาย FB/LINE + Ranking' },
   { view: 'contentads', icon: '🎯', title: 'Content & Ads Performance', sub: 'แอดที่กำลังยิง + คำแนะนำ' },
   { view: 'profit', icon: '💹', title: 'กำไร & ตีกลับ', sub: 'กำไรจริงรายยูนิต/เดือน/ปี' },
+  { view: 'report', icon: '📑', title: 'รายงาน & การตลาด', sub: 'เป้า vs จริง • ซื้อซ้ำรายยูนิต' },
 ];
 const NAV_ADMIN: NavItem[] = [
   { view: 'admins', icon: '👥', title: 'Admin Management', sub: 'รายชื่อ • สถานะ • สิทธิ์' },

@@ -4,13 +4,16 @@
 import { serverCall, esc, fmtNum, THB, pctFmt, openModal, showError, downloadCSV, toast } from '@/lib/ui/helpers';
 
 interface Cell { profit: number; sales: number; ads: number }
-interface UnitRow { u: string; product: string; months: Record<string, Cell | null>; total: Cell }
+interface UnitAge { firstSale: string; days: number; openEnded: boolean; active: boolean }
+interface UnitRow { u: string; product: string; age?: UnitAge | null; months: Record<string, Cell | null>; total: Cell }
 interface ProfitData {
   setupNeeded?: boolean;
   year: string; months: string[]; units: UnitRow[];
   monthTotals: Record<string, Cell>;
   returnsByMonth: Record<string, { value: number; items: number }>;
   totals: { profit: number; sales: number; ads: number; returnValue: number; returnItems: number };
+  testProducts?: Array<{ u: string; name: string; ok: boolean | null }>;
+  testSummary?: { total: number; ok: number; fail: number; pending: number; pct: number | null };
 }
 
 let lastData: ProfitData | null = null;
@@ -53,19 +56,25 @@ function render(container: HTMLElement, d: ProfitData | null): void {
   '</div>';
 
   // ---- pivot ยูนิต × เดือน ----
-  const head = '<tr><th>ยูนิต</th>' + d.months.map((m) => '<th class="num">' + esc(mLabel(m)) + '</th>').join('') +
+  const head = '<tr><th>ยูนิต</th><th class="num">อายุ</th>' + d.months.map((m) => '<th class="num">' + esc(mLabel(m)) + '</th>').join('') +
     '<th class="num">รวมปี</th><th class="num">มาร์จิ้น</th></tr>';
   const body = d.units.map((x) => {
     const cells = d.months.map((m) => profCell(x.months[m], x.u, m)).join('');
     const cls = x.total.profit > 0 ? 'txt-good' : x.total.profit < 0 ? 'txt-bad' : '';
     const margin = x.total.sales > 0 ? Math.round((x.total.profit / x.total.sales) * 1000) / 10 : null;
+    // อายุสินค้า = นับจากวันแรกที่มียอดในชีท (ข้อมูลเริ่ม ม.ค. 2026 — ตัวที่ขายมาก่อนขึ้น ≥)
+    const ageTxt = x.age
+      ? '<span title="' + esc('เริ่มมียอด ' + x.age.firstSale + (x.age.active ? ' • ยังขายอยู่' : ' • หยุดขายแล้ว')) + '">' +
+        (x.age.openEnded ? '≥' : '') + fmtNum(x.age.days) + ' วัน' + (x.age.active ? '' : ' ⏸') + '</span>'
+      : '-';
     return '<tr><td><b>' + esc(x.u) + '</b>' +
       (x.product ? ' <span class="rank-fullname">' + esc(x.product) + '</span>' : '') + '</td>' +
+      '<td class="num">' + ageTxt + '</td>' +
       cells +
       '<td class="num ' + cls + '"><b>' + THB(x.total.profit) + '</b></td>' +
       '<td class="num ' + cls + '">' + pctFmt(margin) + '</td></tr>';
   }).join('');
-  const totRow = '<tr style="font-weight:700;border-top:2px solid var(--border,#ccc)"><td>รวม</td>' +
+  const totRow = '<tr style="font-weight:700;border-top:2px solid var(--border,#ccc)"><td>รวม</td><td></td>' +
     d.months.map((m) => {
       const c = d.monthTotals[m];
       const cls = c.profit > 0 ? 'txt-good' : c.profit < 0 ? 'txt-bad' : '';
@@ -104,7 +113,23 @@ function render(container: HTMLElement, d: ProfitData | null): void {
       '<th class="num">ตีกลับ (มูลค่า)</th><th class="num">ตีกลับ (รายการ)</th><th class="num">%ตีกลับ/ยอด</th>' +
     '</tr></thead><tbody>' + retBody + '</tbody></table></div></div>';
 
-  container.innerHTML = cards + pivot + retTable;
+  // ---- สินค้าเทสประจำปี (จากแท็บ 0.ข้อมูล ของชีท KPI: ✅ ติด / ❌ ไม่ติด) ----
+  const ts = d.testSummary;
+  const testCard = ts && ts.total
+    ? '<div class="card" style="margin-top:14px">' +
+      '<h3>🧪 สินค้าเทสประจำปี — สำเร็จ ' + (ts.pct === null ? '—' : ts.pct + '%') +
+        ' (ติด ' + fmtNum(ts.ok) + ' / ตัดสินแล้ว ' + fmtNum(ts.ok + ts.fail) + ' จากทั้งหมด ' + fmtNum(ts.total) + ' ตัว)</h3>' +
+      '<div class="card-sub">จากแท็บ 0.ข้อมูล ของชีท KPI — ✅ ติด • ❌ ไม่ติด • ไม่มีเครื่องหมาย = ยังเทสอยู่/ยังไม่ตัดสิน (' + fmtNum(ts.pending) + ' ตัว)</div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+        (d.testProducts || []).map(function (t) {
+          const badge = t.ok === true ? 'ai' : t.ok === false ? 'urgent' : 'neutral';
+          const mark = t.ok === true ? '✅' : t.ok === false ? '❌' : '⏳';
+          return '<span class="badge ' + badge + '">' + mark + ' ' + esc(t.u) + ' ' + esc(t.name) + '</span>';
+        }).join('') +
+      '</div></div>'
+    : '';
+
+  container.innerHTML = cards + pivot + retTable + testCard;
   bindEvents(container);
 }
 

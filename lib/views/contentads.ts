@@ -650,6 +650,109 @@ function listHtml(allItems: any[], list: any[], needSetup?: boolean): string {
   return h;
 }
 
+/* ---------------- 🖼 สื่อรายเพจทั้งปี (บรีฟ 2026-07-31) ----------------
+ * เลือกเพจ → รวมแอดเป็นราย "สื่อ" (โพสต์เดียวกัน = สื่อเดียวกัน) เทียบค่าแอดรายเดือนทั้งปี
+ * fetch แยกจากข้อมูลหลักของหน้า (ช่วงวันด้านบนไม่เกี่ยว — อันนี้ดูทั้งปีเสมอ)
+ */
+
+let mediaPages: Array<{ id: string; name: string; spend60d: number }> | null = null;
+let mediaData: any = null;
+let mediaPageId = '';
+let mediaReq = 0;
+
+const TH_MONTHS_M = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+function mediaKFmt_(v: number): string {
+  const a = Math.abs(v);
+  return a >= 1e6 ? (v / 1e6).toFixed(1) + 'M' : a >= 1e3 ? (v / 1e3).toFixed(0) + 'k' : String(Math.round(v));
+}
+
+function mediaSectionHtml(): string {
+  const headRow = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+    '<h3 style="margin:0">🖼 สื่อรายเพจ — เทียบทั้งปี</h3>' +
+    (mediaPages
+      ? '<select class="input" id="ca-media-page"><option value="">— เลือกเพจ (' + mediaPages.length + ' เพจที่มีค่าแอด 60 วัน) —</option>' +
+        mediaPages.map(function (pg) {
+          return '<option value="' + esc(pg.id) + '"' + (pg.id === mediaPageId ? ' selected' : '') + '>' +
+            esc(pg.name) + ' (' + mediaKFmt_(pg.spend60d) + ')</option>';
+        }).join('') + '</select>'
+      : '<span class="chip">กำลังโหลดรายชื่อเพจ...</span>') +
+    '<div class="spacer" style="flex:1"></div></div>';
+
+  let bodyHtml = '<div class="card-sub">เลือกเพจเพื่อดูว่าเพจนั้นยิงสื่อ (โพสต์) ตัวไหนบ้างทั้งปี — ' +
+    'ค่าแอดรายเดือนต่อสื่อ • สื่อเดียวกันหลายแอดรวมเป็นแถวเดียว • ▶ = วิดีโอ</div>';
+  if (mediaPageId && !mediaData) {
+    bodyHtml += '<div class="loading"><div class="spinner"></div>กำลังรวมสื่อทั้งปีของเพจ...</div>';
+  } else if (mediaData && mediaData.items) {
+    const months: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      if (mediaData.items.some(function (x: any) { return x.byMonth[i] > 0; })) months.push(i);
+    }
+    const rows = mediaData.items.map(function (x: any, idx: number) {
+      const img = x.thumb
+        ? '<img src="' + esc(x.thumb) + '" style="width:44px;height:44px;object-fit:cover;border-radius:6px" loading="lazy">'
+        : '<div style="width:44px;height:44px;border-radius:6px;background:var(--bg-2,#333);display:flex;align-items:center;justify-content:center">🖼</div>';
+      const title = (x.permalink
+        ? '<a href="' + esc(x.permalink) + '" target="_blank" rel="noopener" style="text-decoration:none">'
+        : '') + (x.isVideo ? '▶ ' : '') + esc(String(x.title).slice(0, 60)) + (x.permalink ? '</a>' : '');
+      return '<tr>' +
+        '<td>' + (idx + 1) + '</td>' +
+        '<td><div style="display:flex;gap:8px;align-items:center">' + img +
+          '<div style="min-width:0"><div>' + title + '</div>' +
+          '<div class="rank-fullname">' + fmtNum(x.ads) + ' แอด • ล่าสุด ' + esc(x.lastDate) +
+          (x.running ? ' • <b class="txt-good">ยิงอยู่</b>' : '') + '</div></div></div></td>' +
+        months.map(function (i) {
+          const v = x.byMonth[i];
+          return '<td class="num">' + (v ? mediaKFmt_(v) : '<span style="opacity:.3">—</span>') + '</td>';
+        }).join('') +
+        '<td class="num"><b>' + THB(x.spend) + '</b></td>' +
+        '<td class="num">' + (x.costPerMsg === null ? '-' : '฿' + x.costPerMsg) + '</td>' +
+        '<td class="num">' + (x.roasMeta === null ? '-' : x.roasMeta.toFixed(2) + 'x') + '</td>' +
+      '</tr>';
+    }).join('');
+    bodyHtml +=
+      (mediaData.truncated ? '<div class="hint-box">แสดง ' + fmtNum(mediaData.items.length) + ' สื่อแรกตามค่าแอด — ตัดท้ายอีก ' + fmtNum(mediaData.truncated) + ' สื่อ (ค่าแอดน้อย)</div>' : '') +
+      '<div class="table-scroll"><table class="tbl"><thead><tr>' +
+        '<th>#</th><th>สื่อ (โพสต์)</th>' +
+        months.map(function (i) { return '<th class="num">' + TH_MONTHS_M[i] + '</th>'; }).join('') +
+        '<th class="num">ค่าแอดรวมปี</th><th class="num">ค่าทัก</th><th class="num">ROAS (Meta)</th>' +
+      '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+  return headRow + bodyHtml;
+}
+
+function fetchMediaPages(container: HTMLElement): void {
+  serverCall<any>('apiPageMedia', {}).then(function (res) {
+    mediaPages = (res && res.pages) || [];
+    const box = container.querySelector('#ca-media');
+    if (box) { box.innerHTML = mediaSectionHtml(); bindMedia(container); }
+  }).catch(function () { /* เงียบ — section รอง */ });
+}
+
+function fetchMedia(container: HTMLElement): void {
+  const seq = ++mediaReq;
+  serverCall<any>('apiPageMedia', { pageId: mediaPageId }).then(function (res) {
+    if (seq !== mediaReq) return;
+    mediaData = res;
+    const box = container.querySelector('#ca-media');
+    if (box) { box.innerHTML = mediaSectionHtml(); bindMedia(container); }
+  }).catch(function () {
+    if (seq !== mediaReq) return;
+    toast('⚠️ โหลดสื่อของเพจไม่สำเร็จ');
+  });
+}
+
+function bindMedia(container: HTMLElement): void {
+  const sel = container.querySelector('#ca-media-page') as HTMLSelectElement | null;
+  if (sel) sel.addEventListener('change', function () {
+    mediaPageId = sel.value;
+    mediaData = null;
+    const box = container.querySelector('#ca-media');
+    if (box) { box.innerHTML = mediaSectionHtml(); bindMedia(container); }
+    if (mediaPageId) fetchMedia(container);
+  });
+}
+
 /* ---------------- render + bind ---------------- */
 
 function render(container: HTMLElement, data: any): void {
@@ -677,8 +780,12 @@ function render(container: HTMLElement, data: any): void {
   html += alertsCardHtml(data);
   html += rankControlsHtml();
   html += listHtml(items, list, !!(data && data.needAdSetup));
+  // สื่อรายเพจทั้งปี — ใช้แคชโมดูล (ไม่ refetch ตอน re-render จาก filter ฝั่ง client)
+  html += '<div class="card" id="ca-media" style="margin-top:14px">' + mediaSectionHtml() + '</div>';
   container.innerHTML = html;
   bind(container, data);
+  bindMedia(container);
+  if (!mediaPages) fetchMediaPages(container);
 }
 
 function bind(container: HTMLElement, data: any): void {

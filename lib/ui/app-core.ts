@@ -16,6 +16,7 @@ import { admins } from '@/lib/views/admins';
 import { adminperf } from '@/lib/views/adminperf';
 import { kpi } from '@/lib/views/kpi';
 import { profit } from '@/lib/views/profit';
+import { report } from '@/lib/views/report';
 import { umap } from '@/lib/views/umap';
 import { me } from '@/lib/views/me';
 import { users } from '@/lib/views/users';
@@ -48,6 +49,7 @@ const Views: Record<string, ViewModule> = {
   adminperf,
   kpi,
   profit,
+  report,
   umap,
   me,
   users,
@@ -61,6 +63,7 @@ const VIEW_META: Record<string, { title: string; sub: string }> = {
   adminperf:  { title: 'Admin Performance', sub: 'Ranking ยอดขาย • Top 3 🥇🥈🥉' },
   kpi:        { title: 'KPI ทีมขาย', sub: 'หัวหน้า • รองหัวหน้า • แอดมิน — คะแนนจากชีท KPI ของทีม' },
   profit:     { title: 'กำไร & ตีกลับ', sub: 'กำไรสุทธิจริงรายยูนิต/เดือน/ปี + ตีกลับ — จากชีททีม' },
+  report:     { title: 'รายงาน & การตลาด', sub: 'เป้า vs จริง รายวีค/เดือน/ปี • ซื้อซ้ำรายยูนิต' },
   umap:       { title: 'U Map', sub: 'แอดมินอยู่ U ไหน — จับคู่ • เพิ่ม/ลบ U • มี API ให้ระบบอื่นดึง' },
   me:         { title: 'ผลงานของฉัน', sub: 'ยอดขาย • KPI • อันดับของคุณ' },
   users:      { title: 'ผู้ใช้งาน', sub: 'บัญชีเข้าระบบ • ระดับสิทธิ์' },

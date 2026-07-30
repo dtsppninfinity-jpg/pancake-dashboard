@@ -297,6 +297,8 @@ export async function syncKpiSheet(): Promise<string> {
     `'KPI รอง ADMIN/month'!A1:HH100`,
     `'KPI หัวหน้า ADMIN/month'!A1:DZ60`,
     `'KPI ADMIN/year'!A1:AB300`,
+    `'เป้ายอดขาย'!A1:P40`,
+    `'0.ข้อมูล'!A1:B60`,
   ];
   const batch = await sheetValuesBatch(KPI_SHEET_ID, ranges);
   const admin = parseKpiAdminMonth(batch[ranges[0]] || []);
@@ -304,12 +306,38 @@ export async function syncKpiSheet(): Promise<string> {
   const head = parseKpiHeadMonth(batch[ranges[2]] || []);
   const year = parseKpiAdminYear(batch[ranges[3]] || []);
 
+  // เป้ายอดขายรายเดือน×ยูนิต (คอลัมน์ C..N = ม.ค...ธ.ค., '-' = ไม่ตั้งเป้า)
+  const targets: Record<string, number[]> = {};
+  for (const row of batch[ranges[4]] || []) {
+    const m = String(row[1] || '').toUpperCase().match(/^(UN?\d{1,3})\b/);
+    if (!m) continue;
+    const arr: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const n = Number(String(row[2 + i] ?? '').replace(/,/g, ''));
+      arr.push(isFinite(n) && n > 0 ? n : 0);
+    }
+    // ยูนิตซ้ำ (เช่น U4 สองแถว = สินค้าคนละตัวในยูนิตเดียว) → รวมเป้าเข้าด้วยกัน
+    const prev = targets[m[1]];
+    targets[m[1]] = prev ? prev.map((v, i) => v + arr[i]) : arr;
+  }
+
+  // สินค้าเทส/สถานะยูนิต จากแท็บ 0.ข้อมูล — "U7 : ครีมรกแกะ ❌" = เทสแล้วไม่ติด, ✅ = ติด, ไม่มีเครื่องหมาย = ยังไม่ตัดสิน
+  const testProducts: Array<{ u: string; name: string; ok: boolean | null }> = [];
+  for (const row of batch[ranges[5]] || []) {
+    const s = String(row[0] || '').trim();
+    const m = s.toUpperCase().match(/^(UN?\d{1,3})\s*:/);
+    if (!m) continue;
+    const name = s.replace(/^[^:]*:\s*/, '').replace(/[✅❌]/g, '').trim();
+    const ok = s.includes('✅') ? true : s.includes('❌') ? false : null;
+    testProducts.push({ u: m[1], name, ok });
+  }
+
   const months = Object.keys(admin).map(Number).sort((a, b) => a - b);
   if (!months.length) return '⚠️ อ่านชีท KPI ไม่เจอข้อมูลเลย — โครงชีทอาจเปลี่ยน (ดู lib/kpisheet.ts)';
 
   await setState('kpi_scores', JSON.stringify({
     year: KPI_SHEET_YEAR, sheetId: KPI_SHEET_ID,
-    admin, sub, head, adminYear: year,
+    admin, sub, head, adminYear: year, targets, testProducts,
     updatedAt: new Date().toISOString(),
   }));
   const last = months[months.length - 1];

@@ -33,14 +33,19 @@ export async function apiProfit(params: any) {
   }
 
   // ---- ภาพรวมปี ----
-  const [rows, retRows, umap] = await Promise.all([
+  const [rows, retRows, umap, kpiState] = await Promise.all([
     fetchAll<any>(() => db.from('unit_daily').select('u,date,sales,orders,ads,profit'), 'key')
       .catch(() => [] as any[]),
     fetchAll<any>(() => db.from('returns').select('key,return_date,month,price,qty'), 'key')
       .catch(() => [] as any[]),
     getUMapDoc().catch(() => ({ units: [] as any[] })),
+    db.from('sync_state').select('value').eq('key', 'kpi_scores').maybeSingle(),
   ]);
   if (!rows.length) return { setupNeeded: true };
+
+  // สินค้าเทสประจำปี (✅ ติด / ❌ ไม่ติด) จากแท็บ 0.ข้อมูล ของชีท KPI
+  let testProducts: Array<{ u: string; name: string; ok: boolean | null }> = [];
+  try { testProducts = JSON.parse(String(kpiState.data?.value || '{}')).testProducts || []; } catch { /* ยังไม่ sync */ }
 
   const productOf: Record<string, string> = {};
   (umap.units || []).forEach((x: any) => { productOf[String(x.u)] = String(x.product || ''); });
@@ -51,12 +56,20 @@ export async function apiProfit(params: any) {
   const monthsSet = new Set<string>();
   const year = String(rows.map((r) => String(r.date).slice(0, 4)).sort().pop() || new Date().getFullYear());
 
+  // อายุสินค้า: วันแรก/วันล่าสุดที่ "มียอดขายจริง" ในชีท (ข้อมูลเริ่ม ม.ค. 2026 — เก่ากว่านั้นเห็นเป็น ≥)
+  const firstSale: Record<string, string> = {};
+  const lastSale: Record<string, string> = {};
+
   rows.forEach((r) => {
     const d = String(r.date).slice(0, 10);
-    if (!d.startsWith(year)) return; // โฟกัสปีล่าสุดที่มีข้อมูล
+    const u = String(r.u);
+    if (num_(r.sales) > 0) {
+      if (!firstSale[u] || d < firstSale[u]) firstSale[u] = d;
+      if (!lastSale[u] || d > lastSale[u]) lastSale[u] = d;
+    }
+    if (!d.startsWith(year)) return; // pivot โฟกัสปีล่าสุดที่มีข้อมูล
     const m = d.slice(0, 7);
     monthsSet.add(m);
-    const u = String(r.u);
     const cell = { profit: num_(r.profit), sales: num_(r.sales), ads: num_(r.ads) };
     const bu = (byUnit[u] = byUnit[u] || { months: {}, total: { profit: 0, sales: 0, ads: 0 }, hasData: false });
     const mc = (bu.months[m] = bu.months[m] || { profit: 0, sales: 0, ads: 0 });
@@ -80,12 +93,27 @@ export async function apiProfit(params: any) {
     retYearValue += v; retYearItems++;
   });
 
+  const today = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);
+  const ageOf = (u: string) => {
+    const f = firstSale[u];
+    if (!f) return null;
+    const days = Math.round((new Date(today + 'T00:00:00Z').getTime() - new Date(f + 'T00:00:00Z').getTime()) / 86400000);
+    return {
+      firstSale: f,
+      days,
+      openEnded: f <= '2026-01-05', // มียอดตั้งแต่ต้นชุดข้อมูล = สินค้าเก่ากว่านั้น อายุจริง ≥ ที่โชว์
+      // "ยังขายอยู่" = มียอดใน 14 วันล่าสุด (ชีทกรอกตามหลังได้ 1-2 วัน เผื่อไว้)
+      active: !!lastSale[u] && (new Date(today).getTime() - new Date(lastSale[u]).getTime()) / 86400000 <= 14,
+    };
+  };
+
   const months = Array.from(monthsSet).sort();
   const units = Object.keys(byUnit)
     .filter((u) => byUnit[u].hasData)
     .map((u) => ({
       u,
       product: productOf[u] || '',
+      age: ageOf(u),
       months: Object.fromEntries(months.map((m) => {
         const c = byUnit[u].months[m];
         return [m, c ? { profit: Math.round(c.profit), sales: Math.round(c.sales), ads: Math.round(c.ads) } : null];
@@ -117,5 +145,15 @@ export async function apiProfit(params: any) {
       returnValue: Math.round(retYearValue),
       returnItems: retYearItems,
     },
+    // สินค้าเทสประจำปี — นับ %สำเร็จเฉพาะตัวที่ตัดสินแล้ว (✅+❌); ตัวไม่มีเครื่องหมาย = ยังเทสอยู่
+    testProducts,
+    testSummary: (() => {
+      const ok = testProducts.filter((t) => t.ok === true).length;
+      const fail = testProducts.filter((t) => t.ok === false).length;
+      return {
+        total: testProducts.length, ok, fail, pending: testProducts.length - ok - fail,
+        pct: ok + fail > 0 ? Math.round((ok / (ok + fail)) * 1000) / 10 : null,
+      };
+    })(),
   };
 }
