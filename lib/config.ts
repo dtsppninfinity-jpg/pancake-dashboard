@@ -85,26 +85,26 @@ export function unixSec(d: Date): number {
   return Math.floor(d.getTime() / 1000);
 }
 
+// ไทย = UTC+7 คงที่ ไม่มี DST → เลื่อนเวลาแล้วอ่านแบบ UTC ได้เลย ไม่ต้องพึ่ง Intl
+// ⚠️ ห้ามกลับไปใช้ new Intl.DateTimeFormat ต่อ call — ตัว constructor แพง ~0.5ms
+// ฟังก์ชันพวกนี้ถูกเรียกต่อออเดอร์ต่อรอบ (แสนกว่าครั้ง/request ช่วงยาว) เคยกิน CPU
+// รวม 50-250s จน apiSales โดน Vercel ฆ่าที่ maxDuration แบบไม่มี error ให้เห็น
+const BKK_MS = 7 * 3600000;
+
 /** "YYYY-MM-DD" ตามเวลาไทย */
 export function fmtDateBkk(d: Date): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(d);
+  return new Date(d.getTime() + BKK_MS).toISOString().slice(0, 10);
 }
 
 /** "YYYY-MM-DDTHH:mm:ss" ตามเวลาไทย (ไม่ใส่โซน — เก็บเป็น local ไทย) */
 export function fmtDateTimeBkk(d: Date): string {
-  const p = new Intl.DateTimeFormat('en-CA', {
-    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  }).formatToParts(d).reduce((a, x) => (a[x.type] = x.value, a), {} as Record<string, string>);
-  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`;
+  return new Date(d.getTime() + BKK_MS).toISOString().slice(0, 19);
 }
 
 /** ต้นวันของ "วันนี้" ตามเวลาไทย → คืน Date (จุดเวลาจริง) */
 export function startOfDayBkk(d: Date): Date {
-  const ds = fmtDateBkk(d);                 // YYYY-MM-DD ของวันไทย
-  return new Date(`${ds}T00:00:00+07:00`);  // เที่ยงคืนไทยของวันนั้น
+  const t = d.getTime() + BKK_MS;
+  return new Date(Math.floor(t / 86400000) * 86400000 - BKK_MS);
 }
 
 export function daysAgo(n: number): Date {
