@@ -373,6 +373,26 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 .txt-good { color: var(--green); }
 .txt-bad { color: var(--red); }
 
+/* ---------- แจ้งเตือนยูนิตขาดทุน (บนสุดหน้า Sales) ---------- */
+/* การ์ดนี้ต้องสะดุดตากว่าการ์ดอื่นทั้งหน้า — ทีมสั่งว่า "ต้องขึ้นแจ้งเตือนทันที" */
+.loss-card { border-color: rgba(255, 118, 117, .45); box-shadow: 0 0 0 1px rgba(255, 118, 117, .12); }
+.loss-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.loss-row {
+  display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center;
+  padding: 10px 12px; border-radius: 10px; background: var(--surface-2);
+  border-left: 3px solid transparent;
+}
+.loss-row.lv-red { border-left-color: var(--red); background: rgba(255, 118, 117, .09); }
+.loss-row.lv-yellow { border-left-color: var(--amber); background: rgba(232, 161, 58, .08); }
+.loss-icon { font-size: 17px; line-height: 1; }
+.loss-title { font-size: 13.5px; margin-bottom: 3px; }
+.loss-reason { font-size: 12px; color: var(--text-2); }
+.loss-owners { font-size: 12px; color: var(--text-2); margin-top: 5px; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
+@media (max-width: 700px) {
+  .loss-row { grid-template-columns: 22px 1fr; }
+  .loss-row > .btn-mini { grid-column: 2; justify-self: start; }
+}
+
 /* คอลัมน์ตัวเลขในตาราง — ชิดขวา + เลขความกว้างเท่ากันเพื่อให้หลักตรงกันทุกแถว */
 table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
 

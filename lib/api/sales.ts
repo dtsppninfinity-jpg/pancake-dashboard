@@ -997,6 +997,19 @@ export async function apiSales(params: any) {
    */
   const returns = await loadReturns_(r).catch(() => null);
 
+  /* ---- แจ้งเตือน "ยูนิตขาดทุน" — งาน sync คำนวณไว้แล้ว หน้าเว็บแค่อ่านผล ----
+   * ตัวเลขตัดสินจาก "วันที่จบแล้ว" จึงเปลี่ยนวันละครั้ง ไม่ต้องคำนวณใหม่ทุกครั้งที่เปิดหน้า
+   * และไม่ขึ้นกับช่วงวันที่ที่ผู้ใช้เลือก — เป็นการเตือนสถานะปัจจุบันเสมอ
+   */
+  const unitAlerts = await (async () => {
+    try {
+      const { data } = await db.from('sync_state').select('value').eq('key', 'unit_loss_alerts').maybeSingle();
+      if (!data || !data.value) return null;
+      const j = JSON.parse(String(data.value));
+      return { throughDate: j.throughDate || '', computedAt: j.computedAt || '', alerts: j.alerts || [] };
+    } catch { return null; }
+  })();
+
   // ---- ลูกค้าเก่า (เคยซื้อภายใน 95 วันก่อนช่วงที่เลือก) — นับฝั่ง Postgres ผ่าน RPC ----
   // RPC ยังไม่ถูกสร้าง (migration ไม่ได้รัน) → คืน null ให้หน้าเว็บแสดง "—" ไม่ใช่เลขปลอม
   let returning: { total: number; returning: number; pct: number | null } | null = null;
@@ -1135,6 +1148,8 @@ export async function apiSales(params: any) {
     cancels: cancels,
     // สินค้าตีกลับจริง (ส่งไปแล้วของกลับมา) จากชีทของทีม — null = ยังไม่ได้รัน migration returns
     returns: returns,
+    // ยูนิตที่ขาดทุนติดต่อกัน (คำนวณโดยงาน sync รายชั่วโมง) — ไม่ขึ้นกับฟิลเตอร์ช่วงวันที่
+    unitAlerts: unitAlerts,
     kpis: {
       revenue: Math.round(sCur.revenue),
       orders: sCur.orders,

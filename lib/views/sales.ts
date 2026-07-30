@@ -52,6 +52,8 @@ interface SalesData {
     orders: number; value: number; rate: number | null;
     byStatus: any[]; byPerson: any[]; byMonth: any[];
   } | null;
+  // ยูนิตที่ขาดทุนติดต่อกัน (งาน sync คำนวณไว้) — ไม่ขึ้นกับฟิลเตอร์ช่วงวันที่
+  unitAlerts?: { throughDate: string; computedAt: string; alerts: any[] } | null;
   // สินค้าตีกลับจริง (ส่งไปแล้วของกลับมา) จากชีทของทีม — null = ยังไม่ได้รัน migration returns
   returns?: {
     orders: number; value: number;
@@ -296,6 +298,9 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         '<button class="btn" id="sr-xls" title="ไฟล์ Excel เปิดแล้วภาษาไทยไม่เพี้ยน">📊 Excel</button>' +
       '</div>' +
     '</div>';
+
+  /* --- 1.5 แจ้งเตือนยูนิตขาดทุน — อยู่บนสุดใต้หัวข้อ ทีมขอให้ "ขึ้นทันที" --- */
+  html += lossAlertHtml_(d.unitAlerts);
 
   /* --- 2. KPI cards (2 ใบ — การ์ด "รายได้รวม" ถูกลบตามที่บอสสั่ง) --- */
   const closeRateBig = (k.closeRate === null || k.closeRate === undefined || isNaN(k.closeRate))
@@ -623,6 +628,9 @@ function bindEvents(container: HTMLElement): void {
   const retBtn = container.querySelector('#sr-returns');
   if (retBtn) retBtn.addEventListener('click', openReturnDrill);
 
+  const beBtn = container.querySelector('#sr-breakeven');
+  if (beBtn) beBtn.addEventListener('click', openBreakEvenEditor);
+
   const csvBtn = container.querySelector('#sr-csv');
   if (csvBtn) csvBtn.addEventListener('click', exportCsv);
 
@@ -766,6 +774,112 @@ function bindDrillRows(root: ParentNode | null, chKey: string): void {
 }
 
 /** ยูนิต (สินค้า) → เพจในยูนิตนั้นขายได้เท่าไร (คลิกเพจเจาะดูสินค้าต่อได้) */
+/**
+ * โมดัลตั้ง "ROAS จุดคุ้มทุน" ต่อยูนิต — ตัวคูณที่ใช้ตัดสินว่าวันไหนขาดทุน
+ *
+ * ทำไมต้องให้ตั้งเอง: ระบบไม่รู้ต้นทุนสินค้า (ใน POS เป็น 0 ทุกตัว) เลยตั้งค่าเริ่มต้นไว้ที่ 1.0
+ * ซึ่งแปลว่า "ขายได้น้อยกว่าค่าแอด" — เตือนน้อยกว่าความจริงเสมอ
+ * ทีมที่รู้ว่าสินค้าตัวนี้ต้องได้ ROAS 1.8 ถึงเสมอตัว ก็ใส่ 1.8 แล้วระบบจะเตือนตรงขึ้น
+ */
+function openBreakEvenEditor(): void {
+  const units = (topOf('all').units || []).filter(function (u: any) { return u.mapped; });
+  if (!units.length) { toast('ยังไม่มียูนิตให้ตั้งค่า'); return; }
+  const alerts = ((lastData && lastData.unitAlerts && lastData.unitAlerts.alerts) || []) as any[];
+  const beOf: Record<string, number> = {};
+  alerts.forEach(function (a: any) { beOf[a.u] = Number(a.breakEven || 1); });
+  const rows = units.map(function (u: any) {
+    const cur = beOf[u.u];
+    return '<tr><td>' + esc(u.product || u.u) + ' <span class="chip">' + esc(u.u) + '</span></td>' +
+      '<td class="num">' + (u.roas === null ? '—' : u.roas.toFixed(2)) + '</td>' +
+      '<td><input class="input be-inp" data-u="' + esc(u.u) + '" type="number" min="0" max="20" step="0.1" ' +
+      'value="' + (cur && cur !== 1 ? cur : '') + '" placeholder="1.0" style="width:90px"></td></tr>';
+  }).join('');
+  openModal(
+    '<div class="modal-head"><h3>⚙️ ROAS จุดคุ้มทุนต่อยูนิต</h3><button class="modal-close">✕</button></div>' +
+    '<div class="card-sub" style="margin-bottom:10px">ถ้า ROAS ของวันไหน<b>ต่ำกว่า</b>ค่านี้ ระบบถือว่าวันนั้นขาดทุน • ' +
+      'เว้นว่าง = ใช้ 1.0 (ยอดขายน้อยกว่าค่าแอด) ซึ่งเป็นเกณฑ์ที่<b>หลวมที่สุด</b> ' +
+      'ถ้ารู้ว่าสินค้าตัวนี้ต้องได้ ROAS เท่าไหร่ถึงเสมอตัว ใส่ค่านั้นลงไป ระบบจะเตือนตรงความจริงขึ้น</div>' +
+    '<div class="table-scroll"><table class="tbl"><thead><tr><th>ยูนิต</th>' +
+      '<th class="num">ROAS ช่วงที่เลือก</th><th>จุดคุ้มทุน</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+    '<div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">' +
+      '<button class="btn-mini modal-close">ยกเลิก</button>' +
+      '<button class="btn-mini" id="be-save">💾 บันทึก</button></div>'
+  );
+  const root = document.getElementById('modal-root');
+  const saveBtn = root && root.querySelector('#be-save');
+  if (saveBtn) saveBtn.addEventListener('click', function () {
+    const breakEvens: Record<string, number> = {};
+    (root as HTMLElement).querySelectorAll('.be-inp').forEach(function (el) {
+      const inp = el as HTMLInputElement;
+      const u = inp.getAttribute('data-u') || '';
+      const v = Number(inp.value || 0);
+      if (u && isFinite(v) && v >= 0 && v <= 20) breakEvens[u] = v;
+    });
+    (saveBtn as HTMLButtonElement).disabled = true;
+    saveBtn.textContent = 'กำลังบันทึก...';
+    serverCall('apiUMap', { action: 'setBreakEvens', breakEvens: breakEvens })
+      .then(function (res: any) {
+        if (res && res.ok === false) throw new Error(res.error || 'บันทึกไม่สำเร็จ');
+        closeModal();
+        // ค่าใหม่มีผลรอบถัดไปที่งาน sync คำนวณ (รายชั่วโมง) — บอกตรงๆ ดีกว่าให้ผู้ใช้รอเก้อ
+        toast('✅ บันทึกแล้ว — การแจ้งเตือนจะอัปเดตในรอบคำนวณถัดไป (ภายใน 1 ชม.)');
+      })
+      .catch(function (e: any) {
+        (saveBtn as HTMLButtonElement).disabled = false;
+        saveBtn.textContent = '💾 บันทึก';
+        toast('❌ ' + (e && e.message ? e.message : 'บันทึกไม่สำเร็จ'));
+      });
+  });
+}
+
+/**
+ * แถบแจ้งเตือน "ยูนิตขาดทุน" — บนสุดของหน้า Sales
+ * 🔴 ขาดทุน ≥2 วันติด = ต้องแก้ด่วนที่สุด / 🟡 1 วัน = เฝ้าระวัง
+ * ตัวเลขตัดสินจากวันที่จบแล้ว (ถึงเมื่อวาน) — วันนี้ค่าแอดยังเดินอยู่ ยอดขายตามมาทีหลัง
+ */
+function lossAlertHtml_(a: any): string {
+  if (!a) return '';
+  const list = (a.alerts || []) as any[];
+  if (!list.length) return '';
+  const rows = list.map(function (x: any) {
+    const urgent = x.level === 'urgent';
+    const owners = (x.owners || []).length
+      ? (x.owners as string[]).map(function (o) { return '<span class="chip">' + esc(o) + '</span>'; }).join('')
+      : '<span class="chip" title="ไปจับคู่แอดมินกับยูนิตที่หน้า U Map">⚠️ ยังไม่ระบุผู้รับผิดชอบ</span>';
+    return '<div class="loss-row ' + (urgent ? 'lv-red' : 'lv-yellow') + '">' +
+      '<div class="loss-icon">' + (urgent ? '🔴' : '🟡') + '</div>' +
+      '<div class="loss-body">' +
+        '<div class="loss-title">' +
+          (urgent ? 'แก้ด่วนที่สุด — ' : 'เฝ้าระวัง — ') +
+          esc(x.product || x.u) + ' <span class="chip">' + esc(x.u) + '</span> ' +
+          '<b>ขาดทุน ' + fmtNum(x.days) + ' วันติด</b>' +
+        '</div>' +
+        '<div class="loss-reason">' +
+          'ขาย ' + THB(x.revenue) + ' • ค่าแอด ' + THB(x.spend) +
+          ' • <b class="txt-bad">ติดลบ ' + THB(x.loss) + '</b>' +
+          ' • ROAS ' + (x.roas === null ? '—' : x.roas.toFixed(2)) +
+          ' (จุดคุ้มทุนที่ตั้งไว้ ' + Number(x.breakEven || 1).toFixed(2) + ')' +
+        '</div>' +
+        '<div class="loss-owners">ผู้รับผิดชอบ: ' + owners + '</div>' +
+      '</div>' +
+      '<button class="btn-mini" data-drill-unit="' + esc(x.u) + '">ดูรายละเอียด →</button>' +
+      '</div>';
+  }).join('');
+  const urgentN = list.filter(function (x: any) { return x.level === 'urgent'; }).length;
+  return '<div class="card loss-card">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+      '<h3>🚨 ยูนิตที่ต้องแก้ด่วน (' + fmtNum(list.length) + ')</h3>' +
+      '<button class="btn-mini" id="sr-breakeven">⚙️ ตั้งจุดคุ้มทุน</button>' +
+    '</div>' +
+    '<div class="card-sub">' +
+      (urgentN ? '<b class="txt-bad">' + fmtNum(urgentN) + ' ยูนิตขาดทุน 2 วันขึ้นไป</b> • ' : '') +
+      'นับถึง ' + esc(a.throughDate || '') + ' (วันที่จบแล้ว — วันนี้ยังไม่นับเพราะค่าแอดยังเดินอยู่) • ' +
+      '<b>"ขาดทุน" = ยอดขาย &lt; ค่าแอด</b> ยังไม่รวมต้นทุนสินค้า ของจริงจึงแย่กว่านี้' +
+    '</div>' +
+    '<div class="loss-list">' + rows + '</div>' +
+  '</div>';
+}
+
 /** สีของ %บรรลุเป้า — ถึงเป้า = เขียว, ต่ำกว่าครึ่ง = แดง */
 function attainCls_(v: number | null | undefined): string {
   if (v === null || v === undefined) return '';

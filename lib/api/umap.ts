@@ -8,8 +8,14 @@ const KEY = 'u_map';
 
 export interface UMember { id: string; name: string }
 // pages = เพจที่อยู่ในยูนิตนี้ (id = page_id, name = ชื่อเพจ) — ใช้จัดกลุ่มยอดขายตาม U
-// target = เป้ายอดขาย "ต่อเดือน" (บาท) 0 = ยังไม่ตั้งเป้า
-export interface UUnit { u: string; product: string; admins: UMember[]; pages: UMember[]; target: number }
+// target    = เป้ายอดขาย "ต่อเดือน" (บาท) 0 = ยังไม่ตั้งเป้า
+// breakEven = ROAS จุดคุ้มทุนของยูนิตนี้ (ยอดขาย ÷ ค่าแอด) ต่ำกว่านี้ = ขาดทุน
+//             0 = ยังไม่ตั้ง → ระบบใช้ 1.0 คือ "ยอดขายน้อยกว่าค่าแอด" ซึ่งเป็นเพดานล่างสุด
+//             ของจริงสูงกว่านี้เพราะยังไม่รวมต้นทุนสินค้า/ค่าส่ง — ทีมตั้งเองได้ต่อยูนิต
+export interface UUnit {
+  u: string; product: string; admins: UMember[]; pages: UMember[];
+  target: number; breakEven: number;
+}
 export interface UMapDoc { units: UUnit[]; updatedAt: string }
 
 /* ---------------- seed (รายการตั้งต้นจากทีม 2026-07-21) ---------------- */
@@ -81,7 +87,10 @@ function normalizeDoc(raw: any): UMapDoc {
     // เป้าอาจถูกมือแก้ใน Supabase — กันค่าติดลบ/NaN/ใหญ่เกินจริง (เพดาน 1,000 ล้าน/เดือน)
     const t = Number((it && it.target) || 0);
     const target = isFinite(t) && t > 0 ? Math.min(Math.round(t), 1e9) : 0;
-    out.units.push({ u, product: normProduct(it && it.product), admins, pages, target });
+    const be = Number((it && it.breakEven) || 0);
+    // เพดาน 20 — ROAS จุดคุ้มทุนเกินนี้แปลว่ากรอกผิดหน่วย (เช่นใส่เป็นเปอร์เซ็นต์)
+    const breakEven = isFinite(be) && be > 0 ? Math.min(Math.round(be * 100) / 100, 20) : 0;
+    out.units.push({ u, product: normProduct(it && it.product), admins, pages, target, breakEven });
   }
   sortUnits_(out.units);
   return out;
@@ -114,7 +123,7 @@ export async function getUMapDoc(): Promise<UMapDoc> {
     return normalizeDoc(parsed);
   }
   const doc: UMapDoc = {
-    units: SEED_UNITS.map(([u, product]) => ({ u, product, admins: [], pages: [], target: 0 })),
+    units: SEED_UNITS.map(([u, product]) => ({ u, product, admins: [], pages: [], target: 0, breakEven: 0 })),
     updatedAt: '',
   };
   sortUnits_(doc.units);
@@ -187,7 +196,7 @@ export async function apiUMap(params: any) {
     const product = normProduct(p.product);
     if (!product) return { ok: false, error: 'กรอกชื่อผลิตภัณฑ์ด้วย' };
     if (doc.units.some((x) => x.u === u)) return { ok: false, error: u + ' มีอยู่แล้ว' };
-    doc.units.push({ u, product, admins: [], pages: [], target: 0 });
+    doc.units.push({ u, product, admins: [], pages: [], target: 0, breakEven: 0 });
   } else if (action === 'editUnit') {
     const unit = doc.units.find((x) => x.u === u);
     if (!unit) return { ok: false, error: 'ไม่พบ ' + (u || 'U ที่ระบุ') };
@@ -202,6 +211,18 @@ export async function apiUMap(params: any) {
     if (!isFinite(raw) || raw < 0) return { ok: false, error: 'เป้าต้องเป็นตัวเลขไม่ติดลบ' };
     if (raw > 1e9) return { ok: false, error: 'เป้าสูงเกินจริง (เกิน 1,000 ล้าน/เดือน)' };
     unit.target = Math.round(raw);
+  } else if (action === 'setBreakEvens') {
+    // ROAS จุดคุ้มทุนหลายยูนิตพร้อมกัน (0 = ล้างค่า กลับไปใช้ 1.0)
+    const map = (p && p.breakEvens) || {};
+    if (!map || typeof map !== 'object') return { ok: false, error: 'ข้อมูลจุดคุ้มทุนไม่ถูกต้อง' };
+    for (const key of Object.keys(map)) {
+      const code = normCode(key);
+      const unit = code ? doc.units.find((x) => x.u === code) : null;
+      if (!unit) continue;
+      const raw = Number(map[key]);
+      if (!isFinite(raw) || raw < 0 || raw > 20) continue;
+      unit.breakEven = Math.round(raw * 100) / 100;
+    }
   } else if (action === 'setTargets') {
     // ตั้งหลายยูนิตพร้อมกัน (โมดัลกรอกทีเดียวทั้งตาราง) — ยูนิตที่ไม่ได้ส่งมาไม่ถูกแตะ
     const map = (p && p.targets) || {};
@@ -315,6 +336,23 @@ export async function publicUMapPayload(uFilter?: string) {
       pages: (x.pages || []).map((m) => m.name),
     })),
   };
+}
+
+/**
+ * ข้อมูลยูนิตที่งานแจ้งเตือน "ขาดทุน" ต้องใช้ — เพจของยูนิต, ผู้รับผิดชอบ, ROAS จุดคุ้มทุน
+ * breakEven ที่คืนออกไปเป็นค่าที่ใช้จริงแล้ว (เติม 1.0 ให้ยูนิตที่ยังไม่ตั้ง)
+ */
+export async function getUnitsForAlert(): Promise<Array<{
+  u: string; product: string; pages: string[]; admins: string[]; breakEven: number;
+}>> {
+  const doc = await getUMapDoc();
+  return doc.units.map((x) => ({
+    u: x.u,
+    product: x.product,
+    pages: (x.pages || []).map((p) => String(p.id)),
+    admins: (x.admins || []).map((a) => String(a.name)),
+    breakEven: x.breakEven > 0 ? x.breakEven : 1,
+  }));
 }
 
 /** เป้ายอดขายต่อเดือนของแต่ละยูนิต (บาท) — ยูนิตที่ยังไม่ตั้งเป้าจะไม่อยู่ใน map */

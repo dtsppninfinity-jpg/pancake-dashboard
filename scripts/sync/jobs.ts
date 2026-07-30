@@ -1,6 +1,7 @@
 // scripts/sync/jobs.ts — งาน sync ทั้งหมด (port จาก Sync*.gs + Setup.gs trigger entry points)
 import {
   requireCredentials, daysAgo, startOfDayBkk, fmtDateBkk, parsePancakeTime, num, sleep, RETENTION_DAYS,
+  EXCLUDED_STATUSES, NEED_CHECK_STATUSES, isPlaceholderOrder, money_,
 } from '../../lib/config';
 import {
   posFetchOrders, posFetchUsers, posFetchAds, posFetchCampaigns,
@@ -11,7 +12,9 @@ import { mapOrder, mapChatHour, mapConversation, mapAd, mapAdDaily, mapEngagemen
 import {
   metaListAdAccounts, metaAccountAdInsights, metaAccountAdCreatives, metaAdCreativesByIds, metaPool,
 } from '../../lib/meta';
-import { supabase, upsertRows, replaceTable } from '../../lib/supabase';
+import { supabase, upsertRows, replaceTable, setState } from '../../lib/supabase';
+import { getUnitsForAlert } from '../../lib/api/umap';
+import { nicknameByName } from '../../lib/api/adminsettings';
 import { googleConfigured, driveListSheets, sheetTabs, sheetValuesBatch } from '../../lib/google';
 
 /* ---------------- helper: โหลดเพจ + token จาก DB ---------------- */
@@ -30,6 +33,130 @@ async function platformByPage(): Promise<Record<string, string>> {
   const m: Record<string, string> = {};
   (data || []).forEach((p: any) => { m[String(p.page_id)] = p.platform; });
   return m;
+}
+
+/* ---------------- แจ้งเตือน "ยูนิตขาดทุน" ---------------- */
+
+/** จำนวนวันย้อนหลังที่ใช้ไล่นับ streak — ยาวพอเห็นแนวโน้ม ไม่ยาวจนคิวรีหนัก */
+const LOSS_LOOKBACK_DAYS = 14;
+
+/**
+ * หา "ยูนิตที่ขาดทุน" รายวัน แล้วเก็บผลไว้ใน sync_state ให้หน้าเว็บอ่านทีเดียวจบ
+ *
+ * ⚠️ นิยาม "ขาดทุน" ที่ระบบวัดได้ = **ยอดขาย < ค่าแอด × ROAS จุดคุ้มทุนของยูนิต**
+ * ไม่ใช่กำไรขาดทุนจริง เพราะต้นทุนสินค้าในระบบเป็น 0 ทุกตัว (ดูบันทึกเรื่องข้อมูลที่ขาด)
+ * ค่าเริ่มต้น breakEven = 1.0 คือ "ขายได้น้อยกว่าค่าแอด" ซึ่งเป็นเพดานล่างสุด — ของจริงแย่กว่านี้
+ * ทีมตั้ง breakEven ต่อยูนิตเองได้ที่หน้า Sales เพื่อให้ใกล้ความจริงขึ้น
+ *
+ * นับเฉพาะ "วันที่จบแล้ว" (ถึงเมื่อวาน) — วันนี้ค่าแอดเดินไปเรื่อยๆ ขณะที่ยอดขายตามมาทีหลัง
+ * ถ้าเอาวันนี้มาตัดสินจะเตือนผิดทุกเช้า
+ *
+ * วันที่ไม่ได้ยิงแอดเลย (spend = 0) ถือว่า "ตัดสินไม่ได้" และทำให้ streak ขาด — ไม่ใช่วันขาดทุน
+ */
+export async function syncUnitAlerts(): Promise<string> {
+  const units = await getUnitsForAlert();
+  const unitOf: Record<string, string> = {};
+  units.forEach((u) => u.pages.forEach((p) => { unitOf[p] = u.u; }));
+  if (!Object.keys(unitOf).length) return 'ข้าม: ยังไม่มีเพจผูกกับยูนิตเลย';
+
+  const sinceDate = daysAgo(LOSS_LOOKBACK_DAYS);
+  const sinceStr = fmtDateBkk(sinceDate);
+  const todayStr = fmtDateBkk(new Date());
+
+  // ---- ยอดขายรายวันต่อยูนิต (เฉพาะออเดอร์ที่ยืนยันแล้ว เหมือนนิยามยอดขายหลัก) ----
+  const rev: Record<string, number> = {};
+  {
+    let from = 0;
+    for (;;) {
+      const { data, error } = await supabase.from('orders')
+        .select('id,inserted_at,status,total_price,items_count,page_id')
+        .gte('inserted_at', sinceDate.toISOString())
+        .order('id', { ascending: true }).range(from, from + 999);
+      if (error) throw new Error(`อ่าน orders ล้มเหลว: ${error.message}`);
+      const rows = data || [];
+      for (const o of rows as any[]) {
+        const st = num(o.status);
+        if (EXCLUDED_STATUSES.indexOf(st) >= 0 || NEED_CHECK_STATUSES.indexOf(st) >= 0) continue;
+        if (isPlaceholderOrder(o)) continue;
+        const u = unitOf[String(o.page_id || '')];
+        if (!u) continue;
+        const d = fmtDateBkk(new Date(o.inserted_at));
+        rev[`${d}|${u}`] = (rev[`${d}|${u}`] || 0) + money_(o.total_price);
+      }
+      if (rows.length < 1000) break;
+      from += 1000;
+    }
+  }
+
+  // ---- ค่าแอดรายวันต่อยูนิต ----
+  const spend: Record<string, number> = {};
+  {
+    let from = 0;
+    for (;;) {
+      const { data, error } = await supabase.from('ad_daily')
+        .select('date,ad_id,page_id,spend').gte('date', sinceStr)
+        .order('date', { ascending: true }).order('ad_id', { ascending: true })
+        .range(from, from + 999);
+      if (error) throw new Error(`อ่าน ad_daily ล้มเหลว: ${error.message}`);
+      const rows = data || [];
+      for (const a of rows as any[]) {
+        const u = unitOf[String(a.page_id || '')];
+        if (!u) continue;
+        const d = String(a.date || '').slice(0, 10);
+        spend[`${d}|${u}`] = (spend[`${d}|${u}`] || 0) + num(a.spend);
+      }
+      if (rows.length < 1000) break;
+      from += 1000;
+    }
+  }
+
+  // ---- ไล่ย้อนจากเมื่อวานหา streak ----
+  const dayList: string[] = [];
+  for (let i = 1; i <= LOSS_LOOKBACK_DAYS; i++) dayList.push(fmtDateBkk(daysAgo(i)));   // เมื่อวาน → เก่าสุด
+  const nickBy = await nicknameByName().catch(() => ({} as Record<string, string>));
+
+  const alerts: any[] = [];
+  for (const u of units) {
+    if (!u.pages.length) continue;
+    const daily: Array<{ date: string; revenue: number; spend: number }> = [];
+    let streak = 0, lossRev = 0, lossSpend = 0, broke = false;
+    for (const d of dayList) {
+      const r = rev[`${d}|${u.u}`] || 0;
+      const s = spend[`${d}|${u.u}`] || 0;
+      if (!broke) {
+        if (s <= 0) broke = true;                     // ไม่ได้ยิงแอด = ตัดสินไม่ได้ streak ขาด
+        else if (r < s * u.breakEven) { streak++; lossRev += r; lossSpend += s; }
+        else broke = true;
+      }
+      daily.push({ date: d, revenue: Math.round(r), spend: Math.round(s) });
+    }
+    if (!streak) continue;
+    alerts.push({
+      u: u.u,
+      product: u.product,
+      days: streak,
+      level: streak >= 2 ? 'urgent' : 'warn',
+      revenue: Math.round(lossRev),
+      spend: Math.round(lossSpend),
+      loss: Math.round(lossSpend - lossRev),
+      roas: lossSpend > 0 ? Math.round((lossRev / lossSpend) * 100) / 100 : null,
+      breakEven: u.breakEven,
+      // ผู้รับผิดชอบ = แอดมินที่ผูกกับยูนิตในหน้า U Map แสดงเป็นชื่อเล่นตามที่ทีมขอ
+      owners: u.admins.map((n) => nickBy[String(n).replace(/\s+/g, ' ').trim()] || n),
+      daily: daily.slice().reverse(),   // เก่า → ใหม่ ให้กราฟอ่านง่าย
+    });
+  }
+  alerts.sort((a, b) => (b.days - a.days) || (b.loss - a.loss));
+
+  const noOwner = alerts.filter((a) => !a.owners.length).length;
+  await setState('unit_loss_alerts', JSON.stringify({
+    computedAt: new Date().toISOString(),
+    throughDate: dayList[0],     // วันล่าสุดที่นับ (= เมื่อวาน)
+    todayStr,
+    alerts,
+  }));
+  return `unit alerts: เตือน ${alerts.length} ยูนิต (ด่วน ${alerts.filter((a) => a.level === 'urgent').length}` +
+    (noOwner ? `, ไม่มีผู้รับผิดชอบ ${noOwner}` : '') + `) ถึง ${dayList[0]}`;
 }
 
 /* ---------------- RETURNS (สินค้าตีกลับ — จาก Google Sheets ของทีม) ---------------- */
