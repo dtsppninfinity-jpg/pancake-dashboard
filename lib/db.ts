@@ -15,8 +15,9 @@ export const db = createClient(url, key, { auth: { persistSession: false } });
 // จำกัดคำขอหน้า (page query) พร้อมกันทั้งโปรเซส — apiAdminPerf/apiSales ยิงหลายตารางด้วย
 // Promise.all แต่ละตัวก็ดึงขนานภายในอีก ผลรวมทะลุ 30-40 คิวรีพร้อมกัน คิวรีแย่ง CPU ฐานกันเอง
 // จนตัวช้าโดน statement timeout (~8s) ตัดทั้งที่ปกติรอดสบาย — เจอจริงบน prod (500 ที่ 19s)
-// คิวรีตอนนี้ตื้นหมดแล้ว (หั่นก้อน) — ตัวที่พลาดมี retry รองรับ; 10 ทำ adminperf ช่วงยาวไต่ ~49s
-const MAX_INFLIGHT = 18;
+// คิวรีตอนนี้ตื้นหมดแล้ว (หั่นก้อน) — ตัวที่พลาดมี retry รองรับ
+// ⚠️ 18 ทำ apiSales ช่วงยาววิ่งเกิน 300s (statement timeout ระบาดแล้ว retry ทบเวลา) — 12 คือจุดสมดุลที่วัดแล้ว
+const MAX_INFLIGHT = 12;
 let inflight_ = 0;
 const waiters_: Array<() => void> = [];
 async function acquire_(): Promise<void> {

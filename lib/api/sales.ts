@@ -622,11 +622,15 @@ export async function apiSales(params: any) {
   const channel = (params && params.channel) || '';
   const compare = (params && params.compare) !== 'none';
 
+  // timing log ดูใน `vercel logs` — ช่วงวันยาวเคยวิ่งเกิน 300s หาจุดติดจากระยะไกลไม่ได้ถ้าไม่มี mark
+  const t0 = Date.now();
+  const mark_ = (s: string) => console.log(`apiSales[${r.label}] ${s} +${Date.now() - t0}ms`);
+
   // ⚡ ตัวโหลดอิสระ (ไม่พึ่งผล orders) ยิงตั้งแต่ตอนนี้ — เดิมรอกันเป็นทอดๆ ท้ายฟังก์ชัน
   // ช่วงยาว 35 วันเวลารวมทะลุ 100s จน 504 (semaphore ใน lib/db คุมไม่ให้ถล่มฐานเอง)
-  const engP = loadEngagement_(r);
-  const returnsP = loadReturns_(r).catch(() => null);
-  const adCostP = loadAdCost_(r, compare);
+  const engP = loadEngagement_(r).then((v) => { mark_('eng'); return v; });
+  const returnsP = loadReturns_(r).catch(() => null).then((v) => { mark_('returns'); return v; });
+  const adCostP = loadAdCost_(r, compare).then((v) => { mark_('adCost'); return v; });
 
   // orders ทั้งหมดที่อาจใช้ → กรองที่ query แยก 3 ก้อนกัน payload บวม:
   //   [prevStart, start)   คอลัมน์เบา (ช่วงเปรียบเทียบ)
@@ -647,6 +651,7 @@ export async function apiSales(params: any) {
       : Promise.resolve([] as Row[]),
   ]);
   const orders = prevRows.concat(curRows, todayChunk);
+  mark_(`orders prev=${prevRows.length} cur=${curRows.length}`);
 
   /* ---- ความคืบหน้าเทียบเป้า "ของเดือนนี้" (ไม่ขึ้นกับฟิลเตอร์ช่วงวันที่) ----
    * เป้าที่ทีมตั้งเป็นเป้า "ต่อเดือน" ถ้าเอาไปเทียบกับช่วงที่ผู้ใช้เลือก (เช่น 7 วัน) จะอ่านผิดทันที
@@ -844,6 +849,7 @@ export async function apiSales(params: any) {
   const UNMAPPED = '__none__';
   // ค่าแอด/คนทัก รายยูนิต — โหลดครั้งเดียว ใช้ร่วมกันทั้ง 3 แท็บช่องทาง
   const unitCost = await loadUnitCost_(r, pageUnit, pagePlatform, UNMAPPED);
+  mark_('unitCost');
 
   // ยอดเดือนนี้ต่อยูนิต (ไว้เทียบเป้า) — นับเฉพาะออเดอร์ที่ยืนยันแล้ว เหมือนยอดขายหลัก
   const monthByUnit: Record<string, number> = {};
@@ -1021,6 +1027,7 @@ export async function apiSales(params: any) {
   // RPC ยังไม่ถูกสร้าง (migration ไม่ได้รัน) → คืน null ให้หน้าเว็บแสดง "—" ไม่ใช่เลขปลอม
   let returning: { total: number; returning: number; pct: number | null } | null = null;
   {
+    mark_('before-rpc');
     const lookback = new Date(r.start.getTime() - 95 * 86400000);
     const { data: rc, error: rcErr } = await db.rpc('sales_returning_customers', {
       p_start: r.start.toISOString(),
