@@ -6,11 +6,13 @@ import { serverCall, esc, fmtNum, THB, pctFmt, openModal, showError, downloadCSV
 interface Cell { profit: number; sales: number; ads: number }
 interface UnitAge { firstSale: string; days: number; openEnded: boolean; active: boolean }
 interface UnitRow { u: string; product: string; age?: UnitAge | null; months: Record<string, Cell | null>; total: Cell }
+interface RetPerson { name: string; crm: boolean; items: number; value: number }
 interface ProfitData {
   setupNeeded?: boolean;
   year: string; months: string[]; units: UnitRow[];
   monthTotals: Record<string, Cell>;
-  returnsByMonth: Record<string, { value: number; items: number }>;
+  returnsByMonth: Record<string, { value: number; items: number; crmValue?: number; crmItems?: number }>;
+  returnsByPerson?: Record<string, RetPerson[]>;
   totals: { profit: number; sales: number; ads: number; returnValue: number; returnItems: number };
   testProducts?: Array<{ u: string; name: string; ok: boolean | null }>;
   testSummary?: { total: number; ok: number; fail: number; pending: number; pct: number | null };
@@ -18,6 +20,9 @@ interface ProfitData {
 
 let lastData: ProfitData | null = null;
 let reqSeq = 0;
+// ตัวกรองส่วน "ตีกลับรายคน" — จำข้ามการ re-render (เดือน '' = เดือนล่าสุดที่มีข้อมูล)
+let retMonthSel = '';
+let retTypeSel: 'all' | 'admin' | 'crm' = 'all';
 
 const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 const mLabel = (m: string) => TH_MONTHS[Number(m.slice(5, 7)) - 1] || m;
@@ -113,6 +118,9 @@ function render(container: HTMLElement, d: ProfitData | null): void {
       '<th class="num">ตีกลับ (มูลค่า)</th><th class="num">ตีกลับ (รายการ)</th><th class="num">%ตีกลับ/ยอด</th>' +
     '</tr></thead><tbody>' + retBody + '</tbody></table></div></div>';
 
+  // ---- ตีกลับรายคน (แอดมิน + CRM) ----
+  const personCard = personCardHtml_(d);
+
   // ---- สินค้าเทสประจำปี (จากแท็บ 0.ข้อมูล ของชีท KPI: ✅ ติด / ❌ ไม่ติด) ----
   const ts = d.testSummary;
   const testCard = ts && ts.total
@@ -129,8 +137,63 @@ function render(container: HTMLElement, d: ProfitData | null): void {
       '</div></div>'
     : '';
 
-  container.innerHTML = cards + pivot + retTable + testCard;
+  container.innerHTML = cards + pivot + retTable + personCard + testCard;
   bindEvents(container);
+}
+
+/** เดือนที่ใช้แสดงตีกลับรายคน — ค่าที่เลือกไว้ ถ้าไม่มีข้อมูลใช้เดือนล่าสุดที่มี */
+function retPersonMonth_(d: ProfitData): string {
+  const months = Object.keys(d.returnsByPerson || {}).sort();
+  if (!months.length) return '';
+  return retMonthSel && months.indexOf(retMonthSel) >= 0 ? retMonthSel : months[months.length - 1];
+}
+
+function personRowsHtml_(d: ProfitData, month: string): string {
+  const all = (d.returnsByPerson || {})[month] || [];
+  const list = retTypeSel === 'all' ? all : all.filter((p) => (retTypeSel === 'crm') === p.crm);
+  if (!list.length) return '<tr><td colspan="6">ไม่มีข้อมูลเดือนนี้</td></tr>';
+  const monthTotal = all.reduce((s, p) => s + p.value, 0);
+  const rows = list.map((p, i) => {
+    const pct = monthTotal > 0 ? Math.round((p.value / monthTotal) * 1000) / 10 : null;
+    return '<tr><td class="num">' + (i + 1) + '</td>' +
+      '<td><b>' + esc(p.name.replace(/^CRM/i, '')) + '</b></td>' +
+      '<td>' + (p.crm ? '<span class="badge neutral">CRM</span>' : '<span class="badge ai">แอดมิน</span>') + '</td>' +
+      '<td class="num">' + fmtNum(p.items) + '</td>' +
+      '<td class="num"><b>' + THB(p.value) + '</b></td>' +
+      '<td class="num">' + pctFmt(pct) + '</td></tr>';
+  }).join('');
+  const sum = list.reduce((s, p) => { s.items += p.items; s.value += p.value; return s; }, { items: 0, value: 0 });
+  return rows + '<tr style="font-weight:700;border-top:2px solid var(--border,#ccc)"><td></td><td>รวม (' +
+    fmtNum(list.length) + ' คน)</td><td></td><td class="num">' + fmtNum(sum.items) + '</td>' +
+    '<td class="num">' + THB(sum.value) + '</td><td></td></tr>';
+}
+
+function personCardHtml_(d: ProfitData): string {
+  const months = Object.keys(d.returnsByPerson || {}).sort();
+  if (!months.length) return '';
+  const month = retPersonMonth_(d);
+  const rm = d.returnsByMonth[month];
+  const fbValue = rm ? rm.value - (rm.crmValue || 0) : 0;
+  const fbItems = rm ? rm.items - (rm.crmItems || 0) : 0;
+  const opts = months.map((m) =>
+    '<option value="' + esc(m) + '"' + (m === month ? ' selected' : '') + '>' + esc(mLabel(m) + ' ' + d.year) + '</option>').join('');
+  const typeOpts = [['all', 'ทุกคน'], ['admin', 'เฉพาะแอดมิน'], ['crm', 'เฉพาะ CRM']].map(([v, t]) =>
+    '<option value="' + v + '"' + (v === retTypeSel ? ' selected' : '') + '>' + t + '</option>').join('');
+  return '<div class="card" style="margin-top:14px">' +
+    '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+      '<h3 style="margin:0">👤 ตีกลับรายคน (แอดมิน + CRM)</h3>' +
+      '<select id="pf-ret-month" class="input">' + opts + '</select>' +
+      '<select id="pf-ret-type" class="input">' + typeOpts + '</select>' +
+      '<div class="spacer" style="flex:1"></div>' +
+      '<button class="btn-mini" id="pf-ret-csv">📄 CSV</button>' +
+    '</div>' +
+    '<div class="card-sub" id="pf-ret-sub">จากชีทตีกลับของทีม (คอลัมน์พนักงาน) • เดือน' + esc(mLabel(month)) + ': ' +
+      'แอดมิน <b>' + THB(fbValue) + '</b> (' + fmtNum(fbItems) + ' รายการ) • ' +
+      'CRM <b>' + THB(rm ? rm.crmValue || 0 : 0) + '</b> (' + fmtNum(rm ? rm.crmItems || 0 : 0) + ' รายการ)</div>' +
+    '<div class="table-scroll" style="max-height:52vh"><table class="tbl"><thead><tr>' +
+      '<th class="num">#</th><th>พนักงาน</th><th>ประเภท</th>' +
+      '<th class="num">รายการ</th><th class="num">มูลค่าตีกลับ</th><th class="num">% ของตีกลับเดือน</th>' +
+    '</tr></thead><tbody id="pf-ret-body">' + personRowsHtml_(d, month) + '</tbody></table></div></div>';
 }
 
 function openDaily(u: string, month: string): void {
@@ -178,6 +241,31 @@ function bindEvents(container: HTMLElement): void {
       const parts = String(a.getAttribute('data-drill') || '').split('|');
       if (parts.length === 2) openDaily(parts[0], parts[1]);
     });
+  });
+  // ส่วนตีกลับรายคน — เปลี่ยนเดือน/ประเภทแล้ววาดใหม่ทั้งหน้า (ข้อมูลอยู่ใน lastData ครบแล้ว ไม่ยิง API ซ้ำ)
+  const retMonth = container.querySelector('#pf-ret-month') as HTMLSelectElement | null;
+  if (retMonth) retMonth.addEventListener('change', function () {
+    retMonthSel = retMonth.value;
+    if (lastData) render(container, lastData);
+  });
+  const retType = container.querySelector('#pf-ret-type') as HTMLSelectElement | null;
+  if (retType) retType.addEventListener('change', function () {
+    retTypeSel = (retType.value as typeof retTypeSel) || 'all';
+    if (lastData) render(container, lastData);
+  });
+  const retCsv = container.querySelector('#pf-ret-csv');
+  if (retCsv) retCsv.addEventListener('click', function () {
+    const d = lastData;
+    if (!d || !d.returnsByPerson) { toast('ยังไม่มีข้อมูลให้ Export'); return; }
+    const month = retPersonMonth_(d);
+    const all = d.returnsByPerson[month] || [];
+    const list = retTypeSel === 'all' ? all : all.filter(function (p) { return (retTypeSel === 'crm') === p.crm; });
+    const out: (string | number)[][] = [
+      ['ตีกลับรายคน ' + mLabel(month) + ' ' + d.year],
+      ['พนักงาน', 'ประเภท', 'รายการ', 'มูลค่าตีกลับ'],
+    ];
+    list.forEach(function (p) { out.push([p.name, p.crm ? 'CRM' : 'แอดมิน', p.items, p.value]); });
+    downloadCSV(out, 'returns-person-' + month);
   });
   const csv = container.querySelector('#pf-csv');
   if (csv) csv.addEventListener('click', function () {

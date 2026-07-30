@@ -36,7 +36,7 @@ export async function apiProfit(params: any) {
   const [rows, retRows, umap, kpiState] = await Promise.all([
     fetchAll<any>(() => db.from('unit_daily').select('u,date,sales,orders,ads,profit'), 'key')
       .catch(() => [] as any[]),
-    fetchAll<any>(() => db.from('returns').select('key,return_date,month,price,qty'), 'key')
+    fetchAll<any>(() => db.from('returns').select('key,return_date,month,price,qty,staff,is_crm'), 'key')
       .catch(() => [] as any[]),
     getUMapDoc().catch(() => ({ units: [] as any[] })),
     db.from('sync_state').select('value').eq('key', 'kpi_scores').maybeSingle(),
@@ -81,16 +81,24 @@ export async function apiProfit(params: any) {
   });
 
   // ตีกลับรายเดือน — ยึด return_date (คอลัมน์ month ในชีทพิมพ์มือ ไว้ใจไม่ได้)
-  const returnsByMonth: Record<string, { value: number; items: number }> = {};
+  const returnsByMonth: Record<string, { value: number; items: number; crmValue: number; crmItems: number }> = {};
+  // ตีกลับรายคน (แอดมิน + CRM — ชีทตีกลับมีคอลัมน์พนักงานอยู่แล้ว, CRM ขึ้นต้นด้วย "CRM")
+  const personByMonth: Record<string, Record<string, { items: number; value: number; crm: boolean }>> = {};
   let retYearValue = 0, retYearItems = 0;
   retRows.forEach((x) => {
     const d = String(x.return_date || '').slice(0, 10);
     if (!d.startsWith(year)) return;
     const m = d.slice(0, 7);
     const v = num_(x.price) * (num_(x.qty) || 1);
-    const b = (returnsByMonth[m] = returnsByMonth[m] || { value: 0, items: 0 });
+    const crm = !!x.is_crm;
+    const b = (returnsByMonth[m] = returnsByMonth[m] || { value: 0, items: 0, crmValue: 0, crmItems: 0 });
     b.value += v; b.items++;
+    if (crm) { b.crmValue += v; b.crmItems++; }
     retYearValue += v; retYearItems++;
+    const who = String(x.staff || '').trim() || '(ไม่ระบุ)';
+    const pm = (personByMonth[m] = personByMonth[m] || {});
+    const pe = (pm[who] = pm[who] || { items: 0, value: 0, crm });
+    pe.items++; pe.value += v;
   });
 
   const today = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);
@@ -137,7 +145,14 @@ export async function apiProfit(params: any) {
     })),
     returnsByMonth: Object.fromEntries(Object.keys(returnsByMonth).sort().map((m) => [m, {
       value: Math.round(returnsByMonth[m].value), items: returnsByMonth[m].items,
+      crmValue: Math.round(returnsByMonth[m].crmValue), crmItems: returnsByMonth[m].crmItems,
     }])),
+    // ตีกลับรายคนรายเดือน เรียงมูลค่ามาก→น้อย (~90 คน/เดือน — ก้อนเล็ก ส่งทั้งปีได้)
+    returnsByPerson: Object.fromEntries(Object.keys(personByMonth).sort().map((m) => [m,
+      Object.entries(personByMonth[m])
+        .map(([name, e]) => ({ name, crm: e.crm, items: e.items, value: Math.round(e.value) }))
+        .sort((a, b) => b.value - a.value),
+    ])),
     totals: {
       profit: Math.round(units.reduce((s, x) => s + x.total.profit, 0)),
       sales: Math.round(units.reduce((s, x) => s + x.total.sales, 0)),
