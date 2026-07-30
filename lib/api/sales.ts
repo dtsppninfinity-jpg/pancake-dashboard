@@ -233,6 +233,13 @@ async function loadOrders_(sinceIso: string, untilIso: string | null, cols: stri
       o.total_price = money_(o.total_price);
       o._excluded = EXCLUDED_STATUSES.indexOf(o.status) >= 0;
       o._needCheck = NEED_CHECK_STATUSES.indexOf(o.status) >= 0;
+      // 🧠 แตก items_json เป็น {name, qty} เล็กๆ แล้วทิ้งก้อนดิบทันที — jsonb ต่อแถวหลาย KB
+      // ช่วงยาว 50k+ แถวถือรวมกันหลายร้อย MB จน function ตายเงียบ (OOM ไม่มี error ไม่มี log)
+      if (o.items_json !== undefined) {
+        o._items = parseItems_(o.items_json)
+          .map((it: any) => ({ name: it && it.name, qty: (it && it.qty) || 1, price: (it && it.price) || 0 }));
+        delete o.items_json;
+      }
       return o;
     })
     // ตัด "ออเดอร์เปล่า" ที่ Pancake สร้างให้ทุกแชทจากแอด (43% ของตาราง) ทิ้งตั้งแต่ต้นทาง
@@ -626,7 +633,7 @@ export async function apiSales(params: any) {
   // vercel logs live-tail ใช้ไม่ได้จริง จึงต้องฝากรอยไว้ใน DB แบบ fire-and-forget
   const t0 = Date.now();
   const mark_ = (s: string) => {
-    const line = `apiSales[${r.label}] ${s} | ${dbStats()}`;
+    const line = `apiSales[${r.label}] ${s} | ${dbStats()} | rss=${Math.round(process.memoryUsage().rss / 1e6)}MB`;
     console.log(line, Date.now() - t0 + 'ms');
     db.from('sync_log').insert({ job: 'trace-apiSales', ok: true, message: line, ms: Date.now() - t0 })
       .then(() => undefined, () => undefined);
@@ -916,7 +923,7 @@ export async function apiSales(params: any) {
         if (!unitCust[ukey]) unitCust[ukey] = {};
         (unitCust[ukey][cid] = unitCust[ukey][cid] || []).push(o._at.getTime());
       }
-      parseItems_(o.items_json).forEach((it: any) => {
+      (o._items || []).forEach((it: any) => {
         const nm = String((it && it.name) || '').trim();
         if (!nm) return;
         const qty = toNum_(it.qty) || 1;

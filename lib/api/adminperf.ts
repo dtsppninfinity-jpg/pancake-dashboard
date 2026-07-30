@@ -169,6 +169,10 @@ async function loadOrders_(r: { start: Date; end: Date }) {
       o._placeholder = isPlaceholderOrder(o); // เช็คก่อนแปลงหน่วยเงิน
       o.total_price = money_(o.total_price);
       o._excluded = EXCLUDED_STATUSES.indexOf(o.status) >= 0;
+      // แตก items_json เป็น {name, qty} เล็กๆ แล้วทิ้งก้อนดิบทันที — ช่วงยาว 89k แถว
+      // ถือ jsonb ดิบรวมกันหลายร้อย MB เสี่ยง OOM เงียบแบบที่ apiSales โดน
+      o._items = parseItems_(o.items_json).map((it: any) => ({ name: it && it.name, qty: (it && it.qty) || 1 }));
+      delete o.items_json;
       return o;
     })
     // ตัดออเดอร์เปล่าที่ Pancake สร้างอัตโนมัติจากแชทแอด — ไม่ใช่ยอดขายของแอดมิน
@@ -355,11 +359,9 @@ export async function apiAdminPerf(params: any) {
       s.adRev[adId] = (s.adRev[adId] || 0) + o.total_price;
       revByAd[adId] = (revByAd[adId] || 0) + o.total_price;
     }
-    try {
-      parseItems_(o.items_json).forEach((it: any) => {
-        if (it.name) s.products[it.name] = (s.products[it.name] || 0) + (it.qty || 1);
-      });
-    } catch (e) {}
+    (o._items || []).forEach((it: any) => {
+      if (it.name) s.products[it.name] = (s.products[it.name] || 0) + (it.qty || 1);
+    });
     const pg = pageNames[String(o.page_id)] || String(o.account_name || '');
     if (pg) s.pages[pg] = (s.pages[pg] || 0) + o.total_price;
     if (!s.lastOrderAt || o._at.getTime() > s.lastOrderAt) s.lastOrderAt = o._at.getTime();
