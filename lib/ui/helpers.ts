@@ -222,14 +222,18 @@ export function rangeControlsHtml(state: RangeState, idPrefix: string): string {
     return '<button class="filter-btn' + (state.preset === p.key ? ' active' : '') +
       '" data-preset="' + p.key + '">' + p.label + '</button>';
   }).join('');
+  // โหมดกำหนดเอง: แก้วันที่แล้ว "ยังไม่โหลด" จนกด แสดง/Enter — เดิมโหลดทันทีทุกช่องที่แก้
+  // (เปลี่ยนช่วง 1 ครั้ง = แก้ 2 ช่อง = ยิงคิวรีช่วงยาว 2 รอบ ช้าและเปลืองฟรี — ผู้ใช้ขอแก้เอง)
   const dates = state.preset === 'custom'
     ? '<input type="date" class="input" id="' + idPrefix + '-from" value="' + esc(state.from || '') + '">' +
-      '<input type="date" class="input" id="' + idPrefix + '-to" value="' + esc(state.to || '') + '">'
+      '<span style="align-self:center">ถึง</span>' +
+      '<input type="date" class="input" id="' + idPrefix + '-to" value="' + esc(state.to || '') + '">' +
+      '<button class="btn primary" id="' + idPrefix + '-apply">แสดง</button>'
     : '';
   return '<div class="conv-filters" id="' + idPrefix + '-presets" style="margin-bottom:0">' + pills + '</div>' + dates;
 }
 
-/** ผูก event ให้ rangeControls; onChange() ถูกเรียกเมื่อ state เปลี่ยน */
+/** ผูก event ให้ rangeControls; onChange() ถูกเรียกเมื่อ state เปลี่ยน (โหมดกำหนดเอง = ตอนกดแสดง) */
 export function bindRangeControls(
   container: HTMLElement,
   state: RangeState,
@@ -253,11 +257,24 @@ export function bindRangeControls(
       onChange();
     });
   });
+  // แก้วันที่ = จำค่าไว้เฉยๆ — โหลดจริงเมื่อกดปุ่ม "แสดง" หรือ Enter เท่านั้น
+  const apply = () => {
+    if (!state.from || !state.to) return;
+    if (state.from > state.to) { // สลับให้เองถ้ากรอกกลับด้าน — ดีกว่าโหลดแล้วได้ตารางว่าง
+      const t = state.from;
+      state.from = state.to;
+      state.to = t;
+    }
+    onChange();
+  };
   (['from', 'to'] as const).forEach((k) => {
     const inp = container.querySelector('#' + idPrefix + '-' + k) as HTMLInputElement | null;
-    if (inp) inp.addEventListener('change', () => {
-      state[k] = inp.value;
-      onChange();
+    if (!inp) return;
+    inp.addEventListener('change', () => { state[k] = inp.value; });
+    inp.addEventListener('keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'Enter') { state[k] = inp.value; apply(); }
     });
   });
+  const btn = container.querySelector('#' + idPrefix + '-apply');
+  if (btn) btn.addEventListener('click', apply);
 }

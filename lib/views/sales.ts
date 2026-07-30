@@ -856,9 +856,15 @@ function lossAlertHtml_(a: any): string {
         '</div>' +
         '<div class="loss-reason">' +
           'ขาย ' + THB(x.revenue) + ' • ค่าแอด ' + THB(x.spend) +
-          ' • <b class="txt-bad">ติดลบ ' + THB(x.loss) + '</b>' +
-          ' • ROAS ' + (x.roas === null ? '—' : x.roas.toFixed(2)) +
-          ' (จุดคุ้มทุนที่ตั้งไว้ ' + Number(x.breakEven || 1).toFixed(2) + ')' +
+          ' • <b class="txt-bad">' +
+            (x.basis === 'profit' || x.basis === 'mixed'
+              ? 'ขาดทุนจริง ' + THB(x.loss)
+              : 'ติดลบ ' + THB(x.loss)) + '</b>' +
+          (x.basis === 'profit' || x.basis === 'mixed'
+            ? ' <span class="chip" title="กำไรสุทธิรายวันจากชีทของทีม — หักต้นทุนสินค้า สำรองตีกลับ Fixcost ภาษี ค่าคอมแล้ว">💚 กำไรจริงจากชีท</span>'
+            : ' • ROAS ' + (x.roas === null ? '—' : x.roas.toFixed(2)) +
+              ' (จุดคุ้มทุนที่ตั้งไว้ ' + Number(x.breakEven || 1).toFixed(2) +
+              ' — ยูนิตนี้ยังไม่มีในชีทกำไร จึงใช้ ROAS โดยประมาณ)') +
         '</div>' +
         '<div class="loss-owners">ผู้รับผิดชอบ: ' + owners + '</div>' +
       '</div>' +
@@ -874,7 +880,8 @@ function lossAlertHtml_(a: any): string {
     '<div class="card-sub">' +
       (urgentN ? '<b class="txt-bad">' + fmtNum(urgentN) + ' ยูนิตขาดทุน 2 วันขึ้นไป</b> • ' : '') +
       'นับถึง ' + esc(a.throughDate || '') + ' (วันที่จบแล้ว — วันนี้ยังไม่นับเพราะค่าแอดยังเดินอยู่) • ' +
-      '<b>"ขาดทุน" = ยอดขาย &lt; ค่าแอด</b> ยังไม่รวมต้นทุนสินค้า ของจริงจึงแย่กว่านี้' +
+      '<b>"ขาดทุน" = กำไรสุทธิรายวันในชีทติดลบ</b> (หักต้นทุน+สำรองตีกลับแล้ว) • ' +
+      'ยูนิตที่ไม่มีในชีทใช้ ROAS &lt; จุดคุ้มทุนแทนโดยประมาณ' +
     '</div>' +
     '<div class="loss-list">' + rows + '</div>' +
   '</div>';

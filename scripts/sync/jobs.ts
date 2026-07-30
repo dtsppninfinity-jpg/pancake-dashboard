@@ -111,6 +111,29 @@ export async function syncUnitAlerts(): Promise<string> {
     }
   }
 
+  // ---- กำไรสุทธิจริงรายวันต่อยูนิต (unit_daily จากชีท) ----
+  // มีข้อมูล = ตัดสินด้วย "กำไรจริง < 0" ตรงๆ (ชีทหักต้นทุน+สำรองตีกลับแล้ว)
+  // ROAS < breakEven เหลือเป็น fallback สำหรับวัน/ยูนิตที่ชีทไม่มี — ROAS 1.0 หลวมเกินไป
+  // (ชีททีมเขียนเองว่า "ROAS รวม *ห้าม ≤ 3" — ขาย 2 เท่าของค่าแอดก็ยังขาดทุนจริง)
+  const prof: Record<string, { profit: number; sales: number; ads: number }> = {};
+  try {
+    let from = 0;
+    for (;;) {
+      const { data, error } = await supabase.from('unit_daily')
+        .select('key,u,date,profit,sales,ads').gte('date', sinceStr)
+        .order('key', { ascending: true }).range(from, from + 999);
+      if (error) throw new Error(error.message);
+      const rows = data || [];
+      for (const p of rows as any[]) {
+        const d = String(p.date || '').slice(0, 10);
+        prof[`${d}|${String(p.u)}`] = { profit: num(p.profit), sales: num(p.sales), ads: num(p.ads) };
+      }
+      if (rows.length < 1000) break;
+      from += 1000;
+    }
+  } catch { /* ยังไม่รัน migration unit_daily → ใช้ ROAS ล้วนเหมือนเดิม */ }
+  const profUnits = new Set(Object.keys(prof).map((k) => k.split('|')[1]));
+
   // ---- ไล่ย้อนจากเมื่อวานหา streak ----
   const dayList: string[] = [];
   for (let i = 1; i <= LOSS_LOOKBACK_DAYS; i++) dayList.push(fmtDateBkk(daysAgo(i)));   // เมื่อวาน → เก่าสุด
@@ -118,18 +141,32 @@ export async function syncUnitAlerts(): Promise<string> {
 
   const alerts: any[] = [];
   for (const u of units) {
-    if (!u.pages.length) continue;
-    const daily: Array<{ date: string; revenue: number; spend: number }> = [];
-    let streak = 0, lossRev = 0, lossSpend = 0, broke = false;
+    // ไม่มีทั้งเพจผูก (คิด ROAS ไม่ได้) และข้อมูลชีท (คิดกำไรไม่ได้) → ข้าม
+    if (!u.pages.length && !profUnits.has(u.u)) continue;
+    const daily: Array<{ date: string; revenue: number; spend: number; profit: number | null }> = [];
+    let streak = 0, lossRev = 0, lossSpend = 0, lossProfit = 0, broke = false;
+    let usedProfit = 0, usedRoas = 0;
     for (const d of dayList) {
       const r = rev[`${d}|${u.u}`] || 0;
       const s = spend[`${d}|${u.u}`] || 0;
+      const pd = prof[`${d}|${u.u}`];
+      // แถวที่ทุกช่องเป็น 0 = ชีทยังไม่กรอกวันนั้น (สูตรคืนค่าว่าง) — ห้ามตีความว่า "กำไร 0 บาท"
+      const hasProfit = !!pd && (pd.profit !== 0 || pd.sales > 0 || pd.ads > 0);
       if (!broke) {
-        if (s <= 0) broke = true;                     // ไม่ได้ยิงแอด = ตัดสินไม่ได้ streak ขาด
-        else if (r < s * u.breakEven) { streak++; lossRev += r; lossSpend += s; }
+        if (hasProfit) {
+          // กำไรจริงตัดสินได้เสมอ — วันไม่ยิงแอดแต่ขาดทุนก็คือขาดทุน (ไม่เหมือน ROAS ที่ตัดสินไม่ได้)
+          if (pd!.profit < 0) {
+            streak++; lossProfit += pd!.profit; usedProfit++;
+            lossRev += pd!.sales || r; lossSpend += pd!.ads || s;
+          } else broke = true;
+        } else if (s <= 0) broke = true;                // ไม่ได้ยิงแอด = ตัดสินไม่ได้ streak ขาด
+        else if (r < s * u.breakEven) { streak++; lossRev += r; lossSpend += s; usedRoas++; }
         else broke = true;
       }
-      daily.push({ date: d, revenue: Math.round(r), spend: Math.round(s) });
+      daily.push({
+        date: d, revenue: Math.round(r), spend: Math.round(s),
+        profit: hasProfit ? Math.round(pd!.profit) : null,
+      });
     }
     if (!streak) continue;
     alerts.push({
@@ -139,7 +176,10 @@ export async function syncUnitAlerts(): Promise<string> {
       level: streak >= 2 ? 'urgent' : 'warn',
       revenue: Math.round(lossRev),
       spend: Math.round(lossSpend),
-      loss: Math.round(lossSpend - lossRev),
+      loss: usedProfit ? Math.abs(Math.round(lossProfit)) : Math.round(lossSpend - lossRev),
+      // basis บอกหน้าเว็บว่าตัวเลขนี้มาจากอะไร: กำไรจริงจากชีท หรือ ROAS โดยประมาณ
+      basis: usedProfit && usedRoas ? 'mixed' : usedProfit ? 'profit' : 'roas',
+      profitLoss: usedProfit ? Math.round(lossProfit) : null, // ยอดขาดทุนจริงรวม (ติดลบ)
       roas: lossSpend > 0 ? Math.round((lossRev / lossSpend) * 100) / 100 : null,
       breakEven: u.breakEven,
       // ผู้รับผิดชอบ = แอดมินที่ผูกกับยูนิตในหน้า U Map แสดงเป็นชื่อเล่นตามที่ทีมขอ
@@ -210,13 +250,26 @@ export async function syncProductSheets(): Promise<string> {
 
     parseCommission(comGrid).forEach((c) => comRows.push({
       key: `${u}|${c.month}|${c.admin}`, u, month: c.month, admin: c.admin,
-      sales: c.sales, com: c.com, com_sub: c.comSub, com_head: c.comHead,
+      real_name: c.realName,
+      sales: c.sales, returns: c.returns, cancel: c.cancel, remaining: c.remaining,
+      com: c.com, com_sub: c.comSub, com_head: c.comHead, close_rate: c.closeRate,
       updated_at: now,
     }));
   }
 
   if (dailyRows.length) await upsertRows('unit_daily', dailyRows, 'key');
-  if (comRows.length) await upsertRows('admin_commission', comRows, 'key');
+  // ค่าคอมใช้ replace ทั้งตาราง — parser เปลี่ยนที่มา (ตารางประเมิน) แล้ว แถวชุดเก่าที่ key
+  // ไม่ตรงกับรอบใหม่จะค้างเป็นข้อมูลผีถ้า upsert เฉยๆ (ตารางนี้ derive จากชีทล้วนๆ ลบสร้างใหม่ได้)
+  // ⚠️ เช็คคอลัมน์ใหม่ก่อนลบ — ถ้ายังไม่รัน migration v2 แล้ว replace จะ "ลบสำเร็จ insert พัง"
+  // เหลือตารางว่างเปล่าไปจนกว่าจะรัน (ลำดับผิดพลาดที่เจ็บจริง ไม่ใช่แค่ error เฉยๆ)
+  if (comRows.length) {
+    const probe = await supabase.from('admin_commission').select('remaining').limit(1);
+    if (probe.error) {
+      return `product sheets: รายวัน ${dailyRows.length} แถวเข้าแล้ว | ⏳ ค่าคอมข้าม — ` +
+        `รอรัน db/migrations/2026-07-31-admin-commission-v2.sql (${probe.error.message.slice(0, 60)})`;
+    }
+    await replaceTable('admin_commission', comRows, 'key');
+  }
 
   const units = new Set(dailyRows.map((r) => r.u));
   let msg = `product sheets: ${units.size} ยูนิต | รายวัน ${dailyRows.length} แถว | ค่าคอม ${comRows.length} แถว`;

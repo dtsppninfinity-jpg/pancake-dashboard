@@ -80,53 +80,91 @@ export function parseSalesSummary(grid: string[][]): UnitDailyRow[] {
 }
 
 export interface CommissionRow {
-  month: string; admin: string; sales: number; com: number; comSub: number; comHead: number;
+  month: string; admin: string; realName: string;
+  sales: number; returns: number; cancel: number; remaining: number;
+  com: number; comSub: number; comHead: number;
+  closeRate: number | null; // % ปิดการขายลูกค้าใหม่ (0-100) — null ถ้าชีทไม่มี/ว่าง
 }
 
 /**
- * แท็บ `Com:Admin` → ค่าคอมรายเดือน × แอดมิน
+ * แท็บ `Com:Admin` → อ่าน "ตารางประเมินรายเดือน" (บล็อกสรุปใต้ตารางรายวันของแต่ละเดือน)
  *
- * แต่ละบล็อกมีแอดมินหลายคนวางเรียงกันตามแนวนอน คนละ 4 คอลัมน์
- * แถวชื่อ (A = 'วันที่') เก็บ '@ชื่อเล่น' ที่คอลัมน์แรกของแต่ละคน
- * แถวถัดมาเป็นหัวข้อย่อยของคนนั้น: ยอดขาย/รายวัน | รวม Com.@ | รวม Com.รองH | รวม Com.H
+ * บอสสั่ง (2026-07-30) ให้ใช้ตัวเลขจากตารางนี้ตรงๆ — โดยเฉพาะ "คงเหลือ" (ยอดจริงหลังหักตีกลับ/ยกเลิก)
+ * กับ "Commission (Admin)" ห้ามรวมเองจากรายวัน: คอมจริงมีเงื่อนไขถึงเป้า/ไม่ถึงเป้าที่ทีมคิดไว้ในชีทแล้ว
+ * (เจอจริง: ยอดขาย 167,560 แต่คอม = 0 เพราะไม่ถึงเป้า — รวมจากรายวันจะได้เลขผิด)
+ *
+ * โครงบล็อก: แถวหัว = แถวที่มีเซลล์ 'คงเหลือ' → คอลัมน์อ่านจากหัวจริง
+ *   ลำดับ | รหัสพนักงาน | ชื่อจริง | ชื่อ(@เล่น) | ยอดขาย | ยอดขายค่าCom | ตีกลับ | ยกเลิก | คงเหลือ |
+ *   Commission(Admin) | (รองหัวหน้า) | (หัวหน้า) | %Error | %ปิดการขายลูกค้าใหม่ | เปอร์บิล
+ * ⚠️ ชื่อคอลัมน์คอมสะกดต่างกันระหว่างไฟล์ ("Commission (Admin)" / "Commission@Admin" / "Commission DH.")
+ *    → ใช้ตำแหน่ง: 3 คอลัมน์ถัดจาก 'คงเหลือ' เสมอ (ตรวจกับไฟล์จริงแล้วทั้งสองรุ่น)
+ * ⚠️ เดือนของบล็อกห้ามอ่านจากหัว "ประเมิณเดือน ..." (ทีมก๊อปแล้วไม่แก้ชื่อ เหมือนแท็บสรุปยอดขาย)
+ *    → ใช้เดือนจากวันที่จริงของตารางรายวันบล็อกเดียวกัน (แถว 'วันที่' ที่อยู่ก่อนหน้า)
  */
 export function parseCommission(grid: string[][]): CommissionRow[] {
-  const agg: Record<string, CommissionRow> = {};
-  for (let i = 0; i < grid.length; i++) {
-    if (clean_(grid[i][0]) !== 'วันที่') continue;
-    const nameRow = grid[i], subRow = grid[i + 1] || [];
-    const people: Array<{ name: string; at: number }> = [];
-    nameRow.forEach((c, j) => {
-      const t = clean_(c);
-      if (t.startsWith('@') && t.length > 1) people.push({ name: t.slice(1), at: j });
-    });
-    if (!people.length) continue;
+  const out: CommissionRow[] = [];
+  const seen = new Set<string>(); // `${month}|${admin}` — กันบล็อกเดือนซ้ำ (บล็อกแรกชนะ เหมือนแท็บรายวัน)
+  let curMonth = '';              // เดือนของบล็อกล่าสุดที่อ่านเจอจากวันที่จริง
 
-    for (let k = 0; k < people.length; k++) {
-      const start = people[k].at;
-      const end = k + 1 < people.length ? people[k + 1].at : start + 4;
-      let cSales = -1, cCom = -1, cSub = -1, cHead = -1;
-      for (let j = start; j < end; j++) {
-        const lab = clean_(subRow[j]);
-        const sq = squash_(subRow[j]);
-        if (/^ยอดขาย\/รายวัน$/.test(lab)) cSales = j;
-        else if (/^รวมCom\.@/.test(sq)) cCom = j;
-        else if (/^รวมCom\.รองH/.test(sq)) cSub = j;
-        else if (/^รวมCom\.H/.test(sq)) cHead = j;
-      }
+  for (let i = 0; i < grid.length; i++) {
+    const row = grid[i] || [];
+
+    // เจอตารางรายวันของบล็อก → นับเดือนจากวันที่จริง (เอาเดือนที่พบบ่อยสุด กันแถวหลงบล็อก)
+    if (clean_(row[0]) === 'วันที่') {
+      const cnt: Record<string, number> = {};
+      let gap = 0;
       for (let r = i + 2; r < grid.length; r++) {
-        const d = date_(grid[r][0]);
-        if (!d) break;
-        const month = d.slice(0, 7);
-        const key = `${month}|${people[k].name}`;
-        if (!agg[key]) agg[key] = { month, admin: people[k].name, sales: 0, com: 0, comSub: 0, comHead: 0 };
-        const row = grid[r];
-        agg[key].sales += cSales >= 0 ? num_(row[cSales]) : 0;
-        agg[key].com += cCom >= 0 ? num_(row[cCom]) : 0;
-        agg[key].comSub += cSub >= 0 ? num_(row[cSub]) : 0;
-        agg[key].comHead += cHead >= 0 ? num_(row[cHead]) : 0;
+        const d = date_(grid[r]?.[0]);
+        if (!d) { if (++gap > 3) break; continue; }
+        gap = 0;
+        cnt[d.slice(0, 7)] = (cnt[d.slice(0, 7)] || 0) + 1;
       }
+      let best = '', bestN = 0;
+      Object.keys(cnt).forEach((m) => { if (cnt[m] > bestN) { bestN = cnt[m]; best = m; } });
+      if (best) curMonth = best;
+      continue;
+    }
+
+    // เจอหัวตารางประเมิน (มีเซลล์ 'คงเหลือ') → อ่านแถวแอดมินใต้หัว
+    const cRemain = row.findIndex((c) => squash_(c) === 'คงเหลือ');
+    if (cRemain < 0 || !curMonth) continue;
+    const cName = row.findIndex((c) => squash_(c) === 'ชื่อ');
+    const cReal = row.findIndex((c) => squash_(c) === 'ชื่อจริง');
+    const cSales = row.findIndex((c) => squash_(c) === 'ยอดขาย');
+    const cRet = row.findIndex((c) => squash_(c) === 'ตีกลับ');
+    const cCancel = row.findIndex((c) => squash_(c) === 'ยกเลิก');
+    const cClose = row.findIndex((c) => squash_(c).startsWith('%ปิดการขาย'));
+    if (cName < 0) continue;
+
+    for (let r = i + 1; r < Math.min(i + 30, grid.length); r++) {
+      const dr = grid[r] || [];
+      if (clean_(dr[1]) === 'รวม') break;             // แถวรวมท้ายตาราง = จบบล็อก
+      const nick = clean_(dr[cName]);
+      if (!nick.startsWith('@') || nick.length < 2) continue; // แถวลำดับว่าง (6..10) ข้าม
+      const admin = nick.slice(1);
+      if (/^Admin\d+$/i.test(admin)) continue;        // ช่องเผื่อที่ทีมยังไม่ใส่คนจริง
+      const key = `${curMonth}|${admin}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const closeRaw = clean_(dr[cClose]);
+      const closeNum = num_(closeRaw);
+      out.push({
+        month: curMonth,
+        admin,
+        realName: cReal >= 0 ? clean_(dr[cReal]) : '',
+        sales: cSales >= 0 ? num_(dr[cSales]) : 0,
+        returns: cRet >= 0 ? num_(dr[cRet]) : 0,
+        cancel: cCancel >= 0 ? num_(dr[cCancel]) : 0,
+        remaining: num_(dr[cRemain]),
+        com: num_(dr[cRemain + 1]),
+        comSub: num_(dr[cRemain + 2]),
+        comHead: num_(dr[cRemain + 3]),
+        // ชีทเก็บเป็นสัดส่วน (0.3258 = 32.58%) — เผื่อบางไฟล์กรอกเป็นเปอร์เซ็นต์แล้วด้วย
+        closeRate: cClose >= 0 && closeRaw !== ''
+          ? Math.round((closeNum <= 1.5 ? closeNum * 100 : closeNum) * 100) / 100
+          : null,
+      });
     }
   }
-  return Object.keys(agg).sort().map((k) => agg[k]);
+  return out.sort((a, b) => (a.month < b.month ? -1 : a.month > b.month ? 1 : a.admin.localeCompare(b.admin)));
 }

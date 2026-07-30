@@ -549,6 +549,151 @@ function teamHourlyCardHtml(data: PerfData | null): string {
   '</div>';
 }
 
+/* ---------- HTML: ค่าคอมแอดมินรายเดือน (ตารางประเมินจากชีท Com:Admin) ----------
+ * บอสสั่ง (2026-07-30): เอา "คงเหลือ" (ยอดจริงหลังหักตีกลับ/ยกเลิก) + "Commission @Admin"
+ * กรองได้ทุกเดือน พร้อม %ปิด กับ ROAS — ส่วนนี้มีตัวกรองเดือนของตัวเอง ไม่ตามช่วงวันที่ด้านบน
+ * (ค่าคอมเป็นตัวเลขรายเดือนจากชีท ตัดช่วงกลางเดือนไม่ได้)
+ */
+
+interface ComRow {
+  admin: string; realName: string; units: string[];
+  sales: number; returns: number; cancel: number; remaining: number;
+  com: number; comSub: number; comHead: number;
+  closeRate: number | null; roas: number | null; adSpend: number;
+}
+
+interface ComData {
+  setupNeeded: boolean;
+  months: string[];
+  month: string;
+  rows: ComRow[];
+  totals: { sales: number; returns: number; remaining: number; com: number; admins: number } | null;
+  hasSystemOrders?: boolean;
+}
+
+let comData: ComData | null = null;
+let comReq = 0;
+
+const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+function comMonthLabel(m: string): string {
+  const p = String(m).split('-');
+  const mo = Number(p[1]);
+  return (TH_MONTHS[mo - 1] || m) + ' ' + p[0];
+}
+
+function comRoasTxt(r: ComRow): string {
+  if (r.roas === null || r.roas === undefined) {
+    return '<span title="ไม่มีออเดอร์ที่ผูกแอดของคนนี้ในระบบเดือนนั้น (สาย LINE / เดือนก่อนระบบเริ่มเก็บ 23 พ.ค. 2026)">—</span>';
+  }
+  return '<span title="' + esc('ROAS จากระบบ = ยอดออเดอร์ที่ผูกแอด ÷ ค่าแอดปันส่วน ' + THB(r.adSpend)) + '">' +
+    esc(Number(r.roas).toFixed(2)) + 'x</span>';
+}
+
+function comSectionHtml(): string {
+  const head = '<div class="card-head" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
+    '<h3 style="margin:0">💰 ค่าคอมแอดมินรายเดือน</h3>';
+  if (!comData) {
+    return head + '</div><div class="loading"><div class="spinner"></div>กำลังโหลดข้อมูลค่าคอม...</div>';
+  }
+  const d = comData;
+  if (d.setupNeeded) {
+    return head + '</div><div class="empty-note">⏳ ยังไม่มีข้อมูลค่าคอม — ต้องรัน ' +
+      '<code>db/migrations/2026-07-31-admin-commission-v2.sql</code> ใน Supabase แล้วรอ sync รอบถัดไป</div>';
+  }
+  const opts = d.months.map(function (m) {
+    return '<option value="' + esc(m) + '"' + (m === d.month ? ' selected' : '') + '>' +
+      esc(comMonthLabel(m)) + '</option>';
+  }).join('');
+  const body = d.rows.map(function (r, i) {
+    const comTip = 'คอมรองหัวหน้า ' + THB(r.comSub) + ' • คอมหัวหน้า ' + THB(r.comHead);
+    return '<tr>' +
+      '<td>' + (i + 1) + '</td>' +
+      '<td><b>' + esc(r.admin) + '</b>' +
+        (r.realName ? ' <span class="rank-fullname" title="ชื่อจริงในชีท">' + esc(r.realName) + '</span>' : '') + '</td>' +
+      '<td>' + r.units.map(function (u) { return '<span class="badge neutral">' + esc(u) + '</span>'; }).join(' ') + '</td>' +
+      '<td class="num">' + THB(r.sales) + '</td>' +
+      '<td class="num"' + (r.cancel ? ' title="' + esc('ยกเลิกอีก ' + THB(r.cancel)) + '"' : '') + '>' +
+        (r.returns ? THB(r.returns) : '-') + '</td>' +
+      '<td class="num"><b>' + THB(r.remaining) + '</b></td>' +
+      '<td class="num"' + ((r.comSub || r.comHead) ? ' title="' + esc(comTip) + '"' : '') + '>' +
+        (r.com ? '฿' + Number(r.com).toLocaleString('th-TH', { maximumFractionDigits: 2 }) : '<span title="ชีทคิดให้แล้ว: ยอดไม่ถึงเงื่อนไขรับคอม">฿0</span>') + '</td>' +
+      '<td class="num">' + pctFmt(r.closeRate) + '</td>' +
+      '<td class="num">' + comRoasTxt(r) + '</td>' +
+    '</tr>';
+  }).join('');
+  const t = d.totals;
+  const foot = t
+    ? '<tr style="font-weight:700;border-top:2px solid var(--border,#ccc)"><td></td><td>รวม ' + fmtNum(t.admins) + ' คน</td><td></td>' +
+      '<td class="num">' + THB(t.sales) + '</td>' +
+      '<td class="num">' + THB(t.returns) + '</td>' +
+      '<td class="num">' + THB(t.remaining) + '</td>' +
+      '<td class="num">฿' + Number(t.com).toLocaleString('th-TH', { maximumFractionDigits: 2 }) + '</td>' +
+      '<td></td><td></td></tr>'
+    : '';
+  return head +
+      '<select class="input" id="rk-com-month">' + opts + '</select>' +
+      '<div class="spacer" style="flex:1"></div>' +
+      '<button class="btn-mini" id="rk-com-csv">📄 CSV</button>' +
+    '</div>' +
+    '<div class="card-sub">ยอดขาย/ตีกลับ/<b>คงเหลือ</b>/คอม/%ปิดลูกค้าใหม่ = ตารางประเมินในชีท Com:Admin ตรงๆ ' +
+      '(คงเหลือ = ยอดจริงหลังหักตีกลับ+ยกเลิก — ตัวที่ทีมใช้ตัดสิน) • ROAS คิดจากระบบ' +
+      (d.hasSystemOrders === false ? ' — เดือนนี้ระบบยังไม่มีออเดอร์ (เริ่มเก็บ 23 พ.ค. 2026) ROAS จึงเป็น "—"' : '') + '</div>' +
+    (d.rows.length
+      ? '<div class="table-scroll"><table class="tbl"><thead><tr>' +
+        '<th>#</th><th>แอดมิน</th><th>ยูนิต</th><th class="num">ยอดขาย</th><th class="num">ตีกลับ</th>' +
+        '<th class="num">คงเหลือ</th><th class="num">คอม @Admin</th><th class="num">%ปิดใหม่</th><th class="num">ROAS</th>' +
+        '</tr></thead><tbody>' + body + foot + '</tbody></table></div>'
+      : '<div class="empty-note">เดือนนี้ยังไม่มีข้อมูลในชีท</div>');
+}
+
+function fetchCom(container: HTMLElement, month: string): void {
+  const seq = ++comReq;
+  serverCall<ComData>('apiAdminCom', { month: month }).then(function (d) {
+    if (seq !== comReq) return;
+    comData = d;
+    const box = container.querySelector('#rk-com') as HTMLElement | null;
+    if (box) {
+      box.innerHTML = comSectionHtml();
+      bindComEvents(container);
+    }
+  }).catch(function () {
+    if (seq !== comReq) return;
+    const box = container.querySelector('#rk-com') as HTMLElement | null;
+    if (box) {
+      box.innerHTML = '<h3>💰 ค่าคอมแอดมินรายเดือน</h3>' +
+        '<div class="empty-note">⚠️ โหลดข้อมูลค่าคอมไม่สำเร็จ <button class="btn-mini" id="rk-com-retry">ลองใหม่</button></div>';
+      const b = box.querySelector('#rk-com-retry');
+      if (b) b.addEventListener('click', function () { fetchCom(container, month); });
+    }
+  });
+}
+
+function bindComEvents(container: HTMLElement): void {
+  const sel = container.querySelector('#rk-com-month') as HTMLSelectElement | null;
+  if (sel) sel.addEventListener('change', function () {
+    const box = container.querySelector('#rk-com') as HTMLElement | null;
+    if (box) box.innerHTML = '<h3>💰 ค่าคอมแอดมินรายเดือน</h3>' +
+      '<div class="loading"><div class="spinner"></div>กำลังโหลด ' + esc(comMonthLabel(sel.value)) + '...</div>';
+    fetchCom(container, sel.value);
+  });
+  const csv = container.querySelector('#rk-com-csv');
+  if (csv) csv.addEventListener('click', function () {
+    if (!comData || !comData.rows.length) { toast('ยังไม่มีข้อมูลให้ Export'); return; }
+    const out: (string | number)[][] = [
+      ['ค่าคอมแอดมิน ' + comMonthLabel(comData.month)],
+      ['ชื่อเล่น', 'ชื่อจริง (ชีท)', 'ยูนิต', 'ยอดขาย', 'ตีกลับ', 'ยกเลิก', 'คงเหลือ',
+        'คอม @Admin', 'คอมรองหัวหน้า', 'คอมหัวหน้า', '%ปิดลูกค้าใหม่', 'ROAS (ระบบ)'],
+    ];
+    comData.rows.forEach(function (r) {
+      out.push([r.admin, r.realName, r.units.join(' '), r.sales, r.returns, r.cancel, r.remaining,
+        r.com, r.comSub, r.comHead, r.closeRate === null ? '-' : r.closeRate,
+        r.roas === null ? '-' : r.roas]);
+    });
+    downloadCSV(out, 'admin-commission-' + comData.month);
+  });
+}
+
 /* ---------- HTML: แผงปรับเกณฑ์ ---------- */
 
 function panelRowHtml(c: MetricConfig): string {
@@ -690,8 +835,11 @@ function render(container: HTMLElement, data: PerfData | null): void {
     kpiPanelHtml() +
     panelHtml() +
     dashRow +
-    '<div id="rk-ranking">' + rankingHtml(data) + '</div>';
+    '<div id="rk-ranking">' + rankingHtml(data) + '</div>' +
+    // ค่าคอมมีตัวกรองเดือนของตัวเอง — ใช้แคชเดิมตอนวาดใหม่ (auto-refresh 75 วิ ไม่ต้องดึงค่าคอมซ้ำ)
+    '<div class="card" id="rk-com" style="margin-top:14px">' + comSectionHtml() + '</div>';
   bindEvents(container);
+  if (!comData) fetchCom(container, ''); // ครั้งแรกเท่านั้น — เดือนล่าสุดเป็นค่าเริ่มต้น
   startAuto(container); // ตั้งรอบรีเฟรชใหม่ทุกครั้งที่วาดจอ (นับ 75 วิ จากภาพล่าสุดที่ผู้ใช้เห็น)
 }
 
@@ -851,6 +999,8 @@ function bindEvents(container: HTMLElement): void {
   // export CSV
   const csvBtn = container.querySelector('#rk-csv');
   if (csvBtn) csvBtn.addEventListener('click', exportCSV);
+
+  bindComEvents(container); // ตัวกรองเดือน + CSV ของตารางค่าคอม (วาดจากแคช comData)
 }
 
 function exportCSV(): void {

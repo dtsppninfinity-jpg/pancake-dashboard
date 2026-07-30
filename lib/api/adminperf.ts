@@ -204,73 +204,86 @@ export async function apiAdminPerf(params: any) {
   const r = resolveRange_(params);
   const channel = (params && params.channel) || '';
 
-  const orders = await loadOrders_(r);
-
-  const adminRows = await fetchAll<any>(() =>
-    db.from('admins').select('user_id,pos_user_id,name,is_online'),
-    'user_id'
-  );
+  // สถิติแชทในช่วง (กรอง date ที่ query แล้ว)
+  const chatFrom = fmtDateBkk(r.start);
+  const chatTo = fmtDateBkk(r.end);
+  const cutoffIso = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
 
   // คนที่ถูก "ปิดใช้งาน" ในหน้า Admin Management → ไม่เข้า ranking
   // (ตาราง admin_settings อาจยังไม่ถูกสร้าง → ถือว่าเปิดใช้งานทุกคน)
   const disabledIds: Record<string, boolean> = {};
   const groupsById: Record<string, string> = {}; // กลุ่มสินค้าที่ตั้งไว้ (ใช้เป็น filter ฝั่ง client)
   const nickById: Record<string, string> = {};   // ชื่อเล่นที่พิมพ์ทับไว้ ('' = ให้เดาจากชื่อเต็ม)
-  try {
-    // nickname มาจาก migration 2026-07-27 — ฐานที่ยังไม่รันจะ error ที่คอลัมน์นี้ → ขอใหม่แบบไม่มีมัน
-    let st = await db.from('admin_settings').select('user_id,enabled,product_groups,nickname');
-    if (st.error && String(st.error.message || '').includes('nickname')) {
-      st = await db.from('admin_settings').select('user_id,enabled,product_groups') as any;
-    }
-    (st.data || []).forEach((s: any) => {
-      if (s.enabled === false) disabledIds[String(s.user_id)] = true;
-      if (s.product_groups) groupsById[String(s.user_id)] = String(s.product_groups);
-      if (s.nickname) nickById[String(s.user_id)] = String(s.nickname);
-    });
-  } catch { /* ยังไม่มีตาราง */ }
+  const settingsJob = (async () => {
+    try {
+      // nickname มาจาก migration 2026-07-27 — ฐานที่ยังไม่รันจะ error ที่คอลัมน์นี้ → ขอใหม่แบบไม่มีมัน
+      let st = await db.from('admin_settings').select('user_id,enabled,product_groups,nickname');
+      if (st.error && String(st.error.message || '').includes('nickname')) {
+        st = await db.from('admin_settings').select('user_id,enabled,product_groups') as any;
+      }
+      (st.data || []).forEach((s: any) => {
+        if (s.enabled === false) disabledIds[String(s.user_id)] = true;
+        if (s.product_groups) groupsById[String(s.user_id)] = String(s.product_groups);
+        if (s.nickname) nickById[String(s.user_id)] = String(s.nickname);
+      });
+    } catch { /* ยังไม่มีตาราง */ }
+  })();
+
+  // ⚡ ทุกตารางอิสระต่อกัน — ยิงขนานทีเดียว (เดิมรอทีละตาราง: ช่วงยาวๆ orders กิน 30-40s เอง
+  // แล้วค่อยตามด้วยแชท/แอด/conversations จนทะลุเพดาน 60s ของ Vercel — FUNCTION_INVOCATION_TIMEOUT)
+  const [
+    orders, adminRows, pageRows, chatRows, engRows, nc,
+    appSettings, convRows, spendByAd, snapsRes, kpiTargets,
+  ] = await Promise.all([
+    loadOrders_(r),
+    fetchAll<any>(() => db.from('admins').select('user_id,pos_user_id,name,is_online'), 'user_id'),
+    fetchAll<any>(() => db.from('pages').select('page_id,name'), 'page_id'),
+    fetchAll<any>(() =>
+      db.from('admin_chat_daily')
+        .select('date,user_id,user_name,page_id,unique_inbox_count,inbox_count,comment_count,phone_number_count,avg_response_ms')
+        .gte('date', chatFrom).lte('date', chatTo),
+      'key'
+    ),
+    // ยอด "คนทัก" (บทสนทนาอินบ็อกซ์ใหม่ + ความคิดเห็น) ระดับเพจ จาก chat_engagement_daily
+    fetchAll<any>(() =>
+      db.from('chat_engagement_daily')
+        .select('date,page_id,new_inbox,comment')
+        .gte('date', chatFrom).lte('date', chatTo),
+      'key'
+    ).catch(() => [] as any[]),
+    // ไม่ catch: ตาราง chat_hourly มีแน่นอน — error จริง (503/timeout) ต้องดังให้หน้าเว็บโชว์ retry
+    // ไม่ใช่แสดง "0" เนียนๆ เหมือนเป็นข้อมูลจริง
+    fetchAll<any>(() =>
+      db.from('chat_hourly')
+        .select('date,hour,platform,new_customer_count,customer_inbox_count')
+        .gte('date', chatFrom).lte('date', chatTo),
+      'key'
+    ),
+    getAppSettings(),
+    // ต้อง select type ด้วย — "แชทรอตอบ" ~41% เป็นคอมเมนต์ใต้โพสต์ ไม่ใช่อินบ็อกซ์
+    // (คนละงานกันสำหรับแอดมิน จึงต้องแยกให้เห็น ไม่ใช่กองรวมเป็นตัวเลขเดียว)
+    fetchAll<any>(() =>
+      db.from('conversations').select('waiting,updated_at,assignees,platform,type').gte('updated_at', cutoffIso)
+    ),
+    loadAdSpend_(chatFrom, chatTo),
+    // snapshot คนปิดใช้งาน (กัน "seller ผี") — คอลัมน์มาจาก migration v2 ถ้าไม่มี error ก็ข้าม
+    db.from('admin_settings').select('user_id,enabled,pos_user_id,snap_name'),
+    getKpiTargets(),
+  ]);
+  await settingsJob;
 
   const pageNames: Record<string, string> = {};
-  const pageRows = await fetchAll<any>(() => db.from('pages').select('page_id,name'), 'page_id');
   pageRows.forEach((p) => {
     pageNames[String(p.page_id)] = p.name;
   });
 
-  // สถิติแชทในช่วง (กรอง date ที่ query แล้ว)
-  const chatFrom = fmtDateBkk(r.start);
-  const chatTo = fmtDateBkk(r.end);
-  const chatRows = await fetchAll<any>(() =>
-    db
-      .from('admin_chat_daily')
-      .select('date,user_id,user_name,page_id,unique_inbox_count,inbox_count,comment_count,phone_number_count,avg_response_ms')
-      .gte('date', chatFrom)
-      .lte('date', chatTo),
-    'key'
-  );
-
-  // ยอด "คนทัก" (บทสนทนาอินบ็อกซ์ใหม่ + ความคิดเห็น) ระดับเพจ จาก chat_engagement_daily
-  // เอาไปจัดสรรรายแอดมินตามสัดส่วน unique_inbox → เป็นตัวเลข "แชท" + ตัวหาร %ปิดที่ตรงจอ Pancake
-  const engRows = await fetchAll<any>(() =>
-    db
-      .from('chat_engagement_daily')
-      .select('date,page_id,new_inbox,comment')
-      .gte('date', chatFrom)
-      .lte('date', chatTo),
-    'key'
-  ).catch(() => [] as any[]);
+  // จัดสรร "คนทัก" รายแอดมินตามสัดส่วน unique_inbox → ตัวเลข "แชท" + ตัวหาร %ปิดที่ตรงจอ Pancake
   const reachedByUid = allocateReached(chatRows, engRows);
 
   // ลูกค้าใหม่รวมทีม + ปริมาณลูกค้าทักรายชั่วโมง (จาก chat_hourly — ระดับเพจ ไม่มีรายแอดมิน)
-  // ไม่ catch: ตาราง chat_hourly มีแน่นอน — error จริง (503/timeout) ต้องดังให้หน้าเว็บโชว์ retry
-  // ไม่ใช่แสดง "0" เนียนๆ เหมือนเป็นข้อมูลจริง
   let newCustomers = 0;
   const teamHourly: number[] = [];
   for (let i = 0; i < 24; i++) teamHourly.push(0);
-  const nc = await fetchAll<any>(() =>
-    db.from('chat_hourly')
-      .select('date,hour,platform,new_customer_count,customer_inbox_count')
-      .gte('date', chatFrom).lte('date', chatTo),
-    'key'
-  );
   nc.forEach((c: any) => {
     if (channel && platformChannel_(c.platform) !== channel) return;
     newCustomers += toNum_(c.new_customer_count);
@@ -280,7 +293,6 @@ export async function apiAdminPerf(params: any) {
 
   // แชทค้าง/รอตอบ "ตอนนี้" (24 ชม.ล่าสุด — ไม่ขึ้นกับช่วงเวลาที่เลือก) + SLA proxy
   // ใช้กติกาเดียวกับหน้า Admin Management: active = ถูกมอบหมาย, overSla = ลูกค้ารอเกินเกณฑ์
-  const appSettings = await getAppSettings();
   const slaMins = appSettings.slaMins;
   const activeByName: Record<string, number> = {};
   const waitingByName: Record<string, number> = {};        // รอตอบทั้งหมด (อินบ็อกซ์ + คอมเมนต์)
@@ -290,13 +302,7 @@ export async function apiAdminPerf(params: any) {
   let waitingTotal = 0;
   let waitingCommentTotal = 0;
   {
-    const cutoffIso = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     const slaCutoff = Date.now() - slaMins * 60000;
-    // ต้อง select type ด้วย — "แชทรอตอบ" ~41% เป็นคอมเมนต์ใต้โพสต์ ไม่ใช่อินบ็อกซ์
-    // (คนละงานกันสำหรับแอดมิน จึงต้องแยกให้เห็น ไม่ใช่กองรวมเป็นตัวเลขเดียว)
-    const convRows = await fetchAll<any>(() =>
-      db.from('conversations').select('waiting,updated_at,assignees,platform,type').gte('updated_at', cutoffIso)
-    );
     convRows.forEach((c: any) => {
       // เคารพ filter ช่องทางเหมือน KPI อื่นบนหน้าเดียวกัน (chat_hourly/orders กรองอยู่แล้ว)
       if (channel && platformChannel_(c.platform) !== channel) return;
@@ -321,10 +327,6 @@ export async function apiAdminPerf(params: any) {
       });
     });
   }
-
-  // ค่าแอดจริงรายแอดในช่วงเดียวกับยอดขาย (ใช้ทำ ROAS รายแอดมิน)
-  // null = ยังไม่ได้รัน migration ad_daily → ทุกคนได้ ROAS null (หน้าเว็บโชว์ "—" พร้อมเหตุผล)
-  const spendByAd = await loadAdSpend_(chatFrom, chatTo);
 
   // ยอดขายในช่วง group ตาม seller
   const bySeller: Record<string, any> = {}; // key = pos_user_id หรือ 'name:xxx'
@@ -446,17 +448,12 @@ export async function apiAdminPerf(params: any) {
   // กัน "seller ผี": คนที่ถูกปิดใช้งานแล้วหลุดจาก roster (ออกจากทีม) จะไม่มีแถวใน admins
   // → mark seller key จาก snapshot ใน admin_settings ไว้ก่อน ไม่ให้ยอดเก่าโผล่กลับเข้า ranking
   // (คอลัมน์ snapshot มาจาก migration v2 — ถ้ายังไม่มี query จะ error ก็ข้ามส่วนนี้ไป)
-  {
-    const { data: snaps, error } = await db
-      .from('admin_settings')
-      .select('user_id,enabled,pos_user_id,snap_name');
-    if (!error) {
-      (snaps || []).forEach((s: any) => {
-        if (s.enabled !== false) return;
-        if (s.pos_user_id) usedSellerKeys[String(s.pos_user_id)] = true;
-        if (s.snap_name) usedSellerKeys['name:' + String(s.snap_name)] = true;
-      });
-    }
+  if (!snapsRes.error) {
+    (snapsRes.data || []).forEach((s: any) => {
+      if (s.enabled !== false) return;
+      if (s.pos_user_id) usedSellerKeys[String(s.pos_user_id)] = true;
+      if (s.snap_name) usedSellerKeys['name:' + String(s.snap_name)] = true;
+    });
   }
 
   adminRows.forEach((a) => {
@@ -546,9 +543,6 @@ export async function apiAdminPerf(params: any) {
     online: adminRows.filter((a) => !disabledIds[String(a.user_id)] && toBool_(a.is_online)).length,
     offline: adminRows.filter((a) => !disabledIds[String(a.user_id)] && !toBool_(a.is_online)).length,
   };
-
-  // เป้า KPI ต่อคน/วัน ที่ทีมตั้งไว้ (แถบความคืบหน้าฝั่ง client) — เก็บใน sync_state เหมือน scoreConfig
-  const kpiTargets = await getKpiTargets();
 
   return {
     rangeLabel: r.label,
