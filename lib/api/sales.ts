@@ -622,9 +622,16 @@ export async function apiSales(params: any) {
   const channel = (params && params.channel) || '';
   const compare = (params && params.compare) !== 'none';
 
-  // timing log ดูใน `vercel logs` — ช่วงวันยาวเคยวิ่งเกิน 300s หาจุดติดจากระยะไกลไม่ได้ถ้าไม่มี mark
+  // timing trace ลง sync_log (job='trace-apiSales') — ช่วงวันยาวเคยวิ่งเกิน 300s
+  // vercel logs live-tail ใช้ไม่ได้จริง จึงต้องฝากรอยไว้ใน DB แบบ fire-and-forget
   const t0 = Date.now();
-  const mark_ = (s: string) => console.log(`apiSales[${r.label}] ${s} +${Date.now() - t0}ms`);
+  const mark_ = (s: string) => {
+    const line = `apiSales[${r.label}] ${s}`;
+    console.log(line, Date.now() - t0 + 'ms');
+    db.from('sync_log').insert({ job: 'trace-apiSales', ok: true, message: line, ms: Date.now() - t0 })
+      .then(() => undefined, () => undefined);
+  };
+  mark_('start');
 
   // ⚡ ตัวโหลดอิสระ (ไม่พึ่งผล orders) ยิงตั้งแต่ตอนนี้ — เดิมรอกันเป็นทอดๆ ท้ายฟังก์ชัน
   // ช่วงยาว 35 วันเวลารวมทะลุ 100s จน 504 (semaphore ใน lib/db คุมไม่ให้ถล่มฐานเอง)
@@ -672,6 +679,7 @@ export async function apiSales(params: any) {
   const monthRows: Row[] = !hasTargets ? []
     : rangeCoversMonth ? orders
     : await loadOrders_(monthStart.toISOString(), null, 'inserted_at,status,total_price,items_count,page_id');
+  mark_('month');
 
   function matchChannel(o: Row): boolean {
     return !channel || orderChannel_(o) === channel;
@@ -1038,6 +1046,7 @@ export async function apiSales(params: any) {
       p_channel: channel,
       p_excluded: EXCLUDED_STATUSES,
     }).abortSignal(AbortSignal.timeout(30_000));
+    mark_('rpc' + (rcErr ? '-err:' + String(rcErr.message || '').slice(0, 40) : ''));
     if (!rcErr && rc) {
       const row = Array.isArray(rc) ? rc[0] : rc;
       if (row) {
@@ -1151,6 +1160,7 @@ export async function apiSales(params: any) {
     });
   }
 
+  mark_('done');
   return {
     rangeLabel: r.label,
     // ป้ายหน้าต่างเปรียบเทียบ (null เมื่อ "ไม่เปรียบเทียบ") — หน้าเว็บเอาไปใส่ legend/ทูลทิปกราฟ
