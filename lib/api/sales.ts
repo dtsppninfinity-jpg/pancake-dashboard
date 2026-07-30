@@ -629,13 +629,15 @@ export async function apiSales(params: any) {
   const channel = (params && params.channel) || '';
   const compare = (params && params.compare) !== 'none';
 
-  // timing trace ลง sync_log (job='trace-apiSales') — ช่วงวันยาวเคยวิ่งเกิน 300s
-  // vercel logs live-tail ใช้ไม่ได้จริง จึงต้องฝากรอยไว้ใน DB แบบ fire-and-forget
+  // timing trace — ช่วงวันยาวเคยวิ่งเกิน 300s แล้วตายเงียบ (Intl ต่อ call — แก้แล้วใน lib/config)
+  // เขียน sync_log เฉพาะ preset custom: หน้า "วันนี้" auto-refresh ทุก 75 วิ ถ้า log ทุกครั้งจะสแปมหมื่นแถว/วัน
+  // (vercel logs live-tail ใช้ไม่ได้จริง — trace ใน DB คือทางเดียวที่เห็นจุดตายจากระยะไกล)
   const t0 = Date.now();
+  const traceDb = (params && params.preset) === 'custom';
   const mark_ = (s: string) => {
     const line = `apiSales[${r.label}] ${s} | ${dbStats()} | rss=${Math.round(process.memoryUsage().rss / 1e6)}MB`;
     console.log(line, Date.now() - t0 + 'ms');
-    db.from('sync_log').insert({ job: 'trace-apiSales', ok: true, message: line, ms: Date.now() - t0 })
+    if (traceDb) db.from('sync_log').insert({ job: 'trace-apiSales', ok: true, message: line, ms: Date.now() - t0 })
       .then(() => undefined, () => undefined);
   };
   mark_('start');
