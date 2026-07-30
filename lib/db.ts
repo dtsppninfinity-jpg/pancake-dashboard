@@ -47,13 +47,18 @@ export async function fetchAll<T = any>(build: () => any, orderColumn = 'id', as
       try {
         let q = build();
         for (const c of cols) q = q.order(c, { ascending });
-        res = await q.range(from, from + PAGE - 1);
+        // ⏱ abort 25s — supabase-js ไม่มี timeout ฝั่ง client: connection ที่ตายเงียบจะค้างนิรันดร์
+        // แล้วถือ slot ของ semaphore ไว้จนทั้ง request แขวน (เจอ apiSales วิ่งเกิน 300s ไม่จบ)
+        // ฝั่ง DB statement timeout ~8s อยู่แล้ว — อะไรที่เกิน 25s คือศพแน่นอน ตัดทิ้งแล้ว retry
+        res = await q.abortSignal(AbortSignal.timeout(25_000)).range(from, from + PAGE - 1);
+      } catch (e: any) {
+        res = { data: null, error: { message: String((e && e.message) || e || 'aborted') } };
       } finally {
         release_();
       }
       if (!res.error) return res.data || [];
       const msg = String(res.error.message || '');
-      const transient = /statement timeout|fetch failed|ECONNRESET|socket|network|50[234]/i.test(msg);
+      const transient = /statement timeout|fetch failed|ECONNRESET|socket|network|abort|timed? ?out|50[234]/i.test(msg);
       if (!transient || attempt >= 2) throw new Error(`fetchAll: ${msg}`);
       await new Promise((r2) => setTimeout(r2, 400 * (attempt + 1)));
     }

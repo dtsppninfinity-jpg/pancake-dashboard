@@ -1029,13 +1029,15 @@ export async function apiSales(params: any) {
   {
     mark_('before-rpc');
     const lookback = new Date(r.start.getTime() - 95 * 86400000);
+    // abort 30s — RPC สแกน orders ย้อน 95 วัน ช่วงยาวอาจอืด และ supabase-js ไม่มี timeout เอง
+    // ถ้าแขวนจะลากทั้ง apiSales ค้างเกิน maxDuration (%ซื้อซ้ำเป็นการ์ดรอง เสียได้ ไม่คุ้มพังทั้งหน้า)
     const { data: rc, error: rcErr } = await db.rpc('sales_returning_customers', {
       p_start: r.start.toISOString(),
       p_end: r.end.toISOString(),
       p_lookback: lookback.toISOString(),
       p_channel: channel,
       p_excluded: EXCLUDED_STATUSES,
-    });
+    }).abortSignal(AbortSignal.timeout(30_000));
     if (!rcErr && rc) {
       const row = Array.isArray(rc) ? rc[0] : rc;
       if (row) {
