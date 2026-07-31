@@ -843,12 +843,13 @@ function openBreakEvenEditor(): void {
  * ยูนิตนอกชีท → โชว์ยอดช่วง streak + ROAS แบบเดิม
  */
 function lossReasonHtml_(x: any): string {
-  const sheetChip = ' <span class="chip" title="กำไรสุทธิรายวันจากชีทของทีม — หักต้นทุนสินค้า สำรองตีกลับ Fixcost ภาษี ค่าคอมแล้ว">💚 กำไรจริงจากชีท</span>';
+  const sheetChip = ' <span class="chip" title="รวมคอลัมน์ กำไรสุทธิ (BI) แท็บสรุปยอดขาย ชีท สร. ทุกวันของเดือนนี้ถึงเมื่อวาน — เทียบกับแถว รวม ในชีทได้เลย">💚 กำไรจริงจากชีท</span>';
   const isSheet = x.basis === 'profit' || x.basis === 'mixed';
-  // ขาดทุนสะสมทั้งเดือน (มีเมื่อ sync รอบใหม่แล้วและชีทกรอกอย่างน้อย 1 วัน)
-  if (isSheet && typeof x.monthProfit === 'number' && x.monthProfit < 0) {
+  // รูปแบบเดียวสำหรับทุกยูนิตที่มีชีท: "กำไรสุทธิ ±รวมทั้งเดือน" เขียว/แดง — เช็คกับชีทตรงๆ ได้ (บอสสั่ง 2026-07-31)
+  if (isSheet && typeof x.monthProfit === 'number') {
+    const pos = x.monthProfit >= 0;
     return 'เดือนนี้: ขาย ' + THB(x.monthSales || 0) + ' • ค่าแอด ' + THB(x.monthAds || 0) +
-      ' • <b class="txt-bad">ขาดทุนสะสมเดือนนี้ ' + THB(-x.monthProfit) + '</b>' +
+      ' • <b class="' + (pos ? 'txt-good' : 'txt-bad') + '">กำไรสุทธิ ' + (pos ? '+' : '-') + THB(Math.abs(x.monthProfit)) + '</b>' +
       ' (ขาดทุน ' + fmtNum(x.monthLossDays || 0) + ' วันตั้งแต่ต้นเดือน)' + sheetChip;
   }
   return 'ขาย ' + THB(x.revenue) + ' • ค่าแอด ' + THB(x.spend) +
@@ -892,9 +893,9 @@ function lossAlertHtml_(a: any): string {
     '<div class="card-sub">' +
       (urgentN ? '<b class="txt-bad">' + fmtNum(urgentN) + ' ยูนิตขาดทุน 2 วันขึ้นไป</b> • ' : '') +
       'นับถึง ' + esc(a.throughDate || '') + ' (วันที่จบแล้ว — วันนี้ยังไม่นับเพราะค่าแอดยังเดินอยู่) • ' +
-      '<b>"ขาดทุน" = กำไรสุทธิรายวันในชีทติดลบ</b> (หักต้นทุน+สำรองตีกลับแล้ว) • ' +
-      'ยอดขาดทุน = <b>สะสมทั้งเดือนนี้</b> (รวมช่องกำไรสุทธิรายวันของชีททุกวัน) • ' +
-      'ยูนิตที่ไม่มีในชีทใช้ ROAS &lt; จุดคุ้มทุนแทนโดยประมาณ' +
+      '<b>กำไรสุทธิ = รวมคอลัมน์ "กำไรสุทธิ" แท็บสรุปยอดขาย ชีท สร. ทั้งเดือนนี้</b> ' +
+      '(<b class="txt-good">เขียว = กำไร</b> <b class="txt-bad">แดง = ขาดทุน</b> — เทียบแถว "รวม" ในชีทได้เลย) • ' +
+      '"N วันติด" = จำนวนวันขาดทุนติดต่อกันล่าสุด • ยูนิตที่ไม่มีในชีทใช้ ROAS &lt; จุดคุ้มทุนแทนโดยประมาณ' +
     '</div>' +
     '<div class="loss-list">' + rows + '</div>' +
   '</div>';
