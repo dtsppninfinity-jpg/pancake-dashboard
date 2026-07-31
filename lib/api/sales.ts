@@ -2,7 +2,7 @@
 // server-side เท่านั้น: import { db, fetchAll } จาก @/lib/db
 // เปลี่ยนแค่แหล่งอ่าน (readTable_ → fetchAll) + กรองช่วงเวลาใน query เพื่อเลี่ยง 1000-row cap
 import { db, fetchAll, fetchAllSliced, fetchAllDateSliced, dbStats } from '@/lib/db';
-import { getPageUnitMap, getUnitTargets } from './umap';
+import { getPageUnitMap, getUnitTargets, getUnitNotes } from './umap';
 import { nicknameByName } from './adminsettings';
 import {
   EXCLUDED_STATUSES,
@@ -675,6 +675,8 @@ export async function apiSales(params: any) {
    */
   const monthStart = new Date(fmtDateBkk(new Date()).slice(0, 7) + '-01T00:00:00+07:00');
   const unitTargets = await getUnitTargets().catch(() => ({} as Record<string, number>));
+  // หมายเหตุยูนิต (เช่น "รอรีแบรนด์") — แปะทั้งตารางยูนิตและการ์ดแจ้งเตือน
+  const unitNotes = await getUnitNotes().catch(() => ({} as Record<string, string>));
   // ชื่อเล่นแอดมิน — ทีมขอให้แสดงชื่อเล่นเป็นหลัก (ชื่อจริงยังเก็บไว้ ส่งไปด้วยเป็น fullName)
   const nickBy = await nicknameByName().catch(() => ({} as Record<string, string>));
   const nick_ = (n: unknown) => {
@@ -986,6 +988,9 @@ export async function apiSales(params: any) {
     facebook: topAgg(cur.filter((o) => orderChannel_(o) === 'facebook'), 'facebook'),
     line: topAgg(cur.filter((o) => orderChannel_(o) === 'line'), 'line'),
   };
+  (['all', 'facebook', 'line'] as const).forEach((k) => {
+    (top[k].units || []).forEach((u: any) => { u.note = unitNotes[u.key] || ''; });
+  });
 
   /* ---- ออเดอร์ที่ "ไม่เป็นยอด": ยกเลิก / ตีกลับ / ลบ ----
    * บรีฟขอภาพรวมสินค้าตีกลับ (รวม รายคน รายเดือน) แต่ Pancake /orders_returned คืน 0 ใบเสมอ
@@ -1038,7 +1043,9 @@ export async function apiSales(params: any) {
       const { data } = await db.from('sync_state').select('value').eq('key', 'unit_loss_alerts').maybeSingle();
       if (!data || !data.value) return null;
       const j = JSON.parse(String(data.value));
-      return { throughDate: j.throughDate || '', computedAt: j.computedAt || '', alerts: j.alerts || [] };
+      // แปะหมายเหตุยูนิตสดๆ ตอนตอบ (ไม่รอรอบ sync) — ทีมแก้หมายเหตุแล้วเห็นผลทันทีที่รีเฟรช
+      const alerts = (j.alerts || []).map((a: any) => ({ ...a, note: unitNotes[a.u] || '' }));
+      return { throughDate: j.throughDate || '', computedAt: j.computedAt || '', alerts };
     } catch { return null; }
   })();
 

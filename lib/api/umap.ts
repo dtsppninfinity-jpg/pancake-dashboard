@@ -12,9 +12,11 @@ export interface UMember { id: string; name: string }
 // breakEven = ROAS จุดคุ้มทุนของยูนิตนี้ (ยอดขาย ÷ ค่าแอด) ต่ำกว่านี้ = ขาดทุน
 //             0 = ยังไม่ตั้ง → ระบบใช้ 1.0 คือ "ยอดขายน้อยกว่าค่าแอด" ซึ่งเป็นเพดานล่างสุด
 //             ของจริงสูงกว่านี้เพราะยังไม่รวมต้นทุนสินค้า/ค่าส่ง — ทีมตั้งเองได้ต่อยูนิต
+// note = หมายเหตุสถานะยูนิต เช่น "รอรีแบรนด์" (บอสสั่ง 2026-07-31) — โชว์เป็นป้ายบนการ์ด
+//        แจ้งเตือน/ตารางยูนิตหน้า Sales • ว่าง = ไม่มีหมายเหตุ • แก้/ลบได้จากโมดัล ⚙️ หน้า Sales
 export interface UUnit {
   u: string; product: string; admins: UMember[]; pages: UMember[];
-  target: number; breakEven: number;
+  target: number; breakEven: number; note: string;
 }
 export interface UMapDoc { units: UUnit[]; updatedAt: string }
 
@@ -90,7 +92,9 @@ function normalizeDoc(raw: any): UMapDoc {
     const be = Number((it && it.breakEven) || 0);
     // เพดาน 20 — ROAS จุดคุ้มทุนเกินนี้แปลว่ากรอกผิดหน่วย (เช่นใส่เป็นเปอร์เซ็นต์)
     const breakEven = isFinite(be) && be > 0 ? Math.min(Math.round(be * 100) / 100, 20) : 0;
-    out.units.push({ u, product: normProduct(it && it.product), admins, pages, target, breakEven });
+    // หมายเหตุสั้นๆ พอเป็นป้าย — ยาวกว่านี้อ่านบนการ์ดไม่ไหว
+    const note = String((it && it.note) || '').replace(/\s+/g, ' ').trim().slice(0, 60);
+    out.units.push({ u, product: normProduct(it && it.product), admins, pages, target, breakEven, note });
   }
   sortUnits_(out.units);
   return out;
@@ -123,7 +127,7 @@ export async function getUMapDoc(): Promise<UMapDoc> {
     return normalizeDoc(parsed);
   }
   const doc: UMapDoc = {
-    units: SEED_UNITS.map(([u, product]) => ({ u, product, admins: [], pages: [], target: 0, breakEven: 0 })),
+    units: SEED_UNITS.map(([u, product]) => ({ u, product, admins: [], pages: [], target: 0, breakEven: 0, note: '' })),
     updatedAt: '',
   };
   sortUnits_(doc.units);
@@ -196,7 +200,7 @@ export async function apiUMap(params: any) {
     const product = normProduct(p.product);
     if (!product) return { ok: false, error: 'กรอกชื่อผลิตภัณฑ์ด้วย' };
     if (doc.units.some((x) => x.u === u)) return { ok: false, error: u + ' มีอยู่แล้ว' };
-    doc.units.push({ u, product, admins: [], pages: [], target: 0, breakEven: 0 });
+    doc.units.push({ u, product, admins: [], pages: [], target: 0, breakEven: 0, note: '' });
   } else if (action === 'editUnit') {
     const unit = doc.units.find((x) => x.u === u);
     if (!unit) return { ok: false, error: 'ไม่พบ ' + (u || 'U ที่ระบุ') };
@@ -222,6 +226,16 @@ export async function apiUMap(params: any) {
       const raw = Number(map[key]);
       if (!isFinite(raw) || raw < 0 || raw > 20) continue;
       unit.breakEven = Math.round(raw * 100) / 100;
+    }
+  } else if (action === 'setNotes') {
+    // หมายเหตุยูนิตหลายตัวพร้อมกัน (โมดัล ⚙️ หน้า Sales) — ส่งค่าว่าง = ลบหมายเหตุ
+    const map = (p && p.notes) || {};
+    if (!map || typeof map !== 'object') return { ok: false, error: 'ข้อมูลหมายเหตุไม่ถูกต้อง' };
+    for (const key of Object.keys(map)) {
+      const code = normCode(key);
+      const unit = code ? doc.units.find((x) => x.u === code) : null;
+      if (!unit) continue;
+      unit.note = String(map[key] || '').replace(/\s+/g, ' ').trim().slice(0, 60);
     }
   } else if (action === 'setTargets') {
     // ตั้งหลายยูนิตพร้อมกัน (โมดัลกรอกทีเดียวทั้งตาราง) — ยูนิตที่ไม่ได้ส่งมาไม่ถูกแตะ
@@ -353,6 +367,14 @@ export async function getUnitsForAlert(): Promise<Array<{
     admins: (x.admins || []).map((a) => String(a.name)),
     breakEven: x.breakEven > 0 ? x.breakEven : 1,
   }));
+}
+
+/** หมายเหตุยูนิต (เช่น "รอรีแบรนด์") — เฉพาะยูนิตที่มีหมายเหตุ */
+export async function getUnitNotes(): Promise<Record<string, string>> {
+  const doc = await getUMapDoc();
+  const out: Record<string, string> = {};
+  for (const unit of doc.units) if (unit.note) out[unit.u] = unit.note;
+  return out;
 }
 
 /** เป้ายอดขายต่อเดือนของแต่ละยูนิต (บาท) — ยูนิตที่ยังไม่ตั้งเป้าจะไม่อยู่ใน map */

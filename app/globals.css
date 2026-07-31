@@ -115,6 +115,9 @@ input, select { font-family: inherit; }
 .nav-badge.warn { background: #e67e22; }
 /* มี badge เมื่อไหร่ เว้นที่ขวาให้ชื่อแท็บไม่วิ่งไปใต้เลข */
 .nav-item.has-badge { padding-right: 34px; }
+/* ป้ายหมายเหตุยูนิต (เช่น "รอรีแบรนด์") — โทนเหลืองอำพันให้ต่างจาก chip รหัสยูนิต */
+.chip.chip-note { background: rgba(230,126,34,.16); color: #e67e22; font-weight: 700; }
+:root[data-theme="light"] .chip.chip-note { background: rgba(230,126,34,.12); color: #b35c0e; }
 .nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
 .nav-item.active { background: var(--primary); color: #fff; }
 .nav-item.active .nav-label-sub { color: rgba(255,255,255,.75); }
