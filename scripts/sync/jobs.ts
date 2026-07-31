@@ -12,11 +12,11 @@ import { mapOrder, mapChatHour, mapConversation, mapAd, mapAdDaily, mapEngagemen
 import {
   metaListAdAccounts, metaAccountAdInsights, metaAccountAdCreatives, metaAdCreativesByIds, metaPool,
 } from '../../lib/meta';
-import { supabase, upsertRows, replaceTable, setState } from '../../lib/supabase';
+import { supabase, upsertRows, replaceTable, setState, getState } from '../../lib/supabase';
 import { getUnitsForAlert } from '../../lib/api/umap';
 import { nicknameByName } from '../../lib/api/adminsettings';
 import { googleConfigured, driveListSheets, sheetTabs, sheetValuesBatch } from '../../lib/google';
-import { unitFromTitle, parseSalesSummary, parseCommission } from '../../lib/productsheet';
+import { unitFromTitle, parseSalesSummary, parseMonthTotals, parseCommission } from '../../lib/productsheet';
 import { parseKpiAdminMonth, parseKpiSubMonth, parseKpiHeadMonth, parseKpiAdminYear } from '../../lib/kpisheet';
 
 /* ---------------- helper: โหลดเพจ + token จาก DB ---------------- */
@@ -145,6 +145,12 @@ export async function syncUnitAlerts(): Promise<string> {
   const dayCount = Math.max(LOSS_LOOKBACK_DAYS, Number(yesterdayStr.slice(8, 10)));
   const dayList: string[] = [];
   for (let i = 1; i <= dayCount; i++) dayList.push(fmtDateBkk(daysAgo(i)));   // เมื่อวาน → เก่าสุด
+
+  // ตัวเลขแถว "รวม" รายเดือนจากชีท (product-sheets เก็บไว้) — บอสสั่งให้ใช้เลขช่องนี้ตรงๆ
+  // จะได้เปิดชีทเทียบแล้วตรงทุกสตางค์ (รวมรายวันเองต่างได้เพราะวันนี้ยังเดินอยู่ในชีท)
+  let sheetTotals: Record<string, Record<string, any>> = {};
+  try { sheetTotals = JSON.parse(await getState('unit_month_totals') || '{}').units || {}; } catch { /* ยังไม่เคย sync */ }
+  const monthKey = yesterdayStr.slice(0, 7);
   const nickBy = await nicknameByName().catch(() => ({} as Record<string, string>));
 
   const alerts: any[] = [];
@@ -179,7 +185,7 @@ export async function syncUnitAlerts(): Promise<string> {
     }
     if (!streak) continue;
 
-    // ---- ขาดทุนสะสมทั้งเดือนของเมื่อวาน (เฉพาะวันที่ชีทกรอกแล้ว) — ที่บอสให้โชว์แทนยอดช่วง streak ----
+    // ---- กำไรสุทธิทั้งเดือน — หลัก: แถว "รวม" ในชีท (ตรงกับที่ทีมเห็น) / รอง: รวมรายวันเอง ----
     let monthProfit = 0, monthSales = 0, monthAds = 0, monthLossDays = 0, monthHas = false;
     for (const d of dayList) {
       if (d < monthStartStr) continue;
@@ -188,6 +194,11 @@ export async function syncUnitAlerts(): Promise<string> {
       monthHas = true;
       monthProfit += pd.profit; monthSales += pd.sales; monthAds += pd.ads;
       if (pd.profit < 0) monthLossDays++;
+    }
+    const sheetTot = (sheetTotals[u.u] || {})[monthKey];
+    if (sheetTot) {
+      monthHas = true;
+      monthProfit = num(sheetTot.profit); monthSales = num(sheetTot.sales); monthAds = num(sheetTot.ads);
     }
     alerts.push({
       u: u.u,
@@ -255,6 +266,8 @@ export async function syncProductSheets(): Promise<string> {
   const comRows: any[] = [];
   const skipped: string[] = [];
   const problems: string[] = [];
+  // ตัวเลขจากแถว "รวม" รายเดือนของแต่ละยูนิต — ตรงกับที่ทีมเห็นในชีทเป๊ะ (การ์ดแจ้งเตือนใช้)
+  const monthTotals: Record<string, Record<string, any>> = {};
   const now = new Date().toISOString();
 
   for (const f of files) {
@@ -267,6 +280,11 @@ export async function syncProductSheets(): Promise<string> {
 
     const daily = parseSalesSummary(salesGrid);
     if (!daily.length) problems.push(`${u}: ไม่เจอข้อมูลในแท็บ สรุปยอดขาย`);
+    parseMonthTotals(salesGrid).forEach((t) => {
+      (monthTotals[u] = monthTotals[u] || {})[t.month] = {
+        sales: t.sales, orders: t.orders, ads: t.ads, profit: t.profit, margin: t.margin,
+      };
+    });
     daily.forEach((d) => dailyRows.push({
       key: `${u}|${d.date}`, u, date: d.date, file_id: f.id,
       sales: d.sales, orders: d.orders, ads: d.ads, profit: d.profit, margin: d.margin,
@@ -283,6 +301,7 @@ export async function syncProductSheets(): Promise<string> {
   }
 
   if (dailyRows.length) await upsertRows('unit_daily', dailyRows, 'key');
+  await setState('unit_month_totals', JSON.stringify({ updatedAt: now, units: monthTotals }));
   // ค่าคอมใช้ replace ทั้งตาราง — parser เปลี่ยนที่มา (ตารางประเมิน) แล้ว แถวชุดเก่าที่ key
   // ไม่ตรงกับรอบใหม่จะค้างเป็นข้อมูลผีถ้า upsert เฉยๆ (ตารางนี้ derive จากชีทล้วนๆ ลบสร้างใหม่ได้)
   // ⚠️ เช็คคอลัมน์ใหม่ก่อนลบ — ถ้ายังไม่รัน migration v2 แล้ว replace จะ "ลบสำเร็จ insert พัง"

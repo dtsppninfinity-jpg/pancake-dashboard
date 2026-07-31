@@ -79,6 +79,55 @@ export function parseSalesSummary(grid: string[][]): UnitDailyRow[] {
   return out.sort((a, b) => (a.date < b.date ? -1 : 1));
 }
 
+export interface UnitMonthTotal {
+  month: string; sales: number; orders: number; ads: number; profit: number; margin: number;
+}
+
+/**
+ * แถว "รวม" ท้ายบล็อกแต่ละเดือนในแท็บ `สรุปยอดขาย` — ตัวเลขเดียวกับที่ทีมเห็นในชีทเป๊ะ
+ *
+ * บอสสั่ง (2026-07-31): กำไรสุทธิรายเดือนบนการ์ดแจ้งเตือน ให้ "ดึงจากช่องแถวรวมมาเลย"
+ * ไม่ใช่รวมรายวันเอง — เลขจะได้ตรงกับชีทแบบเปิดเทียบกันได้ (รวมรายวันเองต่างได้เพราะ
+ * ชีทมีวันของวันนี้ที่ยังเดินอยู่ + สูตรปัดเศษของทีม)
+ * เดือนของแถวรวม = เดือนของวันที่แถวบนสุดที่อยู่ก่อนหน้าในบล็อกเดียวกัน
+ */
+export function parseMonthTotals(grid: string[][]): UnitMonthTotal[] {
+  const out: Record<string, UnitMonthTotal> = {};
+  for (let i = 0; i < grid.length; i++) {
+    if (clean_(grid[i][0]) !== 'วันที่') continue;
+    const head = grid[i], sub = grid[i + 1] || [];
+    const cProfit = head.findIndex((c) => squash_(c) === 'กำไรสุทธิ');
+    if (cProfit < 0) continue;
+    const cMargin = cProfit + 1;
+    const cAds = head.findIndex((c) => squash_(c).toUpperCase() === 'ADS');
+    const cSales = sub.findIndex((c) => squash_(c) === 'ยอดรวม');
+    const cOrders = sub.findIndex((c) => squash_(c).toLowerCase() === 'orderรวม');
+
+    let lastMonth = '';
+    let gap = 0;
+    for (let r = i + 2; r < grid.length; r++) {
+      const d = date_(grid[r][0]);
+      if (d) { lastMonth = d.slice(0, 7); gap = 0; continue; }
+      if (clean_(grid[r][0]) === 'รวม' && lastMonth) {
+        if (!out[lastMonth]) {                       // บล็อกซ้ำ → เอาอันแรก (เท่ากติกา daily)
+          const row = grid[r];
+          out[lastMonth] = {
+            month: lastMonth,
+            sales: cSales >= 0 ? num_(row[cSales]) : 0,
+            orders: cOrders >= 0 ? num_(row[cOrders]) : 0,
+            ads: cAds >= 0 ? num_(row[cAds]) : 0,
+            profit: num_(row[cProfit]),
+            margin: num_(row[cMargin]),
+          };
+        }
+        continue;                                    // แถวรวมไม่นับเป็นช่องว่าง
+      }
+      if (++gap > 3) break;                          // roasรวม/ยอดเฉลี่ย ติดกันท้ายบล็อก = จบ
+    }
+  }
+  return Object.values(out).sort((a, b) => (a.month < b.month ? -1 : 1));
+}
+
 export interface CommissionRow {
   month: string; admin: string; realName: string;
   sales: number; returns: number; cancel: number; remaining: number;
