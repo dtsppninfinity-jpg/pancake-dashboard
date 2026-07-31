@@ -837,6 +837,29 @@ function openBreakEvenEditor(): void {
  * 🔴 ขาดทุน ≥2 วันติด = ต้องแก้ด่วนที่สุด / 🟡 1 วัน = เฝ้าระวัง
  * ตัวเลขตัดสินจากวันที่จบแล้ว (ถึงเมื่อวาน) — วันนี้ค่าแอดยังเดินอยู่ ยอดขายตามมาทีหลัง
  */
+/**
+ * บรรทัดตัวเลขของการ์ดยูนิตขาดทุน
+ * ยูนิตที่มีกำไรจริงจากชีท → โชว์ "ขาดทุนสะสมเดือนนี้" (รวมช่องกำไรสุทธิรายวันทั้งเดือน — บอสขอ 2026-07-31)
+ * ยูนิตนอกชีท → โชว์ยอดช่วง streak + ROAS แบบเดิม
+ */
+function lossReasonHtml_(x: any): string {
+  const sheetChip = ' <span class="chip" title="กำไรสุทธิรายวันจากชีทของทีม — หักต้นทุนสินค้า สำรองตีกลับ Fixcost ภาษี ค่าคอมแล้ว">💚 กำไรจริงจากชีท</span>';
+  const isSheet = x.basis === 'profit' || x.basis === 'mixed';
+  // ขาดทุนสะสมทั้งเดือน (มีเมื่อ sync รอบใหม่แล้วและชีทกรอกอย่างน้อย 1 วัน)
+  if (isSheet && typeof x.monthProfit === 'number' && x.monthProfit < 0) {
+    return 'เดือนนี้: ขาย ' + THB(x.monthSales || 0) + ' • ค่าแอด ' + THB(x.monthAds || 0) +
+      ' • <b class="txt-bad">ขาดทุนสะสมเดือนนี้ ' + THB(-x.monthProfit) + '</b>' +
+      ' (ขาดทุน ' + fmtNum(x.monthLossDays || 0) + ' วันตั้งแต่ต้นเดือน)' + sheetChip;
+  }
+  return 'ขาย ' + THB(x.revenue) + ' • ค่าแอด ' + THB(x.spend) +
+    ' • <b class="txt-bad">' + (isSheet ? 'ขาดทุนจริง ' : 'ติดลบ ') + THB(x.loss) + '</b>' +
+    (isSheet
+      ? sheetChip
+      : ' • ROAS ' + (x.roas === null ? '—' : x.roas.toFixed(2)) +
+        ' (จุดคุ้มทุนที่ตั้งไว้ ' + Number(x.breakEven || 1).toFixed(2) +
+        ' — ยูนิตนี้ยังไม่มีในชีทกำไร จึงใช้ ROAS โดยประมาณ)');
+}
+
 function lossAlertHtml_(a: any): string {
   if (!a) return '';
   const list = (a.alerts || []) as any[];
@@ -854,18 +877,7 @@ function lossAlertHtml_(a: any): string {
           esc(x.product || x.u) + ' <span class="chip">' + esc(x.u) + '</span> ' +
           '<b>ขาดทุน ' + fmtNum(x.days) + ' วันติด</b>' +
         '</div>' +
-        '<div class="loss-reason">' +
-          'ขาย ' + THB(x.revenue) + ' • ค่าแอด ' + THB(x.spend) +
-          ' • <b class="txt-bad">' +
-            (x.basis === 'profit' || x.basis === 'mixed'
-              ? 'ขาดทุนจริง ' + THB(x.loss)
-              : 'ติดลบ ' + THB(x.loss)) + '</b>' +
-          (x.basis === 'profit' || x.basis === 'mixed'
-            ? ' <span class="chip" title="กำไรสุทธิรายวันจากชีทของทีม — หักต้นทุนสินค้า สำรองตีกลับ Fixcost ภาษี ค่าคอมแล้ว">💚 กำไรจริงจากชีท</span>'
-            : ' • ROAS ' + (x.roas === null ? '—' : x.roas.toFixed(2)) +
-              ' (จุดคุ้มทุนที่ตั้งไว้ ' + Number(x.breakEven || 1).toFixed(2) +
-              ' — ยูนิตนี้ยังไม่มีในชีทกำไร จึงใช้ ROAS โดยประมาณ)') +
-        '</div>' +
+        '<div class="loss-reason">' + lossReasonHtml_(x) + '</div>' +
         '<div class="loss-owners">ผู้รับผิดชอบ: ' + owners + '</div>' +
       '</div>' +
       '<button class="btn-mini" data-drill-unit="' + esc(x.u) + '">ดูรายละเอียด →</button>' +
@@ -881,6 +893,7 @@ function lossAlertHtml_(a: any): string {
       (urgentN ? '<b class="txt-bad">' + fmtNum(urgentN) + ' ยูนิตขาดทุน 2 วันขึ้นไป</b> • ' : '') +
       'นับถึง ' + esc(a.throughDate || '') + ' (วันที่จบแล้ว — วันนี้ยังไม่นับเพราะค่าแอดยังเดินอยู่) • ' +
       '<b>"ขาดทุน" = กำไรสุทธิรายวันในชีทติดลบ</b> (หักต้นทุน+สำรองตีกลับแล้ว) • ' +
+      'ยอดขาดทุน = <b>สะสมทั้งเดือนนี้</b> (รวมช่องกำไรสุทธิรายวันของชีททุกวัน) • ' +
       'ยูนิตที่ไม่มีในชีทใช้ ROAS &lt; จุดคุ้มทุนแทนโดยประมาณ' +
     '</div>' +
     '<div class="loss-list">' + rows + '</div>' +

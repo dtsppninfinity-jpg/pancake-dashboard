@@ -64,6 +64,10 @@ export async function syncUnitAlerts(): Promise<string> {
   const sinceDate = daysAgo(LOSS_LOOKBACK_DAYS);
   const sinceStr = fmtDateBkk(sinceDate);
   const todayStr = fmtDateBkk(new Date());
+  // "ทั้งเดือน" ยึดเดือนของเมื่อวาน (วันที่จบแล้ววันล่าสุด) — บอสขอให้การ์ดโชว์ขาดทุนสะสมทั้งเดือน ไม่ใช่แค่ช่วง streak
+  const yesterdayStr = fmtDateBkk(daysAgo(1));
+  const monthStartStr = yesterdayStr.slice(0, 7) + '-01';
+  const profFromStr = monthStartStr < sinceStr ? monthStartStr : sinceStr;
 
   // ---- ยอดขายรายวันต่อยูนิต (เฉพาะออเดอร์ที่ยืนยันแล้ว เหมือนนิยามยอดขายหลัก) ----
   const rev: Record<string, number> = {};
@@ -121,7 +125,7 @@ export async function syncUnitAlerts(): Promise<string> {
     let from = 0;
     for (;;) {
       const { data, error } = await supabase.from('unit_daily')
-        .select('key,u,date,profit,sales,ads').gte('date', sinceStr)
+        .select('key,u,date,profit,sales,ads').gte('date', profFromStr)
         .order('key', { ascending: true }).range(from, from + 999);
       if (error) throw new Error(error.message);
       const rows = data || [];
@@ -136,8 +140,11 @@ export async function syncUnitAlerts(): Promise<string> {
   const profUnits = new Set(Object.keys(prof).map((k) => k.split('|')[1]));
 
   // ---- ไล่ย้อนจากเมื่อวานหา streak ----
+  // ยาวพอครอบทั้งเดือน — ยูนิตที่มีกำไรจริงจากชีทจะนับ streak ได้เกิน 14 วัน (เช่น "ขาดทุน 29 วันติด")
+  // ยูนิตสาย ROAS ไม่มีข้อมูล orders/ads เกิน 14 วัน → streak หยุดที่ 14 เหมือนเดิม (spend ว่าง = ตัดสินไม่ได้)
+  const dayCount = Math.max(LOSS_LOOKBACK_DAYS, Number(yesterdayStr.slice(8, 10)));
   const dayList: string[] = [];
-  for (let i = 1; i <= LOSS_LOOKBACK_DAYS; i++) dayList.push(fmtDateBkk(daysAgo(i)));   // เมื่อวาน → เก่าสุด
+  for (let i = 1; i <= dayCount; i++) dayList.push(fmtDateBkk(daysAgo(i)));   // เมื่อวาน → เก่าสุด
   const nickBy = await nicknameByName().catch(() => ({} as Record<string, string>));
 
   const alerts: any[] = [];
@@ -164,12 +171,24 @@ export async function syncUnitAlerts(): Promise<string> {
         else if (r < s * u.breakEven) { streak++; lossRev += r; lossSpend += s; usedRoas++; }
         else broke = true;
       }
-      daily.push({
+      // กราฟบนการ์ดโชว์ 14 วันพอ — dayList อาจยาวถึงทั้งเดือน (ไว้นับ streak/ยอดสะสม)
+      if (daily.length < LOSS_LOOKBACK_DAYS) daily.push({
         date: d, revenue: Math.round(r), spend: Math.round(s),
         profit: hasProfit ? Math.round(pd!.profit) : null,
       });
     }
     if (!streak) continue;
+
+    // ---- ขาดทุนสะสมทั้งเดือนของเมื่อวาน (เฉพาะวันที่ชีทกรอกแล้ว) — ที่บอสให้โชว์แทนยอดช่วง streak ----
+    let monthProfit = 0, monthSales = 0, monthAds = 0, monthLossDays = 0, monthHas = false;
+    for (const d of dayList) {
+      if (d < monthStartStr) continue;
+      const pd = prof[`${d}|${u.u}`];
+      if (!pd || (pd.profit === 0 && pd.sales <= 0 && pd.ads <= 0)) continue;
+      monthHas = true;
+      monthProfit += pd.profit; monthSales += pd.sales; monthAds += pd.ads;
+      if (pd.profit < 0) monthLossDays++;
+    }
     alerts.push({
       u: u.u,
       product: u.product,
@@ -181,6 +200,11 @@ export async function syncUnitAlerts(): Promise<string> {
       // basis บอกหน้าเว็บว่าตัวเลขนี้มาจากอะไร: กำไรจริงจากชีท หรือ ROAS โดยประมาณ
       basis: usedProfit && usedRoas ? 'mixed' : usedProfit ? 'profit' : 'roas',
       profitLoss: usedProfit ? Math.round(lossProfit) : null, // ยอดขาดทุนจริงรวม (ติดลบ)
+      // สะสมทั้งเดือนนี้ (กำไรสุทธิรวมทุกวันที่ชีทกรอก รวมวันบวกด้วย) — การ์ดใช้ตัวนี้เป็นหลัก
+      monthProfit: monthHas ? Math.round(monthProfit) : null,
+      monthSales: monthHas ? Math.round(monthSales) : null,
+      monthAds: monthHas ? Math.round(monthAds) : null,
+      monthLossDays,
       roas: lossSpend > 0 ? Math.round((lossRev / lossSpend) * 100) / 100 : null,
       breakEven: u.breakEven,
       // ผู้รับผิดชอบ = แอดมินที่ผูกกับยูนิตในหน้า U Map แสดงเป็นชื่อเล่นตามที่ทีมขอ
