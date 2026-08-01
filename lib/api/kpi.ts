@@ -48,6 +48,56 @@ export async function apiKpi(params: any) {
   const headRows = (doc.head && doc.head[month]) || [];
   const persons = perPerson_(adminRows).sort((a, b) => b.score - a.score);
 
+  // ---- แนวโน้ม = คะแนนเดือนนี้เทียบเดือนก่อนหน้า (เดือนก่อนหน้าที่มีข้อมูลจริงในชีท) ----
+  const mIdx = months.indexOf(month);
+  const prevMonth = mIdx > 0 ? months[mIdx - 1] : 0;
+  const prevPersons: Record<string, number> = {};
+  const prevSub: Record<string, number> = {};
+  const prevHead: Record<string, number> = {};
+  if (prevMonth) {
+    perPerson_(doc.admin[prevMonth] || []).forEach((p) => { prevPersons[p.id] = p.score; });
+    ((doc.sub && doc.sub[prevMonth]) || []).forEach((r: any) => { prevSub[`${r.id}|${r.unit}`] = r.score; });
+    ((doc.head && doc.head[prevMonth]) || []).forEach((r: any) => { prevHead[r.id || r.name] = r.score; });
+  }
+
+  // ประวัติคะแนนหัวหน้ารายเดือน — กราฟเส้นเล็กในแผงขวา
+  const headHistory = months.map((m) => {
+    const h: any = ((doc.head && doc.head[m]) || [])[0];
+    return { month: m, score: h ? h.score : null };
+  });
+
+  // ---- แจ้งเตือน: ไม่ได้ค่าคอม 2 เดือนปิดยอดติดกัน (นิยามเดียวกับหน้า Admin Performance) ----
+  const noCom: Array<{ admin: string; months: string[] }> = [];
+  try {
+    const { data: comData } = await db.from('admin_commission').select('month,admin,com');
+    const comMonths = [...new Set((comData || []).map((x: any) => String(x.month)))].sort();
+    const nowMonth = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 7);
+    const closed = comMonths.filter((m) => m < nowMonth).slice(-2);
+    if (closed.length === 2) {
+      const byAdmin: Record<string, Record<string, number>> = {};
+      (comData || []).forEach((x: any) => {
+        const m = String(x.month);
+        if (closed.indexOf(m) < 0) return;
+        (byAdmin[String(x.admin)] = byAdmin[String(x.admin)] || {})[m] =
+          (byAdmin[String(x.admin)][m] || 0) + (Number(x.com) || 0);
+      });
+      Object.keys(byAdmin).forEach((a) => {
+        const mm = byAdmin[a];
+        if (closed.every((m) => mm[m] !== undefined) && closed.every((m) => mm[m] === 0)) {
+          noCom.push({ admin: a, months: closed });
+        }
+      });
+    }
+  } catch { /* ตารางยังไม่มา — ไม่ต้องเตือน */ }
+
+  // ---- แจ้งเตือน: ยูนิตขาดทุน (จากงาน unit-alerts ที่คำนวณไว้แล้ว) ----
+  let unitAlerts: Array<{ u: string; days: number; level: string }> = [];
+  try {
+    const { data: ua } = await db.from('sync_state').select('value').eq('key', 'unit_loss_alerts').maybeSingle();
+    unitAlerts = (JSON.parse(String(ua?.value || '{}')).alerts || [])
+      .map((a: any) => ({ u: String(a.u), days: Number(a.days) || 0, level: String(a.level) }));
+  } catch { /* ยังไม่เคยคำนวณ */ }
+
   // สรุปรายปี: เรียงตาม KPI เฉลี่ยรวม (W — เฉพาะเดือนที่มีข้อมูล) — ตัดคนที่ไม่มียอดทั้งปีออกให้ตารางสั้นลง
   const year = (doc.adminYear || [])
     .filter((r) => r.sales > 0 || r.kpiAvg > 0)
@@ -58,12 +108,19 @@ export async function apiKpi(params: any) {
     year: doc.year,
     months,
     month,
+    prevMonth,
     updatedAt: doc.updatedAt,
     admin: adminRows,          // รายแถว (คน,ยูนิต) — ตารางหลัก ตรงชีท
     persons,                   // รายคน (รวมยูนิต) — ใช้จัดท็อป
     sub: subRows,
     head: headRows,
     adminYear: year,
+    prevPersons,               // id → คะแนนเดือนก่อน (แนวโน้มรายคน)
+    prevSub,                   // id|unit → คะแนนเดือนก่อน
+    prevHead,                  // id → คะแนนเดือนก่อน
+    headHistory,               // คะแนนหัวหน้าย้อนทุกเดือน — กราฟเส้นแผงขวา
+    noComAlerts: noCom,        // ไม่ได้คอม 2 เดือนปิดยอดติด
+    unitAlerts,                // ยูนิตขาดทุน (ย่อ) — ลิงก์ไปหน้า Sales
     topSales: persons.slice().sort((a, b) => b.sales - a.sales).slice(0, 3),  // ท็อปเซลเดือน
     topKpi: persons.slice(0, 3),                                              // ท็อป KPI เดือน
     topSalesYear: year.slice().sort((a, b) => b.sales - a.sales).slice(0, 3), // ท็อปเซลปี

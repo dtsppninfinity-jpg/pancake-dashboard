@@ -118,6 +118,58 @@ input, select { font-family: inherit; }
 /* ป้ายหมายเหตุยูนิต (เช่น "รอรีแบรนด์") — โทนเหลืองอำพันให้ต่างจาก chip รหัสยูนิต */
 .chip.chip-note { background: rgba(230,126,34,.16); color: #e67e22; font-weight: 700; }
 :root[data-theme="light"] .chip.chip-note { background: rgba(230,126,34,.12); color: #b35c0e; }
+
+/* ---------- หน้า KPI ทีมขาย (รื้อ UI 2026-08-01 — เลย์เอาต์แบบเว็บตัวอย่างของทีม) ---------- */
+.kpi-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 14px; }
+@media (max-width: 1100px) { .kpi-cards { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 560px) { .kpi-cards { grid-template-columns: 1fr; } }
+.kpi-card { display: flex; align-items: center; gap: 12px; }
+.kpi-big { font-size: 24px; font-weight: 800; line-height: 1.2; }
+.kpi-max { font-size: 12px; font-weight: 600; color: var(--text-3); }
+.kpi-ico { font-size: 26px; width: 44px; height: 44px; border-radius: 12px; background: var(--primary-soft);
+  display: flex; align-items: center; justify-content: center; }
+.kpi-ring { width: 58px; height: 58px; border-radius: 50%; flex: none;
+  background: conic-gradient(var(--rc, var(--primary)) calc(var(--p, 0) * 1%), var(--track) 0);
+  display: flex; align-items: center; justify-content: center; }
+.kpi-ring > span { width: 42px; height: 42px; border-radius: 50%; background: var(--surface);
+  display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; }
+/* เกรด A-D */
+.grade { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 21px;
+  padding: 0 6px; border-radius: 6px; font-weight: 800; font-size: 12px; vertical-align: middle; }
+.grade.g-a { background: var(--green-soft); color: var(--green); }
+.grade.g-b { background: var(--blue-soft); color: var(--blue); }
+.grade.g-c { background: var(--amber-soft); color: var(--amber); }
+.grade.g-d { background: var(--red-soft); color: var(--red); }
+/* แถบสูตรน้ำหนัก */
+.wt-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 10px; }
+@media (max-width: 1100px) { .wt-strip { grid-template-columns: 1fr; } }
+.wt-group { border-left: 1px solid var(--border); padding-left: 14px; }
+.wt-group:first-child { border-left: none; padding-left: 0; }
+.wt-role { font-weight: 700; font-size: 12.5px; margin-bottom: 6px; color: var(--text-2); }
+.wt-row { display: flex; gap: 14px; flex-wrap: wrap; }
+.wt-item { min-width: 62px; }
+.wt-num { font-size: 18px; font-weight: 800; }
+.wt-name { font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
+.wt-bar { height: 3px; border-radius: 2px; margin-top: 4px; }
+/* ตารางสายบังคับบัญชา + แผงขวา */
+.kpi-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; margin-top: 14px; align-items: start; }
+@media (max-width: 1100px) { .kpi-grid { grid-template-columns: 1fr; } }
+.kpi-side { display: flex; flex-direction: column; gap: 14px; }
+.kpi-head-row td { background: var(--primary-soft); font-size: 13.5px; }
+.kpi-sub-row td { background: rgba(128, 128, 128, .05); }
+.kpi-child td { color: var(--text-2); }
+.kpi-subnum { font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
+.kpi-rank { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
+  border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-weight: 800; font-size: 11px; }
+.kpi-donut { width: 110px; height: 110px; border-radius: 50%; flex: none; position: relative;
+  display: flex; align-items: center; justify-content: center; }
+.kpi-donut > span { width: 66px; height: 66px; border-radius: 50%; background: var(--surface);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; }
+.kpi-donut > span small { font-size: 10px; font-weight: 600; color: var(--text-3); }
+.kpi-lg { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+.kpi-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.kpi-alert { padding: 8px 0; border-bottom: 1px dashed var(--border); font-size: 12.5px; }
+.kpi-alert:last-child { border-bottom: none; }
 .nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
 .nav-item.active { background: var(--primary); color: #fff; }
 .nav-item.active .nav-label-sub { color: rgba(255,255,255,.75); }
