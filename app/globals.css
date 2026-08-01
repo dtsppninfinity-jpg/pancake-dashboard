@@ -142,7 +142,12 @@ input, select { font-family: inherit; }
 .grade.g-d { background: var(--red-soft); color: var(--red); }
 /* แถบสูตรน้ำหนัก */
 .wt-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 10px; }
-@media (max-width: 1100px) { .wt-strip { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) {
+  .wt-strip { grid-template-columns: 1fr; }
+  /* ตอนเรียงแนวตั้ง เส้นคั่นซ้ายไม่มีความหมาย — สลับเป็นเส้นคั่นบน */
+  .wt-group { border-left: none; padding-left: 0; border-top: 1px dashed var(--border); padding-top: 10px; }
+  .wt-group:first-child { border-top: none; padding-top: 0; }
+}
 .wt-group { border-left: 1px solid var(--border); padding-left: 14px; }
 .wt-group:first-child { border-left: none; padding-left: 0; }
 .wt-role { font-weight: 700; font-size: 12.5px; margin-bottom: 6px; color: var(--text-2); }
@@ -152,13 +157,24 @@ input, select { font-family: inherit; }
 .wt-name { font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
 .wt-bar { height: 3px; border-radius: 2px; margin-top: 4px; }
 /* ตารางสายบังคับบัญชา + แผงขวา */
-.kpi-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; margin-top: 14px; align-items: start; }
-@media (max-width: 1100px) { .kpi-grid { grid-template-columns: 1fr; } }
+.kpi-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 14px; margin-top: 14px; align-items: start; }
+@media (max-width: 1280px) {
+  .kpi-grid { grid-template-columns: 1fr; }
+  /* จอแคบ: เอาแผงแจ้งเตือน/สัดส่วนเกรดขึ้นก่อนตารางยักษ์ — ของสำคัญไม่จมอยู่ 2 จอล่าง */
+  .kpi-grid > div:first-child { order: 2; }
+}
 .kpi-side { display: flex; flex-direction: column; gap: 14px; }
 .kpi-head-row td { background: var(--primary-soft); font-size: 13.5px; }
 .kpi-sub-row td { background: rgba(128, 128, 128, .05); }
+:root[data-theme="light"] .kpi-sub-row td { background: rgba(15, 23, 42, .045); }
+/* กัน hover ทั่วไปกลืนแถบสีของแถวหัวหน้า/รอง (ตัวเลือก tr:hover td แรงกว่า) */
+table.tbl tr.kpi-head-row:hover td { background: var(--primary-soft); }
+table.tbl tr.kpi-sub-row:hover td { background: rgba(108, 92, 231, .10); }
 .kpi-child td { color: var(--text-2); }
 .kpi-subnum { font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
+table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้พับได้ ไม่งั้นดันตารางล้นจอ */
+/* เกรดชิปใน legend/คำอธิบาย — ย่อลงไม่ให้ดันความสูงบรรทัด */
+.card-sub .grade, .kpi-lg .grade { height: 16px; min-width: 18px; font-size: 10.5px; padding: 0 4px; }
 .kpi-rank { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
   border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-weight: 800; font-size: 11px; }
 .kpi-donut { width: 110px; height: 110px; border-radius: 50%; flex: none; position: relative;
@@ -170,6 +186,46 @@ input, select { font-family: inherit; }
 .kpi-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .kpi-alert { padding: 8px 0; border-bottom: 1px dashed var(--border); font-size: 12.5px; }
 .kpi-alert:last-child { border-bottom: none; }
+.kpi-alert.risk { border-left: 3px solid var(--red); padding-left: 8px; }
+.kpi-alert.watch { border-left: 3px solid var(--amber); padding-left: 8px; }
+/* แถบสลับแท็บย่อยของหน้า KPI */
+.kpi-tabbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+.kpi-tab {
+  background: var(--surface); border: 1px solid var(--border); color: var(--text-2);
+  padding: 8px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.kpi-tab:hover { color: var(--text); }
+.kpi-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+/* การ์ดรองหัวหน้า (แท็บโครงสร้างทีม) */
+.dep-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-top: 14px; }
+.dep-card.ok { border-top: 3px solid var(--green); }
+.dep-card.watch { border-top: 3px solid var(--amber); }
+.dep-card.risk { border-top: 3px solid var(--red); }
+.dep-bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+.dep-bar > div { height: 100%; border-radius: 3px; }
+/* แถวคนคะแนนต่ำ (คลิกเปิด Coaching) */
+.low-row { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-radius: 10px; cursor: pointer; }
+.low-row:hover { background: var(--surface-2); }
+/* แท็บ Coaching: ต้นไม้ซ้าย + แผงกลาง + การ์ดขวา */
+.coach-grid { display: grid; grid-template-columns: 250px minmax(0, 1fr) 270px; gap: 14px; margin-top: 14px; align-items: start; }
+@media (max-width: 1280px) { .coach-grid { grid-template-columns: 1fr; } }
+.coach-tree .tree-btn {
+  display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; cursor: pointer;
+  background: none; border: none; color: var(--text); font-size: 13px;
+  padding: 8px 10px; border-radius: 10px; margin-top: 4px;
+}
+.coach-tree .tree-btn small { color: var(--text-3); font-size: 10.5px; }
+.coach-tree .tree-btn span:last-child { margin-left: auto; font-weight: 800; color: var(--text-2); }
+.coach-tree .tree-btn:hover { background: var(--surface-2); }
+.coach-tree .tree-btn.active { background: var(--primary-soft); color: var(--primary); }
+.coach-tree .tree-btn.active span:last-child { color: var(--primary); }
+.coach-tree .tree-btn.sub { padding-left: 20px; }
+.coach-tree .tree-btn.staff { padding-left: 36px; font-size: 12.5px; }
+/* แถวตัวชี้วัดในแผง Coaching */
+.metric-row { margin-top: 10px; }
+.metric-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12.5px; }
+.metric-bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; margin-top: 4px; }
+.metric-bar > div { height: 100%; border-radius: 3px; }
 .nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
 .nav-item.active { background: var(--primary); color: #fff; }
 .nav-item.active .nav-label-sub { color: rgba(255,255,255,.75); }

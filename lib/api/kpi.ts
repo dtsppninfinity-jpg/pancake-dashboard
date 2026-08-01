@@ -66,6 +66,23 @@ export async function apiKpi(params: any) {
     return { month: m, score: h ? h.score : null };
   });
 
+  // ประวัติคะแนนรายคนทุกเดือน (แอดมิน id ตรงๆ, รองใช้ key 'sub:<id>') — แท็บ Coaching ใช้วาดกราฟ
+  const personHistory: Record<string, Array<{ m: number; s: number }>> = {};
+  months.forEach((m) => {
+    perPerson_(doc.admin[m] || []).forEach((p) => {
+      (personHistory[p.id] = personHistory[p.id] || []).push({ m, s: p.score });
+    });
+    const subAgg: Record<string, { sum: number; n: number }> = {};
+    ((doc.sub && doc.sub[m]) || []).forEach((r: any) => {
+      const k = 'sub:' + (r.id || r.name);
+      const a = (subAgg[k] = subAgg[k] || { sum: 0, n: 0 });
+      a.sum += r.score; a.n++;
+    });
+    Object.keys(subAgg).forEach((k) => {
+      (personHistory[k] = personHistory[k] || []).push({ m, s: subAgg[k].sum / subAgg[k].n });
+    });
+  });
+
   // ---- แจ้งเตือน: ไม่ได้ค่าคอม 2 เดือนปิดยอดติดกัน (นิยามเดียวกับหน้า Admin Performance) ----
   const noCom: Array<{ admin: string; months: string[] }> = [];
   try {
@@ -119,6 +136,7 @@ export async function apiKpi(params: any) {
     prevSub,                   // id|unit → คะแนนเดือนก่อน
     prevHead,                  // id → คะแนนเดือนก่อน
     headHistory,               // คะแนนหัวหน้าย้อนทุกเดือน — กราฟเส้นแผงขวา
+    personHistory,             // ประวัติคะแนนรายคน (แอดมิน=id, รอง='sub:<id>') — แท็บ Coaching
     noComAlerts: noCom,        // ไม่ได้คอม 2 เดือนปิดยอดติด
     unitAlerts,                // ยูนิตขาดทุน (ย่อ) — ลิงก์ไปหน้า Sales
     topSales: persons.slice().sort((a, b) => b.sales - a.sales).slice(0, 3),  // ท็อปเซลเดือน
