@@ -811,12 +811,12 @@ function render(container: HTMLElement, d: KpiData | null): void {
   } else if (state.tab === 'coaching') {
     body = coachingTab_(d);
   } else {
+    // ท็อป KPI/ท็อปเซล อยู่ใต้ตารางในคอลัมน์ซ้าย — เติมช่องว่างที่เกิดเวลาแผงขวายาวกว่าตาราง
     body = weightStrip_() +
       '<div class="kpi-grid">' +
-        '<div>' + hierarchyHtml_(d) + '</div>' +
+        '<div>' + hierarchyHtml_(d) + tops + '</div>' +
         '<div class="kpi-side">' + gradeDonut_(d) + alertsCard_(d) + historyCard_(d) + '</div>' +
       '</div>' +
-      tops +
       adminTableHtml_(d) +
       yearTableHtml_(d);
   }
