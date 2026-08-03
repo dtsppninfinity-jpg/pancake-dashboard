@@ -485,22 +485,25 @@ function kpiStripHtml(data: PerfData | null): string {
   if (state.preset === 'today') {
     // "แชทค้าง" = ลูกค้ารอตอบ (waitingNow) — ไม่ใช่แชทที่ดูแลทั้งหมด (activeNow)
     let busiest: PerfRow | null = null;
+    // "แชทรอตอบ" นับเฉพาะอินบ็อกซ์ — บอสสั่งเอาคอมเมนต์ออก (2026-08-03) คอมเมนต์เหลือแค่ใน tooltip/CSV
+    const inboxWaitOf = function (r: PerfRow): number {
+      return Math.max(0, (Number(r.waitingNow) || 0) - (Number(r.waitingCommentNow) || 0));
+    };
     rows.forEach(function (r) {
-      if (!busiest || (Number(r.waitingNow) || 0) > (Number(busiest.waitingNow) || 0)) busiest = r;
+      if (!busiest || inboxWaitOf(r) > inboxWaitOf(busiest)) busiest = r;
     });
     const b = busiest as PerfRow | null;
-    const bN = b ? Number(b.waitingNow) || 0 : 0;
+    const bN = b ? inboxWaitOf(b) : 0;
     const overSlaN = Number(data && data.overSlaTotal) || 0;
     const slaMins = Number(data && data.slaMins) || 60;
-    // แชทรอตอบทั้งทีม แยก อินบ็อกซ์/คอมเมนต์ — คนละงานกัน (คอมเมนต์ใต้โพสต์ ~41% ของที่ค้าง)
     const waitN = Number(data && data.waitingTotal) || 0;
     const waitCmt = Number(data && data.waitingCommentTotal) || 0;
     nowItems =
-      pgsItem(fmtNum(waitN),
-        '⏰ แชทรอตอบ (💬 ' + fmtNum(waitN - waitCmt) + ' • 💭 ' + fmtNum(waitCmt) + ')',
-        waitN > 0 ? 'warn' : '',
-        'แชทที่ลูกค้ารอตอบตอนนี้ (24 ชม.ล่าสุด) — 💬 อินบ็อกซ์ ' + fmtNum(waitN - waitCmt) +
-          ' • 💭 คอมเมนต์ใต้โพสต์ ' + fmtNum(waitCmt) + ' (คนละงานกัน จึงแยกให้เห็น)') +
+      pgsItem(fmtNum(waitN - waitCmt),
+        '⏰ แชทรอตอบ (อินบ็อกซ์)',
+        waitN - waitCmt > 0 ? 'warn' : '',
+        'อินบ็อกซ์ที่ลูกค้ารอตอบตอนนี้ (24 ชม.ล่าสุด) — ไม่รวมคอมเมนต์ใต้โพสต์ ' + fmtNum(waitCmt) +
+          ' รายการ (แยกออกตามที่ทีมขอ)') +
       pgsItem(bN > 0 ? esc(nickOf(b as PerfRow).slice(0, 10)) : '—',
         'แชทค้างรอตอบมากสุดตอนนี้' + (bN > 0 ? ' (' + fmtNum(bN) + ')' : ''), bN > 0 ? 'warn' : '') +
       // overSlaTotal เป็นยอดรวมทั้งทีม (ตาม filter ช่องทาง) — ไม่ตามตัวกรองกลุ่มสินค้า จึงติดป้ายให้ชัด
@@ -789,13 +792,13 @@ function rankCardHtml(r: PerfRow, idx: number): string {
     esc(fmtNum(r.chats)) + ' คนทัก</span> • ↩ ' + esc(fmtNum(r.replies)) + ' ตอบ • 📞 ' + esc(fmtNum(r.phones)) + ' เบอร์';
   const sub2 = '📦 ' + esc(r.topProduct || '-') + ' • 📄 ' + esc(r.topPage || '-') +
     (r.lastOrderAt ? ' • ออเดอร์ล่าสุด ' + esc(relTime(r.lastOrderAt)) : '');
-  // แชทรอตอบตอนนี้ของคนนี้ แยกอินบ็อกซ์/คอมเมนต์ (ค่า "ตอนนี้" 24 ชม. ไม่ขึ้นกับช่วงที่เลือก)
+  // แชทรอตอบตอนนี้ของคนนี้ — เฉพาะอินบ็อกซ์ (บอสสั่งเอาคอมเมนต์ออก 2026-08-03; ยอดคอมเมนต์ยังอยู่ใน CSV)
   const waitN = Number(r.waitingNow) || 0;
   const waitCmt = Number(r.waitingCommentNow) || 0;
-  const sub3 = waitN > 0
-    ? '<div class="rank-sub" title="แชทที่ลูกค้ารอตอบตอนนี้ (24 ชม.ล่าสุด) — คอมเมนต์ใต้โพสต์นับแยกจากอินบ็อกซ์">' +
-      '⏰ แชทรอตอบ ' + esc(fmtNum(waitN)) + ' (💬 อินบ็อกซ์ ' + esc(fmtNum(waitN - waitCmt)) +
-      ' • 💭 คอมเมนต์ ' + esc(fmtNum(waitCmt)) + ')</div>'
+  const waitInbox = Math.max(0, waitN - waitCmt);
+  const sub3 = waitInbox > 0
+    ? '<div class="rank-sub" title="อินบ็อกซ์ที่ลูกค้ารอตอบตอนนี้ (24 ชม.ล่าสุด) — ไม่รวมคอมเมนต์ใต้โพสต์ ' + esc(fmtNum(waitCmt)) + ' รายการ">' +
+      '⏰ แชทรอตอบ ' + esc(fmtNum(waitInbox)) + '</div>'
     : '';
   // โหมด Overall โชว์คะแนนเป็นตัวใหญ่ + ยอดขายเป็นตัวรอง; โหมดอื่นโชว์ยอดขายเป็นตัวใหญ่
   const big = (state.mode === 'overall')

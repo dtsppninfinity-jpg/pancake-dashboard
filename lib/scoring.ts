@@ -115,9 +115,9 @@ export const KPI_TARGET_METRICS: { key: keyof KpiTargets; label: string; unit: s
   { key: 'avgRespMins', label: 'เวลาตอบเฉลี่ย',    unit: 'นาที', dir: 'low'  },
 ];
 
-// ค่าเริ่มต้น: อิงเป้าเดิมของ scoreConfig (revenue 5,000 / closeRate 30 / ตอบ 5 นาที)
-// เพื่อไม่ให้ทีมเจอสองเกณฑ์ที่ขัดกันเองในหน้าเดียวกัน
-export const DEFAULT_KPI_TARGETS: KpiTargets = { revenue: 5000, orders: 20, closeRate: 30, avgRespMins: 5 };
+// ค่าเริ่มต้น: %ปิด 40 = เป้า KPI จริงของทีม (บอสยืนยัน 2026-08-03 — ตรงชีทตัวชี้วัด "ปิด ≥40%")
+// ทีมปรับเองได้ที่ปุ่ม 🎯 เป้า KPI หน้า Admin Performance (เก็บ sync_state ทับค่านี้)
+export const DEFAULT_KPI_TARGETS: KpiTargets = { revenue: 5000, orders: 20, closeRate: 40, avgRespMins: 5 };
 
 /** ตรวจ/เติมเป้า KPI ให้อยู่ในช่วงที่ใช้งานได้เสมอ (0 = ปิดตัวชี้วัดนั้น ไม่โชว์แถบ) */
 export function normalizeKpiTargets(raw: unknown): KpiTargets {
