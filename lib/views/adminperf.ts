@@ -18,6 +18,8 @@ import {
   toast,
   showError,
   downloadCSV,
+  openModal,
+  closeModal,
   type RangeState,
 } from '@/lib/ui/helpers';
 import {
@@ -563,6 +565,7 @@ interface ComRow {
   sales: number; returns: number; cancel: number; remaining: number;
   com: number; comSub: number; comHead: number;
   closeRate: number | null; roas: number | null; adSpend: number;
+  note?: string; // หมายเหตุติดตัวแอดมิน (เช่น "ออกแล้ว") — เก็บต่อคน เห็นทุกเดือน
 }
 
 interface ComData {
@@ -624,6 +627,10 @@ function comSectionHtml(): string {
         (r.com ? '฿' + Number(r.com).toLocaleString('th-TH', { maximumFractionDigits: 2 }) : '<span title="ชีทคิดให้แล้ว: ยอดไม่ถึงเงื่อนไขรับคอม">฿0</span>') + '</td>' +
       '<td class="num">' + pctFmt(r.closeRate) + '</td>' +
       '<td class="num">' + comRoasTxt(r) + '</td>' +
+      // หมายเหตุติดตัวคน (บอสขอ 2026-08-03 — ไว้โน้ตเช่น "ออกแล้ว") กดดินสอเพื่อแก้/ลบ
+      '<td>' + (r.note ? '<span class="chip chip-note" title="' + esc(r.note) + '">📌 ' + esc(r.note) + '</span> ' : '') +
+        '<button class="btn-mini com-note-btn" data-comnote="' + esc(r.admin) + '" title="' +
+        (r.note ? 'แก้/ลบหมายเหตุ' : 'เพิ่มหมายเหตุ') + '">' + (r.note ? '✏️' : '➕') + '</button></td>' +
     '</tr>';
   }).join('');
   const t = d.totals;
@@ -633,7 +640,7 @@ function comSectionHtml(): string {
       '<td class="num">' + THB(t.returns) + '</td>' +
       '<td class="num">' + THB(t.remaining) + '</td>' +
       '<td class="num">฿' + Number(t.com).toLocaleString('th-TH', { maximumFractionDigits: 2 }) + '</td>' +
-      '<td></td><td></td></tr>'
+      '<td></td><td></td><td></td></tr>'
     : '';
   // 🔔 คนไม่ได้ค่าคอม 2 เดือนติด (เฉพาะเดือนที่ปิดแล้ว) — บรีฟทีมขอให้ขึ้นเตือน
   const noCom = (d.noComAlerts || []);
@@ -662,6 +669,7 @@ function comSectionHtml(): string {
       ? '<div class="table-scroll"><table class="tbl"><thead><tr>' +
         '<th>#</th><th>แอดมิน</th><th>ยูนิต</th><th class="num">ยอดขาย</th><th class="num">ตีกลับ</th>' +
         '<th class="num">คงเหลือ</th><th class="num">คอม @Admin</th><th class="num">%ปิดใหม่</th><th class="num">ROAS</th>' +
+        '<th>📌 หมายเหตุ</th>' +
         '</tr></thead><tbody>' + body + foot + '</tbody></table></div>'
       : '<div class="empty-note">เดือนนี้ยังไม่มีข้อมูลในชีท</div>');
 }
@@ -702,14 +710,54 @@ function bindComEvents(container: HTMLElement): void {
     const out: (string | number)[][] = [
       ['ค่าคอมแอดมิน ' + comMonthLabel(comData.month)],
       ['ชื่อเล่น', 'ชื่อจริง (ชีท)', 'ยูนิต', 'ยอดขาย', 'ตีกลับ', 'ยกเลิก', 'คงเหลือ',
-        'คอม @Admin', 'คอมรองหัวหน้า', 'คอมหัวหน้า', '%ปิดลูกค้าใหม่', 'ROAS (ระบบ)'],
+        'คอม @Admin', 'คอมรองหัวหน้า', 'คอมหัวหน้า', '%ปิดลูกค้าใหม่', 'ROAS (ระบบ)', 'หมายเหตุ'],
     ];
     comData.rows.forEach(function (r) {
       out.push([r.admin, r.realName, r.units.join(' '), r.sales, r.returns, r.cancel, r.remaining,
         r.com, r.comSub, r.comHead, r.closeRate === null ? '-' : r.closeRate,
-        r.roas === null ? '-' : r.roas]);
+        r.roas === null ? '-' : r.roas, r.note || '']);
     });
     downloadCSV(out, 'admin-commission-' + comData.month);
+  });
+  // ✏️ หมายเหตุติดตัวแอดมิน (เช่น "ออกแล้ว") — เก็บต่อคน เห็นทุกเดือน แก้/ลบได้
+  container.querySelectorAll('[data-comnote]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      const admin = btn.getAttribute('data-comnote') || '';
+      const row = comData && comData.rows.find(function (r) { return r.admin === admin; });
+      const cur = (row && row.note) || '';
+      openModal(
+        '<div class="modal-head"><h3>📌 หมายเหตุ — ' + esc(admin) + '</h3><button class="modal-close">✕</button></div>' +
+        '<div class="card-sub" style="margin-bottom:8px">โน้ตติดตัวแอดมินคนนี้ เห็นทุกเดือนในตารางค่าคอม ' +
+          '(เช่น "ออกแล้ว มี.ค. — รอเคลียร์คอมงวดสุดท้าย") • ล้างข้อความแล้วบันทึก = ลบหมายเหตุ</div>' +
+        '<textarea class="input" id="com-note-text" maxlength="200" rows="3" style="width:100%" ' +
+          'placeholder="พิมพ์หมายเหตุ...">' + esc(cur) + '</textarea>' +
+        '<div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">' +
+          '<button class="btn-mini modal-close">ยกเลิก</button>' +
+          '<button class="btn-mini" id="com-note-save">💾 บันทึก</button></div>'
+      );
+      const root = document.getElementById('modal-root');
+      const save = root && root.querySelector('#com-note-save');
+      if (save) save.addEventListener('click', function () {
+        const ta = root!.querySelector('#com-note-text') as HTMLTextAreaElement | null;
+        const note = (ta && ta.value) || '';
+        (save as HTMLButtonElement).disabled = true;
+        save.textContent = 'กำลังบันทึก...';
+        serverCall('apiAdminCom', { action: 'setNote', admin: admin, note: note })
+          .then(function (res: any) {
+            if (res && res.ok === false) throw new Error(res.error || 'บันทึกไม่สำเร็จ');
+            if (row) row.note = String(note).trim();
+            closeModal();
+            toast(String(note).trim() ? '✅ บันทึกหมายเหตุแล้ว' : '🗑 ลบหมายเหตุแล้ว');
+            const box = container.querySelector('#rk-com') as HTMLElement | null;
+            if (box) { box.innerHTML = comSectionHtml(); bindComEvents(container); }
+          })
+          .catch(function (e: any) {
+            (save as HTMLButtonElement).disabled = false;
+            save.textContent = '💾 บันทึก';
+            toast('❌ ' + (e && e.message ? e.message : 'บันทึกไม่สำเร็จ'));
+          });
+      });
+    });
   });
 }
 

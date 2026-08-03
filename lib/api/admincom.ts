@@ -15,7 +15,31 @@ function num_(v: unknown): number {
 
 const norm_ = (v: unknown) => String(v || '').replace(/\s+/g, ' ').trim();
 
+/** หมายเหตุติดตัวแอดมิน (เช่น "ออกแล้ว รอเคลียร์คอมงวดสุดท้าย") — เก็บ sync_state ต่อคน เห็นทุกเดือน */
+const COM_NOTES_KEY = 'admincom_notes';
+
+async function loadComNotes_(): Promise<Record<string, string>> {
+  try {
+    const { data } = await db.from('sync_state').select('value').eq('key', COM_NOTES_KEY).maybeSingle();
+    const j = JSON.parse(String(data?.value || '{}'));
+    return j && typeof j === 'object' ? j : {};
+  } catch { return {}; }
+}
+
 export async function apiAdminCom(params: any) {
+  // ---- บันทึก/ลบหมายเหตุ (ปุ่ม ✏️ ในตารางค่าคอม) — ส่ง note ว่าง = ลบ ----
+  if (params && params.action === 'setNote') {
+    const admin = norm_(params.admin);
+    if (!admin) return { ok: false, error: 'ไม่ได้ระบุแอดมิน' };
+    const note = String(params.note || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    const notes = await loadComNotes_();
+    if (note) notes[admin] = note; else delete notes[admin];
+    const { error } = await db.from('sync_state')
+      .upsert({ key: COM_NOTES_KEY, value: JSON.stringify(notes) });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, admin, note };
+  }
+
   const askMonth = /^\d{4}-\d{2}$/.test(String(params?.month || '')) ? String(params.month) : '';
 
   // ตารางเล็ก (หลักร้อยแถว) — ดึงทั้งหมดทีเดียว ได้ทั้งรายการเดือนและข้อมูลเดือนที่เลือก
@@ -134,10 +158,12 @@ export async function apiAdminCom(params: any) {
   }
 
   /* ---------- ประกอบแถว ---------- */
+  const comNotes = await loadComNotes_();
   const rows = Object.keys(byAdmin).map((k) => {
     const a = byAdmin[k];
     const ad = roasOf_(adRevByNick[k]);
     return {
+      note: comNotes[k] || '',
       admin: a.admin,
       realName: a.realName,
       units: a.units.sort(),
