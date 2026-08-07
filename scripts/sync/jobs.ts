@@ -797,6 +797,9 @@ export async function syncMetaAdsRange(since: string, until: string): Promise<st
           date: it.date, ad_id: it.ad_id, account_id: acc.account_id,
           spend: it.spend, impressions: it.impressions, clicks: it.clicks, reach: it.reach,
           meta_purchases: it.purchases, meta_purchase_value: it.purchase_value,
+          // "คนทัก" จาก Meta ตรงๆ (messaging_conversation_started) — รายงานสดระหว่างวัน
+          // เดิมลืมเขียนคอลัมน์นี้ ค่าเลยค้างเป็นของ Pancake ที่มาช้า → %ปิดจากแอดเพี้ยนเป็นพันเปอร์เซ็นต์
+          msgs_started: it.msgs,
           updated_at: now,
         });
         spend += it.spend;
