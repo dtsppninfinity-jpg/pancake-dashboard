@@ -53,10 +53,37 @@ export async function apiBootstrap(_params?: unknown) {
     };
   });
 
+  /* ---- 🩺 สุขภาพงาน sync (บทเรียน 2026-08-07: product-sheets "ข้าม" เงียบๆ อยู่ 7 วันไม่มีใครเห็น)
+   * เตือน 3 แบบ: ล้มเหลว (ok=false) / ข้าม (message ขึ้นต้น "ข้าม") / เงียบนานเกินรอบที่ควรรัน */
+  const HOUR = 60;
+  const MAX_AGE_MINS: Record<string, number> = {
+    // รอบ 15 นาที (เผื่อเป็น 90 นาที — Vercel cold start / Meta ช้าได้)
+    orders: 90, 'chat-today': 90, conversations: 90, 'online-status': 90,
+    'engagements-today': 90, 'admin-chat-today': 90, 'meta-ads-today': 90,
+    // delta รันรายนาที — เงียบเกิน 30 นาที = pinger/Pancake มีปัญหา
+    'orders-delta': 30,
+    // รายชั่วโมง
+    ads: 3 * HOUR, 'admins-roster': 3 * HOUR, 'ad-stats-today': 3 * HOUR,
+    'meta-ads-yesterday': 3 * HOUR, 'unit-alerts': 3 * HOUR,
+    // รายวัน (default 26 ชม. อยู่แล้ว — ระบุเฉพาะที่อยากตึงกว่า)
+  };
+  const nowMs = Date.now();
+  const syncHealth: Array<{ job: string; kind: string; ageMins: number; message: string }> = [];
+  Object.keys(lastByJob).forEach((k) => {
+    const l = lastByJob[k];
+    const t = parsePancakeTime(l.ts);
+    const ageMins = t ? Math.round((nowMs - t.getTime()) / 60000) : 999999;
+    const maxAge = MAX_AGE_MINS[k] || 26 * HOUR;
+    if (!l.ok) syncHealth.push({ job: k, kind: 'fail', ageMins, message: l.message.slice(0, 120) });
+    else if (/^ข้าม/.test(l.message)) syncHealth.push({ job: k, kind: 'skip', ageMins, message: l.message.slice(0, 120) });
+    else if (ageMins > maxAge) syncHealth.push({ job: k, kind: 'stale', ageMins, message: 'เงียบมา ' + Math.round(ageMins / 60) + ' ชม. (ควรรันทุก ' + Math.round(maxAge / 60) + ' ชม.)' });
+  });
+
   return {
     ok: true,
     pages: pages,
     lastSync: Object.keys(lastByJob).map((k) => lastByJob[k]),
+    syncHealth,
     generatedAt: fmtDateTimeBkk(new Date()),
   };
 }

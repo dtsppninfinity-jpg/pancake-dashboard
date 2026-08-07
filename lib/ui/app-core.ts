@@ -33,8 +33,11 @@ interface SyncLogEntry {
   ok: boolean;
 }
 
+interface SyncHealthItem { job: string; kind: string; ageMins: number; message: string }
+
 interface Bootstrap {
   lastSync?: SyncLogEntry[];
+  syncHealth?: SyncHealthItem[];
   [k: string]: unknown;
 }
 
@@ -207,11 +210,29 @@ const App = {
     const latest = b.lastSync.reduce(function (a: SyncLogEntry | null, c: SyncLogEntry) {
       return (!a || c.ts > a.ts) ? c : a;
     }, null as SyncLogEntry | null)!;
-    chip.textContent = '🕐 sync ล่าสุด ' + relTime(latest.ts);
+    // 🩺 งาน sync ที่ล้ม/ข้าม/เงียบนานเกินรอบ — โชว์บนหัวเว็บทันที ไม่รอให้ตัวเลขเพี้ยนแล้วทีมทักก่อน
+    const health = (b.syncHealth || []) as SyncHealthItem[];
+    if (health.length) {
+      const KIND_TH: Record<string, string> = { fail: 'ล้มเหลว', skip: 'ถูกข้าม', stale: 'เงียบนานผิดปกติ' };
+      chip.textContent = '⚠️ งาน sync มีปัญหา ' + health.length + ' งาน';
+      chip.title = health.map(function (h) {
+        return h.job + ' (' + (KIND_TH[h.kind] || h.kind) + '): ' + h.message;
+      }).join('\n');
+      (chip as HTMLElement).style.color = 'var(--red)';
+    } else {
+      chip.textContent = '🕐 sync ล่าสุด ' + relTime(latest.ts);
+      chip.title = '';
+      (chip as HTMLElement).style.color = '';
+    }
     if (side) {
-      side.innerHTML = b.lastSync.slice(0, 5).map(function (l) {
+      const warnLines = health.slice(0, 3).map(function (h) {
+        return '<span style="color:var(--red)">⚠️ ' + esc(h.job) + ' ' +
+          esc(h.kind === 'fail' ? 'ล้ม' : h.kind === 'skip' ? 'ถูกข้าม' : 'เงียบ ' + Math.round(h.ageMins / 60) + ' ชม.') + '</span>';
+      });
+      const okLines = b.lastSync.slice(0, 5 - warnLines.length).map(function (l) {
         return (l.ok ? '✅' : '❌') + ' ' + esc(l.job) + ' ' + relTime(l.ts);
-      }).join('<br>');
+      });
+      side.innerHTML = warnLines.concat(okLines).join('<br>');
     }
   },
 
