@@ -194,6 +194,17 @@ function adCloseTile(d: SalesData): string {
       body: 'ต้องรัน migration db/migrations/2026-07-24-ad-daily-meta-purchase.sql ก่อน' }) +
       '>🎯 %ปิดจากแอด<b>—</b></div>';
   }
+  // Meta รายงาน "คนทัก" (messaging_started) ช้ากว่า "ยอดซื้อ" (pixel) หลายชั่วโมงระหว่างวัน
+  // ช่วงเช้าตัวหารเกือบศูนย์ → %ปิดทะลุพันเปอร์เซ็นต์ (เจอจริง 2272%) — เกิน 100 ถือว่ายังเชื่อไม่ได้
+  if (Number(a.adCloseRate) > 100) {
+    return '<div class="tile"' + tipAttrs({
+      title: '🎯 %ปิดจากแอด (Meta)',
+      body: 'ตอนนี้ Meta รายงานยอดซื้อ ' + fmtNum(a.adPurchases || 0) + ' แต่คนทักเพิ่งมา ' + fmtNum(a.adMsgs || 0) +
+        ' — ตัวเลขคนทักของ Meta มาช้ากว่ายอดซื้อระหว่างวัน %ปิดจึงยังคำนวณไม่ได้ ' +
+        'จะนิ่งและเชื่อได้ช่วงสิ้นวัน/วันถัดไป (ดูของเมื่อวานแทนได้เลย)',
+      src: 'Meta Ads (meta_purchase ÷ messaging_started)',
+    }) + '>🎯 %ปิดจากแอด (Meta)<b>⏳ รอ Meta</b></div>';
+  }
   return '<div class="tile"' + tipAttrs({
     title: '🎯 %ปิดจากแอด (Meta)', formula: 'ซื้อ ÷ คนทักจากแอด',
     body: 'ซื้อ ' + fmtNum(a.adPurchases || 0) + ' ÷ คนทักจากแอด ' + fmtNum(a.adMsgs || 0) +
