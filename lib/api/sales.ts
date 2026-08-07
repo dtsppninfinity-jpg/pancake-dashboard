@@ -2,7 +2,7 @@
 // server-side เท่านั้น: import { db, fetchAll } จาก @/lib/db
 // เปลี่ยนแค่แหล่งอ่าน (readTable_ → fetchAll) + กรองช่วงเวลาใน query เพื่อเลี่ยง 1000-row cap
 import { db, fetchAll, fetchAllSliced, fetchAllDateSliced, dbStats } from '@/lib/db';
-import { getPageUnitMap, getUnitTargets, getUnitNotes } from './umap';
+import { getPageUnitMap, getUnitTargets, getUnitNotes, getUnitPageNames } from './umap';
 import { nicknameByName } from './adminsettings';
 import {
   EXCLUDED_STATUSES,
@@ -677,6 +677,8 @@ export async function apiSales(params: any) {
   const unitTargets = await getUnitTargets().catch(() => ({} as Record<string, number>));
   // หมายเหตุยูนิต (เช่น "รอรีแบรนด์") — แปะทั้งตารางยูนิตและการ์ดแจ้งเตือน
   const unitNotes = await getUnitNotes().catch(() => ({} as Record<string, string>));
+  // เพจทั้งหมดของยูนิตตาม U Map — เพจที่ยังไม่มียอดในช่วงต้องโผล่เป็น ฿0 (ทีมทัก: ผูก 4 เพจแต่เห็น 3)
+  const unitPageNames = await getUnitPageNames().catch(() => ({} as Record<string, string[]>));
   // ชื่อเล่นแอดมิน — ทีมขอให้แสดงชื่อเล่นเป็นหลัก (ชื่อจริงยังเก็บไว้ ส่งไปด้วยเป็น fullName)
   const nickBy = await nicknameByName().catch(() => ({} as Record<string, string>));
   const nick_ = (n: unknown) => {
@@ -989,7 +991,17 @@ export async function apiSales(params: any) {
     line: topAgg(cur.filter((o) => orderChannel_(o) === 'line'), 'line'),
   };
   (['all', 'facebook', 'line'] as const).forEach((k) => {
-    (top[k].units || []).forEach((u: any) => { u.note = unitNotes[u.key] || ''; });
+    (top[k].units || []).forEach((u: any) => {
+      u.note = unitNotes[u.key] || '';
+      // เติมเพจที่ผูกไว้ใน U Map แต่ยังไม่มียอดในช่วงนี้ (โชว์ ฿0) — เห็นครบว่ายูนิตมีกี่เพจ
+      const roster = unitPageNames[u.key];
+      if (roster && u.mapped) {
+        const have = new Set((u.pages || []).map((p: any) => String(p.name)));
+        roster.forEach((nm) => {
+          if (!have.has(nm)) u.pages.push({ name: nm, revenue: 0, orders: 0 });
+        });
+      }
+    });
   });
 
   /* ---- ออเดอร์ที่ "ไม่เป็นยอด": ยกเลิก / ตีกลับ / ลบ ----

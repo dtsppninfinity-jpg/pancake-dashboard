@@ -369,6 +369,17 @@ export async function getUnitsForAlert(): Promise<Array<{
   }));
 }
 
+/** ชื่อเพจที่ผูกกับแต่ละยูนิตใน U Map — ให้หน้า Sales โชว์เพจครบแม้ยังไม่มียอดในช่วงที่เลือก */
+export async function getUnitPageNames(): Promise<Record<string, string[]>> {
+  const doc = await getUMapDoc();
+  const out: Record<string, string[]> = {};
+  for (const unit of doc.units) {
+    const names = (unit.pages || []).map((p) => String(p.name || '').trim()).filter(Boolean);
+    if (names.length) out[unit.u] = names;
+  }
+  return out;
+}
+
 /** หมายเหตุยูนิต (เช่น "รอรีแบรนด์") — เฉพาะยูนิตที่มีหมายเหตุ */
 export async function getUnitNotes(): Promise<Record<string, string>> {
   const doc = await getUMapDoc();

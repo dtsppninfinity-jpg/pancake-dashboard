@@ -881,9 +881,14 @@ function lossReasonHtml_(x: any): string {
   // รูปแบบเดียวสำหรับทุกยูนิตที่มีชีท: "กำไรสุทธิ ±รวมทั้งเดือน" เขียว/แดง — เช็คกับชีทตรงๆ ได้ (บอสสั่ง 2026-07-31)
   if (isSheet && typeof x.monthProfit === 'number') {
     const pos = x.monthProfit >= 0;
+    // ทั้งเดือนกำไรแต่เพิ่งขาดทุนติดกันช่วงท้าย → บอกยอดขาดทุนช่วงนั้นด้วย ไม่งั้นหัวการ์ด ("ขาดทุน N วันติด")
+    // กับตัวเลขสีเขียวอ่านแล้วขัดกันเอง (ทีมทักมาจริง 2026-08-07 เคส U3)
+    const streakNote = pos && x.loss > 0
+      ? ' • <b class="txt-bad">' + fmtNum(x.days) + ' วันล่าสุดขาดทุนรวม ' + THB(x.loss) + '</b>'
+      : '';
     return 'เดือนนี้: ขาย ' + THB(x.monthSales || 0) + ' • ค่าแอด ' + THB(x.monthAds || 0) +
       ' • <b class="' + (pos ? 'txt-good' : 'txt-bad') + '">กำไรสุทธิ ' + (pos ? '+' : '-') + THB(Math.abs(x.monthProfit)) + '</b>' +
-      ' (ขาดทุน ' + fmtNum(x.monthLossDays || 0) + ' วันตั้งแต่ต้นเดือน)' + sheetChip;
+      ' (ขาดทุน ' + fmtNum(x.monthLossDays || 0) + ' วันตั้งแต่ต้นเดือน)' + streakNote + sheetChip;
   }
   return 'ขาย ' + THB(x.revenue) + ' • ค่าแอด ' + THB(x.spend) +
     ' • <b class="txt-bad">' + (isSheet ? 'ขาดทุนจริง ' : 'ติดลบ ') + THB(x.loss) + '</b>' +
