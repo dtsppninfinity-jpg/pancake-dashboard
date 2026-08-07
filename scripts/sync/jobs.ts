@@ -238,9 +238,11 @@ export async function syncUnitAlerts(): Promise<string> {
 
 /* ---------------- ชีทสรุปรายสินค้า (กำไรจริง + ค่าคอมแอดมิน) ---------------- */
 
-/** โฟลเดอร์ "สรุปยอดรายสินค้า" — รับได้ทั้งลิงก์เต็มและรหัสโฟลเดอร์เปล่าๆ */
+/** โฟลเดอร์ "สรุปยอดรายสินค้า" — รับได้ทั้งลิงก์เต็มและรหัสโฟลเดอร์เปล่าๆ
+ * มี fallback ฝังไว้เหมือน KPI_SHEET_ID/RETURNS_FOLDER — เจ็บมาแล้ว: env ตัวนี้ไม่ได้ตั้งบน Vercel
+ * ทำให้ cron "ข้าม" งานนี้เงียบๆ ทุกวัน (กำไร/ค่าคอมแช่แข็ง 31 ก.ค.–7 ส.ค. โดยไม่มีใครรู้) */
 function productFolderId_(): string {
-  const raw = String(process.env.GOOGLE_DRIVE_PRODUCT_SALES_SUMMARY || '').trim();
+  const raw = String(process.env.GOOGLE_DRIVE_PRODUCT_SALES_SUMMARY || '').trim() || '1p4A0HO_FmxSW3wf6-tAu_HJ1c2JlmBpz';
   const m = raw.match(/\/folders\/([A-Za-z0-9_-]+)/);
   return m ? m[1] : raw;
 }
@@ -278,7 +280,9 @@ export async function syncProductSheets(): Promise<string> {
     const salesGrid = batch[`'สรุปยอดขาย'!A1:BZ700`] || [];
     const comGrid = batch[`'Com:Admin'!A1:AZ700`] || [];
 
-    const daily = parseSalesSummary(salesGrid);
+    // ชีทมีแถวสูตรล่วงหน้าทั้งเดือน — วันอนาคตเป็นค่าขยะ (หักต้นทุน/Fixcost แล้วแต่ยอดยังไม่เกิด)
+    // เคยหลุดเข้า DB ทำแจ้งเตือนขาดทุนเพี้ยน (เคส U3 2026-08-07) — ตัดทิ้งตั้งแต่ตรงนี้
+    const daily = parseSalesSummary(salesGrid).filter((d) => d.date <= fmtDateBkk(new Date()));
     if (!daily.length) problems.push(`${u}: ไม่เจอข้อมูลในแท็บ สรุปยอดขาย`);
     parseMonthTotals(salesGrid).forEach((t) => {
       (monthTotals[u] = monthTotals[u] || {})[t.month] = {
@@ -301,6 +305,8 @@ export async function syncProductSheets(): Promise<string> {
   }
 
   if (dailyRows.length) await upsertRows('unit_daily', dailyRows, 'key');
+  // ล้างแถววันอนาคตที่เคยหลุดเข้ามาก่อนมีตัวกรอง (upsert ไม่ลบของเก่าให้)
+  await supabase.from('unit_daily').delete().gt('date', fmtDateBkk(new Date()));
   await setState('unit_month_totals', JSON.stringify({ updatedAt: now, units: monthTotals }));
   // ค่าคอมใช้ replace ทั้งตาราง — parser เปลี่ยนที่มา (ตารางประเมิน) แล้ว แถวชุดเก่าที่ key
   // ไม่ตรงกับรอบใหม่จะค้างเป็นข้อมูลผีถ้า upsert เฉยๆ (ตารางนี้ derive จากชีทล้วนๆ ลบสร้างใหม่ได้)
