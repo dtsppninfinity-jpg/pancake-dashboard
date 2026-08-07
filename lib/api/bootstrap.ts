@@ -69,11 +69,27 @@ export async function apiBootstrap(_params?: unknown) {
   };
   const nowMs = Date.now();
   const syncHealth: Array<{ job: string; kind: string; ageMins: number; message: string }> = [];
+  // orders-delta ลงตาราง log เฉพาะตอนพัง (สำเร็จเก็บใน sync_state last_delta_at) — ต้องดูจาก state
+  let deltaOkAgeMins: number | null = null;
+  try {
+    const { data: dl } = await db.from('sync_state').select('value').eq('key', 'last_delta_at').maybeSingle();
+    const t = dl && dl.value ? new Date(String(dl.value)).getTime() : 0;
+    if (t) deltaOkAgeMins = Math.round((nowMs - t) / 60000);
+  } catch { /* ยังไม่เคยรัน */ }
   Object.keys(lastByJob).forEach((k) => {
+    if (k.startsWith('trace-')) return; // งานดีบักชั่วคราว ไม่ใช่ sync จริง
     const l = lastByJob[k];
     const t = parsePancakeTime(l.ts);
     const ageMins = t ? Math.round((nowMs - t.getTime()) / 60000) : 999999;
     const maxAge = MAX_AGE_MINS[k] || 26 * HOUR;
+    if (k === 'orders-delta') {
+      // log ล่าสุดเป็น fail แต่ถ้า state บอกว่าเพิ่งสำเร็จหลังจากนั้น = ฟื้นแล้ว ไม่ต้องเตือน
+      if (deltaOkAgeMins !== null && deltaOkAgeMins <= 30) return;
+      const age = deltaOkAgeMins === null ? ageMins : deltaOkAgeMins;
+      syncHealth.push({ job: k, kind: deltaOkAgeMins === null ? 'fail' : 'stale', ageMins: age,
+        message: 'ยอดสดรายนาทีไม่อัปเดตมา ' + Math.round(age / 60 * 10) / 10 + ' ชม. — ' + l.message.slice(0, 90) });
+      return;
+    }
     if (!l.ok) syncHealth.push({ job: k, kind: 'fail', ageMins, message: l.message.slice(0, 120) });
     else if (/^ข้าม/.test(l.message)) syncHealth.push({ job: k, kind: 'skip', ageMins, message: l.message.slice(0, 120) });
     else if (ageMins > maxAge) syncHealth.push({ job: k, kind: 'stale', ageMins, message: 'เงียบมา ' + Math.round(ageMins / 60) + ' ชม. (ควรรันทุก ' + Math.round(maxAge / 60) + ' ชม.)' });
