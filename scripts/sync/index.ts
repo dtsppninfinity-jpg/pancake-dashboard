@@ -48,10 +48,13 @@ async function runHourly(): Promise<boolean> {
   // ต้องยิง Meta ซ้ำ "ปิดท้าย" รอบ hourly ด้วย — เพราะ runFast (Meta) เดินก่อน runHourly (Pancake)
   // ในโปรเซสเดียวกัน ถ้าไม่ทับกลับ ค่า spend จะกลายเป็นของ Pancake (ต่ำกว่าจริง ~7%) ไปจนรอบหน้า
   const d = await runJob('meta-ads-today', jobs.syncMetaAdsToday);
+  // "คนทัก" (messaging_started) ของ Meta รายงานช้า/แก้ย้อนหลังได้เป็นวัน — ดึงเมื่อวานซ้ำรายชั่วโมง
+  // ให้ %ปิดจากแอดของเมื่อวานนิ่งเร็วที่สุด (เดิมดึงแค่รอบ daily ตอนเช้า เลขค้างสูงเกินจริงทั้งวัน)
+  const g = await runJob('meta-ads-yesterday', jobs.syncMetaAdsYesterday);
   // แจ้งเตือนยูนิตขาดทุน — ตัดสินจาก "วันที่จบแล้ว" จึงเปลี่ยนวันละครั้ง แต่รันรายชั่วโมง
   // เพื่อให้ยอดของเมื่อวานที่ทยอยยืนยันเข้ามาตอนเช้าถูกนับทัน
   const e = await runJob('unit-alerts', jobs.syncUnitAlerts);
-  return a && b && c && d && e;
+  return a && b && c && d && e && g;
 }
 
 async function runDaily(): Promise<boolean> {
