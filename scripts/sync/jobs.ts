@@ -49,7 +49,8 @@ async function withPageToken<T>(
     if (!TOKEN_RENEWED_RE.test(String((e && e.message) || ''))) throw e;
     const fresh = await pagesGenerateToken(pageId);
     tokens[pageId] = fresh;
-    await supabase.from('page_tokens').upsert({ page_id: pageId, token: fresh });
+    await supabase.from('page_tokens').upsert(
+      { page_id: pageId, token: fresh, updated_at: new Date().toISOString() }, { onConflict: 'page_id' });
     return await fn(fresh);
   }
 }
@@ -283,7 +284,6 @@ function productFolderId_(): string {
 export async function syncProductSheets(): Promise<string> {
   if (!googleConfigured()) return 'ข้าม: ยังไม่ได้ตั้ง GOOGLE_SA_KEY';
   const folder = productFolderId_();
-  if (!folder) return 'ข้าม: ยังไม่ได้ตั้ง GOOGLE_DRIVE_PRODUCT_SALES_SUMMARY';
 
   const files = await driveListSheets(folder);
   if (!files.length) return `ไม่พบไฟล์ในโฟลเดอร์ ${folder}`;
@@ -292,6 +292,8 @@ export async function syncProductSheets(): Promise<string> {
   const comRows: any[] = [];
   const skipped: string[] = [];
   const problems: string[] = [];
+  // คำนวณครั้งเดียว — ใช้ทั้งตอนกรองแถวอนาคตและตอนลบ ถ้าคิดใหม่ตอนลบแล้วคร่อมเที่ยงคืนจะลบของที่เพิ่งเขียน
+  const todayStr = fmtDateBkk(new Date());
   // ตัวเลขจากแถว "รวม" รายเดือนของแต่ละยูนิต — ตรงกับที่ทีมเห็นในชีทเป๊ะ (การ์ดแจ้งเตือนใช้)
   const monthTotals: Record<string, Record<string, any>> = {};
   const now = new Date().toISOString();
@@ -306,7 +308,7 @@ export async function syncProductSheets(): Promise<string> {
 
     // ชีทมีแถวสูตรล่วงหน้าทั้งเดือน — วันอนาคตเป็นค่าขยะ (หักต้นทุน/Fixcost แล้วแต่ยอดยังไม่เกิด)
     // เคยหลุดเข้า DB ทำแจ้งเตือนขาดทุนเพี้ยน (เคส U3 2026-08-07) — ตัดทิ้งตั้งแต่ตรงนี้
-    const daily = parseSalesSummary(salesGrid).filter((d) => d.date <= fmtDateBkk(new Date()));
+    const daily = parseSalesSummary(salesGrid).filter((d) => d.date <= todayStr);
     if (!daily.length) problems.push(`${u}: ไม่เจอข้อมูลในแท็บ สรุปยอดขาย`);
     parseMonthTotals(salesGrid).forEach((t) => {
       (monthTotals[u] = monthTotals[u] || {})[t.month] = {
@@ -328,9 +330,12 @@ export async function syncProductSheets(): Promise<string> {
     }));
   }
 
-  if (dailyRows.length) await upsertRows('unit_daily', dailyRows, 'key');
-  // ล้างแถววันอนาคตที่เคยหลุดเข้ามาก่อนมีตัวกรอง (upsert ไม่ลบของเก่าให้)
-  await supabase.from('unit_daily').delete().gt('date', fmtDateBkk(new Date()));
+  if (dailyRows.length) {
+    await upsertRows('unit_daily', dailyRows, 'key');
+    // ล้างแถววันอนาคตที่เคยหลุดเข้ามาก่อนมีตัวกรอง (upsert ไม่ลบของเก่าให้)
+    // ทำเฉพาะรอบที่อ่านชีทได้จริง — ถ้า Drive ล่มแล้วยังลบ จะเสียข้อมูลฟรีๆ
+    await supabase.from('unit_daily').delete().gt('date', todayStr);
+  }
   await setState('unit_month_totals', JSON.stringify({ updatedAt: now, units: monthTotals }));
   // ค่าคอมใช้ replace ทั้งตาราง — parser เปลี่ยนที่มา (ตารางประเมิน) แล้ว แถวชุดเก่าที่ key
   // ไม่ตรงกับรอบใหม่จะค้างเป็นข้อมูลผีถ้า upsert เฉยๆ (ตารางนี้ derive จากชีทล้วนๆ ลบสร้างใหม่ได้)

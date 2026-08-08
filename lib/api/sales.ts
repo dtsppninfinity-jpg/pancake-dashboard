@@ -2,7 +2,7 @@
 // server-side เท่านั้น: import { db, fetchAll } จาก @/lib/db
 // เปลี่ยนแค่แหล่งอ่าน (readTable_ → fetchAll) + กรองช่วงเวลาใน query เพื่อเลี่ยง 1000-row cap
 import { db, fetchAll, fetchAllSliced, fetchAllDateSliced, dbStats } from '@/lib/db';
-import { getPageUnitMap, getUnitTargets, getUnitNotes, getUnitPageNames } from './umap';
+import { getPageUnitMap, getUnitTargets, getUnitNotes, getUnitPages } from './umap';
 import { nicknameByName } from './adminsettings';
 import {
   EXCLUDED_STATUSES,
@@ -678,7 +678,7 @@ export async function apiSales(params: any) {
   // หมายเหตุยูนิต (เช่น "รอรีแบรนด์") — แปะทั้งตารางยูนิตและการ์ดแจ้งเตือน
   const unitNotes = await getUnitNotes().catch(() => ({} as Record<string, string>));
   // เพจทั้งหมดของยูนิตตาม U Map — เพจที่ยังไม่มียอดในช่วงต้องโผล่เป็น ฿0 (ทีมทัก: ผูก 4 เพจแต่เห็น 3)
-  const unitPageNames = await getUnitPageNames().catch(() => ({} as Record<string, string[]>));
+  const unitRoster = await getUnitPages().catch(() => ({} as Record<string, Array<{ id: string; name: string }>>));
   // ชื่อเล่นแอดมิน — ทีมขอให้แสดงชื่อเล่นเป็นหลัก (ชื่อจริงยังเก็บไว้ ส่งไปด้วยเป็น fullName)
   const nickBy = await nicknameByName().catch(() => ({} as Record<string, string>));
   const nick_ = (n: unknown) => {
@@ -994,11 +994,19 @@ export async function apiSales(params: any) {
     (top[k].units || []).forEach((u: any) => {
       u.note = unitNotes[u.key] || '';
       // เติมเพจที่ผูกไว้ใน U Map แต่ยังไม่มียอดในช่วงนี้ (โชว์ ฿0) — เห็นครบว่ายูนิตมีกี่เพจ
-      const roster = unitPageNames[u.key];
+      //  • ยึด page_id เป็นตัวระบุ แล้วเอา "ชื่อปัจจุบันจากตาราง pages" มาแสดง/เทียบ
+      //    (ชื่อใน u_map เป็นสำเนาตอนจับคู่ ถ้าทีมเปลี่ยนชื่อเพจจะกลายเป็นแถวผี ฿0 ซ้ำกับแถวที่มียอด)
+      //  • เติมเฉพาะเพจช่องทางเดียวกับที่กำลังดู — ไม่งั้นดูแท็บ Facebook แล้วเห็นเพจ LINE โผล่ ฿0
+      //    (ทีมทัก 2026-08-08: U3 ผูกไว้ 5 เพจ = FB 4 + LINE 1 แต่ในมุมมอง Facebook ควรเห็น 4)
+      const roster = unitRoster[u.key];
       if (roster && u.mapped) {
         const have = new Set((u.pages || []).map((p: any) => String(p.name)));
-        roster.forEach((nm) => {
-          if (!have.has(nm)) u.pages.push({ name: nm, revenue: 0, orders: 0 });
+        roster.forEach((pg) => {
+          if (k !== 'all' && platformChannel_(pagePlatform[pg.id]) !== k) return;
+          const nm = pageNames[pg.id] || pg.name;
+          if (!nm || have.has(nm)) return;
+          have.add(nm);
+          u.pages.push({ name: nm, revenue: 0, orders: 0 });
         });
       }
     });

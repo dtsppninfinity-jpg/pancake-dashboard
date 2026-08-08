@@ -615,7 +615,12 @@ function cardHtml(it: any, rank: number): string {
   h += caNum('<b title="ต้นทุนต่อ 1 คนทัก = ค่าโฆษณา ÷ จำนวนคนทัก">' +
     ((isOrganic || num(it.msgs) === 0) ? '-' : THB(num(it.costPerMsg))) + '</b>', 'ต้นทุน/ทัก');
   h += caNum('<b>' + (isOrganic ? '-' : kFmt(num(it.clicks))) + '</b>', 'คลิก');
-  h += caNum('<b title="ซื้อ ÷ ทัก (แบบ Meta)">' + pctFmt(it.closeRate) + '</b>', '% ปิด');
+  // เกิน 100% = Meta ส่งยอดซื้อมาก่อนคนทัก (พบบ่อยระหว่างวัน / แอดที่ปิดการขายจากคลิกเมื่อวาน)
+  // โชว์ตัวเลขพันเปอร์เซ็นต์ทำให้ตารางอ่านไม่ได้ — ใส่หมายเหตุแทน เกณฑ์เดียวกับการ์ดหน้า Sales
+  h += caNum(Number(it.closeRate) > 100
+    ? '<b title="ซื้อ ' + fmtNum(it.orders || 0) + ' มากกว่าคนทัก ' + fmtNum(it.msgs || 0) +
+      ' — Meta ส่งยอดซื้อมาก่อนตัวเลขคนทัก (หรือปิดจากคลิกวันก่อน) รอสิ้นวันจะนิ่ง">⏳</b>'
+    : '<b title="ซื้อ ÷ ทัก (แบบ Meta)">' + pctFmt(it.closeRate) + '</b>', '% ปิด');
   h += '</div>';
 
   if (!isOrganic) {

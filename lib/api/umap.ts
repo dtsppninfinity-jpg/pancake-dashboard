@@ -369,13 +369,18 @@ export async function getUnitsForAlert(): Promise<Array<{
   }));
 }
 
-/** ชื่อเพจที่ผูกกับแต่ละยูนิตใน U Map — ให้หน้า Sales โชว์เพจครบแม้ยังไม่มียอดในช่วงที่เลือก */
-export async function getUnitPageNames(): Promise<Record<string, string[]>> {
+/**
+ * เพจที่ผูกกับแต่ละยูนิตใน U Map — ให้หน้า Sales โชว์เพจครบแม้ยังไม่มียอดในช่วงที่เลือก
+ * คืน id มาด้วยเสมอ: ตัวระบุเพจของระบบคือ page_id (ชื่อเพจทีมเปลี่ยนได้ตลอด — จับคู่ด้วยชื่อจะเกิดแถวผี)
+ */
+export async function getUnitPages(): Promise<Record<string, Array<{ id: string; name: string }>>> {
   const doc = await getUMapDoc();
-  const out: Record<string, string[]> = {};
+  const out: Record<string, Array<{ id: string; name: string }>> = {};
   for (const unit of doc.units) {
-    const names = (unit.pages || []).map((p) => String(p.name || '').trim()).filter(Boolean);
-    if (names.length) out[unit.u] = names;
+    const list = (unit.pages || [])
+      .map((p) => ({ id: String(p.id || '').trim(), name: String(p.name || '').trim() }))
+      .filter((p) => p.id);
+    if (list.length) out[unit.u] = list;
   }
   return out;
 }

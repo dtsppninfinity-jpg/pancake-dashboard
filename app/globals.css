@@ -1234,7 +1234,10 @@ tr.row-off { opacity: .55; }
   .topbar h1 { font-size: 15.5px; }
   .topbar-sub { display: none; }         /* บรรทัดรองกินที่บนจอแคบ */
   .topbar-right { gap: 6px; }
-  #sync-chip { display: none; }          /* ย้ายไปดูใน sidebar แทน */
+  /* จอแคบซ่อนชิปเวลา sync (ย้ายไปดูใน sidebar) — แต่ถ้ามีงานพัง ต้องเห็นบนหัวเว็บด้วย
+     ไม่งั้นบนมือถือคำเตือนไปซ่อนอยู่หลังปุ่ม ☰ ทีมไม่มีทางเห็น */
+  #sync-chip { display: none; }
+  #sync-chip.txt-bad { display: inline-flex; max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .view { padding: 14px 14px 32px; }
   .card { padding: 14px; }
 

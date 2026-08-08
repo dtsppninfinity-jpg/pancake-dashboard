@@ -186,6 +186,15 @@ function roasTile(d: SalesData): string {
     (cls ? ' class="sr-' + cls + '"' : '') + '>' + a.roas.toFixed(2) + 'x' + prev + '</b></div>';
 }
 
+/** ช่วงที่เลือกกินวันนี้ด้วยไหม — ตัวเลขฝั่ง Meta ของ "วันนี้" ยังไหลอยู่ ตีความคนละแบบกับช่วงที่จบแล้ว */
+function rangeIncludesToday_(): boolean {
+  if (state.preset === 'custom') {
+    const today = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);
+    return !state.to || state.to >= today;
+  }
+  return state.preset !== 'yesterday';
+}
+
 function adCloseTile(d: SalesData): string {
   const a = d.adCost;
   if (!a || a.adCloseRate === null || a.adCloseRate === undefined) {
@@ -194,16 +203,21 @@ function adCloseTile(d: SalesData): string {
       body: 'ต้องรัน migration db/migrations/2026-07-24-ad-daily-meta-purchase.sql ก่อน' }) +
       '>🎯 %ปิดจากแอด<b>—</b></div>';
   }
-  // Meta รายงาน "คนทัก" (messaging_started) ช้ากว่า "ยอดซื้อ" (pixel) หลายชั่วโมงระหว่างวัน
-  // ช่วงเช้าตัวหารเกือบศูนย์ → %ปิดทะลุพันเปอร์เซ็นต์ (เจอจริง 2272%) — เกิน 100 ถือว่ายังเชื่อไม่ได้
+  // เกิน 100% = เป็นไปไม่ได้ ต้องอธิบายให้ตรงเหตุ ไม่ใช่ขึ้น "รอ Meta" ทุกกรณี
+  //  • ช่วงที่รวมวันนี้ → Meta ส่ง "คนทัก" ช้ากว่า "ยอดซื้อ" ระหว่างวัน (เคยเจอ 2272%) = รอได้
+  //  • ช่วงที่จบไปแล้ว → รอไปก็ไม่เปลี่ยน แปลว่าข้อมูลคนทักของช่วงนั้นเก็บมาไม่ครบ ต้องบอกตรงๆ
   if (Number(a.adCloseRate) > 100) {
+    const live = rangeIncludesToday_();
     return '<div class="tile"' + tipAttrs({
       title: '🎯 %ปิดจากแอด (Meta)',
-      body: 'ตอนนี้ Meta รายงานยอดซื้อ ' + fmtNum(a.adPurchases || 0) + ' แต่คนทักเพิ่งมา ' + fmtNum(a.adMsgs || 0) +
-        ' — ตัวเลขคนทักของ Meta มาช้ากว่ายอดซื้อระหว่างวัน %ปิดจึงยังคำนวณไม่ได้ ' +
-        'จะนิ่งและเชื่อได้ช่วงสิ้นวัน/วันถัดไป (ดูของเมื่อวานแทนได้เลย)',
+      body: live
+        ? 'Meta รายงานยอดซื้อ ' + fmtNum(a.adPurchases || 0) + ' แต่คนทักเพิ่งมา ' + fmtNum(a.adMsgs || 0) +
+          ' — ระหว่างวันตัวเลขคนทักของ Meta มาช้ากว่ายอดซื้อ %ปิดจึงยังคำนวณไม่ได้ ' +
+          'จะนิ่งช่วงสิ้นวัน (ดูของเมื่อวานแทนได้เลย)'
+        : 'ช่วงนี้จบไปแล้วแต่ยอดซื้อ ' + fmtNum(a.adPurchases || 0) + ' มากกว่าคนทัก ' + fmtNum(a.adMsgs || 0) +
+          ' — แปลว่าข้อมูลคนทักของช่วงนี้เก็บมาไม่ครบ (ดึงย้อนหลังได้ด้วย backfill:meta-ads) ยังใช้ตัดสินใจไม่ได้',
       src: 'Meta Ads (meta_purchase ÷ messaging_started)',
-    }) + '>🎯 %ปิดจากแอด (Meta)<b>⏳ รอ Meta</b></div>';
+    }) + '>🎯 %ปิดจากแอด (Meta)<b>' + (live ? '⏳ รอ Meta' : '⚠️ ข้อมูลไม่ครบ') + '</b></div>';
   }
   return '<div class="tile"' + tipAttrs({
     title: '🎯 %ปิดจากแอด (Meta)', formula: 'ซื้อ ÷ คนทักจากแอด',

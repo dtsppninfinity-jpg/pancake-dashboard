@@ -33,7 +33,16 @@ interface SyncLogEntry {
   ok: boolean;
 }
 
-interface SyncHealthItem { job: string; kind: string; ageMins: number; message: string }
+type SyncHealthKind = 'fail' | 'skip' | 'stale' | 'partial';
+interface SyncHealthItem { job: string; kind: SyncHealthKind | string; ageMins: number; message: string }
+
+/** คำอธิบายอาการเป็นไทย — ใช้ทั้งบนชิปหัวเว็บและใน sidebar (เดิมเขียนคนละชุดจนไม่ตรงกัน) */
+function healthKindTh(h: SyncHealthItem): string {
+  if (h.kind === 'fail') return 'ล้มเหลว';
+  if (h.kind === 'skip') return 'ถูกข้าม';
+  if (h.kind === 'partial') return 'ข้อมูลไม่ครบ';
+  return 'เงียบ ' + Math.round(h.ageMins / 60) + ' ชม.';
+}
 
 interface Bootstrap {
   lastSync?: SyncLogEntry[];
@@ -213,21 +222,19 @@ const App = {
     // 🩺 งาน sync ที่ล้ม/ข้าม/เงียบนานเกินรอบ — โชว์บนหัวเว็บทันที ไม่รอให้ตัวเลขเพี้ยนแล้วทีมทักก่อน
     const health = (b.syncHealth || []) as SyncHealthItem[];
     if (health.length) {
-      const KIND_TH: Record<string, string> = { fail: 'ล้มเหลว', skip: 'ถูกข้าม', stale: 'เงียบนานผิดปกติ' };
       chip.textContent = '⚠️ งาน sync มีปัญหา ' + health.length + ' งาน';
       chip.title = health.map(function (h) {
-        return h.job + ' (' + (KIND_TH[h.kind] || h.kind) + '): ' + h.message;
+        return h.job + ' (' + healthKindTh(h) + '): ' + h.message;
       }).join('\n');
-      (chip as HTMLElement).style.color = 'var(--red)';
+      chip.classList.add('txt-bad');
     } else {
       chip.textContent = '🕐 sync ล่าสุด ' + relTime(latest.ts);
       chip.title = '';
-      (chip as HTMLElement).style.color = '';
+      chip.classList.remove('txt-bad');
     }
     if (side) {
       const warnLines = health.slice(0, 3).map(function (h) {
-        return '<span style="color:var(--red)">⚠️ ' + esc(h.job) + ' ' +
-          esc(h.kind === 'fail' ? 'ล้ม' : h.kind === 'skip' ? 'ถูกข้าม' : 'เงียบ ' + Math.round(h.ageMins / 60) + ' ชม.') + '</span>';
+        return '<span class="txt-bad">⚠️ ' + esc(h.job) + ' ' + esc(healthKindTh(h)) + '</span>';
       });
       const okLines = b.lastSync.slice(0, 5 - warnLines.length).map(function (l) {
         return (l.ok ? '✅' : '❌') + ' ' + esc(l.job) + ' ' + relTime(l.ts);
