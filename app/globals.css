@@ -446,13 +446,33 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 }
 .sr-needcheck:hover { text-decoration-style: solid; }
 /* hbar ที่ตัวเลขยาว (฿x,xxx,xxx) — ขยายช่องเลขจาก 48px */
-.hbar-wide .hbar-row { grid-template-columns: 140px 1fr 92px; }
+/* ชื่อสินค้าไทยยาวกว่าอังกฤษมาก — ให้คอลัมน์ชื่อยืดตามการ์ด (สูงสุด 42%) แทน 140px ตายตัว
+   ที่ตัดคำทิ้งตั้งแต่การ์ดยังกว้างอยู่ */
+.hbar-wide .hbar-row { grid-template-columns: minmax(96px, 42%) 1fr 92px; }
 .hbar-wide .hbar-num { text-align: right; white-space: nowrap; }
+/* บรรทัดปิดท้ายกราฟแท่ง — ให้การ์ดมีขอบล่างที่จบจริง ไม่ใช่แท่งสุดท้ายแล้วหายไป
+   และตอบคำถามที่ต้องบวกเองทุกครั้งว่า "ทั้งหมดเท่าไหร่" */
+.hbar-foot {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border);
+  font-size: 12.5px; color: var(--text-3);
+}
+.hbar-foot b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
 /* แถวการ์ดคู่ (hbar + กราฟรายชั่วโมง หน้า Admin Performance) — ห้ามใช้ชื่อ .dash-row (ของ Dashboard) */
 .perf-row { display: grid; grid-template-columns: 1fr 1.2fr; gap: 16px; margin-bottom: 14px; }
 @media (max-width: 1100px) { .perf-row { grid-template-columns: 1fr; } }
-.sr-main { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; margin-top: 16px; }
-.sr-bottom { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; margin-top: 16px; }
+/* minmax(0,…) ทุกคอลัมน์ — ค่า fr เปล่าๆ มีพื้นเป็น auto ตารางกว้างจึงดันคอลัมน์บวมเกินสัดส่วน
+   ที่ตั้งไว้ (ตารางยูนิต 9 คอลัมน์เคยดันจน 1fr กว้างกว่า 1.6fr) แล้วหน้าเว็บเลื่อนแนวนอนได้ */
+.sr-main { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+.sr-bottom { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+/* แถว "สินค้าขายดี + ยอดขายตามยูนิต" — สลับน้ำหนักจาก sr-bottom เพราะเนื้อหาคนละชนิด:
+   ซ้ายเป็นแท่งกราฟ 3 คอลัมน์ (ต้องการที่น้อย) ขวาเป็นตาราง 9 คอลัมน์ (ต้องการที่มาก)
+   align-items:start = การ์ดสูงตามเนื้อหาจริง ไม่ยืดตามเพื่อนจนเหลือที่ว่างครึ่งใบ
+   (บางช่วงเวลามีสินค้าแค่ 2 ชิ้น แต่ยูนิต 10 แถว) */
+.sr-split {
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.75fr);
+  gap: 16px; margin-top: 16px; align-items: start;
+}
 .sr-green { color: var(--green); }
 .sr-red { color: var(--red); }
 .sr-today-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 6px 0; border-bottom: 1px dashed rgba(38,51,82,.6); }
@@ -1003,7 +1023,7 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 1180px) {
-  .dash-row, .dash-row.half, .sr-main, .sr-bottom { grid-template-columns: 1fr; }
+  .dash-row, .dash-row.half, .sr-main, .sr-bottom, .sr-split { grid-template-columns: 1fr; }
   .sr-cards, .sr-channels { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 860px) {

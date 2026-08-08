@@ -532,15 +532,22 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     }).join('');
     const anyTarget = units.some(function (u: any) { return u.target > 0; });
     const pageCount = (topCh.pagesFull || []).length;
-    html += '<div class="sr-bottom">' +
+    // ป้ายหัวการ์ดต้องตรงกับของที่โชว์จริง — ช่วงที่มีสินค้า 2 ตัว การเขียน "Top 10" ทำให้ทีม
+    // นึกว่าระบบดึงมาไม่ครบ (API ตัดมาให้สูงสุด 10 อยู่แล้ว จำนวนที่เห็นคือทั้งหมดที่ขายได้จริง)
+    const prodN = prodRows.length;
+    const prodTotal = (topCh.products || []).reduce(function (a: number, p: any) { return a + (p.value || 0); }, 0);
+    html += '<div class="sr-split">' +
       '<div class="card">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
-          '<h3>📦 สินค้าขายดี Top 10</h3>' +
+          '<h3>📦 สินค้าขายดี' + (prodN ? ' Top ' + fmtNum(prodN) : '') + '</h3>' +
           '<button class="btn-mini" id="sr-drill">🔍 ดูรายละเอียด</button>' +
         '</div>' +
         '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] +
           ' — มูลค่า = ราคาขาย × จำนวน (ยังไม่หักส่วนลดท้ายบิล) • 👆 คลิกสินค้าเพื่อดูรายเพจ</div>' +
         '<div class="hbar-wide">' + hbarRows(prodRows, { empty: 'ยังไม่มีข้อมูลสินค้าในช่วงนี้' }) + '</div>' +
+        (prodTotal > 0
+          ? '<div class="hbar-foot"><span>รวม ' + fmtNum(prodN) + ' รายการ</span><b>' + THB(prodTotal) + '</b></div>'
+          : '') +
       '</div>' +
       '<div class="card">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
