@@ -16,6 +16,15 @@ import { esc } from './helpers';
 
 let tipEl: HTMLElement | null = null;
 let curTarget: Element | null = null;
+let hideTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** อุปกรณ์สัมผัส (ไม่มี hover) — เบราว์เซอร์ยิง mouseover ให้ตอนแตะ แต่ไม่มีวันยิง mouseout
+    เพราะนิ้วไม่ได้ "เลื่อนออก" ไปไหน กรอบจึงค้างจนกว่าจะมีอะไรมาสั่งปิด */
+const TOUCH = typeof window !== 'undefined'
+  && typeof window.matchMedia === 'function'
+  && window.matchMedia('(hover: none)').matches;
+/** เวลาที่ปล่อยให้กรอบค้างบนอุปกรณ์สัมผัสก่อนปิดเอง */
+const TOUCH_AUTO_HIDE_MS = 4000;
 
 function ensureEl(): HTMLElement {
   if (tipEl) return tipEl;
@@ -91,10 +100,13 @@ function show(t: Element, clientX: number, clientY: number): void {
   el.style.opacity = '0';
   position(clientX, clientY);
   requestAnimationFrame(function () { el.classList.add('is-on'); el.style.opacity = ''; });
+  if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+  if (TOUCH) hideTimer = setTimeout(hideInfoTip, TOUCH_AUTO_HIDE_MS);
 }
 
 export function hideInfoTip(): void {
   curTarget = null;
+  if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
   if (tipEl) tipEl.classList.remove('is-on');
 }
 
@@ -107,6 +119,10 @@ export function bindInfoTips(): void {
     for (let i = 0; node && i < 4; i++) { migrateTitle(node); node = node.parentElement; }
     const t = raw.closest('[data-tip]');
     if (!t || t === curTarget) return;
+    // อุปกรณ์สัมผัส: ถ้าสิ่งที่แตะเป็นปุ่ม/ลิงก์อยู่แล้ว อย่าเด้งกรอบอธิบายขึ้นมา
+    // นิ้วแตะเพื่อ "สั่งงาน" ไม่ใช่เพื่อ "ขอคำอธิบาย" — และพอปุ่มนั้นหายไป (เช่น เมนูปิด)
+    // ก็ไม่มี mouseout มาสั่งปิด กรอบเลยค้างกลางจอ
+    if (TOUCH && raw.closest('button, a[href], input, select, [role="button"]')) return;
     curTarget = t;
     show(t, (e as MouseEvent).clientX, (e as MouseEvent).clientY);
   });
@@ -119,4 +135,14 @@ export function bindInfoTips(): void {
   });
   // ซ่อนตอนสกอลล์/สลับหน้า กันกรอบค้างลอย
   window.addEventListener('scroll', hideInfoTip, true);
+  // แตะที่อื่น = ปิด (บนมือถือนี่คือทางเดียวที่ผู้ใช้จะสั่งปิดได้ เพราะไม่มี "เอาเมาส์ออก")
+  document.addEventListener('pointerdown', function (e) {
+    if (!curTarget) return;
+    const t = e.target as Element | null;
+    if (!t || !t.closest || t.closest('[data-tip]') !== curTarget) hideInfoTip();
+  }, true);
+  // ปุ่ม Esc ปิดได้ด้วย (คนใช้คีย์บอร์ดที่เปิดกรอบด้วย :focus-visible)
+  document.addEventListener('keydown', function (e) {
+    if ((e as KeyboardEvent).key === 'Escape') hideInfoTip();
+  });
 }

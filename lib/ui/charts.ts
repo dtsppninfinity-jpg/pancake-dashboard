@@ -214,8 +214,27 @@ function ensureTip(): void {
   };
 }
 
+/** ตัวปิดของกราฟที่กำลังโชว์การ์ดอยู่ — มีได้ทีละอัน (การ์ดเป็น singleton) */
+let _activeClose: (() => void) | null = null;
+let _outsideBound = false;
+
+/** ผูกครั้งเดียวตลอดอายุหน้า: แตะที่อื่น = ปิดการ์ดของกราฟที่เปิดอยู่
+    ต้องเป็น listener ตัวเดียวระดับ document ไม่ใช่ผูกต่อกราฟ — ทุก view วาด SVG ใหม่ทุกครั้ง
+    ที่รีเฟรช (ทุก 5 นาที) ถ้าผูกต่อกราฟจะสะสมไปเรื่อยๆ พร้อมอ้าง SVG ที่หลุดจาก DOM ไปแล้ว */
+function bindOutsideClose_(): void {
+  if (_outsideBound) return;
+  _outsideBound = true;
+  document.addEventListener('pointerdown', function (e) {
+    const close = _activeClose;
+    if (!close) return;
+    const t = e.target as Element | null;
+    if (!t || !t.closest || !t.closest('svg.chart-svg')) close();
+  }, true);
+}
+
 /** ซ่อนทูลทิป singleton — ใช้ตอน teardown ที่ไม่มี rebind (refetch → skeleton, error, สลับหน้า) */
 export function hideChartTip(): void {
+  _activeClose = null;
   if (_raf) { cancelAnimationFrame(_raf); _raf = 0; }
   if (!_tip) return;
   _tip.classList.remove('is-on');
@@ -340,6 +359,7 @@ function bindOneChart_(svg: SVGSVGElement): void {
     svgEl.classList.add('tip-active');
     tip.setAttribute('aria-hidden', 'false');
     tip.classList.add('is-on');
+    _activeClose = onLeave;   // บอก listener ระดับ document ว่าตอนนี้ต้องปิดของกราฟไหน
   }
 
   function onMove(e: PointerEvent): void {
@@ -362,5 +382,13 @@ function bindOneChart_(svg: SVGSVGElement): void {
   }
 
   svgEl.addEventListener('pointermove', onMove);
-  svgEl.addEventListener('pointerleave', onLeave);
+  // ⚠️ นิ้วไม่เหมือนเมาส์: พอยกนิ้ว เบราว์เซอร์ทิ้ง pointer ทันทีแล้วยิง pointerleave
+  //    การ์ดค่าจึงหายพร้อมกับที่ยกนิ้ว = บนมือถืออ่านตัวเลขไม่ทันเลย
+  //    ปล่อยให้ค้างไว้ แล้วไปปิดตอนแตะที่อื่นแทน (bindOutsideClose_)
+  svgEl.addEventListener('pointerleave', function (e) {
+    if ((e as PointerEvent).pointerType === 'touch') return;
+    onLeave();
+  });
+  svgEl.addEventListener('pointercancel', onLeave);
+  bindOutsideClose_();
 }

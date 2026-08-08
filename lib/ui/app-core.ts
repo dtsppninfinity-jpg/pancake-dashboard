@@ -100,6 +100,9 @@ function toggleTheme(): void {
 /* ---------- เมนูบนมือถือ: sidebar เลื่อนเข้าจากซ้าย + ฉากหลังทึบ ---------- */
 
 function setNavOpen(open: boolean): void {
+  // แตะแท็บในลิ้นชักแล้วลิ้นชักปิด — ตัวที่ถูกแตะหายไปโดยไม่มี mouseout
+  // กรอบอธิบายที่เพิ่งเด้งขึ้นมาจึงค้างกลางจอ ต้องสั่งปิดตรงนี้เอง
+  hideInfoTip();
   const app = document.getElementById('app');
   if (app) app.classList.toggle('nav-open', open);
   // ล็อกไม่ให้หน้าเลื่อนตอนเมนูเปิด (ไม่งั้นนิ้วปัดแล้วพื้นหลังไหลตาม)
