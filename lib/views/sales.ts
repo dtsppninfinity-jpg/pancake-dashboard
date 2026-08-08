@@ -222,7 +222,9 @@ function adCloseTile(d: SalesData): string {
   return '<div class="tile"' + tipAttrs({
     title: '🎯 %ปิดจากแอด (Meta)', formula: 'ซื้อ ÷ คนทักจากแอด',
     body: 'ซื้อ ' + fmtNum(a.adPurchases || 0) + ' ÷ คนทักจากแอด ' + fmtNum(a.adMsgs || 0) +
-      ' • เฉพาะคนที่มาจากแอด (คนละตัวกับ %ปิดด้านบนที่นับลูกค้าทุกคน)',
+      ' • เป็นตัวเลขฝั่ง Meta ล้วน ไม่เท่ากับ "%ปิดการขาย" ด้านบน (ของ Pancake) — ปกติต่างกัน 2-4 จุด ' +
+      'เพราะ Meta นับ "ซื้อ" ตามหน้าต่าง attribution ของโฆษณา ส่วน Pancake นับออเดอร์ที่เปิดในแชทวันนั้น ' +
+      '• ระหว่างวันฝั่ง Meta จะต่ำกว่าเพราะรายงานช้ากว่า',
     src: 'Meta Ads (meta_purchase ÷ messaging_started)',
   }) + '>🎯 %ปิดจากแอด (Meta)<b>' + pctFmt(a.adCloseRate) + '</b></div>';
 }
