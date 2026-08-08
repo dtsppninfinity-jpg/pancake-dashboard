@@ -99,6 +99,31 @@ function toggleTheme(): void {
 
 /* ---------- เมนูบนมือถือ: sidebar เลื่อนเข้าจากซ้าย + ฉากหลังทึบ ---------- */
 
+/* ---------- พับ/กางแถบเมนูบนจอกว้าง ----------
+   แถบเมนูกว้าง 250px คงที่ บน iPad แนวตั้ง (1024px) มันกินไปหนึ่งในสี่ของจอ
+   เหลือเนื้อหา 774px ซึ่งแคบจนการ์ดแอดบีบชื่อไทยเหลือ 0px (ตัดทีละตัวอักษร)
+   ปุ่ม ☰ จึงใช้ได้ทุกขนาดจอ: จอแคบ = เปิด/ปิดลิ้นชัก, จอกว้าง = พับ/กางแถบเมนู */
+const NAV_PREF_KEY = 'pn-nav';
+const wideScreen = () => window.matchMedia('(min-width: 900px)').matches;
+
+/** ค่าเริ่มต้นตอนยังไม่เคยเลือก: จอ ≥1200 กางไว้ (มีที่พอ), แคบกว่านั้นพับไว้ก่อน */
+function applyNavPref(): void {
+  const app = document.getElementById('app');
+  if (!app) return;
+  let saved: string | null = null;
+  try { saved = localStorage.getItem(NAV_PREF_KEY); } catch (e) {}
+  const roomy = window.matchMedia('(min-width: 1200px)').matches;
+  app.classList.toggle('nav-hidden', saved ? saved === 'hide' : !roomy);
+}
+
+function toggleSidebarPinned(): void {
+  const app = document.getElementById('app');
+  if (!app) return;
+  const hide = !app.classList.contains('nav-hidden');
+  app.classList.toggle('nav-hidden', hide);
+  try { localStorage.setItem(NAV_PREF_KEY, hide ? 'hide' : 'show'); } catch (e) {}
+}
+
 function setNavOpen(open: boolean): void {
   // แตะแท็บในลิ้นชักแล้วลิ้นชักปิด — ตัวที่ถูกแตะหายไปโดยไม่มี mouseout
   // กรอบอธิบายที่เพิ่งเด้งขึ้นมาจึงค้างกลางจอ ต้องสั่งปิดตรงนี้เอง
@@ -236,9 +261,12 @@ const App = {
       });
     });
 
+    applyNavPref();
     const navBtn = document.getElementById('btn-nav');
     if (navBtn) {
       navBtn.addEventListener('click', function () {
+        // จอกว้าง = พับ/กางแถบเมนูที่ปักซ้าย • จอแคบ = เปิด/ปิดลิ้นชัก
+        if (wideScreen()) { toggleSidebarPinned(); return; }
         const app = document.getElementById('app');
         setNavOpen(!(app && app.classList.contains('nav-open')));
       });

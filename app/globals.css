@@ -645,7 +645,11 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 .ca-rank { font-size: var(--fs-7); font-weight: 800; color: var(--text-3); width: 34px; text-align: center; flex-shrink: 0; }
 .ca-id { font-weight: 700; font-size: var(--fs-3); }
 .ca-sub { font-size: var(--fs-2); color: var(--text-3); margin-top: var(--sp-1); }
-.ca-main { flex: 1; min-width: 0; }
+/* ⚠️ ต้องมีฐาน 180px ไม่ใช่ flex:1 เปล่าๆ — flex:1 คือ basis 0 แปลว่า "ขอเฉพาะที่เหลือ"
+   พอ .ca-nums (8 ตัวเลข = 542px) กินไปหมด ช่องชื่อก็เหลือ 0px จริงๆ แล้วชื่อไทยตัดทีละตัวอักษร
+   (วัดได้บน iPad แนวตั้ง: การ์ด 726px → ชื่อ 0px / ตัวเลข 542px) */
+.ca-main { flex: 1 1 180px; min-width: 0; }
+.ca-nums { min-width: 0; }
 .ca-nums { display: flex; gap: var(--sp-4); flex-wrap: wrap; justify-content: flex-end; }
 .ca-num { text-align: right; min-width: 62px; }
 .ca-num b { display: block; font-size: var(--fs-4); }
@@ -1585,8 +1589,12 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
    💻 ≥900px — แท็บเล็ต/โน้ตบุ๊ก: แถบเมนูปักซ้ายถาวร, ตารางกลับเป็นตาราง
    ============================================================ */
 @media (min-width: 900px) {
-  /* แถบเมนูออกจากลิ้นชักมาปักซ้าย ปุ่ม ☰ กับฉากหลังจึงไม่ต้องมี */
-  .btn.btn-nav, .nav-backdrop { display: none; }
+  /* แถบเมนูออกจากลิ้นชักมาปักซ้าย — ฉากหลังทึบไม่ต้องมีแล้ว แต่ปุ่ม ☰ ยังอยู่
+     เพราะบนแท็บเล็ต (iPad แนวตั้ง 1024px) แถบเมนู 250px กินพื้นที่ไปหนึ่งในสี่ของจอ
+     เหลือเนื้อหา 774px ซึ่งแคบจนข้อความไทยในการ์ดแอดตัดทีละตัวอักษร
+     ปุ่ม ☰ จึงกลายเป็นปุ่มพับ/กางแถบเมนู และจำค่าที่เลือกไว้ (ดู applyNavPref ใน app-core) */
+  .nav-backdrop { display: none; }
+  #app.nav-hidden .sidebar { display: none; }
   /* หมุนจอเป็นแนวนอนทั้งที่ลิ้นชักเปิดค้างอยู่ — คลาส nav-open ยังติดอยู่ ต้องล้างผลของมันทิ้ง
      ไม่งั้นได้เงาทาบแถบเมนูถาวร และหน้าเลื่อนไม่ได้เพราะยังถูกล็อกอยู่ */
   #app.nav-open .sidebar { box-shadow: none; }
@@ -1664,7 +1672,7 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
   .rank-right { text-align: right; width: auto; }
   .sp-row { grid-template-columns: 190px minmax(0, 1fr) minmax(0, 1.2fr) 130px; gap: var(--sp-3); }
   .sp-row > .sp-metric, .sp-row > .sp-dir { grid-column: auto; }
-  .ca-card { flex-wrap: nowrap; padding: var(--sp-3) var(--sp-4); }
+  .ca-card { padding: var(--sp-3) var(--sp-4); }
   .attn-item { flex-wrap: nowrap; }
   .attn-actions { width: auto; flex: none; flex-direction: column; align-items: flex-end; gap: var(--sp-1); }
 }
@@ -1678,6 +1686,8 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
   .dash-row.single { grid-template-columns: minmax(0, 1fr); }
   .sr-main, .sr-bottom { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
   .perf-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); }
+  /* การ์ดแอดอยู่บรรทัดเดียวได้เมื่อกว้างพอจริงๆ เท่านั้น — ที่ 1024px ยังไม่พอ */
+  .ca-card { flex-wrap: nowrap; }
   .kpi-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .kpi-grid { grid-template-columns: minmax(0, 1fr) 280px; }
   .kpi-grid > div:first-child { order: 0; }

@@ -125,7 +125,9 @@ export default async function Page() {
         <main className="main">
           <header className="topbar">
             {/* ปุ่มเมนูโผล่เฉพาะจอแคบ (ดู globals.css) */}
-            <button id="btn-nav" className="btn btn-nav" aria-label="เปิดเมนู">☰</button>
+            {/* จอแคบ = เปิดลิ้นชักเมนู • จอกว้าง = พับ/กางแถบเมนูที่ปักซ้าย (จำค่าไว้) */}
+            <button id="btn-nav" className="btn btn-nav" aria-label="เปิด/ปิดเมนู"
+              title="เปิด/ปิดแถบเมนู">☰</button>
             <div className="topbar-titles">
               <h1 id="topbar-title">Dashboard</h1>
               <div id="topbar-sub" className="topbar-sub">ภาพรวมแชทวันนี้</div>
