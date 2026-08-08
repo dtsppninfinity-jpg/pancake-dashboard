@@ -356,7 +356,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       title: 'กำลังกรองช่องทาง',
       body: 'ยอดขาย / ออเดอร์ / %ปิด นับเฉพาะ ' + CH_LABELS[state.channel] +
         ' • ค่าแอด/ROAS เป็นของ Facebook เสมอ (แอดทั้งหมดอยู่บน FB) • คลิกช่องด้านล่าง (หรือ "ทั้งหมด") เพื่อเปลี่ยน',
-    }) + '>👁 กำลังดูเฉพาะ <b>' + CH_LABELS[state.channel] + '</b>' +
+    }) + '>👁️ กำลังดูเฉพาะ <b>' + CH_LABELS[state.channel] + '</b>' +
       '<span class="sr-chan-hint">— ยอดขาย/ออเดอร์/%ปิด นับเฉพาะช่องทางนี้ • เปลี่ยนได้ที่ช่องด้านล่าง</span></div>';
   }
   html += '<div class="sr-cards">' +
@@ -372,7 +372,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         // "ต้องตรวจ" กดได้ → เปิดตารางรายออเดอร์ (เดิมเป็นตัวเลขเฉยๆ ไม่รู้ว่าใบไหน)
         (Number(k.needCheck) > 0
           ? ' <button type="button" class="sr-needcheck" data-needcheck="range"' +
-              ' title="คลิกดูรายออเดอร์ที่ยังไม่ยืนยัน">⚠ ต้องตรวจ ' + fmtNum(k.needCheck) + '</button>'
+              ' title="คลิกดูรายออเดอร์ที่ยังไม่ยืนยัน">⚠️ ต้องตรวจ ' + fmtNum(k.needCheck) + '</button>'
           : ' ✓ ไม่มีค้างตรวจ') +
         trendChip(t.orders) +
       '</div>' +
@@ -487,7 +487,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       '<div class="sr-today-row"><span>📘 Facebook</span><b>' + THB(today.fb || 0) + '</b></div>' +
       '<div class="sr-today-row"><span>🟢 LINE OA</span><b>' + THB(today.line || 0) + '</b></div>' +
       '<div class="sr-today-row"><span>🆕 ลูกค้าใหม่</span><b>' + fmtNum(today.newCust || 0) + ' คน</b></div>' +
-      '<div class="sr-today-row"><span>⚠ ออเดอร์ที่ต้องตรวจ</span>' +
+      '<div class="sr-today-row"><span>⚠️ ออเดอร์ที่ต้องตรวจ</span>' +
         (Number(today.needCheck) > 0
           ? '<button type="button" class="sr-needcheck" data-needcheck="today"' +
             ' title="คลิกดูรายออเดอร์ที่ยังไม่ยืนยัน">' + fmtNum(today.needCheck) + '</button>'
@@ -959,13 +959,20 @@ function lossAlertHtml_(a: any): string {
       '<h3>🚨 ยูนิตที่ต้องแก้ด่วน (' + fmtNum(list.length) + ')</h3>' +
       '<button class="btn-mini" id="sr-breakeven">⚙️ ตั้งค่ายูนิต</button>' +
     '</div>' +
+    // เดิมยัดคำอธิบาย 5 เรื่องรวดเดียว ~340 ตัวอักษร กินไป 9 บรรทัดบนมือถือ ก่อนจะถึงยูนิตแรก
+    // เก็บบรรทัดที่ต้องรู้ทุกครั้งไว้ข้างนอก ส่วนนิยาม/วิธีคิดพับไว้ให้กดเปิดเมื่ออยากตรวจกับชีท
     '<div class="card-sub">' +
       (urgentN ? '<b class="txt-bad">' + fmtNum(urgentN) + ' ยูนิตขาดทุน 2 วันขึ้นไป</b> • ' : '') +
-      'นับถึง ' + esc(a.throughDate || '') + ' (วันที่จบแล้ว — วันนี้ยังไม่นับเพราะค่าแอดยังเดินอยู่) • ' +
-      '<b>กำไรสุทธิ = ตัวเลขแถว "รวม" คอลัมน์กำไรสุทธิ แท็บสรุปยอดขาย ชีท สร. ของเดือนนี้</b> ' +
-      '(<b class="txt-good">เขียว = กำไร</b> <b class="txt-bad">แดง = ขาดทุน</b> — เปิดชีทเทียบได้เลขเดียวกัน) • ' +
-      '"N วันติด" = จำนวนวันขาดทุนติดต่อกันล่าสุด • ยูนิตที่ไม่มีในชีทใช้ ROAS &lt; จุดคุ้มทุนแทนโดยประมาณ' +
+      'นับถึง ' + esc(a.throughDate || '') + ' (วันที่จบแล้ว)' +
     '</div>' +
+    '<details class="sub-more"><summary>ตัวเลขนี้คิดยังไง / เทียบกับชีทยังไง</summary>' +
+      '<div>' +
+        'วันนี้ยังไม่นับเพราะค่าแอดยังเดินอยู่ • ' +
+        '<b>กำไรสุทธิ = ตัวเลขแถว "รวม" คอลัมน์กำไรสุทธิ แท็บสรุปยอดขาย ชีท สร. ของเดือนนี้</b> ' +
+        '(<b class="txt-good">เขียว = กำไร</b> <b class="txt-bad">แดง = ขาดทุน</b> — เปิดชีทเทียบได้เลขเดียวกัน) • ' +
+        '"N วันติด" = จำนวนวันขาดทุนติดต่อกันล่าสุด • ยูนิตที่ไม่มีในชีทใช้ ROAS &lt; จุดคุ้มทุนแทนโดยประมาณ' +
+      '</div>' +
+    '</details>' +
     '<div class="loss-list">' + rows + '</div>' +
   '</div>';
 }
@@ -1160,7 +1167,7 @@ function openUnitDrill(unitKey: string, chKey: string): void {
       (unit.repeatRate === null ? '' : '<span class="chip" title="ลูกค้าที่ซื้อ 2 ครั้งขึ้นไปภายในช่วงที่เลือก">' +
         '🔁 ซื้อซ้ำ ' + pctFmt(unit.repeatRate) + ' (' + fmtNum(unit.repeatCustomers) + ' คน)</span>') +
       (unit.repeatCycleDays === null ? '' : '<span class="chip" title="ค่ามัธยฐานของระยะห่างระหว่างออเดอร์ของลูกค้าคนเดียวกัน">' +
-        '⏱ รอบซื้อ ' + unit.repeatCycleDays + ' วัน</span>') +
+        '⏱️ รอบซื้อ ' + unit.repeatCycleDays + ' วัน</span>') +
       '</div>' +
     (unit.repeatRate === null ? '' : '<div class="card-sub" style="margin:-4px 0 10px">' +
       'ซื้อซ้ำนับเฉพาะภายในช่วงที่เลือก — คนที่ซื้อครั้งแรกก่อนช่วงนี้จะยังไม่ถูกนับว่าซื้อซ้ำ ' +
@@ -1290,7 +1297,7 @@ function openNeedCheckDrill(scope: 'range' | 'today'): void {
   }).join('');
   const sumVal = list.reduce(function (s: number, o: any) { return s + (Number(o.total) || 0); }, 0);
   openModal(
-    '<div class="modal-head"><h3>⚠ ออเดอร์ที่ต้องตรวจ (' + fmtNum(total) + ')</h3>' +
+    '<div class="modal-head"><h3>⚠️ ออเดอร์ที่ต้องตรวจ (' + fmtNum(total) + ')</h3>' +
       '<button class="modal-close">✕</button></div>' +
     '<div class="card-sub" style="margin-bottom:10px">' + where + '</div>' +
     '<div class="hint-box" style="margin-bottom:10px">ออเดอร์สถานะ <b>ใหม่ / รอยืนยัน</b> จาก Pancake — ' +
@@ -1336,7 +1343,7 @@ function fetchAndRender(container: HTMLElement, blocking: boolean): void {
       hideChartTip(); // กราฟถูกแทนด้วยกล่อง error — ซ่อนทูลทิปที่อาจค้าง
       showError(container, msg, function () { refetch(container); });
     } else {
-      toast('⚠ รีเฟรชข้อมูลไม่สำเร็จ — แสดงข้อมูลเดิมไว้ก่อน');
+      toast('⚠️ รีเฟรชข้อมูลไม่สำเร็จ — แสดงข้อมูลเดิมไว้ก่อน');
     }
   });
 }

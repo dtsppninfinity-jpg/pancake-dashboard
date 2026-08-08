@@ -47,17 +47,32 @@ function unitTableHtml_(d: ReportData): string {
   const weeks = Array.from(weekSet).sort();
   const wLabel = (w: string, i: number) => 'W' + (i + 1) + ' (' + w.slice(8, 10) + '+)';
 
+  // ---- สถานะเทียบ "จังหวะที่ควรจะเป็น" ไม่ใช่เทียบ 100% เฉยๆ ----
+  // ของเดิมตัดสินด้วย attain >= 100 อย่างเดียว เดือนปัจจุบันจึงขึ้นแดง "✗ ไม่ถึง" ทุกยูนิต
+  // ตั้งแต่วันที่ 7 ของเดือน = แดงทั้งตารางประมาณ 3 ใน 4 ของเดือน แล้วไม่มีใครอ่านคอลัมน์นี้อีก
+  // เดือนที่จบแล้วยังตัดสินแบบเดิม (ถึง/ไม่ถึง) เพราะไม่มี "จังหวะ" ให้เทียบแล้ว
+  const daysInMonth = new Date(Number(d.year), d.month, 0).getDate();
+  const dayOfMonth = d.isCurrent ? Math.max(1, daysInMonth - d.daysLeft + 1) : daysInMonth;
+  const pacePct = Math.round((dayOfMonth / daysInMonth) * 1000) / 10;   // ผ่านมากี่ % ของเดือน
+
+  function statusBadge(attain: number | null): string {
+    if (attain === null) return '<span class="badge neutral">ไม่ตั้งเป้า</span>';
+    if (attain >= 100) return '<span class="badge ai">✅ ถึงเป้าแล้ว</span>';
+    if (!d.isCurrent) return '<span class="badge urgent">✗ ไม่ถึงเป้า</span>';
+    if (attain >= pacePct) return '<span class="badge info">🟦 ตามแผน</span>';
+    if (attain >= pacePct * 0.75) return '<span class="badge admin">⚠️ ช้ากว่าแผน</span>';
+    return '<span class="badge urgent">🔴 ต่ำกว่าแผนมาก</span>';
+  }
+
   const body = d.units.map((x) => {
     const wkMap: Record<string, number> = {};
     x.weekly.forEach((w) => { wkMap[w.week] = w.sales; });
-    const hit = x.attain !== null && x.attain >= 100;
     return '<tr>' +
       '<td><b>' + esc(x.u) + '</b>' + (x.product ? ' <span class="rank-fullname">' + esc(x.product) + '</span>' : '') + '</td>' +
       '<td class="num">' + (x.target ? THB(x.target) : '-') + '</td>' +
       '<td class="num">' + THB(x.actual) + '</td>' +
       '<td class="num ' + attainCls(x.attain) + '"><b>' + pctFmt(x.attain) + '</b></td>' +
-      '<td>' + (x.attain === null ? '<span class="badge neutral">ไม่ตั้งเป้า</span>'
-        : hit ? '<span class="badge ai">✅ ถึงเป้า</span>' : '<span class="badge urgent">✗ ไม่ถึง</span>') + '</td>' +
+      '<td>' + statusBadge(x.attain) + '</td>' +
       '<td class="num">' + (x.gap ? THB(x.gap) : '-') + '</td>' +
       '<td class="num">' + (x.needPerDay ? THB(x.needPerDay) + '/วัน' : '-') + '</td>' +
       weeks.map((w) => '<td class="num">' + (wkMap[w] ? THB(wkMap[w]) : '<span style="opacity:.35">—</span>') + '</td>').join('') +
@@ -72,7 +87,11 @@ function unitTableHtml_(d: ReportData): string {
     '</div>' +
     '<div class="card-sub">เป้าจากชีท KPI (แท็บ เป้ายอดขาย) • ยอดจริงจากชีทสรุปรายสินค้า (แหล่งเดียวกับที่ทีมใช้วัด) • ' +
       'ยอดรายวีคนับจันทร์–อาทิตย์' +
-      (d.isCurrent ? ' • เดือนนี้เหลือ ' + fmtNum(d.daysLeft) + ' วัน — "ต้องขายเพิ่ม/วัน" คิดจากวันที่เหลือ' : '') + '</div>' +
+      (d.isCurrent
+        ? ' • เดือนนี้ผ่านมา ' + pacePct + '% (เหลือ ' + fmtNum(d.daysLeft) + ' วัน) — ' +
+          '<b>สถานะเทียบกับจังหวะที่ควรจะเป็น ไม่ใช่เทียบ 100%</b>: ' +
+          'ตามแผน = %บรรลุ ≥ ' + pacePct + '% • ช้ากว่าแผน = ต่ำกว่านั้นแต่ยังไม่ถึงครึ่ง'
+        : ' • เดือนที่ปิดแล้ว สถานะคือถึงเป้า/ไม่ถึงเป้าจริง') + '</div>' +
     '<div class="table-scroll"><table class="tbl"><thead><tr>' +
       '<th>ยูนิต</th><th class="num">เป้า/เดือน</th><th class="num">ยอดจริง</th><th class="num">%บรรลุ</th>' +
       '<th>สถานะ</th><th class="num">ขาดอีก</th><th class="num">ต้องขายเพิ่ม</th>' +
@@ -209,7 +228,9 @@ function fetchData(container: HTMLElement): void {
 export const report = {
   load: async (container: HTMLElement, force?: boolean): Promise<void> => {
     if (lastData && !force) {
+      // แสดง cache ก่อนแล้วดึงใหม่เบื้องหลัง — เดิม return ตรงนี้เลย ลูปอัปเดต 5 นาทีจึงไม่มีผล
       render(container, lastData);
+      fetchData(container);
       return;
     }
     container.innerHTML = '<div class="loading"><div class="spinner"></div>กำลังโหลดรายงาน...</div>';

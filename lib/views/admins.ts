@@ -428,7 +428,7 @@ function cardHtml(a: Admin): string {
     '</div>' +
     '<div class="admin-actions">' +
       '<button class="btn-mini' + (enabled ? '' : ' primary') + '" data-adtoggle="' + esc(String(a.id)) + '">' +
-        (enabled ? '⏸ ปิดใช้งาน' : '▶ เปิดใช้งาน') + '</button>' +
+        (enabled ? '⏸️ ปิดใช้งาน' : '▶️ เปิดใช้งาน') + '</button>' +
       '<select class="input ad-status-sel" data-adstatus="' + esc(String(a.id)) + '"' + (enabled ? '' : ' disabled') + '>' +
         '<option value=""' + (!a.statusOverride ? ' selected' : '') + '>สถานะอัตโนมัติ</option>' +
         '<option value="away"' + (a.statusOverride === 'away' ? ' selected' : '') + '>🟡 พัก</option>' +
@@ -960,7 +960,7 @@ function bindEvents(container: HTMLElement): void {
             renderBody(container);
             saveAdmin(a, { enabled: a.enabled, status_override: String(a.statusOverride || '') },
               function () { Object.assign(a, before); }, container,
-              (a.enabled ? '▶ เปิด' : '⏸ ปิด') + 'ใช้งาน "' + nickOf(a) + '" แล้ว');
+              (a.enabled ? '▶️ เปิด' : '⏸️ ปิด') + 'ใช้งาน "' + nickOf(a) + '" แล้ว');
           }
           return;
         }

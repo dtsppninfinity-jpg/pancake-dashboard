@@ -105,7 +105,7 @@ function bodyHtml(d: MeData): string {
   const head = '<div class="card me-hero">' +
     '<div class="me-hero-name">👋 สวัสดี ' + shown + '</div>' +
     '<div class="me-hero-sub">ผลงานของคุณ • ' + esc(d.rangeLabel || '') +
-      (state.preset === 'today' ? ' • ⏱ ' + timeLeftToday() : '') + '</div>' +
+      (state.preset === 'today' ? ' • ⏱️ ' + timeLeftToday() : '') + '</div>' +
     '<div class="me-rank">อันดับ <b>' + fmtNum(d.rank || 0) + '</b> จาก ' + fmtNum(d.teamSize || 0) + ' คน</div>' +
     '</div>';
 

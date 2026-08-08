@@ -86,8 +86,8 @@ function rowsHtml(d: UsersData): string {
       '<td class="us-actions">' +
         '<button class="btn-mini" data-us-edit="' + u.id + '">✏️ แก้ไข</button>' +
         '<button class="btn-mini" data-us-reset="' + u.id + '" title="ตั้งรหัสใหม่แบบสุ่ม">🔑 รีเซ็ตรหัส</button>' +
-        '<button class="btn-mini" data-us-toggle="' + u.id + '">' + (u.enabled ? '⏸ ปิด' : '▶ เปิด') + '</button>' +
-        (isMe ? '' : '<button class="btn-mini danger" data-us-del="' + u.id + '">🗑 ลบ</button>') +
+        '<button class="btn-mini" data-us-toggle="' + u.id + '">' + (u.enabled ? '⏸️ ปิด' : '▶️ เปิด') + '</button>' +
+        (isMe ? '' : '<button class="btn-mini danger" data-us-del="' + u.id + '">🗑️ ลบ</button>') +
       '</td></tr>';
   }).join('');
 
@@ -326,7 +326,7 @@ function bindRowActions(container: HTMLElement): void {
       busy = true;
       try {
         await serverCall('apiUsers', { action: 'update', id: u.id, enabled: !u.enabled });
-        toast(u.enabled ? '⏸ ปิดใช้งานแล้ว' : '▶ เปิดใช้งานแล้ว');
+        toast(u.enabled ? '⏸️ ปิดใช้งานแล้ว' : '▶️ เปิดใช้งานแล้ว');
         lastData = null;
         users.load(container, true);
       } catch (e: any) {
@@ -344,7 +344,7 @@ function bindRowActions(container: HTMLElement): void {
       busy = true;
       try {
         await serverCall('apiUsers', { action: 'delete', id: u.id });
-        toast('🗑 ลบแล้ว');
+        toast('🗑️ ลบแล้ว');
         lastData = null;
         users.load(container, true);
       } catch (e: any) {

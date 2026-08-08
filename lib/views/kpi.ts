@@ -914,7 +914,11 @@ function fetchData(container: HTMLElement): void {
 export const kpi = {
   load: async (container: HTMLElement, force?: boolean): Promise<void> => {
     if (lastData && !force) {
+      // แสดง cache ทันทีแล้วดึงใหม่เบื้องหลัง (แบบเดียวกับหน้า Sales)
+      // เดิม return ตรงนี้เลย ทำให้ลูปอัปเดตทุก 5 นาทีของ app-core ไม่มีผลกับหน้านี้
+      // เปิดทิ้งไว้ตอนเช้า สลับกลับมาบ่าย ก็ยังเป็นเลขเมื่อเช้า (fetchData มี reqSeq กันคำตอบสลับอยู่แล้ว)
       render(container, lastData);
+      fetchData(container);
       return;
     }
     container.innerHTML = '<div class="loading"><div class="spinner"></div>กำลังโหลดข้อมูล KPI...</div>';

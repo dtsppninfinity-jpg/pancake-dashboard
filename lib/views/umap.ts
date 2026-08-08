@@ -125,7 +125,7 @@ function uCardHtml(x: UUnit, ids: Set<string>, hasRoster: boolean): string {
   return '<div class="u-card' + (droppable ? ' droppable' : '') + '" data-u="' + esc(x.u) + '">' +
     '<div class="u-tools">' +
       '<button class="u-tool-btn" data-act="edit" data-u="' + esc(x.u) + '" title="แก้ชื่อผลิตภัณฑ์">✏️</button>' +
-      '<button class="u-tool-btn" data-act="del" data-u="' + esc(x.u) + '" title="ลบ U นี้">🗑</button>' +
+      '<button class="u-tool-btn" data-act="del" data-u="' + esc(x.u) + '" title="ลบ U นี้">🗑️</button>' +
     '</div>' +
     '<div class="u-code">' + esc(x.u) + '</div>' +
     '<div class="u-product">' + esc(x.product || '—') + '</div>' +
@@ -259,11 +259,11 @@ function openRemoveUnit(container: HTMLElement, u: string): void {
       unit.admins.length + ' คน — การจับคู่ของ U นี้จะหายไปด้วย</div>'
     : '';
   openModal(
-    '<div class="modal-head"><h3>🗑 ลบ ' + esc(u) + '?</h3><button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>🗑️ ลบ ' + esc(u) + '?</h3><button class="modal-close">✕</button></div>' +
     '<div style="font-size:13px">' + esc(u) + ' — ' + esc(unit.product || '(ไม่มีชื่อผลิตภัณฑ์)') + '</div>' + warn +
     '<div class="modal-actions">' +
       '<button class="btn" id="udel-cancel">ยกเลิก</button>' +
-      '<button class="btn primary" id="udel-yes" style="background:var(--red);border-color:var(--red)">🗑 ลบเลย</button>' +
+      '<button class="btn primary" id="udel-yes" style="background:var(--red);border-color:var(--red)">🗑️ ลบเลย</button>' +
     '</div>'
   );
   const root = document.getElementById('modal-root')!;
@@ -272,7 +272,7 @@ function openRemoveUnit(container: HTMLElement, u: string): void {
   const yes = root.querySelector('#udel-yes');
   if (yes) yes.addEventListener('click', () => {
     closeModal();
-    mutate(container, { action: 'removeUnit', u }, '🗑 ลบ ' + u + ' แล้ว');
+    mutate(container, { action: 'removeUnit', u }, '🗑️ ลบ ' + u + ' แล้ว');
   });
 }
 

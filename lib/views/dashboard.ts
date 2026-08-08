@@ -137,7 +137,7 @@ const NOW_TIP = 'ค่าตอนนี้จากบทสนทนา 24 �
  */
 function nowBadge_(): string {
   if (isTodayRange_()) return '';
-  return ' <span class="badge info" title="' + esc(NOW_TIP) + '">⏱ ตอนนี้ (24 ชม.ล่าสุด) — ไม่ขึ้นกับช่วงที่เลือก</span>';
+  return ' <span class="badge info" title="' + esc(NOW_TIP) + '">⏱️ ตอนนี้ (24 ชม.ล่าสุด) — ไม่ขึ้นกับช่วงที่เลือก</span>';
 }
 
 /** หมายเหตุตัวเลขรวมหลายวัน (คนเดิมที่ทักคนละวันถูกนับซ้ำ — endpoint ต้นทางไม่มี unique ข้ามวัน) */

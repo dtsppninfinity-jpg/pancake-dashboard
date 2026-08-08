@@ -223,7 +223,10 @@ const App = {
     // 🩺 งาน sync ที่ล้ม/ข้าม/เงียบนานเกินรอบ — โชว์บนหัวเว็บทันที ไม่รอให้ตัวเลขเพี้ยนแล้วทีมทักก่อน
     const health = (b.syncHealth || []) as SyncHealthItem[];
     if (health.length) {
-      chip.textContent = '⚠️ งาน sync มีปัญหา ' + health.length + ' งาน';
+      // ห่อคำอธิบายไว้ใน .chip-long เพื่อให้จอแคบซ่อนได้ เหลือ "⚠️ 1" — ของเดิมข้อความเต็ม
+      // กินพื้นที่หัวเว็บจนชื่อหน้าเหลือ 2 ตัวอักษรบนมือถือ (ข้อความเต็มยังอยู่ใน title และแถบเมนู)
+      chip.innerHTML = '⚠️ <span class="chip-long">งาน sync มีปัญหา </span>' + health.length +
+        '<span class="chip-long"> งาน</span>';
       chip.title = health.map(function (h) {
         return h.job + ' (' + healthKindTh(h) + '): ' + h.message;
       }).join('\n');
@@ -259,6 +262,9 @@ const App = {
     });
     document.getElementById('topbar-title')!.textContent = VIEW_META[view].title;
     document.getElementById('topbar-sub')!.textContent = VIEW_META[view].sub;
+    // เลื่อนกลับขึ้นบนทุกครั้งที่เปลี่ยนหน้า — เดิมค้างที่ตำแหน่งเดิม จากล่างสุดหน้า Sales
+    // ไปกด KPI แล้วโผล่กลางหน้าโดยไม่เห็นหัวข้อ (หน้า KPI ถึงกับต้องขึ้นข้อความบอกทางผู้ใช้เอง)
+    window.scrollTo({ top: 0, behavior: 'auto' });
     this.loadView(view, false);
   },
 

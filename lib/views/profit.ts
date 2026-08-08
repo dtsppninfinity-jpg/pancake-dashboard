@@ -53,7 +53,8 @@ function render(container: HTMLElement, d: ProfitData | null): void {
   const retPct = t.sales > 0 ? Math.round((t.returnValue / t.sales) * 1000) / 10 : null;
 
   const cards = '<div class="pg-summary">' +
-    '<div class="pgs-item' + (t.profit < 0 ? ' warn' : ' ok') + '"><b>' + THB(t.profit) + '</b><span>กำไรสุทธิรวมปี ' + esc(d.year) + ' (ตามชีททีม)</span></div>' +
+    // ขาดทุนทั้งปีต้องเป็นแดง ไม่ใช่เหลืองระดับเดียวกับ "%ตีกลับเกิน 5%" (คลาส bad มีอยู่แล้วแต่ไม่มีใครใช้)
+    '<div class="pgs-item' + (t.profit < 0 ? ' bad' : ' ok') + '"><b>' + THB(t.profit) + '</b><span>กำไรสุทธิรวมปี ' + esc(d.year) + ' (ตามชีททีม)</span></div>' +
     '<div class="pgs-item"><b>' + THB(t.sales) + '</b><span>ยอดขายรวม (ชีท)</span></div>' +
     '<div class="pgs-item"><b>' + THB(t.ads) + '</b><span>ค่าแอดรวม (ชีท)</span></div>' +
     '<div class="pgs-item' + (retPct !== null && retPct > 5 ? ' warn' : '') + '"><b>' + THB(t.returnValue) + '</b>' +
@@ -70,7 +71,7 @@ function render(container: HTMLElement, d: ProfitData | null): void {
     // อายุสินค้า = นับจากวันแรกที่มียอดในชีท (ข้อมูลเริ่ม ม.ค. 2026 — ตัวที่ขายมาก่อนขึ้น ≥)
     const ageTxt = x.age
       ? '<span title="' + esc('เริ่มมียอด ' + x.age.firstSale + (x.age.active ? ' • ยังขายอยู่' : ' • หยุดขายแล้ว')) + '">' +
-        (x.age.openEnded ? '≥' : '') + fmtNum(x.age.days) + ' วัน' + (x.age.active ? '' : ' ⏸') + '</span>'
+        (x.age.openEnded ? '≥' : '') + fmtNum(x.age.days) + ' วัน' + (x.age.active ? '' : ' ⏸️') + '</span>'
       : '-';
     return '<tr><td><b>' + esc(x.u) + '</b>' +
       (x.product ? ' <span class="rank-fullname">' + esc(x.product) + '</span>' : '') + '</td>' +
@@ -302,7 +303,9 @@ function fetchData(container: HTMLElement): void {
 export const profit = {
   load: async (container: HTMLElement, force?: boolean): Promise<void> => {
     if (lastData && !force) {
+      // แสดง cache ก่อนแล้วดึงใหม่เบื้องหลัง — เดิม return ตรงนี้เลย ลูปอัปเดต 5 นาทีจึงไม่มีผล
       render(container, lastData);
+      fetchData(container);
       return;
     }
     container.innerHTML = '<div class="loading"><div class="spinner"></div>กำลังโหลดข้อมูลกำไร...</div>';

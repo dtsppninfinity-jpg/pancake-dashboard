@@ -31,12 +31,12 @@ const RANGE_OPTIONS = [
 const STATUS_OPTIONS = [
   { key: '', label: 'ทุกสถานะ' },
   { key: 'winning', label: '🏆 Winning' },
-  { key: 'needs_fix', label: '🛠 Needs Fix' },
+  { key: 'needs_fix', label: '🛠️ Needs Fix' },
   { key: 'losing', label: '📉 Losing' },
   { key: 'watch', label: '👀 Watch' },
-  { key: 'active', label: '▶ Active' },
+  { key: 'active', label: '▶️ Active' },
   { key: 'organic', label: '🌱 Organic (ไม่ใช้งบ)' }, // แถวที่ไม่มี spend — เดิมกรองหาไม่ได้เลย (บั๊ก)
-  { key: 'paused', label: '⏸ Paused' },
+  { key: 'paused', label: '⏸️ Paused' },
 ];
 
 const RANK_MODES = [
@@ -157,7 +157,7 @@ function uniqueProducts(items: any[]): string[] {
 function mediaBoxHtml_(it: any, cls: string): string {
   const m = it && it.media;
   const isVid = !!(m && m.video);
-  const icon = isVid ? '🎬' : (it && it.organicPost ? '📝' : '🖼');
+  const icon = isVid ? '🎬' : (it && it.organicPost ? '📝' : '🖼️');
   const img = safeUrl_(m && m.img);
   const alt = safeUrl_(m && m.imgAlt);
   // ไม่มีรูปเลย → เรนเดอร์กล่องว่างตั้งแต่แรก (ไม่ต้องรอ error)
@@ -168,7 +168,7 @@ function mediaBoxHtml_(it: any, cls: string): string {
     '<img src="' + esc(img) + '" alt="" loading="lazy" decoding="async"' +
     (alt && alt !== img ? ' data-ca-fallback="' + esc(alt) + '"' : ' data-ca-fallback=""') + '>' +
     '<span class="ca-ph">' + icon + '</span>' +
-    (isVid ? '<span class="ca-play">▶</span>' : '') +
+    (isVid ? '<span class="ca-play">▶️</span>' : '') +
     '</div>';
 }
 
@@ -272,7 +272,7 @@ function computeProblems(it: any): any[] {
       sev: roas < 1 ? 'high' : 'medium' });
   }
   if (spend > 800 && orders === 0) {
-    probs.push({ icon: '🕳', label: 'จ่ายแล้วไม่มีออเดอร์',
+    probs.push({ icon: '🕳️', label: 'จ่ายแล้วไม่มีออเดอร์',
       why: 'ใช้งบไปแล้ว ' + THB(spend) + ' แต่ยังไม่มีออเดอร์เลย', sev: 'high' });
   }
   if (msgs > 30 && close !== null && close < 10) {
@@ -325,7 +325,7 @@ function openAnalysis(data: any, adId: any): void {
     '<span class="badge neutral">' + THB(num(item.spend)) + ' → ' + THB(num(item.revenue)) +
     ' (ROAS ' + roasStr(item.roas) + ')</span>' +
     (nullable(item.ageDays) !== null
-      ? '<span class="badge neutral">🗓 อายุ ' + fmtNum(num(item.ageDays)) + ' วัน</span>' : '') +
+      ? '<span class="badge neutral">🗓️ อายุ ' + fmtNum(num(item.ageDays)) + ' วัน</span>' : '') +
     (item.topSeller
       ? '<span class="badge ai">🧑‍💼 ปิดขายมากสุด: ' + esc(item.topSeller) + '</span>' : '') +
     '</div>';
@@ -466,7 +466,7 @@ function controlsHtml(items: any[]): string {
   let h = '<div class="conv-filters" id="ca-range" style="margin-bottom:10px">' +
     RANGE_OPTIONS.map(function (o) {
       return '<button class="filter-btn' + (rangeDays === o.d ? ' active' : '') +
-        '" data-cadays="' + o.d + '">🗓 ' + o.label + '</button>';
+        '" data-cadays="' + o.d + '">🗓️ ' + o.label + '</button>';
     }).join('') + '</div>';
   h += '<div class="pg-controls">';
   h += '<input class="input" id="ca-q" style="flex:1;min-width:220px;max-width:360px" ' +
@@ -655,7 +655,7 @@ function listHtml(allItems: any[], list: any[], needSetup?: boolean): string {
   return h;
 }
 
-/* ---------------- 🖼 สื่อรายเพจทั้งปี (บรีฟ 2026-07-31) ----------------
+/* ---------------- 🖼️ สื่อรายเพจทั้งปี (บรีฟ 2026-07-31) ----------------
  * เลือกเพจ → รวมแอดเป็นราย "สื่อ" (โพสต์เดียวกัน = สื่อเดียวกัน) เทียบค่าแอดรายเดือนทั้งปี
  * fetch แยกจากข้อมูลหลักของหน้า (ช่วงวันด้านบนไม่เกี่ยว — อันนี้ดูทั้งปีเสมอ)
  */
@@ -674,7 +674,7 @@ function mediaKFmt_(v: number): string {
 
 function mediaSectionHtml(): string {
   const headRow = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-    '<h3 style="margin:0">🖼 สื่อรายเพจ — เทียบทั้งปี</h3>' +
+    '<h3 style="margin:0">🖼️ สื่อรายเพจ — เทียบทั้งปี</h3>' +
     (mediaPages
       ? '<select class="input" id="ca-media-page"><option value="">— เลือกเพจ (' + mediaPages.length + ' เพจที่มีค่าแอด 60 วัน) —</option>' +
         mediaPages.map(function (pg) {
@@ -685,7 +685,7 @@ function mediaSectionHtml(): string {
     '<div class="spacer" style="flex:1"></div></div>';
 
   let bodyHtml = '<div class="card-sub">เลือกเพจเพื่อดูว่าเพจนั้นยิงสื่อ (โพสต์) ตัวไหนบ้างทั้งปี — ' +
-    'ค่าแอดรายเดือนต่อสื่อ • สื่อเดียวกันหลายแอดรวมเป็นแถวเดียว • ▶ = วิดีโอ</div>';
+    'ค่าแอดรายเดือนต่อสื่อ • สื่อเดียวกันหลายแอดรวมเป็นแถวเดียว • ▶️ = วิดีโอ</div>';
   if (mediaPageId && !mediaData) {
     bodyHtml += '<div class="loading"><div class="spinner"></div>กำลังรวมสื่อทั้งปีของเพจ...</div>';
   } else if (mediaData && mediaData.items) {
@@ -696,10 +696,11 @@ function mediaSectionHtml(): string {
     const rows = mediaData.items.map(function (x: any, idx: number) {
       const img = x.thumb
         ? '<img src="' + esc(x.thumb) + '" style="width:44px;height:44px;object-fit:cover;border-radius:6px" loading="lazy">'
-        : '<div style="width:44px;height:44px;border-radius:6px;background:var(--bg-2,#333);display:flex;align-items:center;justify-content:center">🖼</div>';
+        // เดิมใช้ var(--bg-2,#333) แต่ --bg-2 ไม่เคยถูกประกาศ → ตกไปใช้ #333 เป็นกล่องดำบนธีมขาว
+        : '<div style="width:44px;height:44px;border-radius:6px;background:var(--surface-2);display:flex;align-items:center;justify-content:center">🖼️</div>';
       const title = (x.permalink
         ? '<a href="' + esc(x.permalink) + '" target="_blank" rel="noopener" style="text-decoration:none">'
-        : '') + (x.isVideo ? '▶ ' : '') + esc(String(x.title).slice(0, 60)) + (x.permalink ? '</a>' : '');
+        : '') + (x.isVideo ? '▶️ ' : '') + esc(String(x.title).slice(0, 60)) + (x.permalink ? '</a>' : '');
       return '<tr>' +
         '<td>' + (idx + 1) + '</td>' +
         '<td><div style="display:flex;gap:8px;align-items:center">' + img +
@@ -777,7 +778,7 @@ function render(container: HTMLElement, data: any): void {
   }
   // มีแอดแต่ไม่มีสื่อสักตัว = ยังไม่ได้เปิดใช้ตาราง ad_creative (บอกให้ชัด ไม่ใช่ปล่อยกล่องรูปว่าง)
   if (data && !data.needAdSetup && items.length && !num(data.creativeCount)) {
-    html += '<div class="hint-box">🖼 ยังไม่มีรูปครีเอทีฟ — รัน <b>db/migrations/2026-07-27-ad-creative.sql</b> ' +
+    html += '<div class="hint-box">🖼️ ยังไม่มีรูปครีเอทีฟ — รัน <b>db/migrations/2026-07-27-ad-creative.sql</b> ' +
       'ใน Supabase แล้วสั่ง <b>npm run backfill:ad-creatives</b> (หลังจากนั้นเติมเองอัตโนมัติวันละครั้ง)</div>';
   }
   if (data && data.note) html += '<div class="hint-box">' + esc(data.note) + '</div>';

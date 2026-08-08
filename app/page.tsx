@@ -33,7 +33,9 @@ const NAV_ADMIN: NavItem[] = [
   { view: 'umap', icon: '🧩', title: 'U Map', sub: 'แอดมินอยู่ U ไหน • จับคู่' },
 ];
 const NAV_ME: NavItem[] = [
-  { view: 'me', icon: '🎯', title: 'ผลงานของฉัน', sub: 'ยอดขาย • KPI • อันดับ' },
+  // 🎯 ถูกใช้ไปแล้วที่เมนู Content & Ads — เมนูที่ไอคอนซ้ำกันคือเมนูที่กดผิดกันบ่อย
+  // 🪪 เลือกเพราะยังไม่มีที่ไหนใช้ (🙋 ใช้แล้วที่ชิป "คนทัก" หน้า Sales, 👤/📐 ก็ถูกใช้แล้ว)
+  { view: 'me', icon: '🪪', title: 'ผลงานของฉัน', sub: 'ยอดขาย • KPI • อันดับ' },
 ];
 const NAV_SYSTEM: NavItem[] = [
   { view: 'users', icon: '🔐', title: 'ผู้ใช้งาน', sub: 'บัญชี • ระดับสิทธิ์' },

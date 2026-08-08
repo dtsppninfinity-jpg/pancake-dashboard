@@ -396,7 +396,7 @@ function liveChipHtml(): string {
   const on = autoOn && kpiActive();
   return '<span class="chip live-chip" title="' + esc(on
     ? 'อัปเดตอัตโนมัติทุก ' + Math.round(AUTO_MS / 1000) + ' วินาที (ข้ามรอบเมื่อเปิดหน้าต่างแก้ไข/สลับไปแท็บอื่น)'
-    : 'ปิดอัปเดตอัตโนมัติอยู่ — กด ⏸ เพื่อเปิด') + '">' +
+    : 'ปิดอัปเดตอัตโนมัติอยู่ — กด ⏸️ เพื่อเปิด') + '">' +
     '<span class="live-dot' + (on ? ' on' : '') + '"></span>อัปเดต ' + esc(t) + '</span>';
 }
 
@@ -409,7 +409,7 @@ function controlsHtml(data: PerfData | null): string {
   const autoBtn = kpiActive()
     ? '<button class="btn' + (autoOn ? ' primary' : '') + '" id="rk-auto" title="รีเฟรชอัตโนมัติทุก ' +
       Math.round(AUTO_MS / 1000) + ' วินาที (เฉพาะช่วง &quot;วันนี้&quot;)">' +
-      (autoOn ? '⏸ หยุดอัตโนมัติ' : '▶ อัปเดตอัตโนมัติ') + '</button>'
+      (autoOn ? '⏸️ หยุดอัตโนมัติ' : '▶️ อัปเดตอัตโนมัติ') + '</button>'
     : '';
   return '<div class="pg-controls">' +
       rangeControlsHtml(state, 'rk') +
@@ -426,7 +426,7 @@ function controlsHtml(data: PerfData | null): string {
       '<button class="btn' + (state.kpiOpen ? ' primary' : '') + '" id="rk-kpi-toggle">🎯 เป้า KPI</button>' +
       '<button class="btn' + (state.panelOpen ? ' primary' : '') + '" id="rk-toggle">⚙️ เกณฑ์การให้คะแนน</button>' +
       '<span class="chip">' + esc((data && data.rangeLabel) || '') +
-        (kpiActive() ? ' • ⏱ ' + esc(timeLeftTxt()) : '') + '</span>' +
+        (kpiActive() ? ' • ⏱️ ' + esc(timeLeftTxt()) : '') + '</span>' +
     '</div>';
 }
 
@@ -747,7 +747,7 @@ function bindComEvents(container: HTMLElement): void {
             if (res && res.ok === false) throw new Error(res.error || 'บันทึกไม่สำเร็จ');
             if (row) row.note = String(note).trim();
             closeModal();
-            toast(String(note).trim() ? '✅ บันทึกหมายเหตุแล้ว' : '🗑 ลบหมายเหตุแล้ว');
+            toast(String(note).trim() ? '✅ บันทึกหมายเหตุแล้ว' : '🗑️ ลบหมายเหตุแล้ว');
             const box = container.querySelector('#rk-com') as HTMLElement | null;
             if (box) { box.innerHTML = comSectionHtml(); bindComEvents(container); }
           })
@@ -962,11 +962,11 @@ function bindEvents(container: HTMLElement): void {
     autoBtn.addEventListener('click', function () {
       autoOn = !autoOn;
       autoBtn.classList.toggle('primary', autoOn);
-      autoBtn.textContent = autoOn ? '⏸ หยุดอัตโนมัติ' : '▶ อัปเดตอัตโนมัติ';
+      autoBtn.textContent = autoOn ? '⏸️ หยุดอัตโนมัติ' : '▶️ อัปเดตอัตโนมัติ';
       const dot = container.querySelector('.live-dot');
       if (dot) dot.classList.toggle('on', autoOn);
       if (autoOn) startAuto(container); else stopAuto();
-      toast(autoOn ? '🔄 เปิดอัปเดตอัตโนมัติทุก ' + Math.round(AUTO_MS / 1000) + ' วินาที' : '⏸ ปิดอัปเดตอัตโนมัติแล้ว');
+      toast(autoOn ? '🔄 เปิดอัปเดตอัตโนมัติทุก ' + Math.round(AUTO_MS / 1000) + ' วินาที' : '⏸️ ปิดอัปเดตอัตโนมัติแล้ว');
     });
   }
 

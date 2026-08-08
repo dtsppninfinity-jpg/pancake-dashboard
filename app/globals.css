@@ -8,7 +8,10 @@
   --border: #263352;
   --text: #eaeef8;
   --text-2: #a8b1c7;
-  --text-3: #7c86a0;
+  /* text-3 ใช้กับ label/หน่วย/หัวตาราง 58 จุด และมักเป็นตัว 10.5-12px
+     ค่าเดิม #7c86a0 อยู่ที่ 4.70:1 บนการ์ด — ผ่านเส้นตายพอดีแต่ไม่เหลือให้พื้น surface-2
+     ยกขึ้นเป็น 5.71:1 ยังห่างจาก text-2 พอให้เห็นลำดับชั้น */
+  --text-3: #8c95ad;
   --primary: #6c5ce7;
   --primary-600: #5a4bd1;
   --primary-soft: rgba(108, 92, 231, 0.16);
@@ -39,19 +42,27 @@
   --border: #dde3ee;
   --text: #1b2233;
   --text-2: #4b5568;
-  --text-3: #78829a;
+  /* ⚠️ โหมดสว่างเคยทำโดยปรับค่าจากโหมดมืดแล้วไม่ได้วัดคอนทราสต์ซ้ำ — ค่าเดิมตกเกณฑ์ 3 ตัว
+     (text-3 3.85:1 / green 3.39:1 / amber 3.62:1 บนพื้นขาว เกณฑ์ตัวอักษรคือ 4.5:1)
+     และโหมดสว่างคือโหมดที่ทีมใช้จริง ค่าใหม่วัดแล้วทั้งบนพื้นการ์ดขาวและพื้นรอง #f1f4fa */
+  --text-3: #5f6a80;                        /* 5.44:1 บนขาว / 4.94:1 บน surface-2 */
   --primary-soft: rgba(108, 92, 231, 0.10);
-  --green: #0e9f6e;
-  --green-soft: rgba(14, 159, 110, 0.12);
-  --amber: #c2740a;
-  --amber-soft: rgba(194, 116, 10, 0.13);
-  --red: #e11d48;
-  --red-soft: rgba(225, 29, 72, 0.10);
+  --green: #047857;                         /* 5.48:1 */
+  --green-soft: rgba(4, 120, 87, 0.12);
+  --amber: #9a5800;                         /* 5.57:1 */
+  --amber-soft: rgba(154, 88, 0, 0.13);
+  --red: #c2183e;                           /* 5.46:1 บนพื้นรอง (เดิม #e11d48 = 4.26:1 ตก) */
+  --red-soft: rgba(194, 24, 62, 0.10);
   --blue: #2563eb;
   --blue-soft: rgba(37, 99, 235, 0.10);
   --track: rgba(15, 23, 42, 0.10);
   --chart-soft: rgba(108, 92, 231, 0.16);
   --shadow: 0 1px 2px rgba(16,24,40,.06), 0 6px 18px rgba(16,24,40,.08);
+  /* สีเหรียญใช้เป็น "เส้นขอบการ์ด" ไม่ใช่ตัวอักษร เกณฑ์จึงเป็น 3:1 ไม่ใช่ 4.5:1
+     ทองเดิม #f5b301 อยู่ที่ 1.85:1 บนขาว = คนที่ได้ที่ 1 คือคนที่กรอบรางวัลมองไม่เห็น */
+  --gold: #a37500;                          /* 3.74:1 */
+  --silver: #7c8794;                        /* 3.31:1 */
+  --bronze: #a86a2e;                        /* 4.00:1 (เดิม #c47f3d = 2.96:1 ตกบนพื้นรอง) */
 }
 /* ปรับสีที่ฝังไว้สำหรับพื้นเข้ม ให้เข้ากับพื้นสว่าง */
 :root[data-theme="light"] .badge.neutral { background: rgba(15,23,42,.07); }
@@ -69,6 +80,9 @@ body {
   background: var(--bg);
   color: var(--text);
   font-size: 14px;
+  /* ไม่เคยตั้งมาก่อน จึงตกไปใช้ค่าปริยายของฟอนต์ซึ่งเผื่อไว้สำหรับอังกฤษ
+     ไทยมีทั้งสระบนและสระล่าง พอข้อความในตารางพับ 2 บรรทัด วรรณยุกต์บรรทัดล่างจะชนสระบรรทัดบน */
+  line-height: 1.55;
 }
 button { font-family: inherit; cursor: pointer; }
 input, select { font-family: inherit; }
@@ -122,7 +136,7 @@ input, select { font-family: inherit; }
 /* ---------- หน้า KPI ทีมขาย (รื้อ UI 2026-08-01 — เลย์เอาต์แบบเว็บตัวอย่างของทีม) ---------- */
 .kpi-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 14px; }
 @media (max-width: 1100px) { .kpi-cards { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 560px) { .kpi-cards { grid-template-columns: 1fr; } }
+@media (max-width: 560px) { .kpi-cards { grid-template-columns: minmax(0, 1fr); } }
 .kpi-card { display: flex; align-items: center; gap: 12px; }
 .kpi-big { font-size: 24px; font-weight: 800; line-height: 1.2; }
 .kpi-max { font-size: 12px; font-weight: 600; color: var(--text-3); }
@@ -143,7 +157,7 @@ input, select { font-family: inherit; }
 /* แถบสูตรน้ำหนัก */
 .wt-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 10px; }
 @media (max-width: 1100px) {
-  .wt-strip { grid-template-columns: 1fr; }
+  .wt-strip { grid-template-columns: minmax(0, 1fr); }
   /* ตอนเรียงแนวตั้ง เส้นคั่นซ้ายไม่มีความหมาย — สลับเป็นเส้นคั่นบน */
   .wt-group { border-left: none; padding-left: 0; border-top: 1px dashed var(--border); padding-top: 10px; }
   .wt-group:first-child { border-top: none; padding-top: 0; }
@@ -159,7 +173,7 @@ input, select { font-family: inherit; }
 /* ตารางสายบังคับบัญชา + แผงขวา */
 .kpi-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 14px; margin-top: 14px; align-items: start; }
 @media (max-width: 1280px) {
-  .kpi-grid { grid-template-columns: 1fr; }
+  .kpi-grid { grid-template-columns: minmax(0, 1fr); }
   /* จอแคบ: เอาแผงแจ้งเตือน/สัดส่วนเกรดขึ้นก่อนตารางยักษ์ — ของสำคัญไม่จมอยู่ 2 จอล่าง */
   .kpi-grid > div:first-child { order: 2; }
 }
@@ -208,7 +222,7 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 .low-row:hover { background: var(--surface-2); }
 /* แท็บ Coaching: ต้นไม้ซ้าย + แผงกลาง + การ์ดขวา */
 .coach-grid { display: grid; grid-template-columns: 250px minmax(0, 1fr) 270px; gap: 14px; margin-top: 14px; align-items: start; }
-@media (max-width: 1280px) { .coach-grid { grid-template-columns: 1fr; } }
+@media (max-width: 1280px) { .coach-grid { grid-template-columns: minmax(0, 1fr); } }
 .coach-tree .tree-btn {
   display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; cursor: pointer;
   background: none; border: none; color: var(--text); font-size: 13px;
@@ -254,11 +268,28 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 .card {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 18px 20px; box-shadow: var(--shadow);
+  /* ⚠️ ห้ามลบ min-width:0 — การ์ดเกือบทุกใบเป็นลูกของ grid ซึ่งค่าเริ่มต้นคือ
+     "กว้างอย่างน้อยเท่าเนื้อหา" ตารางที่ตั้ง min-width:640px จึงดันการ์ด → ดันคอลัมน์กริด
+     → ดันทั้งหน้าให้กว้าง 640px บนจอมือถือ 390px และ overflow-x:auto ของกล่องตาราง
+     ไม่มีโอกาสทำงานเลย (นี่คือสาเหตุที่หน้าเลื่อนซ้ายขวาได้บนมือถือ) */
+  min-width: 0;
 }
 .card h3 { font-size: 14.5px; font-weight: 700; margin-bottom: 2px; }
-.card-sub { font-size: 12px; color: var(--text-3); margin-bottom: 14px; }
+/* max-width กันบรรทัดยาวเกิน ~78 ตัวอักษรบนจอกว้าง (ยาวกว่านั้นตาไล่หาต้นบรรทัดถัดไปไม่เจอ) */
+.card-sub { font-size: 12px; color: var(--text-3); margin-bottom: 14px; max-width: 78ch; }
+
+/* คำอธิบาย "วิธีคิด" ที่ต้องมีไว้ให้ตรวจกับชีทได้ แต่ไม่ต้องอ่านทุกครั้งที่เปิดหน้า */
+.sub-more { font-size: 12px; color: var(--text-3); margin: -6px 0 12px; }
+.sub-more > summary {
+  cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 0; color: var(--text-2); text-decoration: underline dotted; text-underline-offset: 3px;
+}
+.sub-more > summary::-webkit-details-marker { display: none; }
+.sub-more > summary::before { content: '▸'; transition: transform .15s ease; }
+.sub-more[open] > summary::before { transform: rotate(90deg); }
+.sub-more > div { padding: 8px 0 2px; max-width: 78ch; line-height: 1.6; }
 .dash-row { display: grid; grid-template-columns: 1.55fr 1fr; gap: 16px; margin-top: 16px; }
-.dash-row.single { grid-template-columns: 1fr; }
+.dash-row.single { grid-template-columns: minmax(0, 1fr); }
 .dash-row.half { grid-template-columns: 1fr 1fr; }
 
 .stat-grid {
@@ -325,8 +356,25 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 .btn-mini.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
 .input, select.input {
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
-  padding: 7px 12px; border-radius: 10px; font-size: 12.5px; outline: none;
+  padding: 7px 12px; border-radius: 10px; font-size: 12.5px;
 }
+
+/* ---------- โฟกัสจากคีย์บอร์ด ----------
+   เดิมช่องกรอกสั่ง outline:none โดยไม่มีอะไรมาแทน และทั้งโปรเจกต์ไม่มี :focus-visible เลย
+   → กด Tab ในฟอร์มแล้วไม่รู้ว่าอยู่ช่องไหน
+   ใช้ :focus-visible (ไม่ใช่ :focus) เบราว์เซอร์จึงโชว์เฉพาะตอนใช้คีย์บอร์ด ไม่เด้งตอนคลิกเมาส์ */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.input:focus-visible, select.input:focus-visible { outline-offset: 0; border-color: var(--primary); }
+
+/* ปุ่มตอนกำลังบันทึกต้องหน้าตาต่างจากปุ่มปกติ ไม่งั้นเน็ตช้าแล้วคนกดซ้ำจนข้อมูลซ้ำ */
+.btn:disabled, .btn-mini:disabled, .filter-btn:disabled {
+  opacity: .5; cursor: not-allowed;
+}
+.btn:disabled:hover, .btn-mini:disabled:hover, .filter-btn:disabled:hover { border-color: var(--border); }
 .input:focus { border-color: var(--primary); }
 .pg-controls {
   display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px;
@@ -466,7 +514,7 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 .hbar-foot b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
 /* แถวการ์ดคู่ (hbar + กราฟรายชั่วโมง หน้า Admin Performance) — ห้ามใช้ชื่อ .dash-row (ของ Dashboard) */
 .perf-row { display: grid; grid-template-columns: 1fr 1.2fr; gap: 16px; margin-bottom: 14px; }
-@media (max-width: 1100px) { .perf-row { grid-template-columns: 1fr; } }
+@media (max-width: 1100px) { .perf-row { grid-template-columns: minmax(0, 1fr); } }
 /* minmax(0,…) ทุกคอลัมน์ — ค่า fr เปล่าๆ มีพื้นเป็น auto ตารางกว้างจึงดันคอลัมน์บวมเกินสัดส่วน
    ที่ตั้งไว้ (ตารางยูนิต 9 คอลัมน์เคยดันจน 1fr กว้างกว่า 1.6fr) แล้วหน้าเว็บเลื่อนแนวนอนได้ */
 .sr-main { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
@@ -558,7 +606,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .ca-thumb.broken img, .ca-media-img.broken img { display: none; }
 .ca-thumb.broken .ca-ph, .ca-media-img.broken .ca-ph { display: flex; }
 .ca-media-img.broken .ca-ph { font-size: 40px; }
-/* ป้าย ▶ บอกว่าครีเอทีฟเป็นวิดีโอ */
+/* ป้าย ▶️ บอกว่าครีเอทีฟเป็นวิดีโอ */
 .ca-play {
   position: absolute; right: 4px; bottom: 4px;
   width: 18px; height: 18px; border-radius: 50%;
@@ -819,6 +867,25 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 }
 @keyframes skel-shimmer { to { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) { .skel::after { animation: none; } }
+/* หน้า "ผลงานของฉัน" กับ "ผู้ใช้งาน" เรียกคลาสนี้ตอนโหลด แต่ไม่เคยมีใครเขียนสไตล์ให้
+   ผลคือแอดมินทุกคน (หน้าแรกที่เห็นคือผลงานของฉัน) เจอการ์ดเปล่าทุกครั้งที่เปิดเว็บ
+   ประกาศ .skel ซ้ำในตัวเองเพื่อให้ใช้เดี่ยวๆ ได้ ไม่ต้องไล่แก้ 2 ไฟล์ให้ใส่ 2 คลาส */
+.skel-line {
+  position: relative; overflow: hidden;
+  background: var(--skel); border-radius: 7px;
+  height: 14px; margin-bottom: 10px;
+}
+.skel-line:nth-child(even) { width: 72%; }
+.skel-line::after {
+  content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent 0, var(--skel-shine) 50%, transparent 100%);
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .skel-line::after { animation: none; } }
+
+/* ⚠️ ห้ามเปลี่ยนชื่อคลาสนี้เป็น .empty-note — lib/views/users.ts ใช้ '.empty' เป็นตัวเลือก
+   หากล่องผลลัพธ์ตอนค้นหา ถ้าเปลี่ยนชื่อ ช่องค้นหาจะพังทันทีเมื่อผลลัพธ์ว่าง */
+.empty { text-align: center; color: var(--text-3); padding: 26px 10px; font-size: 13px; }
 
 .error-box {
   background: var(--red-soft); border: 1px solid var(--red); border-radius: 12px;
@@ -852,7 +919,7 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 }
 .adm-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
 .adm-field > span { color: var(--text-3); font-size: 11.5px; font-weight: 600; }
-@media (max-width: 720px) { .adm-form { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .adm-form { grid-template-columns: minmax(0, 1fr); } }
 .perm-cb { width: 15px; height: 15px; accent-color: var(--primary); cursor: pointer; }
 .perm-cb:disabled { cursor: not-allowed; opacity: .4; }
 
@@ -1024,17 +1091,22 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   .chart-svg .ch-dot-g { transition: none; }
 }
 
-/* ---------- responsive ---------- */
+/* ---------- responsive ----------
+   📌 กติกาของไฟล์นี้: คอลัมน์กริดทุกอันเขียน minmax(0, 1fr) ห้ามเขียน 1fr เปล่าๆ
+   เพราะ 1fr มีค่าต่ำสุดเป็น auto = "กว้างอย่างน้อยเท่าเนื้อหา" ตารางที่ตั้ง min-width:640px
+   จึงดันคอลัมน์ → ดันทั้งหน้าให้กว้างเกินจอมือถือ แล้ว overflow-x:auto ไม่มีโอกาสทำงาน
+   (เจอมาแล้ว 3 จุด: ตารางยูนิตหน้า Sales, ตารางสายบังคับบัญชาหน้า KPI, ตารางผู้ใช้) */
 @media (max-width: 1180px) {
-  .dash-row, .dash-row.half, .sr-main, .sr-bottom, .sr-split { grid-template-columns: 1fr; }
+  .dash-row, .dash-row.half, .sr-main, .sr-bottom, .sr-split { grid-template-columns: minmax(0, 1fr); }
   .sr-cards, .sr-channels { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 860px) {
-  .sidebar { width: 64px; }
-  .brand-text, .nav-label-sub, .nav-texts span:first-child, .nav-section, .sidebar-footer { display: none; }
-  .nav-item { justify-content: center; }
-  .sr-cards, .sr-channels { grid-template-columns: 1fr; }
-  .top3-grid { grid-template-columns: 1fr; }
+  /* ⚠️ เคยมีกฎย่อ sidebar เหลือ 64px + ซ่อน .sidebar-footer อยู่ตรงนี้ (มือถือยุคแรก)
+     พอมีลิ้นชักเลื่อนที่ ≤900px มาแทน กฎเก่ายังอยู่และทับกันอยู่ ผลคือเปิดลิ้นชักบนมือถือ
+     แล้วเห็นแต่อีโมจิ และ "ปุ่มออกจากระบบ" ซึ่งอยู่ใน .sidebar-footer จุดเดียวในโปรเจกต์ก็หายไปด้วย
+     ลบทิ้งแล้ว เหลือเฉพาะกฎกริดที่ยังต้องใช้ — อย่าเอากลับมา */
+  .sr-cards, .sr-channels { grid-template-columns: minmax(0, 1fr); }
+  .top3-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 720px) {
   .sp-row { grid-template-columns: 1fr 1fr; row-gap: 4px; }
@@ -1088,13 +1160,21 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 .u-card .u-code { font-size: 20px; font-weight: 800; letter-spacing: .5px; }
 .u-card .u-product { font-size: 12.5px; color: var(--text-2); margin-top: 2px; word-break: break-word; }
 .u-card .u-tools {
-  position: absolute; top: 9px; right: 9px; display: flex; gap: 4px;
+  /* gap เดิม 4px — ปุ่มแก้กับปุ่มลบชิดกันเกินไปสำหรับนิ้ว ขยายเป็น 8px */
+  position: absolute; top: 9px; right: 9px; display: flex; gap: 8px;
   opacity: 0; transition: opacity .15s ease;
 }
 .u-card:hover .u-tools { opacity: 1; }
+/* โฟกัสด้วยคีย์บอร์ดก็ต้องเห็นปุ่ม ไม่ใช่เห็นเฉพาะตอนเอาเมาส์ชี้ */
+.u-card:focus-within .u-tools { opacity: 1; }
+/* ⚠️ อุปกรณ์สัมผัสไม่มี hover — ปุ่มเดิมจึงโปร่งใสตลอดเวลาแต่ยังกินการแตะอยู่
+   แตะมุมการ์ดแล้วโดนถังขยะโดยไม่ตั้งใจ บนอุปกรณ์สัมผัสจึงต้องแสดงถาวร */
+@media (hover: none) {
+  .u-card .u-tools { opacity: 1; }
+}
 .u-tool-btn {
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2);
-  border-radius: 6px; font-size: 11px; padding: 2px 6px; cursor: pointer;
+  border-radius: 6px; font-size: 11px; padding: 4px 8px; cursor: pointer;
 }
 .u-tool-btn:hover { border-color: var(--primary); color: var(--text); }
 .u-members { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; min-height: 24px; }
@@ -1139,7 +1219,7 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 .quiz-opt.correct { background: var(--green-soft); border-color: var(--green); }
 .quiz-opt.wrong { background: var(--red-soft); border-color: var(--red); }
 @media (max-width: 1180px) {
-  .umap-layout { grid-template-columns: 1fr; }
+  .umap-layout { grid-template-columns: minmax(0, 1fr); }
   .umap-side { position: static; }
   .u-admin-list { max-height: 30vh; }
 }
@@ -1161,8 +1241,13 @@ a.btn-mini { text-decoration: none; display: inline-block; }
    เพิ่ม 2026-07-27 พร้อมระบบ login รายคน
    ============================================================ */
 
-/* ---------- ปุ่มเมนู + ฉากหลัง (ซ่อนบนจอกว้าง) ---------- */
-.btn-nav { display: none; padding: 6px 10px; font-size: 17px; line-height: 1; }
+/* ---------- ปุ่มเมนู + ฉากหลัง (ซ่อนบนจอกว้าง) ----------
+   ⚠️ ต้องเป็น .btn.btn-nav ไม่ใช่ .btn-nav เฉยๆ — กฎ .btn ในบล็อก ≤560px มาทีหลังและ
+   น้ำหนักเท่ากัน มันจึงทับ font-size ทำให้ปุ่มเข้าเมนู "เล็กที่สุดตอนจอเล็กที่สุด" (17px → 12px) */
+.btn.btn-nav {
+  display: none; padding: 6px 12px; font-size: 19px; line-height: 1;
+  min-width: 44px; min-height: 40px; align-items: center; justify-content: center;
+}
 .nav-backdrop { display: none; }
 .topbar-titles { min-width: 0; flex: 1; }
 .topbar-titles h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1227,7 +1312,8 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 .us-actions .btn-mini { margin-right: 4px; }
 .btn-mini.danger { color: var(--red); border-color: var(--red); }
 tr.row-off { opacity: .55; }
-.pw-box { background: var(--bg-2, rgba(127,127,127,.08)); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
+/* --bg-2 ไม่เคยถูกประกาศในโปรเจกต์ — ใช้ token ที่มีจริง ไม่ใช่ค่าสำรอง */
+.pw-box { background: var(--surface-2); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
 .pw-val { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 15px; letter-spacing: .5px; user-select: all; }
 .bulk-actions { display: flex; gap: 8px; margin-bottom: 8px; }
 /* ตารางกว้างเกินจอ ต้องเลื่อนในกล่องตัวเอง ไม่ใช่ดันทั้งหน้าให้เลื่อนแนวนอน */
@@ -1238,7 +1324,7 @@ tr.row-off { opacity: .55; }
    ============================================================ */
 @media (max-width: 900px) {
   /* sidebar กลายเป็นลิ้นชักเลื่อนเข้าจากซ้าย */
-  .btn-nav { display: inline-flex; align-items: center; }
+  .btn.btn-nav { display: inline-flex; }
   .sidebar {
     position: fixed; top: 0; left: 0; z-index: 60;
     height: 100vh; height: 100dvh; width: 265px;
@@ -1253,14 +1339,22 @@ tr.row-off { opacity: .55; }
   }
   #app.nav-open .nav-backdrop { opacity: 1; pointer-events: auto; }
 
-  .topbar { padding: 12px 14px; gap: 10px; }
+  .topbar { padding: 10px 12px; gap: 8px; }
   .topbar h1 { font-size: 15.5px; }
   .topbar-sub { display: none; }         /* บรรทัดรองกินที่บนจอแคบ */
-  .topbar-right { gap: 6px; }
+  .topbar-right { gap: 6px; flex: none; }
   /* จอแคบซ่อนชิปเวลา sync (ย้ายไปดูใน sidebar) — แต่ถ้ามีงานพัง ต้องเห็นบนหัวเว็บด้วย
      ไม่งั้นบนมือถือคำเตือนไปซ่อนอยู่หลังปุ่ม ☰ ทีมไม่มีทางเห็น */
   #sync-chip { display: none; }
-  #sync-chip.txt-bad { display: inline-flex; max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* ⚠️ เดิมชิปเตือนกว้างได้ถึง 46vw + ปุ่มธีม + ปุ่ม "⟳ รีเฟรช" (มีคำว่ารีเฟรช)
+     รวมกันกินหมดจนชื่อหน้าเหลือ "S.." สองตัวอักษร — หัวเว็บไม่บอกด้วยซ้ำว่าอยู่หน้าไหน
+     บนมือถือชิปจึงเหลือแค่ ⚠️ + จำนวน (ข้อความเต็มยังอ่านได้จากการแตะ/ในแถบเมนู)
+     และปุ่มรีเฟรชเหลือแต่ไอคอน */
+  #sync-chip.txt-bad { display: inline-flex; white-space: nowrap; padding: 4px 8px; }
+  .chip-long { display: none; }          /* เหลือ "⚠️ 1" — ข้อความเต็มอยู่ใน title + แถบเมนู */
+  #btn-refresh { font-size: 0; min-width: 40px; justify-content: center; }
+  #btn-refresh::before { content: '⟳'; font-size: 17px; }
+  #btn-theme { min-width: 40px; }
   .view { padding: 14px 14px 32px; }
   .card { padding: 14px; }
 
@@ -1269,17 +1363,63 @@ tr.row-off { opacity: .55; }
   .pg-controls .input,
   .pg-controls select { max-width: 100%; }
   .spacer { display: none; }
+  /* แถวปุ่มช่วงเวลา + แถวส่งออกกินไป 5 บรรทัดก่อนถึงเนื้อหา = หนึ่งในสามของจอแรก
+     บีบให้แน่นขึ้นเฉพาะจอแคบ (เดสก์ท็อปคงเดิม) */
+  .conv-filters { gap: 6px; margin-bottom: 10px; }
+  .conv-filters .filter-btn { padding: 8px 12px; font-size: 12.5px; }
+  /* ปุ่มส่งออกเหลือแต่ไอคอน — บนมือถือแทบไม่มีใครโหลดไฟล์ แต่มันกินไปทั้งบรรทัด */
+  #sr-csv, #sr-xls, #pf-csv, #rp-csv, #ap-csv { font-size: 0; min-width: 44px; justify-content: center; }
+  #sr-csv::before, #pf-csv::before, #rp-csv::before, #ap-csv::before { content: '📄'; font-size: 15px; }
+  #sr-xls::before { content: '📊'; font-size: 15px; }
 
   .pg-summary { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
   .me-grid { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
   .me-card-val { font-size: 18px; }
 
+  /* เกณฑ์พื้นที่กดด้วยนิ้วคือ 44×44px — ของเดิมปุ่มปิดโมดัล ~23px, ปุ่มเล็ก ~26px
+     ขยายเฉพาะจอแคบ เดสก์ท็อปคงความหนาแน่นเดิมไว้ */
+  .btn, .btn-mini, .filter-btn, .kpi-tab, .admin-pick, .input, select.input { min-height: 40px; }
+  .btn-mini { padding: 8px 12px; font-size: 12.5px; }
+  .modal-close { min-width: 44px; min-height: 44px; font-size: 22px; }
+  .u-tool-btn { min-width: 36px; min-height: 36px; }
+  /* ⚠️ ยกเว้นโดยตั้งใจ: ลิงก์ตัวเลขในตาราง pivot กำไร (ยูนิต × 12 เดือน) ขยายเป็น 40px ไม่ได้
+     ตารางจะสูงเกินจอทันที — ชดเชยด้วยการเพิ่มระยะในช่องแทน ให้นิ้วมีที่พลาดมากขึ้น */
+  table.tbl td.num a { display: inline-block; padding: 6px 4px; }
+
   /* modal เต็มจอเกือบหมด — modal กลางจอบนมือถือกดยาก */
   .modal { width: 100%; max-width: 100%; max-height: 88vh; }
-  .modal-actions { flex-wrap: wrap; }
+  /* ปุ่มยืนยัน/ยกเลิกเรียงลงมาเต็มความกว้าง นิ้วโป้งเอื้อมถึงทั้งคู่ ไม่ต้องยืดไปมุมขวาบน */
+  .modal-actions { flex-wrap: wrap; flex-direction: column-reverse; align-items: stretch; }
+  .modal-actions .btn, .modal-actions .btn-mini { width: 100%; }
 
   /* ตารางทุกใบเลื่อนแนวนอนได้ในตัวเอง */
   table.tbl { min-width: 640px; }
+
+  /* ⚠️ ปัญหาจริงของตารางบนมือถือไม่ใช่ "เลื่อนได้" แต่คือ "เลื่อนไปแล้วไม่รู้ว่าแถวนี้ของใคร"
+     ตรึงคอลัมน์แรก (ชื่อยูนิต/ชื่อคน) ไว้ แล้วใส่เงาบอกว่ายังมีคอลัมน์ต่อทางขวา */
+  .table-scroll, .tbl-wrap {
+    scroll-snap-type: none;
+    background:
+      linear-gradient(90deg, transparent, rgba(0,0,0,.16)) right / 18px 100% no-repeat scroll;
+  }
+  table.tbl th:first-child,
+  table.tbl td:first-child {
+    position: sticky; left: 0; z-index: 1;
+    background: var(--surface);
+    /* เส้นคั่นบางๆ ให้รู้ว่าคอลัมน์นี้ไม่ได้เลื่อนไปกับเพื่อน */
+    box-shadow: 1px 0 0 var(--border);
+  }
+  table.tbl thead th:first-child { z-index: 2; background: var(--surface); }
+  /* แถวที่มีพื้นของตัวเอง (hover / ยังไม่จัดกลุ่ม) ต้องทาสีช่องที่ตรึงด้วย ไม่งั้นช่องแรกจะสีไม่ตรงกับแถว
+     ทาเป็น 2 ชั้น (สีทับ + พื้นการ์ด) ให้ได้สีผสมเดียวกับแถวเป๊ะ ไม่ใช่เดาเป็นสีทึบ */
+  table.tbl tr.clickable:hover td:first-child {
+    background-color: var(--surface);
+    background-image: linear-gradient(rgba(108,92,231,.12), rgba(108,92,231,.12));
+  }
+  table.tbl tr.sr-unmapped td:first-child {
+    background-color: var(--surface);
+    background-image: linear-gradient(rgba(232,161,58,.09), rgba(232,161,58,.09));
+  }
 }
 
 @media (max-width: 560px) {
