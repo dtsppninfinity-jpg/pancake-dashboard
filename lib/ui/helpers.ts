@@ -111,12 +111,68 @@ export function toast(msg: string): void {
 export function openModal(html: string): void {
   const root = document.getElementById('modal-root')!;
   root.innerHTML = '<div class="modal-overlay"><div class="modal">' + html + '</div></div>';
-  root.querySelector('.modal-overlay')!.addEventListener('click', (e) => {
+  const overlay = root.querySelector('.modal-overlay') as HTMLElement;
+  overlay.addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeModal();
   });
   // ต้อง querySelectorAll — modal ส่วนใหญ่มีปุ่มปิด 2 ตัว (✕ มุมบน + "ยกเลิก" ท้ายฟอร์ม)
   // ถ้า bind แค่ตัวแรก ปุ่ม "ยกเลิก" จะกดไม่ติด (เคยเป็นบั๊กจริงบนหน้าจัดการผู้ใช้)
   root.querySelectorAll('.modal-close').forEach((x) => x.addEventListener('click', closeModal));
+  bindSheetDrag_(root.querySelector('.modal') as HTMLElement, overlay);
+}
+
+/* ---------- ลากแผ่นลงเพื่อปิด (bottom sheet) ----------
+   ขีดจับด้านบนต้องลากได้จริง ไม่ใช่ขีดตกแต่ง — ของที่หน้าตาเหมือนจับได้แต่จับไม่ได้
+   แย่กว่าไม่มีขีดเลย เพราะคนลองแล้วคิดว่าเว็บค้าง
+   จับที่ .modal-head เท่านั้น ไม่ใช่ทั้งแผ่น ไม่งั้นจะไปแย่งการเลื่อนเนื้อหาข้างใน
+   (คู่กับ .modal-head { touch-action: none } ใน globals.css ซึ่งบอกเบราว์เซอร์ว่า
+    ท่าทางบนหัวแผ่นเราจัดการเอง ไม่ต้องเอาไปทำ scroll) */
+
+const SHEET_CLOSE_RATIO = 0.25;   // ลากลงเกิน 1 ใน 4 ของความสูงแผ่น = ปิด
+const SHEET_FLING_SPEED = 0.6;    // px ต่อ ms — สะบัดลงเร็วๆ สั้นๆ ก็ต้องปิดได้
+const SHEET_ANIM_MS = 180;
+
+function bindSheetDrag_(sheet: HTMLElement, overlay: HTMLElement): void {
+  const head = sheet ? (sheet.querySelector('.modal-head') as HTMLElement | null) : null;
+  if (!head) return;
+  let id = -1, y0 = 0, t0 = 0, dy = 0;
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  head.addEventListener('pointerdown', function (e) {
+    // จอ ≥600 โมดัลเป็นกล่องลอยกลางจอ ไม่ใช่แผ่น จึงไม่มีอะไรให้ลาก
+    if (window.matchMedia('(min-width: 600px)').matches) return;
+    if ((e.target as Element).closest('button, a, input, select')) return;
+    id = e.pointerId; y0 = e.clientY; t0 = e.timeStamp; dy = 0;
+    head.setPointerCapture(id);
+    sheet.style.transition = 'none';
+  });
+
+  head.addEventListener('pointermove', function (e) {
+    if (e.pointerId !== id) return;
+    dy = Math.max(0, e.clientY - y0);   // ลากขึ้นไม่ต้องทำอะไร แผ่นชิดขอบล่างอยู่แล้ว
+    sheet.style.transform = 'translateY(' + dy + 'px)';
+    // ฉากหลังจางลงตามระยะที่ลาก ให้รู้สึกว่ากำลัง "ปล่อยออก" ไม่ใช่แค่เลื่อนกล่อง
+    overlay.style.background = 'rgba(5,8,18,' + (0.7 * Math.max(0, 1 - dy / 400)).toFixed(3) + ')';
+  });
+
+  function end(e: PointerEvent): void {
+    if (e.pointerId !== id) return;
+    id = -1;
+    const speed = dy / Math.max(1, e.timeStamp - t0);
+    if (dy > sheet.offsetHeight * SHEET_CLOSE_RATIO || speed > SHEET_FLING_SPEED) {
+      if (reduce) { closeModal(); return; }
+      sheet.style.transition = 'transform ' + SHEET_ANIM_MS + 'ms ease-in';
+      sheet.style.transform = 'translateY(100%)';
+      overlay.style.background = 'rgba(5,8,18,0)';
+      setTimeout(closeModal, SHEET_ANIM_MS - 10);
+    } else {
+      sheet.style.transition = reduce ? 'none' : 'transform ' + SHEET_ANIM_MS + 'ms ease-out';
+      sheet.style.transform = '';
+      overlay.style.background = '';
+    }
+  }
+  head.addEventListener('pointerup', end);
+  head.addEventListener('pointercancel', end);
 }
 
 export function closeModal(): void {

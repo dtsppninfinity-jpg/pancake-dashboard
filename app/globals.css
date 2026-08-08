@@ -921,11 +921,16 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
   display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-2);
   position: sticky; top: calc(var(--sp-3) * -1); z-index: 1;
   background: var(--surface); padding: var(--sp-3) 0 var(--sp-2); margin: calc(var(--sp-3) * -1) 0 var(--sp-2);
+  /* หัวแผ่น = ที่จับสำหรับลากปิด (bindSheetDrag_ ใน lib/ui/helpers.ts)
+     touch-action:none บอกเบราว์เซอร์ว่าท่าทางตรงนี้เราจัดการเอง อย่าเอาไปทำ scroll
+     ไม่งั้น pointermove จะถูกยกเลิกกลางคันทันทีที่นิ้วขยับลง */
+  touch-action: none; cursor: grab;
 }
-/* ขีดจับด้านบน — สัญญาณสากลว่า "นี่คือแผ่นที่ปิดได้" */
+.modal-head:active { cursor: grabbing; }
+/* ขีดจับด้านบน — ลากลงเพื่อปิดได้จริง ไม่ใช่ขีดตกแต่ง */
 .modal-head::before {
   content: ''; position: absolute; top: 2px; left: 50%; transform: translateX(-50%);
-  width: 36px; height: 4px; border-radius: 99px; background: var(--border);
+  width: 40px; height: 4px; border-radius: 99px; background: var(--text-3); opacity: .55;
 }
 .modal-head h3 { font-size: var(--fs-4); margin-top: var(--sp-2); }
 .modal-close { background: none; border: none; color: var(--text-3); font-size: var(--fs-6); margin-top: var(--sp-1); }
@@ -1542,6 +1547,7 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
   }
   .modal-head {
     position: static; padding: 0; margin: 0 0 var(--sp-3); background: none;
+    touch-action: auto; cursor: default;
   }
   .modal-head::before { content: none; }
   .modal-head h3 { margin-top: 0; }
