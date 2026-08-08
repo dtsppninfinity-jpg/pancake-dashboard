@@ -137,6 +137,11 @@ body {
 }
 button { font-family: inherit; cursor: pointer; }
 input, select { font-family: inherit; }
+/* touch-action: manipulation = "ตรงนี้ไม่มีการแตะสองครั้งเพื่อซูม" เบราว์เซอร์จึงไม่ต้อง
+   หน่วงการแตะไว้รอดูว่าจะมีครั้งที่สองตามมาไหม — ปุ่มตอบสนองเร็วขึ้นบนมือถือ
+   (หมายเหตุ: ไม่ใช่ตัวแก้อาการ "ต้องแตะ 2 ครั้งหลังปัดปิดแผ่น" — ตัวนั้นเกิดจาก
+    touch-action: none บนหัวแผ่น แก้ไปแล้วที่ .modal-head) */
+button, a, summary, label, [role="button"] { touch-action: manipulation; }
 /* ลิ้นชักเมนูเปิดอยู่ = ล็อกไม่ให้พื้นหลังเลื่อนตามนิ้ว (ปลดล็อกเองที่ ≥900) */
 body.nav-locked { overflow: hidden; }
 
@@ -922,9 +927,13 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
   position: sticky; top: calc(var(--sp-3) * -1); z-index: 1;
   background: var(--surface); padding: var(--sp-3) 0 var(--sp-2); margin: calc(var(--sp-3) * -1) 0 var(--sp-2);
   /* หัวแผ่น = ที่จับสำหรับลากปิด (bindSheetDrag_ ใน lib/ui/helpers.ts)
-     touch-action:none บอกเบราว์เซอร์ว่าท่าทางตรงนี้เราจัดการเอง อย่าเอาไปทำ scroll
-     ไม่งั้น pointermove จะถูกยกเลิกกลางคันทันทีที่นิ้วขยับลง */
-  touch-action: none; cursor: grab;
+     ⚠️ ห้ามตั้ง touch-action เป็น none / pan-x ตรงนี้ — วัดแล้วทั้งคู่ทำให้ Chrome กลืน
+     "การแตะครั้งถัดไป" ที่เกิดภายใน ~500ms หลังปล่อยนิ้ว (pointerdown มาถึงปุ่ม แต่ click ไม่เกิด
+     ต้องแตะซ้ำถึงจะติด) เกิดกับทุกค่าที่ห้ามการปัดแนวตั้ง
+     ส่วน manipulation ก็ใช้ไม่ได้ เพราะเบราว์เซอร์แย่ง gesture ไปทำ scroll แล้วยิง pointercancel
+     ทางออกคือปล่อย touch-action ตามค่าเริ่มต้น แล้วกันการเลื่อนด้วย preventDefault()
+     บน touchmove (non-passive) เฉพาะตอนกำลังลากจริงๆ — ดู bindSheetDrag_ */
+  cursor: grab;
 }
 .modal-head:active { cursor: grabbing; }
 /* ขีดจับด้านบน — ลากลงเพื่อปิดได้จริง ไม่ใช่ขีดตกแต่ง */

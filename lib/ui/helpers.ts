@@ -147,6 +147,12 @@ function bindSheetDrag_(sheet: HTMLElement, overlay: HTMLElement): void {
     sheet.style.transition = 'none';
   });
 
+  // กันเบราว์เซอร์เอาท่าทางนี้ไปทำ scroll — ต้องเป็น listener แบบ non-passive ถึงจะ preventDefault ได้
+  // (ใช้แทน CSS touch-action ซึ่งแก้ปัญหาเดียวกันได้แต่ไปกลืนการแตะครั้งถัดไป — ดูคอมเมนต์ที่ .modal-head)
+  head.addEventListener('touchmove', function (e) {
+    if (id !== -1 && e.cancelable) e.preventDefault();
+  }, { passive: false });
+
   head.addEventListener('pointermove', function (e) {
     if (e.pointerId !== id) return;
     dy = Math.max(0, e.clientY - y0);   // ลากขึ้นไม่ต้องทำอะไร แผ่นชิดขอบล่างอยู่แล้ว
@@ -161,6 +167,10 @@ function bindSheetDrag_(sheet: HTMLElement, overlay: HTMLElement): void {
     const speed = dy / Math.max(1, e.timeStamp - t0);
     if (dy > sheet.offsetHeight * SHEET_CLOSE_RATIO || speed > SHEET_FLING_SPEED) {
       if (reduce) { closeModal(); return; }
+      // ⚠️ ระหว่างแอนิเมชันปิด ฉากหลังยังคาอยู่บนจอและยังรับการแตะอยู่ ทั้งที่มองไม่เห็นแล้ว
+      //    แตะปุ่มทันทีหลังปัด = โดนฉากหลังกินไปเฉยๆ (วัดได้: elementFromPoint คืน .modal-overlay)
+      //    ปิดการรับสัมผัสทันทีที่ตัดสินใจปิด นิ้วจะทะลุไปโดนของจริงข้างล่างได้เลย
+      overlay.style.pointerEvents = 'none';
       sheet.style.transition = 'transform ' + SHEET_ANIM_MS + 'ms ease-in';
       sheet.style.transform = 'translateY(100%)';
       overlay.style.background = 'rgba(5,8,18,0)';
@@ -172,7 +182,15 @@ function bindSheetDrag_(sheet: HTMLElement, overlay: HTMLElement): void {
     }
   }
   head.addEventListener('pointerup', end);
-  head.addEventListener('pointercancel', end);
+  // pointercancel = เบราว์เซอร์ยึดท่าทางไปทำอย่างอื่น (เช่น เลื่อนเนื้อหา) ไม่ใช่เจตนาปิดของผู้ใช้
+  // จึงเด้งกลับเสมอ ไม่ปิด — ปิดโดยที่ผู้ใช้ไม่ได้ตั้งใจแย่กว่าไม่ปิด
+  head.addEventListener('pointercancel', function (e) {
+    if (e.pointerId !== id) return;
+    id = -1;
+    sheet.style.transition = reduce ? 'none' : 'transform ' + SHEET_ANIM_MS + 'ms ease-out';
+    sheet.style.transform = '';
+    overlay.style.background = '';
+  });
 }
 
 export function closeModal(): void {
