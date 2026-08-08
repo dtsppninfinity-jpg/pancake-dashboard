@@ -30,6 +30,30 @@ async function loadPagesWithTokens(): Promise<{ pages: any[]; tokens: Record<str
   return { pages: withToken, tokens };
 }
 
+/**
+ * เรียก API ระดับเพจ พร้อม "ต่ออายุ token อัตโนมัติ"
+ *
+ * Pancake หมุน page_access_token เองเป็นระยะ แล้วตอบ `access_token renewed please use new access_token`
+ * ของเก่าที่เราเก็บไว้จึงใช้ไม่ได้ทันที — เดิมงานทุกตัวจับ error นี้เป็น "เพจพลาด" เฉยๆ
+ * ผลคือสถิติแชท/engagement หายไป 60-120 เพจแบบเงียบๆ (%ปิดการขายคิดจากกลุ่มตัวอย่างจิ๋ว — ทีมจับได้ 2026-08-08)
+ * เจอ error นี้เมื่อไหร่: ขอ token ใหม่ → บันทึกลง page_tokens → ลองซ้ำ 1 ครั้ง
+ */
+const TOKEN_RENEWED_RE = /access_token renewed|invalid page_access_token|page_access_token.*(expired|invalid)/i;
+
+async function withPageToken<T>(
+  pageId: string, tokens: Record<string, string>, fn: (token: string) => Promise<T>
+): Promise<T> {
+  try {
+    return await fn(tokens[pageId] || '');
+  } catch (e: any) {
+    if (!TOKEN_RENEWED_RE.test(String((e && e.message) || ''))) throw e;
+    const fresh = await pagesGenerateToken(pageId);
+    tokens[pageId] = fresh;
+    await supabase.from('page_tokens').upsert({ page_id: pageId, token: fresh });
+    return await fn(fresh);
+  }
+}
+
 async function platformByPage(): Promise<Record<string, string>> {
   const { data } = await supabase.from('pages').select('page_id, platform');
   const m: Record<string, string> = {};
@@ -654,7 +678,7 @@ export async function syncChatStats(since: Date, until: Date): Promise<string> {
   const errors: string[] = [];
   for (const p of pages) {
     try {
-      const buckets = await pageChatStats(String(p.page_id), tokens[String(p.page_id)], since, until);
+      const buckets = await withPageToken(String(p.page_id), tokens, (tok) => pageChatStats(String(p.page_id), tok, since, until));
       for (const b of buckets) { const row = mapChatHour(p, b); if (row) rows.push(row); }
     } catch (e: any) { errors.push(`${p.name}: ${e.message}`); }
     await sleep(100);
@@ -691,7 +715,7 @@ export async function syncEngagementsForDate(dateStr: string, skip?: Set<string>
     // backfill ส่ง set ของเพจที่ 500 มาแล้วมาให้ข้าม — ไม่งั้นเสียเวลา retry ซ้ำทุกวัน
     if (skip && skip.has(String(p.page_id))) continue;
     try {
-      const s = await pageCustomerEngagements(String(p.page_id), tokens[String(p.page_id)], since, until);
+      const s = await withPageToken(String(p.page_id), tokens, (tok) => pageCustomerEngagements(String(p.page_id), tok, since, until));
       const row = mapEngagementDaily(p, s, dateStr);
       // เพจที่ไม่มีความเคลื่อนไหวเลย ไม่ต้องเขียนแถวศูนย์ให้ตารางบวม
       if (row.total || row.order_count || row.inbox) {
@@ -725,7 +749,7 @@ export async function syncConversations(): Promise<string> {
   const errors: string[] = [];
   for (const p of pages) {
     try {
-      const convs = await pageConversations(String(p.page_id), tokens[String(p.page_id)], since, until, 2);
+      const convs = await withPageToken(String(p.page_id), tokens, (tok) => pageConversations(String(p.page_id), tok, since, until, 2));
       convs.forEach((c) => rows.push(mapConversation(p, c)));
     } catch (e: any) { errors.push(`${p.name}: ${e.message}`); }
     await sleep(100);
@@ -757,7 +781,7 @@ export async function syncAdStatsForDate(dateStr: string): Promise<string> {
   let spend = 0;
   for (const p of pages) {
     try {
-      const ads = await pageAdStats(String(p.page_id), tokens[String(p.page_id)], since, until);
+      const ads = await withPageToken(String(p.page_id), tokens, (tok) => pageAdStats(String(p.page_id), tok, since, until));
       for (const a of ads) {
         const row = mapAdDaily(p, a, dateStr);
         if (row) { rows.push(row); spend += row.spend; }
@@ -1041,7 +1065,7 @@ export async function syncAdminsRoster(): Promise<string> {
 
   for (const p of pages) {
     try {
-      const res = await pageUsers(String(p.page_id), tokens[String(p.page_id)]);
+      const res = await withPageToken(String(p.page_id), tokens, (tok) => pageUsers(String(p.page_id), tok));
       okPages++;
       for (const u of res.users) {
         const uid = String(u.id);
@@ -1180,7 +1204,7 @@ export async function syncOnlineStatus(): Promise<string> {
   const failedPages: string[] = [];
   for (const p of pages) {
     try {
-      const res = await pageUsers(String(p.page_id), tokens[String(p.page_id)]);
+      const res = await withPageToken(String(p.page_id), tokens, (tok) => pageUsers(String(p.page_id), tok));
       res.users.forEach((u: any) => { if (u.is_online) online[String(u.id)] = true; });
       checked++;
     } catch { failedPages.push(String(p.name || p.page_id)); }
@@ -1218,7 +1242,7 @@ export async function syncAdminChatForDate(dateStr: string): Promise<string> {
   const errors: string[] = [];
   for (const p of pages) {
     try {
-      const data = await pageUserStats(String(p.page_id), tokens[String(p.page_id)], from, to);
+      const data = await withPageToken(String(p.page_id), tokens, (tok) => pageUserStats(String(p.page_id), tok, from, to));
       const totals = data.users || {};
       for (const uid of Object.keys(totals)) {
         const u = totals[uid] || {};
