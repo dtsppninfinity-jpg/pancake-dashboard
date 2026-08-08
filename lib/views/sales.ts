@@ -547,6 +547,9 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
           '<h3>🧩 ยอดขายตามยูนิต (สินค้า)</h3>' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
             '<button class="btn-mini" id="sr-targets">🎯 ตั้งเป้ารายเดือน</button>' +
+            // ทางเข้าที่ 2 ของโมดัลตั้งค่ายูนิต — อีกปุ่มอยู่บนการ์ด 🚨 ซึ่งหายไปตอนไม่มียูนิตขาดทุน
+            // (พอทีมทำกำไรครบทุกยูนิตจะแก้หมายเหตุไม่ได้เลย ซึ่งกลับหัวกลับหาง)
+            '<button class="btn-mini" id="sr-unitcfg" title="จุดคุ้มทุน + 📌 หมายเหตุยูนิต เช่น รอรีแบรนด์">⚙️ ตั้งค่ายูนิต</button>' +
             (pageCount > 0 ? '<button class="btn-mini" id="sr-allpages">📋 ดูทุกเพจ (' + fmtNum(pageCount) + ')</button>' : '') +
           '</div>' +
         '</div>' +
@@ -657,6 +660,9 @@ function bindEvents(container: HTMLElement): void {
 
   const beBtn = container.querySelector('#sr-breakeven');
   if (beBtn) beBtn.addEventListener('click', openBreakEvenEditor);
+
+  const cfgBtn = container.querySelector('#sr-unitcfg');
+  if (cfgBtn) cfgBtn.addEventListener('click', openBreakEvenEditor);
 
   const csvBtn = container.querySelector('#sr-csv');
   if (csvBtn) csvBtn.addEventListener('click', exportCsv);
