@@ -1350,7 +1350,16 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 .btn.btn-nav {
   display: inline-flex; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-6); line-height: 1;
   min-width: 44px; min-height: 44px; align-items: center; justify-content: center;
+  /* ปุ่มสลับต้องรู้สึกว่ากดติด — ยุบลงตอนกด แล้วค้างเป็นสีเน้นตอนแถบเมนูกางอยู่
+     คนจะได้รู้ว่าปุ่มนี้เป็นสวิตช์ ไม่ใช่ปุ่มสั่งงานครั้งเดียว */
+  transition: transform .14s ease, background .16s ease, border-color .16s ease, color .16s ease;
 }
+.btn.btn-nav:active { transform: scale(.9); }
+/* จอแคบ: ติดสีตอนลิ้นชักเปิดอยู่ (จอกว้างใช้เงื่อนไขคนละตัว — อยู่ในบล็อก ≥900) */
+#app.nav-open .btn.btn-nav {
+  background: var(--primary-soft); border-color: var(--primary); color: var(--primary);
+}
+@media (prefers-reduced-motion: reduce) { .btn.btn-nav { transition: none; } }
 .nav-backdrop {
   display: block; position: fixed; inset: 0; z-index: 55;
   background: rgba(0,0,0,.5); opacity: 0; pointer-events: none;
@@ -1594,15 +1603,31 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
      เหลือเนื้อหา 774px ซึ่งแคบจนข้อความไทยในการ์ดแอดตัดทีละตัวอักษร
      ปุ่ม ☰ จึงกลายเป็นปุ่มพับ/กางแถบเมนู และจำค่าที่เลือกไว้ (ดู applyNavPref ใน app-core) */
   .nav-backdrop { display: none; }
-  #app.nav-hidden .sidebar { display: none; }
+  /* ⚠️ เลื่อนด้วย margin-left ไม่ใช่ display:none และไม่ใช่ width:0
+     display เปลี่ยนแบบทันทีทันใด ทำแอนิเมชันไม่ได้เลย
+     ส่วน width:0 จะบีบเนื้อหาข้างในแถบเมนูให้ยับระหว่างทาง (ชื่อเมนูหักบรรทัดมั่ว)
+     margin ติดลบทำให้แถบเมนูคงความกว้าง 250px แล้ว "เลื่อนออกไปทางซ้าย" เนื้อหาหลักไหลตามมาเอง
+     visibility หน่วงไว้ท้ายสุด กัน Tab หลุดเข้าไปในแถบที่พับอยู่ */
+  .sidebar {
+    transition: margin-left .26s cubic-bezier(.32, .72, 0, 1), opacity .2s ease, visibility 0s linear .26s;
+  }
+  #app.nav-hidden .sidebar {
+    margin-left: -250px; opacity: 0; visibility: hidden; pointer-events: none;
+  }
+  #app:not(.nav-hidden) .sidebar { visibility: visible; transition-delay: 0s; }
+  /* จอกว้าง: ปุ่มติดสีเมื่อแถบเมนู "กางอยู่" (ไม่ใช่เมื่อลิ้นชักเปิด) */
+  #app.nav-open .btn.btn-nav { background: var(--surface-2); border-color: var(--border); color: var(--text); }
+  #app:not(.nav-hidden) .btn.btn-nav {
+    background: var(--primary-soft); border-color: var(--primary); color: var(--primary);
+  }
   /* หมุนจอเป็นแนวนอนทั้งที่ลิ้นชักเปิดค้างอยู่ — คลาส nav-open ยังติดอยู่ ต้องล้างผลของมันทิ้ง
      ไม่งั้นได้เงาทาบแถบเมนูถาวร และหน้าเลื่อนไม่ได้เพราะยังถูกล็อกอยู่ */
   #app.nav-open .sidebar { box-shadow: none; }
   body.nav-locked { overflow: auto; }
   .sidebar {
     position: sticky; top: 0; left: auto; width: 250px; height: 100vh;
-    transform: none; box-shadow: none;
-    visibility: visible; transition: none;
+    transform: none; box-shadow: none; visibility: visible;
+    /* ⚠️ ห้ามใส่ transition: none ตรงนี้ — จะไปล้างแอนิเมชันพับ/กางที่ประกาศไว้ข้างบน */
   }
 
   .topbar { padding: var(--sp-4) var(--sp-6); gap: var(--sp-3); }
