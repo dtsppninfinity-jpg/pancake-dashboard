@@ -103,7 +103,9 @@ function setNavOpen(open: boolean): void {
   const app = document.getElementById('app');
   if (app) app.classList.toggle('nav-open', open);
   // ล็อกไม่ให้หน้าเลื่อนตอนเมนูเปิด (ไม่งั้นนิ้วปัดแล้วพื้นหลังไหลตาม)
-  document.body.style.overflow = open ? 'hidden' : '';
+  // ใช้คลาสไม่ใช่ style ตรงๆ เพื่อให้ CSS ปลดล็อกเองได้ตอนจอกว้าง ≥900
+  // (หมุนจอเป็นแนวนอนทั้งที่เมนูเปิดค้าง แล้วหน้าเลื่อนไม่ได้ — style ตรงๆ ไม่มีทางแก้ด้วย CSS)
+  document.body.classList.toggle('nav-locked', open);
 }
 
 /* ---------------- badge แจ้งเตือนบนเมนูข้าง (แบบแอปมือถือ) ---------------- */
