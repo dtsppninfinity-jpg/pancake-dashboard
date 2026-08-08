@@ -544,7 +544,9 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         '</div>' +
         '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] +
           ' — มูลค่า = ราคาขาย × จำนวน (ยังไม่หักส่วนลดท้ายบิล) • 👆 คลิกสินค้าเพื่อดูรายเพจ</div>' +
-        '<div class="hbar-wide">' + hbarRows(prodRows, { empty: 'ยังไม่มีข้อมูลสินค้าในช่วงนี้' }) + '</div>' +
+        // ≥6 รายการค่อยแตกเป็น 2 คอลัมน์ — น้อยกว่านั้นเรียงเดี่ยวอ่านเทียบกันง่ายกว่า
+        '<div class="hbar-wide' + (prodN >= 6 ? ' hbar-cols' : '') + '">' +
+          hbarRows(prodRows, { empty: 'ยังไม่มีข้อมูลสินค้าในช่วงนี้' }) + '</div>' +
         (prodTotal > 0
           ? '<div class="hbar-foot"><span>รวม ' + fmtNum(prodN) + ' รายการ</span><b>' + THB(prodTotal) + '</b></div>'
           : '') +

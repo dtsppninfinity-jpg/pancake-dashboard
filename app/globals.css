@@ -447,8 +447,14 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 .sr-needcheck:hover { text-decoration-style: solid; }
 /* hbar ที่ตัวเลขยาว (฿x,xxx,xxx) — ขยายช่องเลขจาก 48px */
 /* ชื่อสินค้าไทยยาวกว่าอังกฤษมาก — ให้คอลัมน์ชื่อยืดตามการ์ด (สูงสุด 42%) แทน 140px ตายตัว
-   ที่ตัดคำทิ้งตั้งแต่การ์ดยังกว้างอยู่ */
-.hbar-wide .hbar-row { grid-template-columns: minmax(96px, 42%) 1fr 92px; }
+   ที่ตัดคำทิ้งตั้งแต่การ์ดยังกว้างอยู่ • เพดาน 280px กันชื่อกินครึ่งจอตอนการ์ดเต็มความกว้าง */
+.hbar-wide .hbar-row { grid-template-columns: minmax(96px, min(42%, 280px)) 1fr 92px; }
+/* การ์ดเต็มความกว้าง + รายการเยอะ = แท่งยาวเป็นหางว่าวและการ์ดสูงเกินจอ
+   แบ่งเป็น 2 คอลัมน์ด้วย column-count (ไม่ใช่ grid) เพราะมันไล่เต็มคอลัมน์ซ้ายก่อนแล้วขึ้นขวา
+   อันดับจึงยังอ่านจากบนลงล่างได้ตามปกติ — grid จะสลับเป็นซ้าย-ขวาสลับกันซึ่งอ่านอันดับไม่รู้เรื่อง */
+.hbar-cols { column-count: 2; column-gap: 32px; }
+.hbar-cols .hbar-row { break-inside: avoid; }
+@media (max-width: 900px) { .hbar-cols { column-count: 1; } }
 .hbar-wide .hbar-num { text-align: right; white-space: nowrap; }
 /* บรรทัดปิดท้ายกราฟแท่ง — ให้การ์ดมีขอบล่างที่จบจริง ไม่ใช่แท่งสุดท้ายแล้วหายไป
    และตอบคำถามที่ต้องบวกเองทุกครั้งว่า "ทั้งหมดเท่าไหร่" */
@@ -465,14 +471,11 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
    ที่ตั้งไว้ (ตารางยูนิต 9 คอลัมน์เคยดันจน 1fr กว้างกว่า 1.6fr) แล้วหน้าเว็บเลื่อนแนวนอนได้ */
 .sr-main { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
 .sr-bottom { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
-/* แถว "สินค้าขายดี + ยอดขายตามยูนิต" — สลับน้ำหนักจาก sr-bottom เพราะเนื้อหาคนละชนิด:
-   ซ้ายเป็นแท่งกราฟ 3 คอลัมน์ (ต้องการที่น้อย) ขวาเป็นตาราง 9 คอลัมน์ (ต้องการที่มาก)
-   align-items:start = การ์ดสูงตามเนื้อหาจริง ไม่ยืดตามเพื่อนจนเหลือที่ว่างครึ่งใบ
-   (บางช่วงเวลามีสินค้าแค่ 2 ชิ้น แต่ยูนิต 10 แถว) */
-.sr-split {
-  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.75fr);
-  gap: 16px; margin-top: 16px; align-items: start;
-}
+/* "สินค้าขายดี" กับ "ยอดขายตามยูนิต" วางซ้อนลงมาเต็มความกว้าง ไม่แบ่ง 2 คอลัมน์
+   เพราะจำนวนแถวสองฝั่งไม่เท่ากันโดยธรรมชาติ (สินค้า 2 ชิ้น vs ยูนิต 15 แถว)
+   วางข้างกันเมื่อไหร่ ฝั่งสั้นก็เหลือพื้นเทาโล่งเมื่อนั้น — เต็มความกว้างยังทำให้ตาราง 9 คอลัมน์
+   ไม่ต้องเบียดจนต้องเลื่อนแนวนอนด้วย */
+.sr-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin-top: 16px; }
 .sr-green { color: var(--green); }
 .sr-red { color: var(--red); }
 .sr-today-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 6px 0; border-bottom: 1px dashed rgba(38,51,82,.6); }
