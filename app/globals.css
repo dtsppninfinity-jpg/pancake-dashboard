@@ -32,6 +32,36 @@
   --shadow: 0 1px 3px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
   --track: rgba(255, 255, 255, 0.08);       /* รางกราฟ/เส้น grid (โทนมืด) */
   --chart-soft: rgba(125, 108, 240, 0.22);  /* แท่งอ่อน = ยอดรวม */
+
+  /* ---------- สเกลระยะห่าง (กริด 4px) ----------
+     เดิมมี 21 ค่าปนกัน (2,4,5,6,7,8,9,10,11,12,13,14,16,18,20,22,26,32,40…) แต่ละค่าถูกเลือก
+     ตอนเขียนการ์ดใบนั้นๆ ไม่ได้อิงอะไร ผลคือการ์ดสองใบที่วางข้างกันเว้นขอบไม่เท่ากันโดยไม่มีเหตุผล
+     และไม่มีใครรู้ว่า "ควรใช้เท่าไหร่" ตอนเพิ่มของใหม่ เหลือ 8 ขั้น ทุกค่าหาร 4 ลงตัว */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 32px;
+  --sp-8: 40px;
+
+  /* ---------- สเกลตัวอักษร ----------
+     เดิม 25 ขนาด ห่างกันทีละ 0.5px ซึ่งตาแยกไม่ออกอยู่แล้ว แต่ทำให้ "ลำดับความสำคัญ" พร่า
+     เหลือ 8 ขั้น ระยะห่างพอให้เห็นชัดว่าอันไหนสำคัญกว่า
+     ⚠️ ขั้นต่ำคือ 11px — ไทยมีสระบน/ล่าง เล็กกว่านี้วรรณยุกต์เละบนจอมือถือ */
+  --fs-1: 11px;    /* ป้ายกำกับ/หน่วย/เชิงอรรถ */
+  --fs-2: 12px;    /* ข้อความรอง คำอธิบายใต้หัวข้อ */
+  --fs-3: 13px;    /* เนื้อความในตาราง ปุ่ม ชิป */
+  --fs-4: 14px;    /* เนื้อความหลัก หัวการ์ด */
+  --fs-5: 16px;    /* หัวเรื่องย่อย ตัวเลขในไทล์ */
+  --fs-6: 18px;    /* หัวเรื่องหน้า */
+  --fs-7: 21px;    /* ตัวเลขเด่น */
+  --fs-8: 26px;    /* ตัวเลขใหญ่สุดบนการ์ดสรุป */
+
+  /* ความสูงจริงของหัวเว็บบนจอเดสก์ท็อป (ชื่อหน้า + บรรทัดรอง + ระยะขอบ)
+     ใช้คำนวณ offset ของ element ที่ sticky อยู่ใต้มัน เช่น .umap-side */
+  --topbar-h: 78px;
 }
 
 /* ---------- โหมดสว่าง (Light) — เนื้อหาหลักสว่าง, sidebar คงสีเข้มเป็นแถบเมนู ---------- */
@@ -73,13 +103,34 @@
 :root[data-theme="light"] table.tbl td,
 :root[data-theme="light"] .sr-today-row { border-bottom-color: var(--border); }
 
+/* ============================================================
+   📱 กติกาของไฟล์นี้ #1 — MOBILE FIRST
+   สไตล์ที่อยู่นอก @media คือ "หน้าตาบนมือถือ" เสมอ จอที่ใหญ่ขึ้นค่อยเพิ่มของเข้าไป
+   ห้ามเขียน @media (max-width: …) ใหม่ — ถ้าต้องซ่อนอะไรบนมือถือ ให้ตั้งค่าเริ่มต้นเป็นซ่อน
+   แล้วเปิดใน min-width แทน (ไม่งั้นจะกลับไปเป็น "เดสก์ท็อปที่ค่อยๆ พัง" เหมือนเดิม)
+
+   มีแค่ 3 จุดตัด ห้ามเพิ่ม:
+     ≥600px   มือถือแนวนอน / มือถือจอใหญ่ — เริ่มวาง 2 คอลัมน์ได้
+     ≥900px   แท็บเล็ต / โน้ตบุ๊ก — แถบเมนูออกจากลิ้นชักมาปักซ้ายถาวร, ตารางกลับเป็นตาราง
+     ≥1200px  เดสก์ท็อป — เลย์เอาต์หลายคอลัมน์เต็มรูปแบบ
+   (เดิมมี 9 จุดตัด: 560/640/700/720/860/900/1100/1180/1280 ซึ่งไม่มีใครจำได้ว่าอันไหนคุมอะไร)
+
+   กติกา #2 — คอลัมน์กริดเขียน minmax(0, 1fr) เสมอ ห้ามเขียน 1fr เปล่า
+   เพราะ 1fr มีค่าต่ำสุดเป็น auto = "กว้างอย่างน้อยเท่าเนื้อหา" ตารางที่ตั้ง min-width
+   จึงดันคอลัมน์ → ดันทั้งหน้าให้กว้างเกินจอ แล้ว overflow-x:auto ไม่มีโอกาสทำงาน
+
+   กติกา #3 — ระยะห่างใช้ var(--sp-*) ขนาดตัวอักษรใช้ var(--fs-*) ห้ามใส่ px ลอยๆ
+   ============================================================ */
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; }
 body {
   font-family: 'Segoe UI', 'Leelawadee UI', 'Noto Sans Thai', sans-serif;
   background: var(--bg);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--fs-4);
+  /* กันเบราว์เซอร์มือถือขยายตัวอักษรเองตอนหมุนจอแนวนอน (จะทำให้ตารางเละ) */
+  -webkit-text-size-adjust: 100%;
   /* ไม่เคยตั้งมาก่อน จึงตกไปใช้ค่าปริยายของฟอนต์ซึ่งเผื่อไว้สำหรับอังกฤษ
      ไทยมีทั้งสระบนและสระล่าง พอข้อความในตารางพับ 2 บรรทัด วรรณยุกต์บรรทัดล่างจะชนสระบรรทัดบน */
   line-height: 1.55;
@@ -91,236 +142,244 @@ input, select { font-family: inherit; }
 #app { display: flex; min-height: 100vh; }
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 
-/* ---------- sidebar ---------- */
+/* ---------- sidebar ----------
+   ค่าเริ่มต้น = ลิ้นชักที่ซ่อนอยู่นอกจอซ้าย (พฤติกรรมบนมือถือ)
+   จอ ≥900px ถึงจะกลายเป็นแถบปักซ้ายถาวร */
 .sidebar {
-  width: 250px; flex-shrink: 0;
+  position: fixed; top: 0; left: 0; z-index: 60;
+  width: 265px; flex-shrink: 0;
+  height: 100vh; height: 100dvh;   /* dvh กันแถบที่อยู่เว็บของมือถือกินพื้นที่ */
+  overflow-y: auto;
   background: var(--sidebar-bg);
   color: var(--sidebar-text);
   display: flex; flex-direction: column;
-  position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  transform: translateX(-100%); transition: transform .22s ease;
+  box-shadow: 4px 0 24px rgba(0,0,0,.32);
+  /* มือถือจอบาก: เนื้อหาในลิ้นชักต้องไม่มุดใต้แถบสถานะ/แถบล่าง */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
 }
-.brand { display: flex; gap: 10px; align-items: center; padding: 18px 16px 14px; }
+#app.nav-open .sidebar { transform: translateX(0); }
+.brand { display: flex; gap: var(--sp-3); align-items: center; padding: var(--sp-4) var(--sp-4) var(--sp-4); }
 .brand-logo {
   width: 38px; height: 38px; border-radius: 10px;
   background: linear-gradient(135deg, #7d6cf0, #6c5ce7);
   color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center;
 }
-.brand-name { font-weight: 700; color: #fff; font-size: 14.5px; }
-.brand-sub { font-size: 10.5px; opacity: .7; }
-.nav { flex: 1; padding: 6px 10px; }
+.brand-name { font-weight: 700; color: #fff; font-size: var(--fs-4); }
+.brand-sub { font-size: var(--fs-1); opacity: .7; }
+.nav { flex: 1; padding: var(--sp-2) var(--sp-3); }
 .nav-section {
-  font-size: 10.5px; font-weight: 700; text-transform: uppercase;
-  letter-spacing: .4px; opacity: .55; margin: 14px 8px 6px;
+  font-size: var(--fs-1); font-weight: 700; text-transform: uppercase;
+  letter-spacing: .4px; opacity: .55; margin: var(--sp-4) var(--sp-2) var(--sp-2);
 }
 .nav-item {
-  display: flex; align-items: center; gap: 10px; width: 100%;
+  display: flex; align-items: center; gap: var(--sp-3); width: 100%;
   background: none; border: none; color: var(--sidebar-text);
-  padding: 9px 10px; border-radius: 10px; text-align: left; font-size: 13px;
+  padding: var(--sp-2) var(--sp-3); border-radius: 10px; text-align: left; font-size: var(--fs-3);
   position: relative; /* จุดยึดของ .nav-badge */
 }
 /* badge ตัวเลขเรื่องด่วน มุมขวาบนของแท็บ — แบบแจ้งเตือนแอปมือถือ */
 .nav-badge {
   position: absolute; top: 6px; right: 8px;
-  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
-  background: #e74c3c; color: #fff; font-size: 10.5px; font-weight: 800;
+  min-width: 18px; height: 18px; padding: 0 var(--sp-1); border-radius: 9px;
+  background: #e74c3c; color: #fff; font-size: var(--fs-1); font-weight: 800;
   display: inline-flex; align-items: center; justify-content: center; line-height: 1;
   box-shadow: 0 0 0 2px var(--sidebar-bg, rgba(0,0,0,.35));
 }
 .nav-badge.warn { background: #e67e22; }
 /* มี badge เมื่อไหร่ เว้นที่ขวาให้ชื่อแท็บไม่วิ่งไปใต้เลข */
-.nav-item.has-badge { padding-right: 34px; }
+.nav-item.has-badge { padding-right: var(--sp-7); }
 /* ป้ายหมายเหตุยูนิต (เช่น "รอรีแบรนด์") — โทนเหลืองอำพันให้ต่างจาก chip รหัสยูนิต */
 .chip.chip-note { background: rgba(230,126,34,.16); color: #e67e22; font-weight: 700; }
 :root[data-theme="light"] .chip.chip-note { background: rgba(230,126,34,.12); color: #b35c0e; }
 
 /* ---------- หน้า KPI ทีมขาย (รื้อ UI 2026-08-01 — เลย์เอาต์แบบเว็บตัวอย่างของทีม) ---------- */
-.kpi-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 14px; }
-@media (max-width: 1100px) { .kpi-cards { grid-template-columns: 1fr 1fr; } }
-@media (max-width: 560px) { .kpi-cards { grid-template-columns: minmax(0, 1fr); } }
-.kpi-card { display: flex; align-items: center; gap: 12px; }
-.kpi-big { font-size: 24px; font-weight: 800; line-height: 1.2; }
-.kpi-max { font-size: 12px; font-weight: 600; color: var(--text-3); }
-.kpi-ico { font-size: 26px; width: 44px; height: 44px; border-radius: 12px; background: var(--primary-soft);
+.kpi-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); margin-top: var(--sp-3); }
+.kpi-card { display: flex; align-items: center; gap: var(--sp-3); }
+.kpi-big { font-size: var(--fs-8); font-weight: 800; line-height: 1.2; }
+.kpi-max { font-size: var(--fs-2); font-weight: 600; color: var(--text-3); }
+.kpi-ico { font-size: var(--fs-8); width: 44px; height: 44px; border-radius: 12px; background: var(--primary-soft);
   display: flex; align-items: center; justify-content: center; }
 .kpi-ring { width: 58px; height: 58px; border-radius: 50%; flex: none;
   background: conic-gradient(var(--rc, var(--primary)) calc(var(--p, 0) * 1%), var(--track) 0);
   display: flex; align-items: center; justify-content: center; }
 .kpi-ring > span { width: 42px; height: 42px; border-radius: 50%; background: var(--surface);
-  display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 12px; }
+  display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: var(--fs-2); }
 /* เกรด A-D */
 .grade { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 21px;
-  padding: 0 6px; border-radius: 6px; font-weight: 800; font-size: 12px; vertical-align: middle; }
+  padding: 0 var(--sp-2); border-radius: 6px; font-weight: 800; font-size: var(--fs-2); vertical-align: middle; }
 .grade.g-a { background: var(--green-soft); color: var(--green); }
 .grade.g-b { background: var(--blue-soft); color: var(--blue); }
 .grade.g-c { background: var(--amber-soft); color: var(--amber); }
 .grade.g-d { background: var(--red-soft); color: var(--red); }
-/* แถบสูตรน้ำหนัก */
-.wt-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 10px; }
-@media (max-width: 1100px) {
-  .wt-strip { grid-template-columns: minmax(0, 1fr); }
-  /* ตอนเรียงแนวตั้ง เส้นคั่นซ้ายไม่มีความหมาย — สลับเป็นเส้นคั่นบน */
-  .wt-group { border-left: none; padding-left: 0; border-top: 1px dashed var(--border); padding-top: 10px; }
-  .wt-group:first-child { border-top: none; padding-top: 0; }
-}
-.wt-group { border-left: 1px solid var(--border); padding-left: 14px; }
-.wt-group:first-child { border-left: none; padding-left: 0; }
-.wt-role { font-weight: 700; font-size: 12.5px; margin-bottom: 6px; color: var(--text-2); }
-.wt-row { display: flex; gap: 14px; flex-wrap: wrap; }
+/* แถบสูตรน้ำหนัก — เรียงแนวตั้งเป็นค่าเริ่มต้น เส้นคั่นจึงเป็นเส้นบน (เส้นซ้ายไม่มีความหมายตอนเรียงลง) */
+.wt-strip { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); margin-top: var(--sp-3); }
+.wt-group { border-top: 1px dashed var(--border); padding-top: var(--sp-3); }
+.wt-group:first-child { border-top: none; padding-top: 0; }
+.wt-role { font-weight: 700; font-size: var(--fs-3); margin-bottom: var(--sp-2); color: var(--text-2); }
+.wt-row { display: flex; gap: var(--sp-4); flex-wrap: wrap; }
 .wt-item { min-width: 62px; }
-.wt-num { font-size: 18px; font-weight: 800; }
-.wt-name { font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
-.wt-bar { height: 3px; border-radius: 2px; margin-top: 4px; }
-/* ตารางสายบังคับบัญชา + แผงขวา */
-.kpi-grid { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 14px; margin-top: 14px; align-items: start; }
-@media (max-width: 1280px) {
-  .kpi-grid { grid-template-columns: minmax(0, 1fr); }
-  /* จอแคบ: เอาแผงแจ้งเตือน/สัดส่วนเกรดขึ้นก่อนตารางยักษ์ — ของสำคัญไม่จมอยู่ 2 จอล่าง */
-  .kpi-grid > div:first-child { order: 2; }
-}
-.kpi-side { display: flex; flex-direction: column; gap: 14px; }
-.kpi-head-row td { background: var(--primary-soft); font-size: 13.5px; }
+.wt-num { font-size: var(--fs-6); font-weight: 800; }
+.wt-name { font-size: var(--fs-1); color: var(--text-3); white-space: nowrap; }
+.wt-bar { height: 3px; border-radius: 2px; margin-top: var(--sp-1); }
+/* ตารางสายบังคับบัญชา + แผงขวา
+   จอแคบ: เอาแผงแจ้งเตือน/สัดส่วนเกรดขึ้นก่อนตารางยักษ์ — ของสำคัญไม่จมอยู่ 2 จอล่าง */
+.kpi-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); margin-top: var(--sp-3); align-items: start; }
+.kpi-grid > div:first-child { order: 2; }
+.kpi-side { display: flex; flex-direction: column; gap: var(--sp-3); }
+.kpi-head-row td { background: var(--primary-soft); font-size: var(--fs-4); }
 .kpi-sub-row td { background: rgba(128, 128, 128, .05); }
 :root[data-theme="light"] .kpi-sub-row td { background: rgba(15, 23, 42, .045); }
 /* กัน hover ทั่วไปกลืนแถบสีของแถวหัวหน้า/รอง (ตัวเลือก tr:hover td แรงกว่า) */
 table.tbl tr.kpi-head-row:hover td { background: var(--primary-soft); }
 table.tbl tr.kpi-sub-row:hover td { background: rgba(108, 92, 231, .10); }
 .kpi-child td { color: var(--text-2); }
-.kpi-subnum { font-size: 10.5px; color: var(--text-3); white-space: nowrap; }
+.kpi-subnum { font-size: var(--fs-1); color: var(--text-3); white-space: nowrap; }
 table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้พับได้ ไม่งั้นดันตารางล้นจอ */
 /* เกรดชิปใน legend/คำอธิบาย — ย่อลงไม่ให้ดันความสูงบรรทัด */
-.card-sub .grade, .kpi-lg .grade { height: 16px; min-width: 18px; font-size: 10.5px; padding: 0 4px; }
+.card-sub .grade, .kpi-lg .grade { height: 16px; min-width: 18px; font-size: var(--fs-1); padding: 0 var(--sp-1); }
 .kpi-rank { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
-  border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-weight: 800; font-size: 11px; }
+  border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-weight: 800; font-size: var(--fs-1); }
 .kpi-donut { width: 110px; height: 110px; border-radius: 50%; flex: none; position: relative;
   display: flex; align-items: center; justify-content: center; }
 .kpi-donut > span { width: 66px; height: 66px; border-radius: 50%; background: var(--surface);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 800; font-size: 16px; }
-.kpi-donut > span small { font-size: 10px; font-weight: 600; color: var(--text-3); }
-.kpi-lg { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 800; font-size: var(--fs-5); }
+.kpi-donut > span small { font-size: var(--fs-1); font-weight: 600; color: var(--text-3); }
+.kpi-lg { font-size: var(--fs-2); display: flex; align-items: center; gap: var(--sp-2); }
 .kpi-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.kpi-alert { padding: 8px 0; border-bottom: 1px dashed var(--border); font-size: 12.5px; }
+.kpi-alert { padding: var(--sp-2) 0; border-bottom: 1px dashed var(--border); font-size: var(--fs-3); }
 .kpi-alert:last-child { border-bottom: none; }
-.kpi-alert.risk { border-left: 3px solid var(--red); padding-left: 8px; }
-.kpi-alert.watch { border-left: 3px solid var(--amber); padding-left: 8px; }
+.kpi-alert.risk { border-left: 3px solid var(--red); padding-left: var(--sp-2); }
+.kpi-alert.watch { border-left: 3px solid var(--amber); padding-left: var(--sp-2); }
 /* แถบสลับแท็บย่อยของหน้า KPI */
-.kpi-tabbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+.kpi-tabbar { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; margin-top: var(--sp-4); }
 .kpi-tab {
   background: var(--surface); border: 1px solid var(--border); color: var(--text-2);
-  padding: 8px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer;
+  padding: var(--sp-2) var(--sp-4); border-radius: 10px; font-size: var(--fs-3); font-weight: 600; cursor: pointer;
 }
 .kpi-tab:hover { color: var(--text); }
 .kpi-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
 /* การ์ดรองหัวหน้า (แท็บโครงสร้างทีม) */
-.dep-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-top: 14px; }
+.dep-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: var(--sp-4); margin-top: var(--sp-4); }
 .dep-card.ok { border-top: 3px solid var(--green); }
 .dep-card.watch { border-top: 3px solid var(--amber); }
 .dep-card.risk { border-top: 3px solid var(--red); }
 .dep-bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
 .dep-bar > div { height: 100%; border-radius: 3px; }
 /* แถวคนคะแนนต่ำ (คลิกเปิด Coaching) */
-.low-row { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-radius: 10px; cursor: pointer; }
+.low-row { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-2); border-radius: 10px; cursor: pointer; }
 .low-row:hover { background: var(--surface-2); }
 /* แท็บ Coaching: ต้นไม้ซ้าย + แผงกลาง + การ์ดขวา */
-.coach-grid { display: grid; grid-template-columns: 250px minmax(0, 1fr) 270px; gap: 14px; margin-top: 14px; align-items: start; }
-@media (max-width: 1280px) { .coach-grid { grid-template-columns: minmax(0, 1fr); } }
+.coach-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); margin-top: var(--sp-3); align-items: start; }
 .coach-tree .tree-btn {
-  display: flex; align-items: center; gap: 6px; width: 100%; text-align: left; cursor: pointer;
-  background: none; border: none; color: var(--text); font-size: 13px;
-  padding: 8px 10px; border-radius: 10px; margin-top: 4px;
+  display: flex; align-items: center; gap: var(--sp-2); width: 100%; text-align: left; cursor: pointer;
+  background: none; border: none; color: var(--text); font-size: var(--fs-3);
+  padding: var(--sp-2) var(--sp-3); border-radius: 10px; margin-top: var(--sp-1);
 }
-.coach-tree .tree-btn small { color: var(--text-3); font-size: 10.5px; }
+.coach-tree .tree-btn small { color: var(--text-3); font-size: var(--fs-1); }
 .coach-tree .tree-btn span:last-child { margin-left: auto; font-weight: 800; color: var(--text-2); }
 .coach-tree .tree-btn:hover { background: var(--surface-2); }
 .coach-tree .tree-btn.active { background: var(--primary-soft); color: var(--primary); }
 .coach-tree .tree-btn.active span:last-child { color: var(--primary); }
-.coach-tree .tree-btn.sub { padding-left: 20px; }
-.coach-tree .tree-btn.staff { padding-left: 36px; font-size: 12.5px; }
+.coach-tree .tree-btn.sub { padding-left: var(--sp-5); }
+.coach-tree .tree-btn.staff { padding-left: var(--sp-7); font-size: var(--fs-3); }
 /* แถวตัวชี้วัดในแผง Coaching */
-.metric-row { margin-top: 10px; }
-.metric-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: 12.5px; }
-.metric-bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; margin-top: 4px; }
+.metric-row { margin-top: var(--sp-3); }
+.metric-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-2); font-size: var(--fs-3); }
+.metric-bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; margin-top: var(--sp-1); }
 .metric-bar > div { height: 100%; border-radius: 3px; }
 .nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
 .nav-item.active { background: var(--primary); color: #fff; }
 .nav-item.active .nav-label-sub { color: rgba(255,255,255,.75); }
-.nav-icon { font-size: 16px; width: 22px; text-align: center; }
+.nav-icon { font-size: var(--fs-5); width: 22px; text-align: center; }
 .nav-texts { display: flex; flex-direction: column; line-height: 1.25; }
-.nav-label-sub { font-size: 10.5px; color: rgba(169,165,208,.75); }
-.sidebar-footer { padding: 12px 16px; font-size: 10.5px; opacity: .8; }
-.live-badge { color: #2dd4a0; font-weight: 700; margin-bottom: 4px; }
+.nav-label-sub { font-size: var(--fs-1); color: rgba(169,165,208,.75); }
+.sidebar-footer { padding: var(--sp-3) var(--sp-4); font-size: var(--fs-1); opacity: .8; }
+.live-badge { color: #2dd4a0; font-weight: 700; margin-bottom: var(--sp-1); }
 .sidebar-sync { line-height: 1.5; }
 
 /* ---------- topbar ---------- */
 .topbar {
   display: flex; justify-content: space-between; align-items: center;
-  padding: 16px 26px; border-bottom: 1px solid var(--border);
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-3); border-bottom: 1px solid var(--border);
+  padding-top: max(var(--sp-3), env(safe-area-inset-top));
   background: var(--bg); position: sticky; top: 0; z-index: 10;
 }
-.topbar h1 { font-size: 18px; font-weight: 800; }
-.topbar-sub { font-size: 12px; color: var(--text-3); margin-top: 2px; }
-.topbar-right { display: flex; gap: 10px; align-items: center; }
+.topbar h1 { font-size: var(--fs-5); font-weight: 800; }
+/* บรรทัดรองกินบรรทัดที่สองของหัวเว็บ ซึ่งบนมือถือคือ 5% ของจอแรก — โผล่ตอน ≥900 เท่านั้น */
+.topbar-sub { display: none; font-size: var(--fs-2); color: var(--text-3); margin-top: var(--sp-1); }
+.topbar-right { display: flex; gap: var(--sp-2); align-items: center; flex: none; }
 
 /* ---------- views ---------- */
-.view { display: none; padding: 22px 26px 40px; max-width: 1280px; width: 100%; margin: 0 auto; }
+.view {
+  display: none; max-width: 1280px; width: 100%; margin: 0 auto;
+  padding: var(--sp-3) var(--sp-3) var(--sp-7);
+  padding-bottom: calc(var(--sp-7) + env(safe-area-inset-bottom));
+}
 .view.active { display: block; }
 
 /* ---------- cards / grids ---------- */
 .card {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 18px 20px; box-shadow: var(--shadow);
+  border-radius: 12px; padding: var(--sp-3); box-shadow: var(--shadow);
   /* ⚠️ ห้ามลบ min-width:0 — การ์ดเกือบทุกใบเป็นลูกของ grid ซึ่งค่าเริ่มต้นคือ
      "กว้างอย่างน้อยเท่าเนื้อหา" ตารางที่ตั้ง min-width:640px จึงดันการ์ด → ดันคอลัมน์กริด
      → ดันทั้งหน้าให้กว้าง 640px บนจอมือถือ 390px และ overflow-x:auto ของกล่องตาราง
      ไม่มีโอกาสทำงานเลย (นี่คือสาเหตุที่หน้าเลื่อนซ้ายขวาได้บนมือถือ) */
   min-width: 0;
 }
-.card h3 { font-size: 14.5px; font-weight: 700; margin-bottom: 2px; }
+.card h3 { font-size: var(--fs-4); font-weight: 700; margin-bottom: var(--sp-1); }
 /* max-width กันบรรทัดยาวเกิน ~78 ตัวอักษรบนจอกว้าง (ยาวกว่านั้นตาไล่หาต้นบรรทัดถัดไปไม่เจอ) */
-.card-sub { font-size: 12px; color: var(--text-3); margin-bottom: 14px; max-width: 78ch; }
+.card-sub { font-size: var(--fs-2); color: var(--text-3); margin-bottom: var(--sp-3); max-width: 78ch; }
 
 /* คำอธิบาย "วิธีคิด" ที่ต้องมีไว้ให้ตรวจกับชีทได้ แต่ไม่ต้องอ่านทุกครั้งที่เปิดหน้า */
-.sub-more { font-size: 12px; color: var(--text-3); margin: -6px 0 12px; }
+.sub-more { font-size: var(--fs-2); color: var(--text-3); margin: -6px 0 12px; }
 .sub-more > summary {
-  cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 5px;
-  padding: 3px 0; color: var(--text-2); text-decoration: underline dotted; text-underline-offset: 3px;
+  cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: var(--sp-1);
+  padding: var(--sp-1) 0; color: var(--text-2); text-decoration: underline dotted; text-underline-offset: 3px;
 }
 .sub-more > summary::-webkit-details-marker { display: none; }
 .sub-more > summary::before { content: '▸'; transition: transform .15s ease; }
 .sub-more[open] > summary::before { transform: rotate(90deg); }
-.sub-more > div { padding: 8px 0 2px; max-width: 78ch; line-height: 1.6; }
-.dash-row { display: grid; grid-template-columns: 1.55fr 1fr; gap: 16px; margin-top: 16px; }
-.dash-row.single { grid-template-columns: minmax(0, 1fr); }
-.dash-row.half { grid-template-columns: 1fr 1fr; }
+.sub-more > div { padding: var(--sp-2) 0 var(--sp-1); max-width: 78ch; line-height: 1.6; }
+/* แถวการ์ดคู่ — มือถือเรียงลงมาทีละใบ, เดสก์ท็อป (≥1200) ค่อยแบ่งคอลัมน์ */
+.dash-row, .dash-row.single, .dash-row.half {
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); margin-top: var(--sp-4);
+}
 
+/* auto-fit จัดการเองทุกความกว้าง ไม่ต้องมี media query
+   (215px คือความกว้างต่ำสุดที่ตัวเลข 26px กับป้ายกำกับยังอยู่บรรทัดเดียวได้) */
 .stat-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
-  gap: 16px; margin-top: 14px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(215px, 100%), 1fr));
+  gap: var(--sp-3); margin-top: var(--sp-3);
 }
 .stat-card {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 18px 20px; box-shadow: var(--shadow);
-  display: flex; gap: 14px; align-items: flex-start;
+  border-radius: 12px; padding: var(--sp-3); box-shadow: var(--shadow);
+  display: flex; gap: var(--sp-3); align-items: flex-start; min-width: 0;
 }
 .stat-icon {
   width: 44px; height: 44px; border-radius: 12px; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center; font-size: 20px;
+  display: flex; align-items: center; justify-content: center; font-size: var(--fs-7);
 }
 .stat-icon.purple { background: var(--primary-soft); }
 .stat-icon.green { background: var(--green-soft); }
 .stat-icon.amber { background: var(--amber-soft); }
 .stat-icon.blue { background: var(--blue-soft); }
 .stat-icon.red { background: var(--red-soft); }
-.stat-label { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
-.stat-value { font-size: 26px; font-weight: 800; letter-spacing: -0.5px; margin: 2px 0; }
-.stat-hint { font-size: 11.5px; color: var(--text-3); }
+.stat-label { font-size: var(--fs-3); font-weight: 600; color: var(--text-2); }
+.stat-value { font-size: var(--fs-8); font-weight: 800; letter-spacing: -0.5px; margin: var(--sp-1) 0; }
+.stat-hint { font-size: var(--fs-2); color: var(--text-3); }
 .stat-hint .up { color: var(--green); font-weight: 700; }
 .stat-hint .warn { color: var(--amber); font-weight: 700; }
 .stat-hint .bad { color: var(--red); font-weight: 700; }
 
 /* ---------- badges / chips ---------- */
 .badge {
-  display: inline-block; padding: 3px 10px; border-radius: 99px;
-  font-size: 11.5px; font-weight: 700; white-space: nowrap;
+  display: inline-block; padding: var(--sp-1) var(--sp-3); border-radius: 99px;
+  font-size: var(--fs-2); font-weight: 700; white-space: nowrap;
 }
 .badge.ai { background: var(--green-soft); color: var(--green); }
 .badge.admin { background: var(--amber-soft); color: var(--amber); }
@@ -328,17 +387,17 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 .badge.info { background: var(--blue-soft); color: var(--blue); }
 .badge.neutral { background: rgba(255,255,255,.08); color: var(--text-2); }
 .badge.brand { background: var(--primary-soft); color: #a99cff; }
-.pill-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.pill-grid { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
 
 .chip {
-  display: inline-flex; align-items: center; gap: 6px;
+  display: inline-flex; align-items: center; gap: var(--sp-2);
   background: var(--surface-2); border: 1px solid var(--border);
-  color: var(--text-2); padding: 5px 12px; border-radius: 99px; font-size: 12px;
+  color: var(--text-2); padding: var(--sp-1) var(--sp-3); border-radius: 99px; font-size: var(--fs-2);
 }
-.conv-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.conv-filters { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-4); }
 .filter-btn {
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2);
-  padding: 6px 14px; border-radius: 99px; font-size: 12.5px; font-weight: 600;
+  padding: var(--sp-2) var(--sp-4); border-radius: 99px; font-size: var(--fs-3); font-weight: 600;
 }
 .filter-btn:hover { border-color: var(--primary); color: var(--text); }
 .filter-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
@@ -346,17 +405,17 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 /* ---------- buttons / inputs ---------- */
 .btn {
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
-  padding: 7px 14px; border-radius: 10px; font-size: 12.5px; font-weight: 600;
+  padding: var(--sp-2) var(--sp-4); border-radius: 10px; font-size: var(--fs-3); font-weight: 600;
 }
 .btn:hover { border-color: var(--primary); }
 .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
 .btn.primary:hover { background: var(--primary-600); }
-.btn-mini { padding: 4px 10px; font-size: 11.5px; border-radius: 8px;
+.btn-mini { padding: var(--sp-1) var(--sp-3); font-size: var(--fs-2); border-radius: 8px;
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text); }
 .btn-mini.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
 .input, select.input {
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
-  padding: 7px 12px; border-radius: 10px; font-size: 12.5px;
+  padding: var(--sp-2) var(--sp-3); border-radius: 10px; font-size: var(--fs-3);
 }
 
 /* ---------- โฟกัสจากคีย์บอร์ด ----------
@@ -377,16 +436,16 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 .btn:disabled:hover, .btn-mini:disabled:hover, .filter-btn:disabled:hover { border-color: var(--border); }
 .input:focus { border-color: var(--primary); }
 .pg-controls {
-  display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px;
+  display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; margin-bottom: var(--sp-4);
 }
 .pg-controls .spacer { flex: 1; }
 
 /* ---------- horizontal bars ---------- */
 .hbar-row {
-  display: grid; grid-template-columns: 130px 1fr 48px; gap: 10px;
-  align-items: center; font-size: 12.5px; margin-bottom: 9px;
+  display: grid; grid-template-columns: 130px 1fr 48px; gap: var(--sp-3);
+  align-items: center; font-size: var(--fs-3); margin-bottom: var(--sp-2);
 }
-.hbar-row.clickable { cursor: pointer; border-radius: 7px; padding: 3px 6px; margin-left: -6px; margin-right: -6px; transition: background .15s; }
+.hbar-row.clickable { cursor: pointer; border-radius: 7px; padding: var(--sp-1) var(--sp-2); margin-left: -6px; margin-right: -6px; transition: background .15s; }
 .hbar-row.clickable:hover { background: rgba(108,92,231,.10); }
 table.tbl tr.clickable { cursor: pointer; }
 table.tbl tr.clickable:hover td { background: rgba(108,92,231,.12); }
@@ -404,18 +463,18 @@ table.tbl tr.sr-unmapped td { background: rgba(232,161,58,.09); }
 .hbar-fill.blue { background: linear-gradient(90deg, #1877f2, #38bdf8); }
 .hbar-fill.amber { background: linear-gradient(90deg, #d97706, #fbbf24); }
 .hbar-fill.red { background: linear-gradient(90deg, #dc2f4c, #fb7185); }
-.hbar-num { text-align: right; font-weight: 700; font-size: 12px; }
+.hbar-num { text-align: right; font-weight: 700; font-size: var(--fs-2); }
 
 /* ---------- charts ---------- */
 .chart-svg { width: 100%; height: auto; }
-.donut-wrap { display: flex; gap: 20px; align-items: center; }
+.donut-wrap { display: flex; gap: var(--sp-5); align-items: center; }
 .donut-legend { flex: 1; }
 .donut-legend .row {
-  display: flex; align-items: center; gap: 8px; font-size: 13px; margin-bottom: 8px;
+  display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-3); margin-bottom: var(--sp-2);
 }
 .donut-legend .dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
 .donut-legend b { margin-left: auto; }
-.mini-bars { display: flex; align-items: flex-end; gap: 2px; height: 48px; margin: 10px 0; }
+.mini-bars { display: flex; align-items: flex-end; gap: var(--sp-1); height: 48px; margin: var(--sp-3) 0; }
 .mini-bars i {
   flex: 1; background: linear-gradient(180deg, #7d6cf0, #6c5ce7);
   border-radius: 2px 2px 0 0; min-height: 2px;
@@ -423,31 +482,31 @@ table.tbl tr.sr-unmapped td { background: rgba(232,161,58,.09); }
 
 /* ---------- tables ---------- */
 .table-scroll { overflow-x: auto; }
-table.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-3); }
 table.tbl th {
-  text-align: left; color: var(--text-3); font-size: 11.5px; font-weight: 700;
-  padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap;
+  text-align: left; color: var(--text-3); font-size: var(--fs-2); font-weight: 700;
+  padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border); white-space: nowrap;
 }
-table.tbl td { padding: 9px 10px; border-bottom: 1px solid rgba(38,51,82,.5); }
+table.tbl td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid rgba(38,51,82,.5); }
 table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 
 /* ---------- sales dashboard (sr-*) ---------- */
-.sr-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 14px; }
-.sr-title { font-size: 16px; font-weight: 800; }
-.sr-title-sub { font-size: 12px; color: var(--text-3); }
+.sr-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--sp-3); align-items: center; margin-bottom: var(--sp-4); }
+.sr-title { font-size: var(--fs-5); font-weight: 800; }
+.sr-title-sub { font-size: var(--fs-2); color: var(--text-3); }
 /* เหลือ 2 การ์ด (บอสสั่งลบ "รายได้รวม") — auto-fit ให้ 2 ใบยืดเต็มแถว ไม่เหลือคอลัมน์ว่าง */
-.sr-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+.sr-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: var(--sp-4); }
 .sr-card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 18px 20px; box-shadow: var(--shadow);
+  padding: var(--sp-4) var(--sp-5); box-shadow: var(--shadow);
 }
-.sr-card .label { font-size: 12.5px; color: var(--text-2); font-weight: 600; }
-.sr-card .big { font-size: 28px; font-weight: 800; margin: 4px 0; letter-spacing: -0.5px; }
-.sr-card .foot { font-size: 11.5px; color: var(--text-3); }
+.sr-card .label { font-size: var(--fs-3); color: var(--text-2); font-weight: 600; }
+.sr-card .big { font-size: var(--fs-8); font-weight: 800; margin: var(--sp-1) 0; letter-spacing: -0.5px; }
+.sr-card .foot { font-size: var(--fs-2); color: var(--text-3); }
 /* การ์ด "ธุรกิจวันนี้" — วิดเจ็ต LIVE ที่ไม่ขึ้นกับตัวกรอง */
 .card.sr-live { border-top: 3px solid var(--green); }
 .badge.live-now {
-  display: inline-flex; align-items: center; gap: 5px;
+  display: inline-flex; align-items: center; gap: var(--sp-1);
   background: var(--green-soft); color: var(--green); font-weight: 800;
 }
 .badge.live-now::before {
@@ -456,40 +515,44 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 }
 @keyframes live-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.72); } }
 @media (prefers-reduced-motion: reduce) { .badge.live-now::before { animation: none; } }
-.sr-trend { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 700; margin-left: 6px; }
+.sr-trend { display: inline-block; padding: var(--sp-1) var(--sp-2); border-radius: 99px; font-size: var(--fs-1); font-weight: 700; margin-left: var(--sp-2); }
 .sr-trend.up { background: var(--green-soft); color: var(--green); }
 .sr-trend.down { background: var(--red-soft); color: var(--red); }
 .sr-trend.flat { background: rgba(255,255,255,.08); color: var(--text-3); }
 .sr-chan-banner {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
-  margin-bottom: 12px; padding: 8px 13px; border-radius: 10px;
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2);
+  margin-bottom: var(--sp-3); padding: var(--sp-2) var(--sp-3); border-radius: 10px;
   background: var(--primary-soft); border: 1px solid var(--primary);
-  color: var(--text); font-size: 13px; font-weight: 600; cursor: help;
+  color: var(--text); font-size: var(--fs-3); font-weight: 600; cursor: help;
 }
 .sr-chan-banner b { font-weight: 800; }
-.sr-chan-hint { font-size: 11.5px; font-weight: 500; color: var(--text-3); }
-.sr-channels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 14px; }
+.sr-chan-hint { font-size: var(--fs-2); font-weight: 500; color: var(--text-3); }
+/* auto-fit: มือถือได้ 2 ช่อง จอกว้างได้ 3 ช่อง โดยไม่ต้องมีจุดตัด */
+.sr-channels { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: var(--sp-3); margin-top: var(--sp-3); }
 .sr-chbox {
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-  padding: 12px 16px; text-align: left; color: var(--text);
+  padding: var(--sp-3) var(--sp-4); text-align: left; color: var(--text);
 }
 .sr-chbox:hover { border-color: var(--primary); }
 .sr-chbox.active { border-color: var(--primary); background: var(--primary-soft); }
-.sr-chbox .t { font-size: 12.5px; font-weight: 700; color: var(--text-2); }
-.sr-chbox .v { font-size: 20px; font-weight: 800; margin: 2px 0; }
-.sr-chbox .s { font-size: 11px; color: var(--text-3); }
+.sr-chbox .t { font-size: var(--fs-3); font-weight: 700; color: var(--text-2); }
+.sr-chbox .v { font-size: var(--fs-7); font-weight: 800; margin: var(--sp-1) 0; }
+.sr-chbox .s { font-size: var(--fs-1); color: var(--text-3); }
 .sr-strip {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px; margin-top: 14px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
+  gap: var(--sp-3); margin-top: var(--sp-4);
 }
 .sr-strip .tile {
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-  padding: 10px 14px; font-size: 11.5px; color: var(--text-3);
+  padding: var(--sp-3) var(--sp-4); font-size: var(--fs-2); color: var(--text-3);
 }
-.sr-strip .tile b { display: block; font-size: 16px; color: var(--text); margin-top: 2px; }
+.sr-strip .tile b { display: block; font-size: var(--fs-5); color: var(--text); margin-top: var(--sp-1); }
 /* ตัวเลข "ออเดอร์ที่ต้องตรวจ" ที่กดเปิดตารางรายออเดอร์ได้ (การ์ดคำสั่งซื้อ + การ์ดธุรกิจวันนี้) */
+/* ปุ่มแบบลิงก์ในประโยค — ขยายความสูงตรงๆ ไม่ได้ (บรรทัดจะเบี้ยว)
+   ใช้ padding เพิ่มพื้นที่นิ้วแล้วหักกลับด้วย margin ติดลบ เลย์เอาต์จึงเท่าเดิมแต่กดง่ายขึ้น */
 .sr-needcheck {
-  background: none; border: 0; padding: 0; font: inherit; color: var(--red); font-weight: 700;
+  background: none; border: 0; font: inherit; color: var(--red); font-weight: 700;
+  padding: var(--sp-2) var(--sp-1); margin: calc(var(--sp-2) * -1) calc(var(--sp-1) * -1);
   cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px;
 }
 .sr-needcheck:hover { text-decoration-style: solid; }
@@ -500,92 +563,85 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 /* การ์ดเต็มความกว้าง + รายการเยอะ = แท่งยาวเป็นหางว่าวและการ์ดสูงเกินจอ
    แบ่งเป็น 2 คอลัมน์ด้วย column-count (ไม่ใช่ grid) เพราะมันไล่เต็มคอลัมน์ซ้ายก่อนแล้วขึ้นขวา
    อันดับจึงยังอ่านจากบนลงล่างได้ตามปกติ — grid จะสลับเป็นซ้าย-ขวาสลับกันซึ่งอ่านอันดับไม่รู้เรื่อง */
-.hbar-cols { column-count: 2; column-gap: 32px; }
+.hbar-cols { column-count: 1; column-gap: var(--sp-7); }
 .hbar-cols .hbar-row { break-inside: avoid; }
-@media (max-width: 900px) { .hbar-cols { column-count: 1; } }
 .hbar-wide .hbar-num { text-align: right; white-space: nowrap; }
 /* บรรทัดปิดท้ายกราฟแท่ง — ให้การ์ดมีขอบล่างที่จบจริง ไม่ใช่แท่งสุดท้ายแล้วหายไป
    และตอบคำถามที่ต้องบวกเองทุกครั้งว่า "ทั้งหมดเท่าไหร่" */
 .hbar-foot {
-  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
-  margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border);
-  font-size: 12.5px; color: var(--text-3);
+  display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-3);
+  margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px solid var(--border);
+  font-size: var(--fs-3); color: var(--text-3);
 }
 .hbar-foot b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
 /* แถวการ์ดคู่ (hbar + กราฟรายชั่วโมง หน้า Admin Performance) — ห้ามใช้ชื่อ .dash-row (ของ Dashboard) */
-.perf-row { display: grid; grid-template-columns: 1fr 1.2fr; gap: 16px; margin-bottom: 14px; }
-@media (max-width: 1100px) { .perf-row { grid-template-columns: minmax(0, 1fr); } }
-/* minmax(0,…) ทุกคอลัมน์ — ค่า fr เปล่าๆ มีพื้นเป็น auto ตารางกว้างจึงดันคอลัมน์บวมเกินสัดส่วน
-   ที่ตั้งไว้ (ตารางยูนิต 9 คอลัมน์เคยดันจน 1fr กว้างกว่า 1.6fr) แล้วหน้าเว็บเลื่อนแนวนอนได้ */
-.sr-main { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
-.sr-bottom { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
-/* "สินค้าขายดี" กับ "ยอดขายตามยูนิต" วางซ้อนลงมาเต็มความกว้าง ไม่แบ่ง 2 คอลัมน์
+.perf-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); margin-bottom: var(--sp-3); }
+.sr-main, .sr-bottom { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); margin-top: var(--sp-4); }
+/* "สินค้าขายดี" กับ "ยอดขายตามยูนิต" วางซ้อนลงมาเต็มความกว้าง ไม่แบ่ง 2 คอลัมน์ในทุกขนาดจอ
    เพราะจำนวนแถวสองฝั่งไม่เท่ากันโดยธรรมชาติ (สินค้า 2 ชิ้น vs ยูนิต 15 แถว)
    วางข้างกันเมื่อไหร่ ฝั่งสั้นก็เหลือพื้นเทาโล่งเมื่อนั้น — เต็มความกว้างยังทำให้ตาราง 9 คอลัมน์
    ไม่ต้องเบียดจนต้องเลื่อนแนวนอนด้วย */
-.sr-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+.sr-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); margin-top: var(--sp-4); }
 .sr-green { color: var(--green); }
 .sr-red { color: var(--red); }
-.sr-today-row { display: flex; justify-content: space-between; font-size: 12.5px; padding: 6px 0; border-bottom: 1px dashed rgba(38,51,82,.6); }
+.sr-today-row { display: flex; justify-content: space-between; font-size: var(--fs-3); padding: var(--sp-2) 0; border-bottom: 1px dashed rgba(38,51,82,.6); }
 .sr-today-row:last-child { border-bottom: none; }
 .sr-today-row b { font-weight: 700; }
 /* บรรทัดย่อยในแถว (เช่น แชทค้างรอตอบ → แยกอินบ็อกซ์/คอมเมนต์) */
-.sr-today-note { display: block; font-style: normal; font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.sr-today-note { display: block; font-style: normal; font-size: var(--fs-1); color: var(--text-3); margin-top: var(--sp-1); }
 
 /* ---------- alerts ---------- */
-.alert-list { display: flex; flex-direction: column; gap: 10px; }
+.alert-list { display: flex; flex-direction: column; gap: var(--sp-3); }
 .alert-row {
-  display: flex; gap: 12px; align-items: flex-start;
+  display: flex; gap: var(--sp-3); align-items: flex-start;
   background: var(--surface-2); border: 1px solid var(--border);
-  border-left: 4px solid var(--text-3); border-radius: 10px; padding: 11px 14px;
+  border-left: 4px solid var(--text-3); border-radius: 10px; padding: var(--sp-3) var(--sp-4);
 }
 .alert-row.lv-red { border-left-color: var(--red); }
 .alert-row.lv-orange { border-left-color: var(--amber); }
 .alert-row.lv-yellow { border-left-color: #e8d44d; }
 .alert-row.lv-green { border-left-color: var(--green); }
-.alert-icon { font-size: 18px; }
+.alert-icon { font-size: var(--fs-6); }
 .alert-body { flex: 1; min-width: 0; }
-.alert-title { font-weight: 700; font-size: 13px; }
-.alert-reason { font-size: 12px; color: var(--text-2); margin-top: 2px; }
-.alert-recommend { font-size: 12px; color: #a99cff; margin-top: 4px; }
+.alert-title { font-weight: 700; font-size: var(--fs-3); }
+.alert-reason { font-size: var(--fs-2); color: var(--text-2); margin-top: var(--sp-1); }
+.alert-recommend { font-size: var(--fs-2); color: #a99cff; margin-top: var(--sp-1); }
 
 /* ---------- content & ads cards (ca-*) ---------- */
-.ca-list { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+.ca-list { display: flex; flex-direction: column; gap: var(--sp-3); margin-top: var(--sp-4); }
 .ca-card {
-  display: flex; gap: 14px; align-items: center;
+  display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap;
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 12px; padding: 14px 16px;
+  border-radius: 12px; padding: var(--sp-3);
 }
-.ca-rank { font-size: 20px; font-weight: 800; color: var(--text-3); width: 34px; text-align: center; flex-shrink: 0; }
-.ca-id { font-weight: 700; font-size: 13px; }
-.ca-sub { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
+.ca-rank { font-size: var(--fs-7); font-weight: 800; color: var(--text-3); width: 34px; text-align: center; flex-shrink: 0; }
+.ca-id { font-weight: 700; font-size: var(--fs-3); }
+.ca-sub { font-size: var(--fs-2); color: var(--text-3); margin-top: var(--sp-1); }
 .ca-main { flex: 1; min-width: 0; }
-.ca-nums { display: flex; gap: 16px; flex-wrap: wrap; justify-content: flex-end; }
+.ca-nums { display: flex; gap: var(--sp-4); flex-wrap: wrap; justify-content: flex-end; }
 .ca-num { text-align: right; min-width: 62px; }
-.ca-num b { display: block; font-size: 13.5px; }
-.ca-num span { font-size: 10.5px; color: var(--text-3); }
+.ca-num b { display: block; font-size: var(--fs-4); }
+.ca-num span { font-size: var(--fs-1); color: var(--text-3); }
 .txt-good { color: var(--green); }
 .txt-bad { color: var(--red); }
 
 /* ---------- แจ้งเตือนยูนิตขาดทุน (บนสุดหน้า Sales) ---------- */
 /* การ์ดนี้ต้องสะดุดตากว่าการ์ดอื่นทั้งหน้า — ทีมสั่งว่า "ต้องขึ้นแจ้งเตือนทันที" */
 .loss-card { border-color: rgba(255, 118, 117, .45); box-shadow: 0 0 0 1px rgba(255, 118, 117, .12); }
-.loss-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.loss-list { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-3); }
 .loss-row {
-  display: grid; grid-template-columns: 26px 1fr auto; gap: 10px; align-items: center;
-  padding: 10px 12px; border-radius: 10px; background: var(--surface-2);
+  display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: var(--sp-3); align-items: center;
+  padding: var(--sp-3); border-radius: 10px; background: var(--surface-2);
   border-left: 3px solid transparent;
 }
+/* มือถือ: ปุ่ม "ดูรายละเอียด" ตกลงมาบรรทัดใหม่แทนบีบข้อความเหตุผลจนอ่านไม่ออก */
+.loss-row > .btn-mini { grid-column: 2; justify-self: start; }
 .loss-row.lv-red { border-left-color: var(--red); background: rgba(255, 118, 117, .09); }
 .loss-row.lv-yellow { border-left-color: var(--amber); background: rgba(232, 161, 58, .08); }
-.loss-icon { font-size: 17px; line-height: 1; }
-.loss-title { font-size: 13.5px; margin-bottom: 3px; }
-.loss-reason { font-size: 12px; color: var(--text-2); }
-.loss-owners { font-size: 12px; color: var(--text-2); margin-top: 5px; display: flex; gap: 4px; flex-wrap: wrap; align-items: center; }
-@media (max-width: 700px) {
-  .loss-row { grid-template-columns: 22px 1fr; }
-  .loss-row > .btn-mini { grid-column: 2; justify-self: start; }
-}
+.loss-icon { font-size: var(--fs-5); line-height: 1; }
+.loss-title { font-size: var(--fs-4); margin-bottom: var(--sp-1); }
+.loss-reason { font-size: var(--fs-2); color: var(--text-2); }
+.loss-owners { font-size: var(--fs-2); color: var(--text-2); margin-top: var(--sp-1); display: flex; gap: var(--sp-1); flex-wrap: wrap; align-items: center; }
 
 /* คอลัมน์ตัวเลขในตาราง — ชิดขวา + เลขความกว้างเท่ากันเพื่อให้หลักตรงกันทุกแถว */
 table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -595,13 +651,13 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
   position: relative; overflow: hidden; flex-shrink: 0;
   background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
 }
-.ca-thumb { width: 56px; height: 56px; }
+.ca-thumb { width: 46px; height: 46px; }
 .ca-thumb img, .ca-media-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
 /* กล่องว่างแทนรูปแตก — โชว์เฉพาะตอน .broken (รูปโหลดไม่ขึ้นทั้งตัวหลักและตัวสำรอง) */
 .ca-ph {
   display: none; position: absolute; inset: 0;
   align-items: center; justify-content: center;
-  font-size: 20px; opacity: .45;
+  font-size: var(--fs-7); opacity: .45;
 }
 .ca-thumb.broken img, .ca-media-img.broken img { display: none; }
 .ca-thumb.broken .ca-ph, .ca-media-img.broken .ca-ph { display: flex; }
@@ -614,99 +670,98 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
   font-size: 9px; line-height: 18px; text-align: center;
 }
 .ca-media {
-  display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-start;
+  display: flex; gap: var(--sp-4); flex-wrap: wrap; align-items: flex-start;
   background: var(--surface-2); border: 1px solid var(--border);
-  border-radius: 12px; padding: 12px; margin: 14px 0 4px;
+  border-radius: 12px; padding: var(--sp-3); margin: var(--sp-4) 0 var(--sp-1);
 }
-.ca-media-frame { flex: 0 0 220px; max-width: 100%; }
+.ca-media-frame { flex: 1 1 100%; max-width: 100%; }
 /* ในหน้าวิเคราะห์ต้องเห็นครีเอทีฟ "เต็มใบ" (contain) — ต่างจากรูปย่อบนการ์ดที่ crop ได้ (cover) */
 .ca-media-img { width: 100%; aspect-ratio: 1 / 1; }
 .ca-media-img img { object-fit: contain; background: var(--surface); }
-.ca-media-img .ca-play { width: 26px; height: 26px; font-size: 13px; line-height: 26px; right: 6px; bottom: 6px; }
+.ca-media-img .ca-play { width: 26px; height: 26px; font-size: var(--fs-3); line-height: 26px; right: 6px; bottom: 6px; }
 /* กรอบรูปครีเอทีฟกดได้ = เปิดโพสต์จริง (ปุ่มเล่นวิดีโอในเว็บถูกถอดออก — dark post เล่นไม่ได้) */
 .ca-media-frame.clickable { cursor: pointer; }
 .ca-media-frame.clickable:hover { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 12px; }
 .ca-media-side { flex: 1 1 220px; min-width: 0; }
 .ca-media-title {
-  font-size: 12.5px; font-weight: 600; line-height: 1.45; margin-bottom: 8px;
+  font-size: var(--fs-3); font-weight: 600; line-height: 1.45; margin-bottom: var(--sp-2);
   overflow-wrap: anywhere;
 }
-.ca-media-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ca-media-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 .ca-media-actions a.btn-mini { text-decoration: none; display: inline-block; }
-.ca-media-note { font-size: 10.5px; color: var(--text-3); margin-top: 8px; line-height: 1.5; }
-
-/* จอแคบ: การ์ดแอดเรียงเป็นบล็อก รูปย่อเล็กลงไม่ให้เบียดตัวเลข */
-@media (max-width: 640px) {
-  .ca-thumb { width: 46px; height: 46px; }
-  .ca-media-frame { flex: 1 1 100%; }
-}
+.ca-media-note { font-size: var(--fs-1); color: var(--text-3); margin-top: var(--sp-2); line-height: 1.5; }
 
 /* ---------- admin management ---------- */
-.pg-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.pg-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr)); gap: var(--sp-3); margin-bottom: var(--sp-4); }
 .pgs-item {
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-  padding: 10px 14px; text-align: center;
+  padding: var(--sp-3) var(--sp-4); text-align: center;
 }
-.pgs-item b { display: block; font-size: 20px; font-weight: 800; }
-.pgs-item span { font-size: 11px; color: var(--text-3); }
+.pgs-item b { display: block; font-size: var(--fs-7); font-weight: 800; }
+.pgs-item span { font-size: var(--fs-1); color: var(--text-3); }
 .pgs-item.ok b { color: var(--green); }
 .pgs-item.warn b { color: var(--amber); }
 .pgs-item.bad b { color: var(--red); }
-.admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+.admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: var(--sp-4); }
 .admin-card {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 16px; padding: 16px;
+  border-radius: 16px; padding: var(--sp-4);
 }
 .admin-card.off { border-style: dashed; }
-.admin-head { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+.admin-head { display: flex; gap: var(--sp-3); align-items: center; margin-bottom: var(--sp-3); }
 .avatar {
   width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  font-weight: 800; color: #fff; font-size: 15px; position: relative;
+  font-weight: 800; color: #fff; font-size: var(--fs-5); position: relative;
 }
-.avatar.sm { width: 34px; height: 34px; font-size: 12px; }
+.avatar.sm { width: 34px; height: 34px; font-size: var(--fs-2); }
 .status-dot {
   position: absolute; bottom: 0; right: 0; width: 12px; height: 12px;
   border-radius: 50%; border: 2px solid var(--surface);
 }
 .status-dot.online { background: #22c55e; }
 .status-dot.offline { background: #94a3b8; }
-.admin-name { font-weight: 700; font-size: 13.5px; }
-.admin-meta { font-size: 11px; color: var(--text-3); margin-top: 2px; }
-.page-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
-.page-stats .cell { background: var(--surface-2); border-radius: 8px; padding: 8px; text-align: center; }
-.page-stats .cell b { display: block; font-size: 14px; }
-.page-stats .cell span { font-size: 10px; color: var(--text-3); }
+.admin-name { font-weight: 700; font-size: var(--fs-4); }
+.admin-meta { font-size: var(--fs-1); color: var(--text-3); margin-top: var(--sp-1); }
+.page-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-2); margin-bottom: var(--sp-3); }
+.page-stats .cell { background: var(--surface-2); border-radius: 8px; padding: var(--sp-2); text-align: center; }
+.page-stats .cell b { display: block; font-size: var(--fs-4); }
+.page-stats .cell span { font-size: var(--fs-1); color: var(--text-3); }
 .page-stats .cell.warn b { color: var(--amber); }
 .page-stats .cell.danger b { color: var(--red); }
-.page-status-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 11px; color: var(--text-3); }
+.page-status-row { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; font-size: var(--fs-1); color: var(--text-3); }
 
 /* ---------- admin performance (podium + rank) ---------- */
+/* แท่นรางวัล — เรียงลงมาบนมือถือ
+   ⚠️ ลำดับใน DOM คือ 2-1-3 (เพื่อให้ที่ 1 อยู่กลางแท่น) พอเรียงลงมาแล้วที่ 2 จะขึ้นก่อน
+   ต้องดึงที่ 1 ขึ้นบนสุดด้วย order ไม่งั้นคนเปิดมือถือเห็นที่ 2 เป็นคนแรกของหน้า */
 .top3-grid {
-  display: grid; grid-template-columns: 1fr 1.15fr 1fr; gap: 12px;
-  align-items: end; max-width: 760px; margin: 18px auto;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3);
+  align-items: end; max-width: 760px; margin: var(--sp-4) auto;
 }
+.top3-card.first { order: -1; }
 .top3-card {
   background: var(--surface); border: 2px solid var(--border); border-radius: 16px;
-  padding: 16px 12px; text-align: center;
+  padding: var(--sp-4) var(--sp-3); text-align: center;
 }
 .top3-card .medal { font-size: 30px; }
 .top3-card.first .medal { font-size: 40px; }
-.top3-card.first { padding: 20px 12px; }
+.top3-card.first { padding: var(--sp-5) var(--sp-3); }
 .top3-card.gold { border-color: var(--gold); background: linear-gradient(180deg, rgba(245,179,1,.10), var(--surface)); box-shadow: 0 6px 18px rgba(245,179,1,.25); }
 .top3-card.silver { border-color: var(--silver); background: linear-gradient(180deg, rgba(154,165,177,.10), var(--surface)); }
 .top3-card.bronze { border-color: var(--bronze); background: linear-gradient(180deg, rgba(196,127,61,.10), var(--surface)); }
-.top3-card .avatar { margin: 8px auto; }
+.top3-card .avatar { margin: var(--sp-2) auto; }
 .top3-card.first .avatar { width: 54px; height: 54px; }
-.top3-card .nm { font-weight: 700; font-size: 13px; }
-.top3-card .val { font-size: 18px; font-weight: 800; color: var(--green); margin: 4px 0; }
-.top3-card.first .val { font-size: 22px; }
-.top3-card .sub { font-size: 10.5px; color: var(--text-3); }
-.rank-list { display: flex; flex-direction: column; gap: 10px; }
+.top3-card .nm { font-weight: 700; font-size: var(--fs-3); }
+.top3-card .val { font-size: var(--fs-6); font-weight: 800; color: var(--green); margin: var(--sp-1) 0; }
+.top3-card.first .val { font-size: var(--fs-7); }
+.top3-card .sub { font-size: var(--fs-1); color: var(--text-3); }
+.rank-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+/* การ์ดอันดับ — มือถือให้บล็อกขวา (เปอร์บิล/ROAS) ตกลงมาเต็มบรรทัด แทนบีบคอลัมน์กลางจนชื่อขาด */
 .rank-card {
-  display: flex; gap: 14px; align-items: center;
+  display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap;
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 12px; padding: 12px 16px;
+  border-radius: 12px; padding: var(--sp-3);
 }
 .rank-card.top1 { border: 2px solid var(--gold); }
 .rank-card.top2 { border: 2px solid var(--silver); }
@@ -714,62 +769,65 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .rank-no {
   width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
   background: var(--surface-2); color: var(--text-2);
-  display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px;
+  display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: var(--fs-3);
 }
-.rank-no.medal { background: transparent; font-size: 24px; }
+.rank-no.medal { background: transparent; font-size: var(--fs-8); }
 .rank-mid { flex: 1; min-width: 0; }
-.rank-name { font-weight: 700; font-size: 13.5px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.rank-sub { font-size: 11.5px; color: var(--text-3); margin-top: 3px; }
-.rank-right { text-align: right; flex-shrink: 0; }
-.rank-big { font-size: 17px; font-weight: 800; color: var(--green); }
-.rank-big .rank-big-u { font-size: 11px; font-weight: 600; color: var(--text-3); }
-.rank-mini { font-size: 11px; color: var(--text-3); margin-top: 2px; }
+.rank-name { font-weight: 700; font-size: var(--fs-4); display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
+.rank-sub { font-size: var(--fs-2); color: var(--text-3); margin-top: var(--sp-1); }
+.rank-right { text-align: left; width: 100%; flex-shrink: 0; }
+.rank-big { font-size: var(--fs-5); font-weight: 800; color: var(--green); }
+.rank-big .rank-big-u { font-size: var(--fs-1); font-weight: 600; color: var(--text-3); }
+.rank-mini { font-size: var(--fs-1); color: var(--text-3); margin-top: var(--sp-1); }
 
 /* ---------- admin performance: dynamic scoring (Overall) ---------- */
 .score-badge {
-  display: inline-block; padding: 2px 9px; border-radius: 99px;
-  font-size: 11.5px; font-weight: 800; white-space: nowrap;
+  display: inline-block; padding: var(--sp-1) var(--sp-2); border-radius: 99px;
+  font-size: var(--fs-2); font-weight: 800; white-space: nowrap;
 }
 .score-badge.good { background: var(--green-soft); color: var(--green); }
 .score-badge.mid  { background: var(--amber-soft); color: var(--amber); }
 .score-badge.low  { background: var(--red-soft); color: var(--red); }
 .score-badge.na   { background: var(--track); color: var(--text-3); }
-.top3-card .score-badge { margin: 4px 0 2px; }
+.top3-card .score-badge { margin: var(--sp-1) 0 var(--sp-1); }
 
 .score-panel {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; box-shadow: var(--shadow);
+  border-radius: 12px; padding: var(--sp-4) var(--sp-4); margin-bottom: var(--sp-4); box-shadow: var(--shadow);
 }
 .score-panel.collapsed { display: none; }
-.sp-hint { font-size: 11.5px; color: var(--text-3); line-height: 1.55; margin-bottom: 12px; }
+.sp-hint { font-size: var(--fs-2); color: var(--text-3); line-height: 1.55; margin-bottom: var(--sp-3); }
 .sp-hint b { color: var(--text-2); }
 .sp-list { display: flex; flex-direction: column; }
+/* มือถือ: ชื่อตัวชี้วัดกินเต็มบรรทัด แล้วช่องกรอกเป้า/น้ำหนักเรียง 2 ช่องข้างล่าง */
 .sp-row {
-  display: grid; grid-template-columns: 190px 1fr 1.2fr 130px; gap: 10px; align-items: center;
-  padding: 7px 0; border-bottom: 1px dashed rgba(38,51,82,.5);
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-2); row-gap: var(--sp-1); align-items: center;
+  padding: var(--sp-2) 0; border-bottom: 1px dashed rgba(38,51,82,.5);
 }
+.sp-row > .sp-metric, .sp-row > .sp-dir { grid-column: 1 / -1; }
 .sp-row:last-child { border-bottom: none; }
 .sp-row.off { opacity: .5; }
-.sp-metric { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.sp-metric { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-3); font-weight: 600; cursor: pointer; }
 .sp-metric input { width: 15px; height: 15px; accent-color: var(--primary); cursor: pointer; }
-.sp-field { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-3); }
-.sp-num { width: 88px; padding: 5px 8px; text-align: right; }
+.sp-field { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-2); color: var(--text-3); }
+.sp-num { width: 88px; padding: var(--sp-1) var(--sp-2); text-align: right; }
 .sp-u { color: var(--text-3); }
-.sp-dir { font-size: 10.5px; color: var(--text-3); }
-.sp-foot { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+.sp-dir { font-size: var(--fs-1); color: var(--text-3); }
+.sp-foot { display: flex; gap: var(--sp-3); align-items: center; margin-top: var(--sp-3); }
 
 :root[data-theme="light"] .sp-row { border-bottom-color: var(--border); }
 
 /* ---------- ชื่อเล่นเป็นตัวหลัก + ชื่อเต็มเป็นตัวรอง ---------- */
-.rank-fullname { font-weight: 500; font-size: 11px; color: var(--text-3); }
-.top3-card .nm-full { font-size: 10.5px; color: var(--text-3); margin-top: 1px; }
-.admin-fullname { font-weight: 500; font-size: 11px; color: var(--text-3); margin-left: 6px; }
+.rank-fullname { font-weight: 500; font-size: var(--fs-1); color: var(--text-3); }
+.top3-card .nm-full { font-size: var(--fs-1); color: var(--text-3); margin-top: 1px; }
+.admin-fullname { font-weight: 500; font-size: var(--fs-1); color: var(--text-3); margin-left: var(--sp-2); }
 
 /* ---------- KPI realtime: แถบความคืบหน้า + ชิปเทียบเป้า ---------- */
-.kpi-bar { margin-top: 6px; max-width: 320px; }
+.kpi-bar { margin-top: var(--sp-2); max-width: 100%; }
 .kpi-bar-track { height: 6px; border-radius: 99px; background: var(--track); overflow: hidden; }
 .kpi-bar-track i { display: block; height: 100%; border-radius: 99px; background: var(--text-3); transition: width .3s ease; }
-.kpi-bar-txt { font-size: 10.5px; color: var(--text-3); margin-top: 3px; }
+.kpi-bar-txt { font-size: var(--fs-1); color: var(--text-3); margin-top: var(--sp-1); }
 .kpi-bar-txt b { font-weight: 800; }
 .kpi-bar.good .kpi-bar-track i { background: var(--green); }
 .kpi-bar.good .kpi-bar-txt b { color: var(--green); }
@@ -777,9 +835,9 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .kpi-bar.mid .kpi-bar-txt b { color: var(--amber); }
 .kpi-bar.low .kpi-bar-track i { background: var(--red); }
 .kpi-bar.low .kpi-bar-txt b { color: var(--red); }
-.kpi-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+.kpi-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-1); }
 .kpi-chip {
-  font-size: 10.5px; padding: 1px 8px; border-radius: 99px;
+  font-size: var(--fs-1); padding: 1px var(--sp-2); border-radius: 99px;
   background: var(--track); color: var(--text-3); white-space: nowrap;
 }
 .kpi-chip.good { background: var(--green-soft); color: var(--green); }
@@ -787,7 +845,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .kpi-chip.low { background: var(--red-soft); color: var(--red); }
 
 /* ---------- ไฟบอกสถานะอัปเดตอัตโนมัติ ---------- */
-.live-chip { display: inline-flex; align-items: center; gap: 6px; }
+.live-chip { display: inline-flex; align-items: center; gap: var(--sp-2); }
 .live-dot {
   width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
   background: var(--text-3);
@@ -798,56 +856,77 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
   70% { opacity: .55; box-shadow: 0 0 0 6px rgba(45, 212, 160, 0); }
 }
 @media (prefers-reduced-motion: reduce) { .live-dot.on { animation: none; } }
-/* จอแคบ: การ์ดอันดับมี 2 บรรทัดด้านขวา (เปอร์บิล/ROAS) — ให้ตกลงมาแทนบีบคอลัมน์กลาง */
-@media (max-width: 720px) {
-  .rank-card { flex-wrap: wrap; }
-  .rank-right { text-align: left; width: 100%; }
-  .kpi-bar { max-width: 100%; }
-}
 
 /* ---------- attention list ---------- */
 .attn-item {
-  display: flex; gap: 12px; align-items: center; padding: 10px;
+  display: flex; gap: var(--sp-3); align-items: center; padding: var(--sp-3);
   border-radius: 10px; cursor: default;
 }
 .attn-item:hover { background: rgba(108,92,231,.08); }
 .attn-body { flex: 1; min-width: 0; }
-.attn-name { font-weight: 700; font-size: 13px; display: flex; gap: 8px; align-items: center; }
+/* ชื่อ + ป้าย "รอ 20 ชม. 40 นาที" — ป้ายเป็น nowrap ยาว ~120px ถ้าไม่ให้ตัดบรรทัด
+   มันจะดันทั้งหน้าเลื่อนแนวนอนบนมือถือ (เจอจากการวัดจริงที่ 390px) */
+.attn-name { font-weight: 700; font-size: var(--fs-3); display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
 .attn-snippet {
-  font-size: 12px; color: var(--text-3);
+  font-size: var(--fs-2); color: var(--text-3);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 420px;
 }
 
 /* ---------- tag cloud ---------- */
-.tag-cloud { display: flex; flex-wrap: wrap; gap: 8px; }
+.tag-cloud { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 .tag-cloud .chip { background: var(--primary-soft); color: #a99cff; border: none; }
 .tag-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 
 /* ---------- modal / toast / states ---------- */
 #modal-root:empty { display: none; }
+/* ค่าเริ่มต้น = แผ่นเลื่อนขึ้นจากขอบล่าง (bottom sheet)
+   โมดัลลอยกลางจอบนมือถือมีปัญหาจริง 3 อย่าง: ปุ่มปิดไปอยู่มุมบนขวาซึ่งนิ้วโป้งเอื้อมไม่ถึง
+   คีย์บอร์ดเด้งขึ้นมาแล้วดันโมดัลออกนอกจอ และขอบมนทั้ง 4 ด้านทำให้เนื้อหาเหลือที่น้อยลงอีก
+   จอ ≥600px ค่อยกลับเป็นกล่องลอยกลางจอตามเดิม */
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(5,8,18,.7); z-index: 100;
-  display: flex; align-items: center; justify-content: center; padding: 20px;
+  display: flex; align-items: flex-end; justify-content: center; padding: 0;
 }
 .modal {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 16px;
-  width: 100%; max-width: 680px; max-height: 86vh; overflow-y: auto; padding: 20px 22px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 18px 18px 0 0; border-bottom: 0;
+  width: 100%; max-width: none; max-height: 92dvh; overflow-y: auto;
+  padding: var(--sp-3) var(--sp-3) calc(var(--sp-4) + env(safe-area-inset-bottom));
+  animation: sheet-up .24s cubic-bezier(.16, 1, .3, 1);
 }
-.modal-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
-.modal-head h3 { font-size: 15px; }
-.modal-close { background: none; border: none; color: var(--text-3); font-size: 18px; }
-.modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
-#toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: 8px; }
+@keyframes sheet-up { from { transform: translateY(100%); } }
+/* หัวโมดัลติดอยู่กับที่ตอนเลื่อนเนื้อหา — ในแผ่นสูงๆ จะได้ไม่ลืมว่ากำลังแก้อะไรอยู่
+   (ต้องมีพื้นทึบ ไม่งั้นข้อความที่เลื่อนผ่านจะทะลุขึ้นมาซ้อน) */
+.modal-head {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-2);
+  position: sticky; top: calc(var(--sp-3) * -1); z-index: 1;
+  background: var(--surface); padding: var(--sp-3) 0 var(--sp-2); margin: calc(var(--sp-3) * -1) 0 var(--sp-2);
+}
+/* ขีดจับด้านบน — สัญญาณสากลว่า "นี่คือแผ่นที่ปิดได้" */
+.modal-head::before {
+  content: ''; position: absolute; top: 2px; left: 50%; transform: translateX(-50%);
+  width: 36px; height: 4px; border-radius: 99px; background: var(--border);
+}
+.modal-head h3 { font-size: var(--fs-4); margin-top: var(--sp-2); }
+.modal-close { background: none; border: none; color: var(--text-3); font-size: var(--fs-6); margin-top: var(--sp-1); }
+/* ปุ่มยืนยัน/ยกเลิกเรียงลงมาเต็มความกว้าง นิ้วโป้งเอื้อมถึงทั้งคู่
+   column-reverse = ปุ่มหลักอยู่บน (ใกล้นิ้วที่สุด) แต่ลำดับใน DOM/คีย์บอร์ดยังเป็นยกเลิก→ยืนยันตามเดิม */
+.modal-actions {
+  display: flex; flex-direction: column-reverse; align-items: stretch;
+  gap: var(--sp-2); margin-top: var(--sp-4);
+}
+.modal-actions .btn, .modal-actions .btn-mini { width: 100%; }
+#toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: var(--sp-2); }
 .toast {
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
-  padding: 10px 16px; border-radius: 10px; font-size: 12.5px; box-shadow: var(--shadow);
+  padding: var(--sp-3) var(--sp-4); border-radius: 10px; font-size: var(--fs-3); box-shadow: var(--shadow);
   animation: toastIn .25s ease;
 }
 @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
-.empty-note { text-align: center; color: var(--text-3); padding: 26px 10px; font-size: 13px; }
-.loading { text-align: center; color: var(--text-3); padding: 60px 10px; font-size: 13px; }
+.empty-note { text-align: center; color: var(--text-3); padding: var(--sp-6) var(--sp-3); font-size: var(--fs-3); }
+.loading { text-align: center; color: var(--text-3); padding: 60px var(--sp-3); font-size: var(--fs-3); }
 .loading .spinner {
-  width: 28px; height: 28px; margin: 0 auto 12px; border-radius: 50%;
+  width: 28px; height: 28px; margin: 0 auto var(--sp-3); border-radius: 50%;
   border: 3px solid var(--border); border-top-color: var(--primary);
   animation: spin .8s linear infinite;
 }
@@ -873,7 +952,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .skel-line {
   position: relative; overflow: hidden;
   background: var(--skel); border-radius: 7px;
-  height: 14px; margin-bottom: 10px;
+  height: 14px; margin-bottom: var(--sp-3);
 }
 .skel-line:nth-child(even) { width: 72%; }
 .skel-line::after {
@@ -885,15 +964,15 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 
 /* ⚠️ ห้ามเปลี่ยนชื่อคลาสนี้เป็น .empty-note — lib/views/users.ts ใช้ '.empty' เป็นตัวเลือก
    หากล่องผลลัพธ์ตอนค้นหา ถ้าเปลี่ยนชื่อ ช่องค้นหาจะพังทันทีเมื่อผลลัพธ์ว่าง */
-.empty { text-align: center; color: var(--text-3); padding: 26px 10px; font-size: 13px; }
+.empty { text-align: center; color: var(--text-3); padding: var(--sp-6) var(--sp-3); font-size: var(--fs-3); }
 
 .error-box {
   background: var(--red-soft); border: 1px solid var(--red); border-radius: 12px;
-  padding: 16px; color: var(--text); font-size: 13px;
+  padding: var(--sp-4); color: var(--text); font-size: var(--fs-3);
 }
 .hint-box {
   background: var(--surface-2); border: 1px solid var(--border); border-left: 4px solid var(--primary);
-  border-radius: 10px; padding: 10px 14px; font-size: 12px; color: var(--text-2); margin: 10px 0;
+  border-radius: 10px; padding: var(--sp-3) var(--sp-4); font-size: var(--fs-2); color: var(--text-2); margin: var(--sp-3) 0;
 }
 
 /* แชทรอนานเกิน 1 ชม. — คาดแดงซ้ายให้สะดุดตา */
@@ -907,19 +986,18 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 .admin-card.off .page-stats,
 .admin-card.off .page-status-row { opacity: .55; }
 .admin-actions {
-  display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
-  margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border);
+  display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center;
+  margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px dashed var(--border);
 }
 .admin-actions .btn-mini { white-space: nowrap; }
 .admin-actions .ad-status-sel {
-  width: auto; padding: 4px 6px; font-size: 11px; border-radius: 8px;
+  width: auto; padding: var(--sp-1) var(--sp-2); font-size: var(--fs-1); border-radius: 8px;
 }
 .adm-form {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 12px 0 4px;
+  display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); margin: var(--sp-3) 0 var(--sp-1);
 }
-.adm-field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
-.adm-field > span { color: var(--text-3); font-size: 11.5px; font-weight: 600; }
-@media (max-width: 720px) { .adm-form { grid-template-columns: minmax(0, 1fr); } }
+.adm-field { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-2); }
+.adm-field > span { color: var(--text-3); font-size: var(--fs-2); font-weight: 600; }
 .perm-cb { width: 15px; height: 15px; accent-color: var(--primary); cursor: pointer; }
 .perm-cb:disabled { cursor: not-allowed; opacity: .4; }
 
@@ -933,13 +1011,13 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   pointer-events: none;                       /* ไม่กินอีเวนต์เมาส์ของตัวเอง */
   box-sizing: border-box;
   min-width: 154px; max-width: 252px;
-  padding: 9px 11px 10px;
+  padding: var(--sp-2) var(--sp-3) var(--sp-3);
   background: var(--surface);                 /* ทึบเต็ม — ลุคคมชัด */
   border: 1px solid var(--border);
   border-radius: calc(var(--radius) - 4px);   /* ~10px คมกว่าการ์ดปกติ */
   box-shadow: 0 8px 24px -6px rgba(3,7,18,.55), 0 2px 6px -2px rgba(3,7,18,.42);
   color: var(--text);
-  font-family: inherit; font-size: 12px; line-height: 1.35; font-weight: 500;
+  font-family: inherit; font-size: var(--fs-2); line-height: 1.35; font-weight: 500;
   letter-spacing: -.01em;
   opacity: 0;
   transform: translateY(3px) scale(.98);
@@ -951,34 +1029,34 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 .chart-tip.flip { transform-origin: var(--caret-x, 50%) 0; }          /* การ์ดอยู่ใต้เคอร์เซอร์ */
 .chart-tip.flip:not(.is-on) { transform: translateY(-3px) scale(.98); }
 
-.chart-tip .ct-head { display: flex; align-items: center; gap: 6px; }
+.chart-tip .ct-head { display: flex; align-items: center; gap: var(--sp-2); }
 .chart-tip .ct-dot {
   flex: none; width: 7px; height: 7px; border-radius: 2px;
   background: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft);
 }
 .chart-tip .ct-title {
-  font-size: 11px; font-weight: 600; color: var(--text-3);
+  font-size: var(--fs-1); font-weight: 600; color: var(--text-3);
   letter-spacing: .01em; white-space: nowrap;
 }
 .chart-tip .ct-value {
-  margin-top: 5px;
-  font-size: 18px; font-weight: 800; line-height: 1.1;
+  margin-top: var(--sp-1);
+  font-size: var(--fs-6); font-weight: 800; line-height: 1.1;
   letter-spacing: -.02em; color: var(--text);
   font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
 }
-.chart-tip .ct-foot { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
+.chart-tip .ct-foot { display: flex; align-items: center; gap: var(--sp-2); margin-top: var(--sp-2); }
 .chart-tip.is-bare .ct-foot { display: none; }        /* ปิดการเปรียบเทียบ → ซ่อนแถวล่าง */
 .chart-tip .ct-pill {
-  flex: none; display: inline-flex; align-items: center; gap: 3px;
-  padding: 2px 6px; border-radius: 6px;
-  font-size: 11px; font-weight: 700; line-height: 1; white-space: nowrap;
+  flex: none; display: inline-flex; align-items: center; gap: var(--sp-1);
+  padding: var(--sp-1) var(--sp-2); border-radius: 6px;
+  font-size: var(--fs-1); font-weight: 700; line-height: 1; white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 .chart-tip .ct-pill.up   { background: var(--green-soft); color: var(--green); }
 .chart-tip .ct-pill.down { background: var(--red-soft);   color: var(--red);   }
 .chart-tip .ct-pill.flat { background: var(--track);      color: var(--text-3);}
 .chart-tip .ct-cmp {
-  min-width: 0; font-size: 10.5px; color: var(--text-3); line-height: 1.3;
+  min-width: 0; font-size: var(--fs-1); color: var(--text-3); line-height: 1.3;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font-variant-numeric: tabular-nums;
 }
@@ -1013,12 +1091,12 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 .info-tip {
   position: fixed; left: 0; top: 0; z-index: 10000;
   pointer-events: none; box-sizing: border-box;
-  max-width: 320px; padding: 10px 12px 11px;
+  max-width: 320px; padding: var(--sp-3) var(--sp-3) var(--sp-3);
   background: var(--surface); border: 1px solid var(--border);
   border-radius: calc(var(--radius) - 4px);
   box-shadow: 0 10px 28px -8px rgba(3,7,18,.6), 0 2px 6px -2px rgba(3,7,18,.45);
   color: var(--text);
-  font-family: inherit; font-size: 12px; line-height: 1.45; font-weight: 500;
+  font-family: inherit; font-size: var(--fs-2); line-height: 1.45; font-weight: 500;
   letter-spacing: -.01em;
   opacity: 0; transform: translateY(3px) scale(.98);
   transform-origin: var(--caret-x, 18px) 100%;
@@ -1028,9 +1106,9 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 .info-tip.is-on { opacity: 1; transform: translateY(0) scale(1); }
 .info-tip.flip { transform-origin: var(--caret-x, 18px) 0; }
 .info-tip .it-title {
-  display: flex; align-items: center; gap: 6px;
-  font-size: 11.5px; font-weight: 700; color: var(--text);
-  margin-bottom: 5px; letter-spacing: 0;
+  display: flex; align-items: center; gap: var(--sp-2);
+  font-size: var(--fs-2); font-weight: 700; color: var(--text);
+  margin-bottom: var(--sp-1); letter-spacing: 0;
 }
 .info-tip .it-title::before {
   content: ""; flex: none; width: 7px; height: 7px; border-radius: 2px;
@@ -1039,15 +1117,15 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 .info-tip .it-formula {
   font-variant-numeric: tabular-nums;
   background: var(--track); border-radius: 7px;
-  padding: 5px 8px; margin: 5px 0;
-  font-size: 11.5px; color: var(--text); font-weight: 600;
+  padding: var(--sp-1) var(--sp-2); margin: var(--sp-1) 0;
+  font-size: var(--fs-2); color: var(--text); font-weight: 600;
   border: 1px solid var(--border);
 }
 .info-tip .it-body { color: var(--text-2); }
 .info-tip .it-body b { color: var(--text); font-weight: 700; }
 .info-tip .it-src {
-  margin-top: 6px; font-size: 10.5px; color: var(--text-3);
-  display: flex; align-items: center; gap: 4px;
+  margin-top: var(--sp-2); font-size: var(--fs-1); color: var(--text-3);
+  display: flex; align-items: center; gap: var(--sp-1);
 }
 .info-tip .it-caret {
   position: absolute; left: var(--caret-x, 18px); margin-left: -5px;
@@ -1091,77 +1169,54 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   .chart-svg .ch-dot-g { transition: none; }
 }
 
-/* ---------- responsive ----------
-   📌 กติกาของไฟล์นี้: คอลัมน์กริดทุกอันเขียน minmax(0, 1fr) ห้ามเขียน 1fr เปล่าๆ
-   เพราะ 1fr มีค่าต่ำสุดเป็น auto = "กว้างอย่างน้อยเท่าเนื้อหา" ตารางที่ตั้ง min-width:640px
-   จึงดันคอลัมน์ → ดันทั้งหน้าให้กว้างเกินจอมือถือ แล้ว overflow-x:auto ไม่มีโอกาสทำงาน
-   (เจอมาแล้ว 3 จุด: ตารางยูนิตหน้า Sales, ตารางสายบังคับบัญชาหน้า KPI, ตารางผู้ใช้) */
-@media (max-width: 1180px) {
-  .dash-row, .dash-row.half, .sr-main, .sr-bottom, .sr-split { grid-template-columns: minmax(0, 1fr); }
-  .sr-cards, .sr-channels { grid-template-columns: 1fr 1fr; }
-}
-@media (max-width: 860px) {
-  /* ⚠️ เคยมีกฎย่อ sidebar เหลือ 64px + ซ่อน .sidebar-footer อยู่ตรงนี้ (มือถือยุคแรก)
-     พอมีลิ้นชักเลื่อนที่ ≤900px มาแทน กฎเก่ายังอยู่และทับกันอยู่ ผลคือเปิดลิ้นชักบนมือถือ
-     แล้วเห็นแต่อีโมจิ และ "ปุ่มออกจากระบบ" ซึ่งอยู่ใน .sidebar-footer จุดเดียวในโปรเจกต์ก็หายไปด้วย
-     ลบทิ้งแล้ว เหลือเฉพาะกฎกริดที่ยังต้องใช้ — อย่าเอากลับมา */
-  .sr-cards, .sr-channels { grid-template-columns: minmax(0, 1fr); }
-  .top3-grid { grid-template-columns: minmax(0, 1fr); }
-}
-@media (max-width: 720px) {
-  .sp-row { grid-template-columns: 1fr 1fr; row-gap: 4px; }
-  .sp-metric { grid-column: 1 / -1; }
-  .sp-dir { grid-column: 1 / -1; }
-}
 
 /* ---------- U Map (หน้า 6: จับคู่แอดมิน ↔ U) ---------- */
 .umap-stats {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px; margin-bottom: 14px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  gap: var(--sp-3); margin-bottom: var(--sp-4);
 }
 .umap-stats .tile {
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-  padding: 10px 14px; font-size: 11.5px; color: var(--text-3);
+  padding: var(--sp-3) var(--sp-4); font-size: var(--fs-2); color: var(--text-3);
 }
-.umap-stats .tile b { display: block; font-size: 16px; color: var(--text); margin-top: 2px; }
+.umap-stats .tile b { display: block; font-size: var(--fs-5); color: var(--text); margin-top: var(--sp-1); }
 .umap-hint {
   background: var(--primary-soft); border: 1px dashed var(--primary);
-  border-radius: 10px; padding: 9px 14px; font-size: 12.5px; margin-bottom: 14px;
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  border-radius: 10px; padding: var(--sp-2) var(--sp-4); font-size: var(--fs-3); margin-bottom: var(--sp-4);
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
 }
-.umap-layout { display: grid; grid-template-columns: 300px 1fr; gap: 14px; align-items: start; }
-/* top ต้องพ้น topbar (sticky top:0 สูง ~78px z-index:10) — ไม่งั้นการ์ดมุดเข้าไปใต้แถบบน */
-.umap-side { position: sticky; top: 92px; }
+.umap-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); align-items: start; }
+.umap-side { position: static; }
 .u-admin-list {
-  display: flex; flex-wrap: wrap; gap: 8px;
-  max-height: 62vh; overflow-y: auto; padding-right: 2px;
+  display: flex; flex-wrap: wrap; gap: var(--sp-2);
+  max-height: 30vh; overflow-y: auto; padding-right: var(--sp-1);
 }
 .admin-pick {
-  display: inline-flex; align-items: center; gap: 7px; padding: 6px 11px;
+  display: inline-flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--border); border-radius: 99px; cursor: pointer;
-  background: var(--surface-2); color: var(--text); font-size: 12.5px;
+  background: var(--surface-2); color: var(--text); font-size: var(--fs-3);
   transition: border-color .15s ease, background .15s ease;
 }
 .admin-pick:hover { border-color: var(--primary); }
 .admin-pick.selected { background: var(--primary); border-color: var(--primary); color: #fff; }
-.admin-pick .cnt { font-size: 10.5px; color: var(--text-3); }
+.admin-pick .cnt { font-size: var(--fs-1); color: var(--text-3); }
 .admin-pick .cnt.none { color: var(--amber); }
 .admin-pick.selected .cnt, .admin-pick.selected .cnt.none { color: rgba(255,255,255,.85); }
 .pdot {
   display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
 }
-.umap-upd { font-size: 11px; color: var(--text-3); margin-top: 12px; }
-.u-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 12px; }
+.umap-upd { font-size: var(--fs-1); color: var(--text-3); margin-top: var(--sp-3); }
+.u-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(215px, 100%), 1fr)); gap: var(--sp-3); }
 .u-card {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 13px 14px; box-shadow: var(--shadow); position: relative;
+  padding: var(--sp-3) var(--sp-4); box-shadow: var(--shadow); position: relative;
   transition: border-color .15s ease, transform .12s ease, box-shadow .15s ease;
 }
-.u-card .u-code { font-size: 20px; font-weight: 800; letter-spacing: .5px; }
-.u-card .u-product { font-size: 12.5px; color: var(--text-2); margin-top: 2px; word-break: break-word; }
+.u-card .u-code { font-size: var(--fs-7); font-weight: 800; letter-spacing: .5px; }
+.u-card .u-product { font-size: var(--fs-3); color: var(--text-2); margin-top: var(--sp-1); word-break: break-word; }
 .u-card .u-tools {
   /* gap เดิม 4px — ปุ่มแก้กับปุ่มลบชิดกันเกินไปสำหรับนิ้ว ขยายเป็น 8px */
-  position: absolute; top: 9px; right: 9px; display: flex; gap: 8px;
+  position: absolute; top: 9px; right: 9px; display: flex; gap: var(--sp-2);
   opacity: 0; transition: opacity .15s ease;
 }
 .u-card:hover .u-tools { opacity: 1; }
@@ -1174,34 +1229,34 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 }
 .u-tool-btn {
   border: 1px solid var(--border); background: var(--surface-2); color: var(--text-2);
-  border-radius: 6px; font-size: 11px; padding: 4px 8px; cursor: pointer;
+  border-radius: 6px; font-size: var(--fs-1); padding: var(--sp-1) var(--sp-2); cursor: pointer;
 }
 .u-tool-btn:hover { border-color: var(--primary); color: var(--text); }
-.u-members { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; min-height: 24px; }
+.u-members { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3); min-height: 24px; }
 .u-member {
-  display: inline-flex; align-items: center; gap: 5px;
-  background: var(--primary-soft); border-radius: 99px; padding: 3px 9px;
-  font-size: 11.5px; animation: umap-pop .22s ease;
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  background: var(--primary-soft); border-radius: 99px; padding: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-2); animation: umap-pop .22s ease;
 }
 .u-member .x { cursor: pointer; opacity: .55; font-weight: 700; padding: 0 1px; }
 .u-member .x:hover { opacity: 1; color: var(--red); }
-.u-empty { font-size: 11.5px; color: var(--text-3); }
+.u-empty { font-size: var(--fs-2); color: var(--text-3); }
 .u-pages-btn {
-  display: block; width: 100%; margin-top: 10px; text-align: left;
+  display: block; width: 100%; margin-top: var(--sp-3); text-align: left;
   border: 1px dashed var(--border); background: var(--surface-2); color: var(--text-2);
-  border-radius: 8px; font-size: 11.5px; padding: 5px 9px; cursor: pointer; transition: border-color .15s;
+  border-radius: 8px; font-size: var(--fs-2); padding: var(--sp-1) var(--sp-2); cursor: pointer; transition: border-color .15s;
 }
 .u-pages-btn:hover { border-color: var(--primary); color: var(--text); }
-.page-pick-list { max-height: 52vh; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+.page-pick-list { max-height: 52vh; overflow-y: auto; display: flex; flex-direction: column; gap: var(--sp-1); }
 .page-pick {
-  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+  display: flex; align-items: center; gap: var(--sp-2); width: 100%; text-align: left;
   border: 1px solid var(--border); background: var(--surface); color: var(--text);
-  border-radius: 8px; padding: 7px 10px; cursor: pointer; font-size: 12.5px; transition: border-color .12s;
+  border-radius: 8px; padding: var(--sp-2) var(--sp-3); cursor: pointer; font-size: var(--fs-3); transition: border-color .12s;
 }
 .page-pick:hover { border-color: var(--primary); }
 .page-pick.selected { background: var(--primary-soft); border-color: var(--primary); }
 .page-pick .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.page-pick .cnt { font-size: 10.5px; color: var(--amber); flex-shrink: 0; }
+.page-pick .cnt { font-size: var(--fs-1); color: var(--amber); flex-shrink: 0; }
 .page-pick .chk { flex-shrink: 0; }
 .u-card.droppable { border-color: var(--primary); cursor: pointer; }
 .u-card.droppable:hover {
@@ -1211,18 +1266,13 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 @keyframes umap-pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 /* ตัวเลือกในเกมทดสอบความจำ */
 .quiz-opt {
-  display: block; width: 100%; text-align: left; padding: 10px 13px; margin-top: 8px;
+  display: block; width: 100%; text-align: left; padding: var(--sp-3) var(--sp-3); margin-top: var(--sp-2);
   border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2);
-  color: var(--text); font-size: 13px; cursor: pointer; transition: border-color .12s ease;
+  color: var(--text); font-size: var(--fs-3); cursor: pointer; transition: border-color .12s ease;
 }
 .quiz-opt:hover:not(:disabled) { border-color: var(--primary); }
 .quiz-opt.correct { background: var(--green-soft); border-color: var(--green); }
 .quiz-opt.wrong { background: var(--red-soft); border-color: var(--red); }
-@media (max-width: 1180px) {
-  .umap-layout { grid-template-columns: minmax(0, 1fr); }
-  .umap-side { position: static; }
-  .u-admin-list { max-height: 30vh; }
-}
 @media (prefers-reduced-motion: reduce) {
   .u-member { animation: none; }
   .u-card.droppable:hover { transform: none; }
@@ -1241,55 +1291,62 @@ a.btn-mini { text-decoration: none; display: inline-block; }
    เพิ่ม 2026-07-27 พร้อมระบบ login รายคน
    ============================================================ */
 
-/* ---------- ปุ่มเมนู + ฉากหลัง (ซ่อนบนจอกว้าง) ----------
-   ⚠️ ต้องเป็น .btn.btn-nav ไม่ใช่ .btn-nav เฉยๆ — กฎ .btn ในบล็อก ≤560px มาทีหลังและ
-   น้ำหนักเท่ากัน มันจึงทับ font-size ทำให้ปุ่มเข้าเมนู "เล็กที่สุดตอนจอเล็กที่สุด" (17px → 12px) */
+/* ---------- ปุ่มเมนู + ฉากหลัง (ค่าเริ่มต้น = มือถือ, ซ่อนตอน ≥900) ----------
+   ⚠️ ต้องเป็น .btn.btn-nav ไม่ใช่ .btn-nav เฉยๆ — กฎ .btn มีน้ำหนักเท่ากันและมาทีหลัง
+   มันจะทับ font-size ทำให้ปุ่มเข้าเมนูเล็กลงเอง (เคยเป็น 19px → 12px มาแล้ว) */
 .btn.btn-nav {
-  display: none; padding: 6px 12px; font-size: 19px; line-height: 1;
-  min-width: 44px; min-height: 40px; align-items: center; justify-content: center;
+  display: inline-flex; padding: var(--sp-2) var(--sp-3); font-size: var(--fs-6); line-height: 1;
+  min-width: 44px; min-height: 44px; align-items: center; justify-content: center;
 }
-.nav-backdrop { display: none; }
+.nav-backdrop {
+  display: block; position: fixed; inset: 0; z-index: 55;
+  background: rgba(0,0,0,.5); opacity: 0; pointer-events: none;
+  transition: opacity .22s ease;
+}
+#app.nav-open .nav-backdrop { opacity: 1; pointer-events: auto; }
 .topbar-titles { min-width: 0; flex: 1; }
 .topbar-titles h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- กล่องผู้ใช้ที่ล็อกอินอยู่ (ท้าย sidebar) ---------- */
 .me-box {
   border-top: 1px solid rgba(255,255,255,.12);
-  padding-top: 10px; margin-bottom: 10px;
+  padding-top: var(--sp-3); margin-bottom: var(--sp-3);
 }
 .me-name {
-  color: #fff; font-weight: 700; font-size: 12px;
+  color: #fff; font-weight: 700; font-size: var(--fs-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.me-role { font-size: 10.5px; opacity: .7; margin-bottom: 6px; }
-.btn-logout { padding: 4px 10px; font-size: 11px; width: 100%; }
+.me-role { font-size: var(--fs-1); opacity: .7; margin-bottom: var(--sp-2); }
+.btn-logout { padding: var(--sp-1) var(--sp-3); font-size: var(--fs-1); width: 100%; }
 
 /* ---------- หน้า login ---------- */
 .login-wrap {
   min-height: 100vh; min-height: 100dvh; /* dvh กัน address bar มือถือกินพื้นที่ */
-  display: flex; align-items: center; justify-content: center; padding: 20px;
+  display: flex; align-items: center; justify-content: center; padding: var(--sp-5);
 }
 .login-card { width: 100%; max-width: 360px; }
-.login-input { width: 100%; margin-bottom: 10px; font-size: 16px; } /* 16px กัน iOS ซูมอัตโนมัติ */
-.login-err { color: var(--red); font-size: 12px; margin-bottom: 10px; }
-.login-hint { font-size: 11px; color: var(--text-3); text-align: center; margin-top: 12px; }
+/* ⚠️ 16px ตายตัว ไม่ใช่ token — iOS ซูมเข้าเองทุกครั้งที่โฟกัสช่องที่เล็กกว่า 16px
+   ต่อให้วันหน้ามีคนปรับสเกลตัวอักษร ช่องกรอกต้องไม่หลุดต่ำกว่า 16px */
+.login-input { width: 100%; margin-bottom: var(--sp-3); font-size: 16px; }
+.login-err { color: var(--red); font-size: var(--fs-2); margin-bottom: var(--sp-3); }
+.login-hint { font-size: var(--fs-1); color: var(--text-3); text-align: center; margin-top: var(--sp-3); }
 
 /* ---------- หน้า "ผลงานของฉัน" ---------- */
 .me-hero { background: linear-gradient(135deg, rgba(108,92,231,.16), transparent); }
-.me-hero-name { font-size: 19px; font-weight: 800; }
-.me-hero-sub { font-size: 12px; color: var(--text-3); margin-top: 2px; }
-.me-rank { margin-top: 8px; font-size: 13px; }
-.me-rank b { font-size: 17px; color: var(--primary); }
+.me-hero-name { font-size: var(--fs-6); font-weight: 800; }
+.me-hero-sub { font-size: var(--fs-2); color: var(--text-3); margin-top: var(--sp-1); }
+.me-rank { margin-top: var(--sp-2); font-size: var(--fs-3); }
+.me-rank b { font-size: var(--fs-5); color: var(--primary); }
 
-.me-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.me-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: var(--sp-3); margin-bottom: var(--sp-4); }
 .me-card { margin-bottom: 0; }
-.me-card-top { font-size: 11.5px; color: var(--text-3); margin-bottom: 4px; }
-.me-card-val { font-size: 21px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.me-card .card-sub { margin-bottom: 0; margin-top: 3px; font-size: 11px; }
+.me-card-top { font-size: var(--fs-2); color: var(--text-3); margin-bottom: var(--sp-1); }
+.me-card-val { font-size: var(--fs-7); font-weight: 800; font-variant-numeric: tabular-nums; }
+.me-card .card-sub { margin-bottom: 0; margin-top: var(--sp-1); font-size: var(--fs-1); }
 
-.me-prog { margin-bottom: 14px; }
+.me-prog { margin-bottom: var(--sp-4); }
 .me-prog:last-child { margin-bottom: 0; }
-.me-prog-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 12.5px; margin-bottom: 5px; }
+.me-prog-head { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--fs-3); margin-bottom: var(--sp-1); }
 .me-prog-head b { font-variant-numeric: tabular-nums; }
 .me-prog-target { color: var(--text-3); font-weight: 400; }
 .me-bar { height: 9px; border-radius: 99px; background: var(--border); overflow: hidden; }
@@ -1297,144 +1354,281 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 .me-bar-fill.ok { background: var(--green); }
 .me-bar-fill.warn { background: var(--amber, #f0a020); }
 .me-bar-fill.bad { background: var(--red); }
-.me-prog-pct { font-size: 11px; margin-top: 4px; }
+.me-prog-pct { font-size: var(--fs-1); margin-top: var(--sp-1); }
 .me-prog-pct.ok { color: var(--green); }
 .me-prog-pct.warn { color: var(--amber, #f0a020); }
 .me-prog-pct.bad { color: var(--red); }
 
-.me-kv { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.me-kv { display: flex; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) 0; border-bottom: 1px solid var(--border); font-size: var(--fs-3); }
 .me-kv:last-child { border-bottom: none; }
 .me-kv span { color: var(--text-3); }
 .me-kv b { text-align: right; word-break: break-word; }
 
-/* ---------- หน้าผู้ใช้งาน ---------- */
-.us-actions { white-space: nowrap; }
-.us-actions .btn-mini { margin-right: 4px; }
+/* ---------- หน้าผู้ใช้งาน ----------
+   ช่องปุ่มจัดการ (แก้ไข/รีเซ็ตรหัส/ปิดใช้งาน) — มือถือเรียงลงมาเต็มความกว้าง กดไม่พลาด */
+.us-actions { display: flex; flex-direction: column; gap: var(--sp-1); white-space: nowrap; }
+.us-actions .btn-mini { width: 100%; }
 .btn-mini.danger { color: var(--red); border-color: var(--red); }
 tr.row-off { opacity: .55; }
 /* --bg-2 ไม่เคยถูกประกาศในโปรเจกต์ — ใช้ token ที่มีจริง ไม่ใช่ค่าสำรอง */
-.pw-box { background: var(--surface-2); border-radius: 10px; padding: 12px 14px; margin: 12px 0; }
-.pw-val { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: 15px; letter-spacing: .5px; user-select: all; }
-.bulk-actions { display: flex; gap: 8px; margin-bottom: 8px; }
+.pw-box { background: var(--surface-2); border-radius: 10px; padding: var(--sp-3) var(--sp-4); margin: var(--sp-3) 0; }
+.pw-val { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: var(--fs-5); letter-spacing: .5px; user-select: all; }
+.bulk-actions { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-2); }
 /* ตารางกว้างเกินจอ ต้องเลื่อนในกล่องตัวเอง ไม่ใช่ดันทั้งหน้าให้เลื่อนแนวนอน */
 .tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
 /* ============================================================
-   จอแคบ (แท็บเล็ต/มือถือ)
+   ค่าเริ่มต้น = มือถือ  (กฎที่เหลือของหัวเว็บ/ปุ่ม/ตาราง)
    ============================================================ */
-@media (max-width: 900px) {
-  /* sidebar กลายเป็นลิ้นชักเลื่อนเข้าจากซ้าย */
-  .btn.btn-nav { display: inline-flex; }
-  .sidebar {
-    position: fixed; top: 0; left: 0; z-index: 60;
-    height: 100vh; height: 100dvh; width: 265px;
-    transform: translateX(-100%); transition: transform .22s ease;
-    box-shadow: 4px 0 24px rgba(0,0,0,.32);
-  }
-  #app.nav-open .sidebar { transform: translateX(0); }
-  .nav-backdrop {
-    display: block; position: fixed; inset: 0; z-index: 55;
-    background: rgba(0,0,0,.5); opacity: 0; pointer-events: none;
-    transition: opacity .22s ease;
-  }
-  #app.nav-open .nav-backdrop { opacity: 1; pointer-events: auto; }
 
-  .topbar { padding: 10px 12px; gap: 8px; }
-  .topbar h1 { font-size: 15.5px; }
-  .topbar-sub { display: none; }         /* บรรทัดรองกินที่บนจอแคบ */
-  .topbar-right { gap: 6px; flex: none; }
-  /* จอแคบซ่อนชิปเวลา sync (ย้ายไปดูใน sidebar) — แต่ถ้ามีงานพัง ต้องเห็นบนหัวเว็บด้วย
-     ไม่งั้นบนมือถือคำเตือนไปซ่อนอยู่หลังปุ่ม ☰ ทีมไม่มีทางเห็น */
-  #sync-chip { display: none; }
-  /* ⚠️ เดิมชิปเตือนกว้างได้ถึง 46vw + ปุ่มธีม + ปุ่ม "⟳ รีเฟรช" (มีคำว่ารีเฟรช)
-     รวมกันกินหมดจนชื่อหน้าเหลือ "S.." สองตัวอักษร — หัวเว็บไม่บอกด้วยซ้ำว่าอยู่หน้าไหน
-     บนมือถือชิปจึงเหลือแค่ ⚠️ + จำนวน (ข้อความเต็มยังอ่านได้จากการแตะ/ในแถบเมนู)
-     และปุ่มรีเฟรชเหลือแต่ไอคอน */
-  #sync-chip.txt-bad { display: inline-flex; white-space: nowrap; padding: 4px 8px; }
-  .chip-long { display: none; }          /* เหลือ "⚠️ 1" — ข้อความเต็มอยู่ใน title + แถบเมนู */
-  #btn-refresh { font-size: 0; min-width: 40px; justify-content: center; }
-  #btn-refresh::before { content: '⟳'; font-size: 17px; }
-  #btn-theme { min-width: 40px; }
-  .view { padding: 14px 14px 32px; }
-  .card { padding: 14px; }
+/* หัวเว็บบนมือถือมีที่แค่ ~340px สำหรับ [☰] [ชื่อหน้า] [ธีม] [รีเฟรช]
+   ชิปเวลา sync จึงย้ายไปอยู่ในแถบเมนู เหลือบนหัวเว็บเฉพาะตอนมีงานพัง */
+#sync-chip { display: none; }
+#sync-chip.txt-bad { display: inline-flex; white-space: nowrap; padding: var(--sp-1) var(--sp-2); }
+.chip-long { display: none; }            /* เหลือ "⚠️ 1" — ข้อความเต็มอยู่ใน title + แถบเมนู */
+#btn-refresh { font-size: 0; min-width: 44px; justify-content: center; }
+#btn-refresh::before { content: '⟳'; font-size: var(--fs-5); }
+#btn-theme { min-width: 44px; }
+/* ปุ่มส่งออกเหลือแต่ไอคอน — บนมือถือแทบไม่มีใครโหลดไฟล์ แต่คำว่า "CSV/Excel" กินไปทั้งบรรทัด */
+#sr-csv, #sr-xls, #pf-csv, #rp-csv, #ap-csv { font-size: 0; min-width: 44px; justify-content: center; }
+#sr-csv::before, #pf-csv::before, #rp-csv::before, #ap-csv::before { content: '📄'; font-size: var(--fs-4); }
+#sr-xls::before { content: '📊'; font-size: var(--fs-4); }
+.spacer { display: none; }
 
-  /* ปุ่มช่วงเวลา/ฟิลเตอร์ — ให้ตัดบรรทัดแทนล้นออกนอกจอ */
-  .pg-controls { flex-wrap: wrap; gap: 8px; }
-  .pg-controls .input,
-  .pg-controls select { max-width: 100%; }
-  .spacer { display: none; }
-  /* แถวปุ่มช่วงเวลา + แถวส่งออกกินไป 5 บรรทัดก่อนถึงเนื้อหา = หนึ่งในสามของจอแรก
-     บีบให้แน่นขึ้นเฉพาะจอแคบ (เดสก์ท็อปคงเดิม) */
-  .conv-filters { gap: 6px; margin-bottom: 10px; }
-  .conv-filters .filter-btn { padding: 8px 12px; font-size: 12.5px; }
-  /* ปุ่มส่งออกเหลือแต่ไอคอน — บนมือถือแทบไม่มีใครโหลดไฟล์ แต่มันกินไปทั้งบรรทัด */
-  #sr-csv, #sr-xls, #pf-csv, #rp-csv, #ap-csv { font-size: 0; min-width: 44px; justify-content: center; }
-  #sr-csv::before, #pf-csv::before, #rp-csv::before, #ap-csv::before { content: '📄'; font-size: 15px; }
-  #sr-xls::before { content: '📊'; font-size: 15px; }
+/* ---------- พื้นที่กดด้วยนิ้ว ----------
+   เกณฑ์ WCAG 2.2 คือ 44×44px (ยอมลดเหลือ 40 ได้ถ้ามีระยะห่างรอบข้างพอ)
+   ตั้งเป็นค่าเริ่มต้นแล้วค่อยหดกลับที่ ≥900 ซึ่งใช้เมาส์ ความหนาแน่นสูงกว่าได้ */
+.btn, .btn-mini, .filter-btn, .kpi-tab, .admin-pick, .input, select.input,
+.nav-item, .u-pages-btn, .page-pick, .quiz-opt, .low-row, .coach-tree .tree-btn { min-height: 44px; }
+.btn-mini { padding: var(--sp-2) var(--sp-3); font-size: var(--fs-3); }
+/* กากบาทลบแอดมินออกจากยูนิต — เดิม 15×20px แตะพลาดตลอด ขยายพื้นที่กดโดยไม่ขยายชิป */
+.u-member { padding: var(--sp-1) var(--sp-2); }
+.u-member .x { padding: var(--sp-2) var(--sp-1); margin: calc(var(--sp-2) * -1) 0; }
+.modal-close { min-width: 44px; min-height: 44px; font-size: var(--fs-7); }
+.u-tool-btn { min-width: 40px; min-height: 40px; }
+/* ⚠️ ยกเว้นโดยตั้งใจ: ลิงก์ตัวเลขในตาราง pivot กำไร (ยูนิต × 12 เดือน) ขยายเป็น 44px ไม่ได้
+   ตารางจะสูงเกินจอทันที — ใช้ 40px (เกณฑ์ผ่อนผันของ WCAG เมื่อมีระยะห่างรอบข้าง)
+   line-height คุมให้ตัวเลขอยู่กลางพอดี ไม่ลอยขึ้นบนแบบที่ min-height เปล่าๆ ทำ */
+table.tbl td.num a {
+  display: inline-block; min-height: 40px; line-height: var(--sp-6);
+  padding: var(--sp-2) var(--sp-1);
+}
+/* ⚠️ 16px ตายตัว ไม่ใช่ token — ต่ำกว่านี้ iOS ซูมเข้าเองตอนโฟกัส แล้วต้องซูมออกเองทุกครั้ง */
+.input, select.input, input.input { font-size: 16px; }
 
-  .pg-summary { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
-  .me-grid { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
-  .me-card-val { font-size: 18px; }
+/* ============================================================
+   📱 ตารางบนมือถือ — จัดการโดย enhanceTables() ใน lib/ui/app-core.ts
+   ตารางถูกแบ่งเป็น 3 แบบตามจำนวนคอลัมน์ (นับตอน render เสร็จ):
+     ≤3 คอลัมน์    ไม่ทำอะไร ตารางธรรมดาพอดีจอมือถืออยู่แล้ว
+     4-8 คอลัมน์   .tbl-cards  = 1 แถวกลายเป็น 1 การ์ด (อ่านรวดเดียวจบ ไม่ต้องเลื่อนซ้ายขวา)
+     ≥9 คอลัมน์    .tbl-scroll-x = ยังเป็นตาราง เลื่อนแนวนอน ตรึงคอลัมน์แรกไว้
+   (ตาราง ≥9 คอลัมน์คือ pivot กำไร ยูนิต×12 เดือน กับสายบังคับบัญชา KPI —
+    ทำเป็นการ์ดจะได้การ์ดละ 16 บรรทัด ซึ่งแย่กว่าเลื่อน)
+   ทุกอันกลับเป็นตารางปกติที่ ≥900px
+   ============================================================ */
 
-  /* เกณฑ์พื้นที่กดด้วยนิ้วคือ 44×44px — ของเดิมปุ่มปิดโมดัล ~23px, ปุ่มเล็ก ~26px
-     ขยายเฉพาะจอแคบ เดสก์ท็อปคงความหนาแน่นเดิมไว้ */
-  .btn, .btn-mini, .filter-btn, .kpi-tab, .admin-pick, .input, select.input { min-height: 40px; }
-  .btn-mini { padding: 8px 12px; font-size: 12.5px; }
-  .modal-close { min-width: 44px; min-height: 44px; font-size: 22px; }
-  .u-tool-btn { min-width: 36px; min-height: 36px; }
-  /* ⚠️ ยกเว้นโดยตั้งใจ: ลิงก์ตัวเลขในตาราง pivot กำไร (ยูนิต × 12 เดือน) ขยายเป็น 40px ไม่ได้
-     ตารางจะสูงเกินจอทันที — ชดเชยด้วยการเพิ่มระยะในช่องแทน ให้นิ้วมีที่พลาดมากขึ้น */
-  table.tbl td.num a { display: inline-block; padding: 6px 4px; }
-
-  /* modal เต็มจอเกือบหมด — modal กลางจอบนมือถือกดยาก */
-  .modal { width: 100%; max-width: 100%; max-height: 88vh; }
-  /* ปุ่มยืนยัน/ยกเลิกเรียงลงมาเต็มความกว้าง นิ้วโป้งเอื้อมถึงทั้งคู่ ไม่ต้องยืดไปมุมขวาบน */
-  .modal-actions { flex-wrap: wrap; flex-direction: column-reverse; align-items: stretch; }
-  .modal-actions .btn, .modal-actions .btn-mini { width: 100%; }
-
-  /* ตารางทุกใบเลื่อนแนวนอนได้ในตัวเอง */
-  table.tbl { min-width: 640px; }
-
-  /* ⚠️ ปัญหาจริงของตารางบนมือถือไม่ใช่ "เลื่อนได้" แต่คือ "เลื่อนไปแล้วไม่รู้ว่าแถวนี้ของใคร"
-     ตรึงคอลัมน์แรก (ชื่อยูนิต/ชื่อคน) ไว้ แล้วใส่เงาบอกว่ายังมีคอลัมน์ต่อทางขวา */
-  .table-scroll, .tbl-wrap {
-    scroll-snap-type: none;
-    background:
-      linear-gradient(90deg, transparent, rgba(0,0,0,.16)) right / 18px 100% no-repeat scroll;
-  }
-  table.tbl th:first-child,
-  table.tbl td:first-child {
-    position: sticky; left: 0; z-index: 1;
-    background: var(--surface);
-    /* เส้นคั่นบางๆ ให้รู้ว่าคอลัมน์นี้ไม่ได้เลื่อนไปกับเพื่อน */
-    box-shadow: 1px 0 0 var(--border);
-  }
-  table.tbl thead th:first-child { z-index: 2; background: var(--surface); }
-  /* แถวที่มีพื้นของตัวเอง (hover / ยังไม่จัดกลุ่ม) ต้องทาสีช่องที่ตรึงด้วย ไม่งั้นช่องแรกจะสีไม่ตรงกับแถว
-     ทาเป็น 2 ชั้น (สีทับ + พื้นการ์ด) ให้ได้สีผสมเดียวกับแถวเป๊ะ ไม่ใช่เดาเป็นสีทึบ */
-  table.tbl tr.clickable:hover td:first-child {
-    background-color: var(--surface);
-    background-image: linear-gradient(rgba(108,92,231,.12), rgba(108,92,231,.12));
-  }
-  table.tbl tr.sr-unmapped td:first-child {
-    background-color: var(--surface);
-    background-image: linear-gradient(rgba(232,161,58,.09), rgba(232,161,58,.09));
-  }
+/* ---- แบบเลื่อนแนวนอน ----
+   ⚠️ ปัญหาจริงไม่ใช่ "เลื่อนไม่ได้" แต่คือ "เลื่อนไปแล้วไม่รู้ว่าแถวนี้ของใคร" */
+table.tbl.tbl-scroll-x { min-width: 640px; }
+/* ตารางเมทริกซ์ (สิทธิ์ × role) ต้องกว้างกว่าปกติถึงจะอ่านหัวคอลัมน์ออก */
+table.tbl.tbl-scroll-x.tbl-wide { min-width: 880px; }
+.table-scroll:has(> table.tbl-scroll-x),
+.tbl-wrap:has(> table.tbl-scroll-x) {
+  background: linear-gradient(90deg, transparent, rgba(0,0,0,.16)) right / 18px 100% no-repeat scroll;
+}
+table.tbl.tbl-scroll-x th:first-child,
+table.tbl.tbl-scroll-x td:first-child {
+  position: sticky; left: 0; z-index: 1;
+  background: var(--surface);
+  box-shadow: 1px 0 0 var(--border);     /* เส้นคั่นบอกว่าคอลัมน์นี้ไม่ได้เลื่อนไปกับเพื่อน */
+}
+table.tbl.tbl-scroll-x thead th:first-child { z-index: 2; background: var(--surface); }
+/* แถวที่มีพื้นของตัวเอง (hover / ยังไม่จัดกลุ่ม) ต้องทาสีช่องที่ตรึงด้วย ไม่งั้นช่องแรกสีไม่ตรงกับแถว
+   ทา 2 ชั้น (สีทับ + พื้นการ์ด) ให้ได้สีผสมเดียวกับแถวเป๊ะ ไม่ใช่เดาเป็นสีทึบ */
+table.tbl.tbl-scroll-x tr.clickable:hover td:first-child {
+  background-color: var(--surface);
+  background-image: linear-gradient(rgba(108,92,231,.12), rgba(108,92,231,.12));
+}
+table.tbl.tbl-scroll-x tr.sr-unmapped td:first-child {
+  background-color: var(--surface);
+  background-image: linear-gradient(rgba(232,161,58,.09), rgba(232,161,58,.09));
 }
 
-@media (max-width: 560px) {
-  .view { padding: 12px 10px 30px; }
-  .card { padding: 12px; border-radius: 12px; }
-  .pg-summary { grid-template-columns: repeat(2, 1fr); }
-  .me-grid { grid-template-columns: repeat(2, 1fr); }
-  .me-hero-name { font-size: 17px; }
-  /* input ต่ำกว่า 16px ทำให้ iOS ซูมเข้าอัตโนมัติตอนโฟกัส */
-  .input, select.input, input.input { font-size: 16px; }
-  .btn { padding: 7px 10px; font-size: 12px; }
-  .us-actions { display: flex; flex-direction: column; gap: 4px; }
-  .us-actions .btn-mini { margin-right: 0; width: 100%; }
+/* ---- แบบการ์ดต่อแถว ----
+   tr เป็น flex column เพื่อให้ .tc-title ถูกดึงขึ้นหัวการ์ดด้วย order ได้
+   ไม่ว่าคอลัมน์ชื่อจะอยู่ลำดับที่เท่าไหร่ (บางตารางคอลัมน์แรกคือ "#") */
+table.tbl.tbl-cards,
+table.tbl.tbl-cards tbody { display: block; min-width: 0; }
+table.tbl.tbl-cards thead { display: none; }   /* หัวตารางย้ายไปเป็นป้ายกำกับในแต่ละบรรทัดแทน */
+table.tbl.tbl-cards tr {
+  display: flex; flex-direction: column;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+  padding: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-2);
+}
+table.tbl.tbl-cards tr:hover td { background: none; }
+table.tbl.tbl-cards td {
+  display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-3);
+  padding: var(--sp-1) 0; border-bottom: none; text-align: left;
+}
+table.tbl.tbl-cards td::before {
+  content: attr(data-label); flex: none;
+  color: var(--text-3); font-size: var(--fs-1); font-weight: 700;
+}
+table.tbl.tbl-cards td:not([data-label])::before { content: none; }
+/* ช่องว่างไม่ต้องกินบรรทัดในการ์ด */
+table.tbl.tbl-cards td:empty { display: none; }
+/* หัวการ์ด = ชื่อยูนิต/ชื่อคน — ตัวหนา เต็มบรรทัด มีเส้นคั่นใต้ */
+table.tbl.tbl-cards td.tc-title {
+  order: -1; display: block; font-weight: 700; font-size: var(--fs-4);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--sp-2); margin-bottom: var(--sp-1);
+}
+table.tbl.tbl-cards td.tc-title::before { content: none; }
+/* แถวที่ใช้ colspan (ไม่มีข้อมูล / แถวรวม) — ไม่มีคอลัมน์ให้จับคู่ป้ายกำกับ */
+table.tbl.tbl-cards tr.tc-plain { display: block; }
+table.tbl.tbl-cards tr.tc-plain td { display: block; }
+table.tbl.tbl-cards tr.sr-unmapped { border-color: var(--amber); background: rgba(232,161,58,.09); }
+table.tbl.tbl-cards tr.sr-unmapped td { background: none; }   /* กันสีส้มทับสองชั้น */
+/* ปุ่มจัดการในการ์ด — เรียง 2 ปุ่มต่อแถว (เรียงลงมาทีละปุ่มทำให้การ์ดสูงเกินจำเป็น)
+   ยังกว้างพอสำหรับนิ้วเพราะครึ่งหนึ่งของ 340px ยังเกิน 44px อยู่มาก */
+table.tbl.tbl-cards td .us-actions { flex-direction: row; flex-wrap: wrap; gap: var(--sp-2); flex: 1; }
+table.tbl.tbl-cards td .us-actions .btn-mini { width: auto; flex: 1 1 40%; }
+table.tbl.tbl-cards td > .btn-mini { flex: 1; }
+
+/* ============================================================
+   📐 ≥600px — มือถือจอใหญ่ / มือถือแนวนอน: เริ่มวาง 2 คอลัมน์ได้
+   ============================================================ */
+@media (min-width: 600px) {
+  .view { padding: var(--sp-4) var(--sp-4) var(--sp-8); }
+  .card { padding: var(--sp-4); border-radius: var(--radius); }
+  .stat-card { padding: var(--sp-4); border-radius: var(--radius); }
+  .kpi-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .adm-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* ปุ่มบนแถวการ์ดขาดทุนกลับไปอยู่ท้ายแถวเดียวกัน */
+  .loss-row { grid-template-columns: 26px minmax(0, 1fr) auto; }
+  .loss-row > .btn-mini { grid-column: auto; justify-self: end; }
+  /* รูปครีเอทีฟกลับไปอยู่ข้างข้อความ */
+  .ca-thumb { width: 56px; height: 56px; }
+  .ca-media-frame { flex: 0 0 220px; }
+  .us-actions { flex-direction: row; gap: var(--sp-1); }
+  .us-actions .btn-mini { width: auto; }
+
+  /* จอกว้างพอให้กล่องลอยกลางจอได้แล้ว — เลิกเป็นแผ่นเลื่อนขึ้น */
+  .modal-overlay { align-items: center; padding: var(--sp-5); }
+  .modal {
+    border-radius: 16px; border-bottom: 1px solid var(--border);
+    max-width: 680px; max-height: 86vh;
+    padding: var(--sp-5); animation: none;
+  }
+  .modal-head {
+    position: static; padding: 0; margin: 0 0 var(--sp-3); background: none;
+  }
+  .modal-head::before { content: none; }
+  .modal-head h3 { margin-top: 0; }
+  .modal-actions { flex-direction: row; justify-content: flex-end; align-items: center; gap: var(--sp-3); }
+  .modal-actions .btn, .modal-actions .btn-mini { width: auto; }
+}
+
+/* ============================================================
+   💻 ≥900px — แท็บเล็ต/โน้ตบุ๊ก: แถบเมนูปักซ้ายถาวร, ตารางกลับเป็นตาราง
+   ============================================================ */
+@media (min-width: 900px) {
+  /* แถบเมนูออกจากลิ้นชักมาปักซ้าย ปุ่ม ☰ กับฉากหลังจึงไม่ต้องมี */
+  .btn.btn-nav, .nav-backdrop { display: none; }
+  .sidebar {
+    position: sticky; top: 0; left: auto; width: 250px; height: 100vh;
+    transform: none; box-shadow: none;
+  }
+
+  .topbar { padding: var(--sp-4) var(--sp-6); gap: var(--sp-3); }
+  .topbar h1 { font-size: var(--fs-6); }
+  .topbar-sub { display: block; }
+  .topbar-right { gap: var(--sp-3); }
+  #sync-chip { display: inline-flex; }
+  .chip-long { display: inline; }
+  #btn-refresh { font-size: var(--fs-3); min-width: 0; }
+  #btn-refresh::before { content: none; }
+  #btn-theme { min-width: 0; }
+  #sr-csv, #sr-xls, #pf-csv, #rp-csv, #ap-csv { font-size: var(--fs-2); min-width: 0; }
+  #sr-csv::before, #sr-xls::before, #pf-csv::before, #rp-csv::before, #ap-csv::before { content: none; }
+  .spacer { display: block; }
+
+  .view { padding: var(--sp-5) var(--sp-6) var(--sp-8); }
+  .card { padding: var(--sp-5); }
+  .stat-card { padding: var(--sp-5); }
+
+  /* เมาส์แม่นกว่านิ้ว จอกว้างจึงกลับไปหนาแน่นได้ตามเดิม */
+  .btn, .btn-mini, .filter-btn, .kpi-tab, .admin-pick, .input, select.input,
+  .nav-item, .u-pages-btn, .page-pick, .quiz-opt, .low-row, .coach-tree .tree-btn { min-height: 0; }
+  .u-member { padding: 3px var(--sp-2); }
+  .u-member .x { padding: 0 1px; margin: 0; }
+  .btn-mini { padding: var(--sp-1) var(--sp-3); font-size: var(--fs-2); }
+  .modal-close { min-width: 0; min-height: 0; font-size: var(--fs-6); }
+  .u-tool-btn { min-width: 0; min-height: 0; }
+  table.tbl td.num a { min-height: 0; line-height: inherit; padding: 0; }
+  .input, select.input, input.input { font-size: var(--fs-3); }
+
+  /* จอกว้างพอแล้ว ตารางกลับเป็นตาราง: เลิกบังคับ 640px เลิกตรึงคอลัมน์แรก เลิกโหมดการ์ด */
+  table.tbl.tbl-scroll-x { min-width: 0; }
+  .table-scroll:has(> table.tbl-scroll-x),
+  .tbl-wrap:has(> table.tbl-scroll-x) { background: none; }
+  table.tbl.tbl-scroll-x th:first-child, table.tbl.tbl-scroll-x td:first-child {
+    position: static; background: none; box-shadow: none;
+  }
+  table.tbl.tbl-scroll-x tr.clickable:hover td:first-child,
+  table.tbl.tbl-scroll-x tr.sr-unmapped td:first-child { background-image: none; }
+
+  table.tbl.tbl-cards { display: table; }
+  table.tbl.tbl-cards thead { display: table-header-group; }
+  table.tbl.tbl-cards tbody { display: table-row-group; }
+  table.tbl.tbl-cards tr, table.tbl.tbl-cards tr.tc-plain {
+    display: table-row; background: none; border: 0; border-radius: 0; padding: 0; margin: 0;
+  }
+  table.tbl.tbl-cards td, table.tbl.tbl-cards tr.tc-plain td, table.tbl.tbl-cards td.tc-title {
+    display: table-cell; order: 0; font-weight: inherit; font-size: inherit;
+    padding: var(--sp-2) var(--sp-3); margin: 0; border-bottom: 1px solid rgba(38,51,82,.5);
+  }
+  table.tbl.tbl-cards td::before { content: none; }
+  table.tbl.tbl-cards td.num { text-align: right; }
+  table.tbl.tbl-cards tr:hover td { background: rgba(108,92,231,.05); }
+  table.tbl.tbl-cards tr.sr-unmapped, table.tbl tr.sr-unmapped td { background: rgba(232,161,58,.09); }
+  table.tbl.tbl-cards td .btn-mini { flex: none; }
+
+  .hbar-cols { column-count: 2; }
+  .top3-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr); }
+  .top3-card.first { order: 0; }
+  .rank-card { flex-wrap: nowrap; padding: var(--sp-3) var(--sp-4); }
+  .rank-right { text-align: right; width: auto; }
+  .sp-row { grid-template-columns: 190px minmax(0, 1fr) minmax(0, 1.2fr) 130px; gap: var(--sp-3); }
+  .sp-row > .sp-metric, .sp-row > .sp-dir { grid-column: auto; }
+  .ca-card { flex-wrap: nowrap; padding: var(--sp-3) var(--sp-4); }
+}
+
+/* ============================================================
+   🖥️ ≥1200px — เดสก์ท็อป: เลย์เอาต์หลายคอลัมน์เต็มรูปแบบ
+   ============================================================ */
+@media (min-width: 1200px) {
+  .dash-row { grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); }
+  .dash-row.half { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .dash-row.single { grid-template-columns: minmax(0, 1fr); }
+  .sr-main, .sr-bottom { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+  .perf-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); }
+  .kpi-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .kpi-grid { grid-template-columns: minmax(0, 1fr) 280px; }
+  .kpi-grid > div:first-child { order: 0; }
+  .coach-grid { grid-template-columns: 250px minmax(0, 1fr) 270px; }
+  /* สูตรน้ำหนัก 3 ชุดวางข้างกัน เส้นคั่นจึงกลับไปเป็นเส้นตั้งด้านซ้าย */
+  .wt-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); }
+  .wt-group { border-top: none; padding-top: 0; border-left: 1px solid var(--border); padding-left: var(--sp-3); }
+  .wt-group:first-child { border-left: none; padding-left: 0; }
+
+  .umap-layout { grid-template-columns: 300px minmax(0, 1fr); }
+  /* ต้องพ้นหัวเว็บที่ sticky อยู่ ไม่งั้นการ์ดมุดเข้าไปข้างใต้ */
+  .umap-side { position: sticky; top: calc(var(--topbar-h) + var(--sp-3)); }
+  .u-admin-list { max-height: 62vh; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .sidebar, .nav-backdrop, .me-bar-fill { transition: none; }
+  .modal { animation: none; }
 }

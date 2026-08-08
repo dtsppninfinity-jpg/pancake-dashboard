@@ -48,7 +48,7 @@ function unitCountByAdmin_(units: UUnit[]): Map<string, number> {
 
 function toolbarHtml(): string {
   return '<div class="pg-controls">' +
-    '<input class="input" id="u-search" placeholder="🔎 ค้นหาแอดมิน..." value="' + esc(search) + '" style="width:220px">' +
+    '<input class="input" id="u-search" placeholder="🔎 ค้นหาแอดมิน..." value="' + esc(search) + '" style="flex:1 1 220px;max-width:100%">' +
     '<button class="btn primary" id="u-add">➕ เพิ่ม U</button>' +
     '<button class="btn" id="u-quiz" title="เกมทายคู่ U ↔ ผลิตภัณฑ์ ไว้ท่องจำ">🎮 ทดสอบความจำ</button>' +
     '<div class="spacer"></div>' +

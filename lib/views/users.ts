@@ -41,7 +41,7 @@ const ROLE_ICON: Record<string, string> = { superadmin: '🔧', exec: '👔', ad
 function toolbarHtml(d: UsersData): string {
   const noAcc = (d.admins || []).filter((a) => !a.hasAccount).length;
   return '<div class="pg-controls">' +
-    '<input class="input" id="us-search" placeholder="🔎 ค้นหาชื่อ / username..." value="' + esc(search) + '" style="width:240px">' +
+    '<input class="input" id="us-search" placeholder="🔎 ค้นหาชื่อ / username..." value="' + esc(search) + '" style="flex:1 1 240px;max-width:100%">' +
     '<button class="btn primary" id="us-add">➕ เพิ่มผู้ใช้</button>' +
     '<button class="btn" id="us-bulk" title="สร้างบัญชีให้แอดมินที่ยังไม่มี">👥 สร้างยกชุดจากแอดมิน' +
       (noAcc ? ' (' + noAcc + ')' : '') + '</button>' +

@@ -138,6 +138,85 @@ function refreshNavBadges(): void {
   }).catch(function () {});
 }
 
+/* ============================================================
+   📱 ตารางบนมือถือ — ติดป้ายให้ CSS รู้ว่าตารางใบไหนควรกลายเป็นการ์ด
+   ทำที่นี่แทนแก้ทั้ง 11 ไฟล์ view เพราะ view เขียน HTML เป็นสตริงและ render ใหม่ทั้งก้อน
+   การไล่ใส่ data-label เองในทุกไฟล์จะพังทันทีที่มีคนเพิ่มคอลัมน์แล้วลืมแก้ป้าย
+   สไตล์จริงอยู่ใน globals.css หัวข้อ "ตารางบนมือถือ"
+   ============================================================ */
+
+/** จำนวนคอลัมน์ที่เหมาะกับการ์ด — น้อยกว่านี้ตารางก็พอดีจออยู่แล้ว มากกว่านี้การ์ดจะยาวกว่าเลื่อน */
+const CARD_MIN_COLS = 4;
+const CARD_MAX_COLS = 8;
+/** หัวคอลัมน์ที่ไม่เหมาะเป็นพาดหัวการ์ด (เป็นแค่ลำดับ/ช่องติ๊ก ไม่ได้บอกว่าแถวนี้ของใคร) */
+const NOT_A_TITLE = ['#', '', 'อันดับ', 'ลำดับ', 'ที่', 'เลือก'];
+
+/** ติดป้ายกำกับให้ทุกแถวที่ยังไม่มี — เรียกซ้ำได้ ใช้กับแถวที่ถูกเพิ่มทีหลัง (เช่น กาง "ดูทีม") */
+function labelRows(tbl: HTMLTableElement, labels: string[], titleIdx: number): void {
+  Array.from(tbl.querySelectorAll(':scope > tbody > tr:not(.tc-done)')).forEach(function (tr) {
+    tr.classList.add('tc-done');
+    const tds = Array.from(tr.children) as HTMLElement[];
+    // แถว colspan (ไม่มีข้อมูล / แถวรวม) จับคู่ป้ายกำกับกับหัวคอลัมน์ไม่ได้ ปล่อยไว้เป็นบล็อกเปล่า
+    if (tds.length !== labels.length) { tr.classList.add('tc-plain'); return; }
+    tds.forEach(function (td, i) {
+      if (labels[i]) td.setAttribute('data-label', labels[i]);
+      if (i === titleIdx) td.classList.add('tc-title');
+    });
+  });
+}
+
+function classifyTable(tbl: HTMLTableElement): void {
+  // แถวหัวแรกเท่านั้น — ตารางที่มีหัว 2 ชั้นจะนับคอลัมน์เกินจริง
+  const ths = Array.from(tbl.querySelectorAll(':scope > thead > tr:first-child > th')) as HTMLElement[];
+  const cols = ths.length;
+  const merged = ths.some((th) => th.hasAttribute('colspan') || th.hasAttribute('rowspan'));
+
+  if (!cols || merged || cols > CARD_MAX_COLS) {
+    // หัวซับซ้อน/คอลัมน์เยอะ = ปล่อยเป็นตารางเลื่อนแนวนอน ตรึงคอลัมน์แรกไว้
+    if (cols > CARD_MAX_COLS || merged) tbl.classList.add('tbl-scroll-x');
+    tbl.setAttribute('data-cards', 'off');
+    return;
+  }
+  if (cols < CARD_MIN_COLS) { tbl.setAttribute('data-cards', 'off'); return; }
+
+  const labels = ths.map((th) => (th.textContent || '').trim());
+  let titleIdx = labels.findIndex((t) => NOT_A_TITLE.indexOf(t) < 0);
+  if (titleIdx < 0) titleIdx = 0;
+  tbl.setAttribute('data-cards', 'on');
+  tbl.setAttribute('data-card-title', String(titleIdx));
+  tbl.classList.add('tbl-cards');
+  labelRows(tbl, labels, titleIdx);
+}
+
+let enhanceQueued = false;
+/** ไล่ตารางที่ยังไม่ถูกติดป้าย — รวบทุกการเปลี่ยนแปลงใน 1 เฟรม ไม่ให้ทำซ้ำตอน view วาดหลายก้อน */
+function queueTableScan(): void {
+  if (enhanceQueued) return;
+  enhanceQueued = true;
+  requestAnimationFrame(function () {
+    enhanceQueued = false;
+    document.querySelectorAll('table.tbl:not([data-cards])').forEach(function (t) {
+      try { classifyTable(t as HTMLTableElement); }
+      catch (e) { t.setAttribute('data-cards', 'off'); } // ตารางแปลกๆ ต้องไม่ทำให้ทั้งหน้าพัง
+    });
+    // ตารางที่เป็นการ์ดอยู่แล้วแต่มีแถวงอกมาทีหลัง (ปุ่มกางลูกทีม / โหลดเพิ่ม) ต้องได้ป้ายด้วย
+    document.querySelectorAll('table.tbl[data-cards="on"]').forEach(function (t) {
+      const tbl = t as HTMLTableElement;
+      if (!tbl.querySelector(':scope > tbody > tr:not(.tc-done)')) return;
+      const labels = Array.from(tbl.querySelectorAll(':scope > thead > tr:first-child > th'))
+        .map((th) => (th.textContent || '').trim());
+      labelRows(tbl, labels, Number(tbl.getAttribute('data-card-title') || 0));
+    });
+  });
+}
+
+/** เฝ้าทั้งหน้า: view เขียนทับด้วย innerHTML และโมดัลโผล่ทีหลัง จึงไม่มีจุดเดียวที่ hook ได้
+    ดู childList อย่างเดียว — การใส่ class/attribute ของเราเองจึงไม่วนกลับมาเรียกตัวเอง */
+function watchTables(): void {
+  new MutationObserver(queueTableScan).observe(document.body, { childList: true, subtree: true });
+  queueTableScan();
+}
+
 /* ---------------- App core ---------------- */
 
 const App = {
@@ -181,6 +260,7 @@ const App = {
     if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
     setTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark');
     bindInfoTips(); // tooltip กรอบอธิบายสูตร — ผูกครั้งเดียว ครอบทุก view
+    watchTables();  // ตารางบนมือถือ → การ์ดต่อแถว (ติดป้ายอัตโนมัติทุกครั้งที่ view วาดใหม่)
     serverCall<Bootstrap>('apiBootstrap').then(function (b) {
       self.state.bootstrap = b;
       self.renderSyncInfo(b);

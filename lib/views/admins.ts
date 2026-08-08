@@ -687,7 +687,9 @@ function rolesTabHtml(): string {
     '<h3>🔐 Role & Permission Settings</h3>' +
     '<div class="card-sub">ติ๊ก = role นั้นทำได้ — บันทึกอัตโนมัติ • เป็น "ทะเบียนทีม" ใน dashboard ' +
       '(ใช้แสดงผล/รายงาน — เว็บยังเข้าด้วยรหัสทีมเดียว และไม่มีผลกับ Pancake)</div>' +
-    '<div class="table-scroll"><table class="tbl" style="min-width:880px"><thead><tr>' +
+    // data-cards="off" = ตารางเมทริกซ์ (สิทธิ์ × role) ทำเป็นการ์ดต่อแถวไม่ได้ ต้องเห็นเป็นตารางถึงจะเทียบ role ได้
+    // ความกว้างขั้นต่ำใช้ .tbl-scroll-x ไม่ใช่ inline style — inline จะทับกฎ min-width:0 ตอนจอกว้าง
+    '<div class="table-scroll"><table class="tbl tbl-scroll-x tbl-wide" data-cards="off"><thead><tr>' +
       '<th>สิทธิ์</th>' +
       ADMIN_ROLES.map(function (r) { return '<th style="white-space:normal;text-align:center">' + esc(r) + '</th>'; }).join('') +
     '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
