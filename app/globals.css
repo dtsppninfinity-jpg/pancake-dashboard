@@ -428,6 +428,10 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
   padding: var(--sp-2) var(--sp-3); border-radius: 10px; font-size: var(--fs-3);
 }
+/* ⚠️ <select> กว้างตาม option ที่ยาวที่สุดเสมอ ไม่สนความกว้างพ่อแม่
+   ตัวกรอง "ทุกเพจ" มีชื่อเพจยาวๆ อยู่ในนั้น มันเลยกว้าง 419px บนจอ 390px แล้วดันทั้งหน้าเลื่อนซ้ายขวา
+   (ยิ่งเป็นลูก flex ที่ min-width เริ่มต้นเป็น auto ยิ่งบีบไม่ลง) ต้องคุมทุกที่ ไม่ใช่เฉพาะในแถบตัวกรอง */
+.input, select, input, textarea { max-width: 100%; min-width: 0; }
 
 /* ---------- โฟกัสจากคีย์บอร์ด ----------
    เดิมช่องกรอกสั่ง outline:none โดยไม่มีอะไรมาแทน และทั้งโปรเจกต์ไม่มี :focus-visible เลย
@@ -901,6 +905,11 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .modal {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 18px 18px 0 0; border-bottom: 0;
+  /* ⚠️ ห้ามลบ min-width:0 — โมดัลเป็นลูกของ flex (.modal-overlay) ซึ่งค่าเริ่มต้นคือ
+     "กว้างอย่างน้อยเท่าเนื้อหาที่บีบไม่ได้แล้ว" ป้ายที่ตั้ง white-space:nowrap ใบเดียว
+     ก็ดันกล่องทั้งใบให้กว้างเกินจอได้ (วัดได้ 431px บนจอ 390px) แล้วทั้งหน้าเลื่อนซ้ายขวา
+     เป็นบั๊กตัวเดียวกับที่ .card เจอ */
+  min-width: 0;
   width: 100%; max-width: none; max-height: 92dvh; overflow-y: auto;
   padding: var(--sp-3) var(--sp-3) calc(var(--sp-4) + env(safe-area-inset-bottom));
   animation: sheet-up .24s cubic-bezier(.16, 1, .3, 1);

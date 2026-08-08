@@ -113,18 +113,40 @@ async function main() {
     return JSON.stringify({ vw, docW, over: docW - vw, bad: bad.slice(0, 12), smallCount: small.length, small: small.slice(0, 8) });
   })()`;
 
-  console.log(`\n📱 จอ ${WIDTH}×${HEIGHT} (iPhone 14)\n${'='.repeat(64)}`);
+  // ⚠️ ห้ามใช้ "รอ N วินาที" เฉยๆ — หน้า Content & Ads ใช้เวลาโหลด 60 วิ+ บน dev
+  //    เคยวัดตอนหน้ายังเป็นโครงโหลดแล้วสรุปว่า "ไม่ล้น" ทั้งที่ล้นจริง พลาดมาแล้ว 2 รอบ
+  //    ต้องรอจนไม่เหลือโครงโหลด/สปินเนอร์ในหน้านั้น แล้วค่อยวัด
+  const READY = (v) => `(() => {
+    const c = document.getElementById('view-${v}');
+    if (!c) return 'ไม่มีหน้านี้';
+    if (c.querySelector('.skel, .skel-line, .loading')) return 'กำลังโหลด';
+    return c.textContent.trim().length > 200 ? 'พร้อม' : 'ยังว่าง';
+  })()`;
+
+  async function waitReady(v, maxMs) {
+    const t0 = Date.now();
+    for (;;) {
+      const s = (await send('Runtime.evaluate', { expression: READY(v), returnByValue: true })).result.value;
+      if (s === 'พร้อม' || s === 'ไม่มีหน้านี้') return { สถานะ: s, วินาที: Math.round((Date.now() - t0) / 1000) };
+      if (Date.now() - t0 > maxMs) return { สถานะ: 'หมดเวลา (' + s + ')', วินาที: Math.round((Date.now() - t0) / 1000) };
+      await sleep(1000);
+    }
+  }
+
+  console.log(`\n📱 จอ ${WIDTH}×${HEIGHT}\n${'='.repeat(64)}`);
   await send('Page.navigate', { url: BASE + '/' });
-  await sleep(6000);
+  await sleep(4000);
 
   for (const v of VIEWS) {
     await send('Runtime.evaluate', { expression: `window.App && App.switchView(${JSON.stringify(v)})` });
-    await sleep(16000);
+    const ready = await waitReady(v, 150000);
+    if (ready.สถานะ !== 'พร้อม') { console.log(`\n${v.padEnd(11)} ⏭️  ข้าม — ${ready.สถานะ} หลังรอ ${ready.วินาที} วิ`); continue; }
+    await sleep(600);   // เผื่อ layout นิ่ง
     const r = await send('Runtime.evaluate', { expression: PROBE, returnByValue: true });
     let d;
     try { d = JSON.parse(r.result.value); } catch { console.log(v, '— อ่านผลไม่ได้'); continue; }
     const flag = d.over > 1 ? `🔴 ล้น ${d.over}px` : '🟢 ไม่ล้น';
-    console.log(`\n${v.padEnd(11)} ${flag}   (หน้ากว้าง ${d.docW} / จอ ${d.vw})  ปุ่มเล็กกว่าเกณฑ์ ${d.smallCount}`);
+    console.log(`\n${v.padEnd(11)} ${flag}   (หน้ากว้าง ${d.docW} / จอ ${d.vw})  ปุ่มเล็กกว่าเกณฑ์ ${d.smallCount}  [โหลด ${ready.วินาที} วิ]`);
     d.bad.forEach((b) => console.log(`   ├ ${b.tag}.${b.cls || '-'} กว้าง ${b.w} ชนขวาที่ ${b.right}  overflowX:${b.overflowX} minW:${b.minW}  "${b.txt}"`));
     if (d.small.length) console.log('   └ ปุ่มเล็ก: ' + d.small.map((s) => `${s.txt || s.tag}(${s.w}×${s.h})`).join(', '));
   }
