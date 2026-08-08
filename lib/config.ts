@@ -62,6 +62,9 @@ export const RETENTION_DAYS = {
   ADMIN_ONLINE_LOG: 120,
   AD_DAILY: 400,
   CHAT_ENGAGEMENT: 400,
+  // log ของงาน sync — หน้าเว็บอ่านแค่แถวล่าสุด ไม่ต้องเก็บยาว
+  // (ถ้าปล่อยโตเรื่อยๆ หน้าต่างที่หน้าเว็บอ่านจะกินไม่ถึงงานรายวัน แล้วตัวเฝ้าระวังตาบอด)
+  SYNC_LOG: 30,
 };
 
 /** credentials อ่านจาก environment (ตั้งใน .env.local หรือ GitHub Secrets) */

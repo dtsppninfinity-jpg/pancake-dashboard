@@ -2,6 +2,7 @@
 // อ่านจาก Postgres (Supabase) เท่านั้น — คืน pages + สถานะ sync ล่าสุด
 import { db, fetchAll } from '@/lib/db';
 import { fmtDateTimeBkk, parsePancakeTime } from '@/lib/config';
+import { JOB_STAT_PREFIX, coverageProblem, type StoredJobStat } from '@/lib/jobstat';
 
 /* ---------------- utilities (port จาก WebApi.gs) ---------------- */
 
@@ -41,8 +42,9 @@ export async function apiBootstrap(_params?: unknown) {
 
   // sync_log: เอาเฉพาะช่วงท้าย (พอครอบ >26 ชม. = ทุกงานรวมงานรายวัน) แล้วเรียงเก่า→ใหม่
   // เดิม fetchAll ทั้งตาราง (หลักหมื่นแถว) — เปลืองเวลาเปล่าเพราะใช้แค่แถวล่าสุดต่อ job
+  // 2500 แถว ≈ 2 วัน ที่อัตราปัจจุบัน (~1,200 แถว/วัน) — ต้องเกิน 26 ชม.เสมอ ไม่งั้นงานรายวันจะหลุดจอ
   const { data: logRows } = await db.from('sync_log')
-    .select('ts,job,ok,message').order('id', { ascending: false }).limit(1500);
+    .select('ts,job,ok,message').order('id', { ascending: false }).limit(2500);
   const logs = (logRows || []).slice().reverse();
   const lastByJob: Record<string, { job: string; ts: string; ok: boolean; message: string }> = {};
   // นับ "ล้มติดกันกี่รอบล่าสุด" ต่อ job — Pancake ตอบ HTTP 500 เป็นครั้งคราวแล้วรอบถัดไปก็สำเร็จ
@@ -71,10 +73,22 @@ export async function apiBootstrap(_params?: unknown) {
     'orders-delta': 30,
     // รายชั่วโมง
     ads: 3 * HOUR, 'admins-roster': 3 * HOUR, 'ad-stats-today': 3 * HOUR,
-    'meta-ads-yesterday': 3 * HOUR, 'unit-alerts': 3 * HOUR,
+    'meta-ads-yesterday': 3 * HOUR, 'unit-alerts': 3 * HOUR, invariants: 3 * HOUR,
     // รายวัน (default 26 ชม. อยู่แล้ว — ระบุเฉพาะที่อยากตึงกว่า)
   };
   const nowMs = Date.now();
+
+  // ใบรายงานผลรอบล่าสุดของแต่ละงาน (เขียนโดย scripts/sync/index.ts) — ใช้แทนการ regex ข้อความ
+  const jobStats: Record<string, StoredJobStat> = {};
+  try {
+    const { data: statRows } = await db.from('sync_state').select('key,value').like('key', JOB_STAT_PREFIX + '%');
+    (statRows || []).forEach((r: any) => {
+      try {
+        const s = JSON.parse(String(r.value || '{}')) as StoredJobStat;
+        if (s && s.job) jobStats[s.job] = s;
+      } catch { /* ค่าเสีย = ไม่มีสถิติงานนั้น */ }
+    });
+  } catch { /* อ่านไม่ได้ก็ยังเตือนจาก sync_log ได้ */ }
   const syncHealth: Array<{ job: string; kind: string; ageMins: number; message: string }> = [];
   // orders-delta ลงตาราง log เฉพาะตอนพัง (สำเร็จเก็บใน sync_state last_delta_at) — ต้องดูจาก state
   let deltaOkAgeMins: number | null = null;
@@ -104,6 +118,21 @@ export async function apiBootstrap(_params?: unknown) {
     // ล้มครั้งเดียวแล้วรอบถัดไปสำเร็จ = อาการปกติของ Pancake (HTTP 500 เป็นครั้งคราว) ไม่ต้องเตือน
     // เตือนเมื่อล้มติดกัน ≥2 รอบ (แก้เองไม่ได้แล้ว) หรือค้างนานเกินรอบที่ควรรัน
     const streak = failStreak[k] || 0;
+    // ตัวตรวจความสมเหตุสมผล: ล้มครั้งแรกก็ต้องฟ้องทันที — มันไม่ได้ล้มเพราะเน็ตสะดุด
+    // แต่เพราะ "ตัวเลขที่ได้เป็นไปไม่ได้" ซึ่งแปลว่าหน้าเว็บกำลังโชว์ของผิดอยู่ตอนนี้
+    if (k === 'invariants') {
+      if (!l.ok) syncHealth.push({ job: k, kind: 'invariant', ageMins, message: l.message.slice(0, 300) });
+      else if (ageMins > maxAge) {
+        syncHealth.push({ job: k, kind: 'stale', ageMins, message: 'ไม่ได้ตรวจความถูกต้องของข้อมูลมา ' + Math.round(ageMins / 60) + ' ชม.' });
+      }
+      return;
+    }
+    // งานที่ "ไม่ได้ทำงาน" (ขาด env / ยังไม่ได้รัน migration) — บอกเหตุผลตรงๆ ไม่ใช่ 'ล้มเหลว'
+    const stat = jobStats[k];
+    if (stat && stat.skipped) {
+      syncHealth.push({ job: k, kind: 'skip', ageMins, message: stat.skipped + ' — ' + l.message.slice(0, 100) });
+      return;
+    }
     if (!l.ok && streak >= 2) {
       syncHealth.push({ job: k, kind: 'fail', ageMins, message: 'ล้มติดกัน ' + streak + ' รอบ — ' + l.message.slice(0, 110) });
     } else if (!l.ok && ageMins > maxAge) {
@@ -113,15 +142,9 @@ export async function apiBootstrap(_params?: unknown) {
     } else if (l.ok) {
       // ⚠️ จุดบอดที่ทำให้เรื่อง %ปิดการขายเพี้ยนหลุดไป 1 สัปดาห์: งานคืน ok=true พร้อมหมายเหตุ
       // "ผิดพลาด N เพจ" — ไม่ล้ม ไม่ข้าม ไม่ค้าง จึงไม่มีใครเตือน ทั้งที่ข้อมูลหายเกินครึ่ง
-      // เตือนเมื่อเพจพลาดเกิน 1 ใน 3 ของเพจทั้งหมด
-      const m = /ผิดพลาด (\d+) เพจ/.exec(l.message);
-      const failedPages = m ? Number(m[1]) : 0;
-      if (failedPages > 0 && pages.length > 0 && failedPages / pages.length > 1 / 3) {
-        syncHealth.push({
-          job: k, kind: 'partial', ageMins,
-          message: 'ดึงข้อมูลไม่ได้ ' + failedPages + ' จาก ' + pages.length + ' เพจ — ตัวเลขที่คิดจากงานนี้จะต่ำกว่าจริง',
-        });
-      }
+      // ตอนนี้ดูจาก "ใบรายงานผล" ที่งานส่งมาเป็นตัวเลข (lib/jobstat.ts) ไม่ต้องเดาจากข้อความอีก
+      const problem = stat ? coverageProblem(stat) : '';
+      if (problem) syncHealth.push({ job: k, kind: 'partial', ageMins, message: problem });
     }
     else if (ageMins > maxAge) syncHealth.push({ job: k, kind: 'stale', ageMins, message: 'เงียบมา ' + Math.round(ageMins / 60) + ' ชม. (ควรรันทุก ' + Math.round(maxAge / 60) + ' ชม.)' });
   });

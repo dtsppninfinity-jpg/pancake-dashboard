@@ -1,6 +1,7 @@
 // lib/supabase.ts — client สำหรับ worker เขียน DB (ใช้ service_role key — ข้าม RLS)
 // ⚠️ service_role key ห้ามหลุดออกไปฝั่ง frontend — ใช้เฉพาะ sync worker (GitHub Actions) เท่านั้น
 import { createClient } from '@supabase/supabase-js';
+import { JOB_STAT_PREFIX, type StoredJobStat } from './jobstat';
 
 const url = process.env.SUPABASE_URL || '';
 const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -67,6 +68,25 @@ export async function replaceTable(table: string, rows: any[], pkColumn: string)
 /** เขียน log ลง sync_log */
 export async function logJob(job: string, ok: boolean, message: string, ms: number): Promise<void> {
   await supabase.from('sync_log').insert({ job, ok, message: String(message).slice(0, 1000), ms });
+}
+
+/* ---------- สถิติผลงานของแต่ละ job (สัญญาใน lib/jobstat.ts) ---------- */
+
+/** สถิติรอบล่าสุดของทุกงาน (คีย์ = ชื่องาน) — โหลดครั้งเดียวตอนเริ่มโปรเซส */
+export async function loadJobStats(): Promise<Record<string, StoredJobStat>> {
+  const { data } = await supabase.from('sync_state').select('key,value').like('key', JOB_STAT_PREFIX + '%');
+  const out: Record<string, StoredJobStat> = {};
+  (data || []).forEach((r: any) => {
+    try {
+      const s = JSON.parse(String(r.value || '{}')) as StoredJobStat;
+      if (s && s.job) out[s.job] = s;
+    } catch { /* ค่าเสีย = ถือว่าไม่เคยมี */ }
+  });
+  return out;
+}
+
+export async function saveJobStat(s: StoredJobStat): Promise<void> {
+  await setState(JOB_STAT_PREFIX + s.job, JSON.stringify(s));
 }
 
 /* ---------- state / cursor (แทน Script Properties) ---------- */

@@ -4,24 +4,72 @@
 // โหมด fast = งานทุก 15 นาที (ออเดอร์/แชท/บทสนทนา/ออนไลน์) + จัดการ hourly/daily ให้เองตามรอบ
 // (idempotent ผ่าน sync_state) → pinger ตัวเดียวที่ยิง fast ทุก 15 นาที ก็ครบทุกงาน
 import '../../lib/env'; // ต้องเป็นบรรทัดแรก — โหลด .env.local ก่อนโมดูลอื่นอ่าน env
-import { logJob } from '../../lib/supabase';
+import { logJob, loadJobStats, saveJobStat } from '../../lib/supabase';
+import { toResult, type JobOutput, type StoredJobStat } from '../../lib/jobstat';
 import * as jobs from './jobs';
 import { dueHourly, markHourly, dueDaily, markDaily } from './schedule';
+import { checkEnv } from './envcheck';
+import { checkInvariants } from './invariants';
 
-/** รันงาน 1 ตัว — คืน true ถ้าสำเร็จ (error ถูกกลืน+log ไว้ ไม่ throw ต่อ) */
-async function runJob(name: string, fn: () => Promise<string>): Promise<boolean> {
+/** สถิติรอบก่อนของทุกงาน — โหลดครั้งเดียว ใช้เทียบว่า "แถวหายไปครึ่ง" ไหม */
+let prevStats: Record<string, StoredJobStat> = {};
+
+/**
+ * รันงาน 1 ตัว — คืน true ถ้าทำงานจนจบโดยไม่ throw (ใช้ตัดสินว่ารอบ daily ผ่านไหม)
+ *
+ * งานที่ "ข้ามตัวเอง" (skipped — ขาด env / ยังไม่มีตาราง) ถูกบันทึกเป็น ok=false ใน log
+ * เพื่อให้ตัวเฝ้าระวังฟ้อง แต่ยังคืน true เพราะรันซ้ำอีกกี่รอบก็ข้ามเหมือนเดิม (คนต้องไปตั้ง env)
+ */
+async function runJob(name: string, fn: () => Promise<JobOutput>): Promise<boolean> {
   const t0 = Date.now();
   try {
-    const msg = await fn();
+    const r = toResult(await fn());
     const ms = Date.now() - t0;
-    console.log(`✅ ${name} (${ms}ms): ${msg}`);
-    await logJob(name, true, msg, ms);
+    const ok = !r.skipped;
+    console.log(`${ok ? '✅' : '⏭️'} ${name} (${ms}ms): ${r.message}`);
+    await logJob(name, ok, r.message, ms);
+    await recordStat(name, ok, r.message, ms, r);
     return true;
   } catch (e: any) {
     const ms = Date.now() - t0;
-    console.error(`❌ ${name} (${ms}ms): ${e.message}`);
-    await logJob(name, false, e.message || String(e), ms);
+    const msg = e.message || String(e);
+    console.error(`❌ ${name} (${ms}ms): ${msg}`);
+    await logJob(name, false, msg, ms);
+    await recordStat(name, false, msg, ms, {});
     return false;
+  }
+}
+
+/** เก็บ "ใบรายงานผล" ของรอบนี้ พร้อมพก rowsWritten ของรอบก่อนไปด้วย (ไว้เทียบข้อมูลหาย) */
+async function recordStat(job: string, ok: boolean, message: string, ms: number, stat: any): Promise<void> {
+  const prev = prevStats[job];
+  // เทียบจำนวนแถวข้ามรอบได้เฉพาะเมื่อรอบก่อนทำ "ข้อมูลชุดเดียวกัน" (scope ตรงกัน)
+  // ไม่งั้นพอขึ้นวันใหม่ งาน *-today จะถูกหาว่าข้อมูลหายทุกเที่ยงคืน
+  const sameScope = !!(prev && prev.scope && stat.scope && prev.scope === stat.scope);
+  // ฐานเทียบต้องเป็น "รอบที่เขียนได้จริง" ครั้งล่าสุด — ถ้ารอบก่อนล้ม (0 แถว) แล้วเอามาเป็นฐาน
+  // เกณฑ์ "หายเกินครึ่ง" จะพังทันที
+  const prevRows = !sameScope ? null
+    : (prev!.ok && prev!.rowsWritten ? prev!.rowsWritten : (prev!.prevRows ?? null));
+  const cur: StoredJobStat = {
+    job, ts: new Date().toISOString(), ok, ms, message: String(message).slice(0, 300),
+    subject: stat.subject, unitsOk: stat.unitsOk, unitsFailed: stat.unitsFailed,
+    unitsTotal: stat.unitsTotal, rowsWritten: stat.rowsWritten, skipped: stat.skipped,
+    scope: stat.scope, prevRows,
+  };
+  await saveJobStat(cur).catch(() => { /* เก็บสถิติไม่ได้ ไม่ควรทำให้รอบ sync ล้ม */ });
+  prevStats[job] = cur;
+}
+
+/** ตรวจว่าตัวเลขที่ได้ "เป็นไปได้" ไหม — ผลเขียนเป็นงาน invariants ให้หน้าเว็บฟ้อง */
+async function runInvariants(): Promise<void> {
+  const t0 = Date.now();
+  try {
+    const r = await checkInvariants();
+    console.log(`${r.ok ? '🩺' : '🚨'} invariants: ${r.message}`);
+    await logJob('invariants', r.ok, r.message, Date.now() - t0);
+  } catch (e: any) {
+    console.error('❌ invariants:', e.message);
+    await logJob('invariants', false, 'ตรวจไม่สำเร็จ: ' + (e.message || String(e)), Date.now() - t0);
   }
 }
 
@@ -85,6 +133,13 @@ const MODE = (process.argv[2] || 'fast').toLowerCase();
 
 async function main() {
   console.log(`▶ เริ่ม sync (mode = ${MODE})`);
+  // ขาดกุญแจตัวจำเป็น = หยุดทั้งรอบและฟ้อง — ห้ามปล่อยให้งานทยอย "ข้าม" ตัวเองเงียบๆ
+  if (!(await checkEnv())) {
+    console.error('■ หยุดรอบนี้ — ตั้ง env ให้ครบก่อน (ดูรายชื่อด้านบน)');
+    process.exit(1);
+  }
+  prevStats = await loadJobStats().catch(() => ({}));
+
   if (MODE === 'fast' || MODE === 'auto') {
     await runFast();
 
@@ -97,6 +152,8 @@ async function main() {
       // ทำเครื่องหมาย "ตอนเริ่ม" (ไม่ใช่ตอนจบ) — กันเวลารันของงานไปกินช่วงห่าง ให้คาบคงที่ ~60 นาที
       await markHourly(now);
       await runHourly();
+      // ตรวจความสมเหตุสมผลรอบชั่วโมง — กฎเกือบทั้งหมดดู "เมื่อวาน" จึงไม่ต้องตรวจทุก 15 นาที
+      await runInvariants();
     }
 
     if (await dueDaily(now)) {
@@ -105,11 +162,14 @@ async function main() {
       const ok = await runDaily();
       if (ok) await markDaily(now);
       else console.log('⚠️ daily มีงานล้มเหลว — ยังไม่ทำเครื่องหมาย จะลองใหม่รอบถัดไป');
+      await runInvariants();
     }
   } else if (MODE === 'hourly') {
     await runHourly();
+    await runInvariants();
   } else if (MODE === 'daily') {
     await runDaily();
+    await runInvariants();
   } else {
     console.error(`mode ไม่รู้จัก: ${MODE} (ต้องเป็น fast | hourly | daily | auto)`);
     process.exit(1);

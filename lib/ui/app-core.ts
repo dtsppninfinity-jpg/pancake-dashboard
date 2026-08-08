@@ -33,7 +33,7 @@ interface SyncLogEntry {
   ok: boolean;
 }
 
-type SyncHealthKind = 'fail' | 'skip' | 'stale' | 'partial';
+type SyncHealthKind = 'fail' | 'skip' | 'stale' | 'partial' | 'invariant';
 interface SyncHealthItem { job: string; kind: SyncHealthKind | string; ageMins: number; message: string }
 
 /** คำอธิบายอาการเป็นไทย — ใช้ทั้งบนชิปหัวเว็บและใน sidebar (เดิมเขียนคนละชุดจนไม่ตรงกัน) */
@@ -41,6 +41,7 @@ function healthKindTh(h: SyncHealthItem): string {
   if (h.kind === 'fail') return 'ล้มเหลว';
   if (h.kind === 'skip') return 'ถูกข้าม';
   if (h.kind === 'partial') return 'ข้อมูลไม่ครบ';
+  if (h.kind === 'invariant') return 'ตัวเลขผิดปกติ';
   return 'เงียบ ' + Math.round(h.ageMins / 60) + ' ชม.';
 }
 

@@ -13,6 +13,7 @@ import {
   metaListAdAccounts, metaAccountAdInsights, metaAccountAdCreatives, metaAdCreativesByIds, metaPool,
 } from '../../lib/meta';
 import { supabase, upsertRows, replaceTable, setState, getState } from '../../lib/supabase';
+import { jobResult, type JobResult } from '../../lib/jobstat';
 import { getUnitsForAlert } from '../../lib/api/umap';
 import { nicknameByName } from '../../lib/api/adminsettings';
 import { googleConfigured, driveListSheets, sheetTabs, sheetValuesBatch } from '../../lib/google';
@@ -80,11 +81,13 @@ const LOSS_LOOKBACK_DAYS = 14;
  *
  * วันที่ไม่ได้ยิงแอดเลย (spend = 0) ถือว่า "ตัดสินไม่ได้" และทำให้ streak ขาด — ไม่ใช่วันขาดทุน
  */
-export async function syncUnitAlerts(): Promise<string> {
+export async function syncUnitAlerts(): Promise<JobResult> {
   const units = await getUnitsForAlert();
   const unitOf: Record<string, string> = {};
   units.forEach((u) => u.pages.forEach((p) => { unitOf[p] = u.u; }));
-  if (!Object.keys(unitOf).length) return 'ข้าม: ยังไม่มีเพจผูกกับยูนิตเลย';
+  if (!Object.keys(unitOf).length) {
+    return jobResult('ข้าม: ยังไม่มีเพจผูกกับยูนิตเลย', { skipped: 'ไม่มีเพจผูกยูนิตในหน้า U Map' });
+  }
 
   const sinceDate = daysAgo(LOSS_LOOKBACK_DAYS);
   const sinceStr = fmtDateBkk(sinceDate);
@@ -257,8 +260,10 @@ export async function syncUnitAlerts(): Promise<string> {
     todayStr,
     alerts,
   }));
-  return `unit alerts: เตือน ${alerts.length} ยูนิต (ด่วน ${alerts.filter((a) => a.level === 'urgent').length}` +
+  const msg = `unit alerts: เตือน ${alerts.length} ยูนิต (ด่วน ${alerts.filter((a) => a.level === 'urgent').length}` +
     (noOwner ? `, ไม่มีผู้รับผิดชอบ ${noOwner}` : '') + `) ถึง ${dayList[0]}`;
+  // จำนวนยูนิตที่เตือนขึ้นลงตามผลประกอบการจริง — ไม่ใช่ตัววัดความครบของข้อมูล จึงไม่ใส่ scope
+  return jobResult(msg, { subject: 'ยูนิต', unitsTotal: units.length, unitsOk: units.length, unitsFailed: 0 });
 }
 
 /* ---------------- ชีทสรุปรายสินค้า (กำไรจริง + ค่าคอมแอดมิน) ---------------- */
@@ -281,12 +286,12 @@ function productFolderId_(): string {
  * 1 ไฟล์ = 1 ยูนิต โดยดูรหัสจากชื่อไฟล์ (`สร. UN3 : ...` → UN3)
  * ไฟล์ที่อ่านรหัสไม่ออกจะถูกข้ามและฟ้องชื่อไว้ท้ายข้อความ — ดีกว่าเดาแล้วยัดผิดยูนิต
  */
-export async function syncProductSheets(): Promise<string> {
-  if (!googleConfigured()) return 'ข้าม: ยังไม่ได้ตั้ง GOOGLE_SA_KEY';
+export async function syncProductSheets(): Promise<JobResult> {
+  if (!googleConfigured()) return jobResult('ข้าม: ยังไม่ได้ตั้ง GOOGLE_SA_KEY', { skipped: 'ไม่มี GOOGLE_SA_KEY' });
   const folder = productFolderId_();
 
   const files = await driveListSheets(folder);
-  if (!files.length) return `ไม่พบไฟล์ในโฟลเดอร์ ${folder}`;
+  if (!files.length) throw new Error(`ไม่พบไฟล์ในโฟลเดอร์ ${folder} — บัญชีระบบอาจถูกถอดสิทธิ์`);
 
   const dailyRows: any[] = [];
   const comRows: any[] = [];
@@ -344,8 +349,11 @@ export async function syncProductSheets(): Promise<string> {
   if (comRows.length) {
     const probe = await supabase.from('admin_commission').select('remaining').limit(1);
     if (probe.error) {
-      return `product sheets: รายวัน ${dailyRows.length} แถวเข้าแล้ว | ⏳ ค่าคอมข้าม — ` +
-        `รอรัน db/migrations/2026-07-31-admin-commission-v2.sql (${probe.error.message.slice(0, 60)})`;
+      return jobResult(
+        `product sheets: รายวัน ${dailyRows.length} แถวเข้าแล้ว | ⏳ ค่าคอมข้าม — ` +
+        `รอรัน db/migrations/2026-07-31-admin-commission-v2.sql (${probe.error.message.slice(0, 60)})`,
+        { skipped: 'ยังไม่ได้รัน migration admin-commission-v2', rowsWritten: dailyRows.length }
+      );
     }
     await replaceTable('admin_commission', comRows, 'key');
   }
@@ -354,7 +362,11 @@ export async function syncProductSheets(): Promise<string> {
   let msg = `product sheets: ${units.size} ยูนิต | รายวัน ${dailyRows.length} แถว | ค่าคอม ${comRows.length} แถว`;
   if (skipped.length) msg += ` | อ่านรหัส U ไม่ออก ${skipped.length}: ${skipped.slice(0, 3).join(', ')}`;
   if (problems.length) msg += ` | ⚠️ ${problems.slice(0, 3).join('; ')}`;
-  return msg;
+  return jobResult(msg, {
+    subject: 'ไฟล์', unitsTotal: files.length,
+    unitsFailed: skipped.length + problems.length, unitsOk: units.size,
+    rowsWritten: dailyRows.length, scope: 'product-sheets',
+  });
 }
 
 /* ---------------- ชีท KPI กลางของทีม (คะแนน KPI ทุกตำแหน่ง) ---------------- */
@@ -368,8 +380,8 @@ const KPI_SHEET_YEAR = 2026; // ชีทนี้คือ KPI ปี 2026 — 
  * เก็บเป็น JSON ก้อนเดียวใน sync_state 'kpi_scores' — ไม่ต้องรัน migration
  * เราไม่คำนวณคะแนนเอง (สูตรอยู่ในชีท) — อ่านผลมาแสดงอย่างเดียว ดู lib/kpisheet.ts
  */
-export async function syncKpiSheet(): Promise<string> {
-  if (!googleConfigured()) return 'ข้าม: ยังไม่ได้ตั้ง GOOGLE_SA_KEY';
+export async function syncKpiSheet(): Promise<JobResult> {
+  if (!googleConfigured()) return jobResult('ข้าม: ยังไม่ได้ตั้ง GOOGLE_SA_KEY', { skipped: 'ไม่มี GOOGLE_SA_KEY' });
   const ranges = [
     `'KPI ADMIN/month'!A1:HH300`,
     `'KPI รอง ADMIN/month'!A1:HH100`,
@@ -411,7 +423,8 @@ export async function syncKpiSheet(): Promise<string> {
   }
 
   const months = Object.keys(admin).map(Number).sort((a, b) => a - b);
-  if (!months.length) return '⚠️ อ่านชีท KPI ไม่เจอข้อมูลเลย — โครงชีทอาจเปลี่ยน (ดู lib/kpisheet.ts)';
+  // อ่านไม่เจอเลย = โครงชีทเปลี่ยน — ต้องฟ้องเป็นงานล้ม ไม่ใช่ผ่านพร้อมข้อความเตือนที่ไม่มีใครอ่าน
+  if (!months.length) throw new Error('อ่านชีท KPI ไม่เจอข้อมูลเลย — โครงชีทอาจเปลี่ยน (ดู lib/kpisheet.ts)');
 
   await setState('kpi_scores', JSON.stringify({
     year: KPI_SHEET_YEAR, sheetId: KPI_SHEET_ID,
@@ -419,8 +432,9 @@ export async function syncKpiSheet(): Promise<string> {
     updatedAt: new Date().toISOString(),
   }));
   const last = months[months.length - 1];
-  return `KPI sheet: แอดมิน ${months.length} เดือน (ล่าสุดเดือน ${last}: ${(admin[last] || []).length} แถว) | ` +
+  const msg = `KPI sheet: แอดมิน ${months.length} เดือน (ล่าสุดเดือน ${last}: ${(admin[last] || []).length} แถว) | ` +
     `รอง ${(sub[last] || []).length} แถว | หัวหน้า ${(head[last] || []).length} คน | สรุปปี ${year.length} คน`;
+  return jobResult(msg, { rowsWritten: (admin[last] || []).length });
 }
 
 /* ---------------- RETURNS (สินค้าตีกลับ — จาก Google Sheets ของทีม) ---------------- */
@@ -457,10 +471,10 @@ function sheetNum_(s: unknown): number {
  * ⚠️ บางไฟล์มีแท็บที่เนื้อหาซ้ำกันเป๊ะ (ก๊อปไว้ให้ฝ่ายแพ็ค) จึงตัดซ้ำด้วยลายนิ้วมือของแถว
  * ไม่งั้นยอดตีกลับจะเบิ้ลเป็นสองเท่าแบบเงียบๆ
  */
-export async function syncReturns(): Promise<string> {
-  if (!googleConfigured()) return 'ข้าม: ยังไม่ได้ตั้ง GOOGLE_SA_KEY';
+export async function syncReturns(): Promise<JobResult> {
+  if (!googleConfigured()) return jobResult('ข้าม: ยังไม่ได้ตั้ง GOOGLE_SA_KEY', { skipped: 'ไม่มี GOOGLE_SA_KEY' });
   const files = await driveListSheets(RETURNS_FOLDER);
-  if (!files.length) return `ไม่พบไฟล์ในโฟลเดอร์ ${RETURNS_FOLDER}`;
+  if (!files.length) throw new Error(`ไม่พบไฟล์ในโฟลเดอร์ ${RETURNS_FOLDER} — บัญชีระบบอาจถูกถอดสิทธิ์`);
 
   let total = 0;
   const parts: string[] = [];
@@ -536,7 +550,10 @@ export async function syncReturns(): Promise<string> {
     total += rows.length;
     parts.push(`${f.name.replace(/^📦สรุปตีกลับ\s*/, '').trim()}=${rows.length}`);
   }
-  return `returns: ${total} ใบ จาก ${files.length} ไฟล์ (${parts.join(', ')})`;
+  return jobResult(`returns: ${total} ใบ จาก ${files.length} ไฟล์ (${parts.join(', ')})`, {
+    subject: 'ไฟล์', unitsTotal: files.length, unitsOk: files.length, unitsFailed: 0,
+    rowsWritten: total, scope: 'returns',
+  });
 }
 
 /* ---------------- PAGES ---------------- */
@@ -551,7 +568,7 @@ export async function syncReturns(): Promise<string> {
  *
  * ไม่แตะคอลัมน์ในโพสต์อื่น (เช่น in_pos_shop) — upsert ของ PostgREST อัปเดตเฉพาะคอลัมน์ที่ส่งไป
  */
-export async function syncPages(): Promise<string> {
+export async function syncPages(): Promise<JobResult> {
   requireCredentials();
   const pages = await pagesListPages();
   if (!pages.length) throw new Error('ไม่พบเพจเลย — เช็คว่า PANCAKE_ACCESS_TOKEN ยังไม่หมดอายุ (~90 วัน)');
@@ -592,14 +609,19 @@ export async function syncPages(): Promise<string> {
     );
   }
   const added = pages.filter((p: any) => !known.has(String(p.id))).length;
-  return `pages: ${pages.length} เพจ (ใหม่ ${added}, ออก token ${tokRows.length}` +
+  const msg = `pages: ${pages.length} เพจ (ใหม่ ${added}, ออก token ${tokRows.length}` +
     (fail.length ? `, ออกไม่ได้ ${fail.length}: ${fail.slice(0, 5).join(', ')}` : '') + ')';
+  // unitsFailed นับเฉพาะเพจใหม่ที่ออก token ไม่ได้ — เพจเก่าไม่ได้ถูกแตะในรอบนี้
+  return jobResult(msg, {
+    subject: 'เพจ', unitsTotal: pages.length, unitsFailed: fail.length,
+    unitsOk: pages.length - fail.length, rowsWritten: pages.length,
+  });
 }
 
 /* ---------------- ORDERS ---------------- */
 
 /** งานประจำ: ออเดอร์ที่อัปเดตใน 48 ชม.ล่าสุด */
-export async function syncOrders(): Promise<string> {
+export async function syncOrders(): Promise<JobResult> {
   requireCredentials();
   const since = new Date(Date.now() - 48 * 3600 * 1000);
   const until = new Date(Date.now() + 3600 * 1000);
@@ -609,7 +631,8 @@ export async function syncOrders(): Promise<string> {
   const map = await platformByPage();
   const rows = raw.map((o) => mapOrder(o, map));
   const n = await upsertRows('orders', rows, 'id');
-  return `orders: ${raw.length} รายการ (upsert ${n})`;
+  // หน้าต่าง 48 ชม.เลื่อนตลอด — จำนวนออเดอร์ควรใกล้เคียงรอบก่อน ตกครึ่ง = ต้นทางตัดข้อมูล
+  return jobResult(`orders: ${raw.length} รายการ (upsert ${n})`, { rowsWritten: n, scope: 'orders|48h' });
 }
 
 /**
@@ -676,7 +699,7 @@ export async function syncOrdersBackfill(days = 30): Promise<string> {
 
 /* ---------------- CHAT STATS (ChatHourly) ---------------- */
 
-export async function syncChatStats(since: Date, until: Date): Promise<string> {
+export async function syncChatStats(since: Date, until: Date): Promise<JobResult> {
   requireCredentials();
   const { pages, tokens } = await loadPagesWithTokens();
   const rows: any[] = [];
@@ -691,7 +714,11 @@ export async function syncChatStats(since: Date, until: Date): Promise<string> {
   if (rows.length) await upsertRows('chat_hourly', rows, 'key');
   let msg = `chat stats: ${rows.length} ชั่วโมง จาก ${pages.length} เพจ`;
   if (errors.length) msg += ` | ผิดพลาด ${errors.length} เพจ: ${errors.slice(0, 3).join('; ')}`;
-  return msg;
+  return jobResult(msg, {
+    subject: 'เพจ', unitsTotal: pages.length, unitsFailed: errors.length,
+    unitsOk: pages.length - errors.length, rowsWritten: rows.length,
+    scope: 'chat|' + fmtDateBkk(since),
+  });
 }
 
 export const syncChatToday = () => syncChatStats(startOfDayBkk(new Date()), new Date());
@@ -707,7 +734,7 @@ export const syncChatToday = () => syncChatStats(startOfDayBkk(new Date()), new 
  *
  * ⚠️ บางเพจตอบ HTTP 500 — จับรายเพจ ไม่ให้ล้มทั้ง job (ตรวจแล้วเป็นเพจที่ไม่มีทราฟฟิก)
  */
-export async function syncEngagementsForDate(dateStr: string, skip?: Set<string>): Promise<string> {
+export async function syncEngagementsForDate(dateStr: string, skip?: Set<string>): Promise<JobResult> {
   requireCredentials();
   const { pages, tokens } = await loadPagesWithTokens();
   const since = parsePancakeTime(`${dateStr}T00:00:00`)!;
@@ -737,7 +764,11 @@ export async function syncEngagementsForDate(dateStr: string, skip?: Set<string>
   if (rows.length) await upsertRows('chat_engagement_daily', rows, 'key');
   let msg = `engagements ${dateStr}: ${rows.length} เพจ | ลูกค้า ${total} | ออเดอร์ ${orderCount}`;
   if (errors.length) msg += ` | ผิดพลาด ${errors.length} เพจ: ${errors.slice(0, 2).join('; ')}`;
-  return msg;
+  return jobResult(msg, {
+    subject: 'เพจ', unitsTotal: pages.length, unitsFailed: errors.length,
+    unitsOk: pages.length - errors.length, rowsWritten: rows.length,
+    scope: 'engagements|' + dateStr,
+  });
 }
 
 export const syncEngagementsToday = () => syncEngagementsForDate(fmtDateBkk(new Date()));
@@ -745,7 +776,7 @@ export const syncEngagementsYesterday = () => syncEngagementsForDate(fmtDateBkk(
 
 /* ---------------- CONVERSATIONS ---------------- */
 
-export async function syncConversations(): Promise<string> {
+export async function syncConversations(): Promise<JobResult> {
   requireCredentials();
   const { pages, tokens } = await loadPagesWithTokens();
   const since = new Date(Date.now() - 24 * 3600 * 1000);
@@ -762,7 +793,11 @@ export async function syncConversations(): Promise<string> {
   if (rows.length) await upsertRows('conversations', rows, 'id');
   let msg = `conversations: ${rows.length} บทสนทนา จาก ${pages.length} เพจ`;
   if (errors.length) msg += ` | ผิดพลาด ${errors.length} เพจ`;
-  return msg;
+  return jobResult(msg, {
+    subject: 'เพจ', unitsTotal: pages.length, unitsFailed: errors.length,
+    unitsOk: pages.length - errors.length, rowsWritten: rows.length,
+    scope: 'conversations|24h',   // หน้าต่าง 24 ชม.เลื่อนตลอด — จำนวนแถวควรใกล้เคียงกันทุกรอบ
+  });
 }
 
 /* ---------------- AD STATS รายวัน (ค่าแอดจริง) ---------------- */
@@ -776,7 +811,7 @@ export async function syncConversations(): Promise<string> {
  * หน้าที่หลักคือเติม page_id / ชื่อแอด / สถานะ ให้ ad_daily ส่วน spend ที่แม่นยำมาจาก
  * syncMetaAds* (Meta Marketing API) ซึ่งรันทุก 15 นาทีและทับค่า spend ทีหลัง
  */
-export async function syncAdStatsForDate(dateStr: string): Promise<string> {
+export async function syncAdStatsForDate(dateStr: string): Promise<JobResult> {
   requireCredentials();
   const { pages, tokens } = await loadPagesWithTokens();
   const since = parsePancakeTime(`${dateStr}T00:00:00`)!;
@@ -797,7 +832,11 @@ export async function syncAdStatsForDate(dateStr: string): Promise<string> {
   if (rows.length) await upsertRows('ad_daily', rows, 'date,ad_id');
   let msg = `ad stats ${dateStr}: ${rows.length} แอด จาก ${pages.length} เพจ | spend ฿${spend.toFixed(2)}`;
   if (errors.length) msg += ` | ผิดพลาด ${errors.length} เพจ: ${errors.slice(0, 2).join('; ')}`;
-  return msg;
+  return jobResult(msg, {
+    subject: 'เพจ', unitsTotal: pages.length, unitsFailed: errors.length,
+    unitsOk: pages.length - errors.length, rowsWritten: rows.length,
+    scope: 'ad-stats|' + dateStr,
+  });
 }
 
 export const syncAdStatsToday = () => syncAdStatsForDate(fmtDateBkk(new Date()));
@@ -814,9 +853,9 @@ const META_POOL = 4;
  * แล้วทับลง ad_daily (merge — คงค่า page_id/name ที่ Pancake ใส่) → ค่าแอดตรงจอ Meta เป๊ะ
  * ต้องรัน "หลัง" syncAdStats (Pancake) ในรอบเดียวกัน เพื่อให้ค่า Meta ทับค่า Pancake
  */
-export async function syncMetaAdsRange(since: string, until: string): Promise<string> {
+export async function syncMetaAdsRange(since: string, until: string): Promise<JobResult> {
   const token = process.env.META_ACCESS_TOKEN || '';
-  if (!token) return 'ข้าม: ยังไม่ได้ตั้ง META_ACCESS_TOKEN';
+  if (!token) return jobResult('ข้าม: ยังไม่ได้ตั้ง META_ACCESS_TOKEN', { skipped: 'ไม่มี META_ACCESS_TOKEN' });
   const accounts = await metaListAdAccounts();
   const active = accounts.filter((a) => a.account_status === 1);
   const rows: any[] = [];
@@ -846,7 +885,11 @@ export async function syncMetaAdsRange(since: string, until: string): Promise<st
   const range = since === until ? since : `${since}..${until}`;
   let msg = `meta ads ${range}: ${rows.length} แถว จาก ${active.length}/${accounts.length} บัญชี | spend ฿${spend.toFixed(2)}`;
   if (errors.length) msg += ` | ผิดพลาด ${errors.length} บัญชี: ${errors.slice(0, 2).join('; ')}`;
-  return msg;
+  return jobResult(msg, {
+    subject: 'บัญชี', unitsTotal: active.length, unitsFailed: errors.length,
+    unitsOk: active.length - errors.length, rowsWritten: rows.length,
+    scope: 'meta-ads|' + range,
+  });
 }
 
 export const syncMetaAdsForDate = (dateStr: string) => syncMetaAdsRange(dateStr, dateStr);
@@ -967,15 +1010,19 @@ async function existingCreativeIds_(): Promise<Record<string, 1> | null> {
  * แอดที่ Meta ปฏิเสธ (ถูกลบ / token ไม่มีสิทธิ์) เขียนแถวเปล่าไว้กันวนถามซ้ำทุกวัน —
  * อยากลองใหม่ให้รัน `npm run backfill:ad-creatives <วัน> force`
  */
-export async function syncAdCreatives(days = 14, refresh = false): Promise<string> {
+export async function syncAdCreatives(days = 14, refresh = false): Promise<JobResult> {
   const token = process.env.META_ACCESS_TOKEN || '';
-  if (!token) return 'ข้าม: ยังไม่ได้ตั้ง META_ACCESS_TOKEN';
+  if (!token) return jobResult('ข้าม: ยังไม่ได้ตั้ง META_ACCESS_TOKEN', { skipped: 'ไม่มี META_ACCESS_TOKEN' });
   const have = await existingCreativeIds_();
-  if (!have) return 'ข้าม: ยังไม่มีตาราง ad_creative (รัน db/migrations/2026-07-27-ad-creative.sql ก่อน)';
+  if (!have) {
+    return jobResult('ข้าม: ยังไม่มีตาราง ad_creative (รัน db/migrations/2026-07-27-ad-creative.sql ก่อน)',
+      { skipped: 'ยังไม่ได้รัน migration ad-creative' });
+  }
 
   const ids = await adIdsFromDaily_(days);
   const want = refresh ? ids : ids.filter((id) => !have[id]);
-  if (!want.length) return `ad creatives: ครบแล้ว (${ids.length} แอดใน ${days} วันล่าสุด)`;
+  // ไม่มีอะไรต้องดึง = ปกติของงานนี้ (ครีเอทีฟไม่เปลี่ยนรายวัน) ไม่ใช่การข้าม
+  if (!want.length) return jobResult(`ad creatives: ครบแล้ว (${ids.length} แอดใน ${days} วันล่าสุด)`);
   const capped = want.slice(0, CREATIVE_CAP);
 
   const now = new Date().toISOString();
@@ -995,7 +1042,10 @@ export async function syncAdCreatives(days = 14, refresh = false): Promise<strin
     `มีรูป ${withMedia} | มีลิงก์โพสต์ ${withPost}`;
   if (missing.length) msg += ` | ดึงไม่ได้ ${missing.length}`;
   if (want.length > capped.length) msg += ` | เหลือ ${want.length - capped.length} ไว้รอบหน้า`;
-  return msg;
+  return jobResult(msg, {
+    subject: 'แอด', unitsTotal: capped.length, unitsFailed: missing.length,
+    unitsOk: rows.length, rowsWritten: n,
+  });
 }
 
 /**
@@ -1026,7 +1076,7 @@ export async function syncAdCreativesAllAccounts(): Promise<string> {
 
 /* ---------------- ADS (ตารางเดิม — POS endpoint ตายแล้ว) ---------------- */
 
-export async function syncAds(): Promise<string> {
+export async function syncAds(): Promise<JobResult> {
   requireCredentials();
   const campaigns: Record<string, string> = {};
   try {
@@ -1035,9 +1085,11 @@ export async function syncAds(): Promise<string> {
   const ads = await posFetchAds(10);
   const rows = ads.map((a) => mapAd(a, campaigns));
   // กันข้อมูลหาย: ถ้า API คืนว่าง (ล่ม/ไม่มีสิทธิ์ชั่วคราว) อย่าเขียนทับตาราง ads ด้วยของว่าง
-  if (!rows.length) return 'ads: 0 แอด (ข้ามการเขียนทับ — คงข้อมูลเดิม)';
+  // POS /ads_manager/ads_v2 คืน 0 แถวมาตลอด (endpoint ตายแล้ว) — ไม่ใช่ความผิดปกติของรอบนี้
+  // จึงไม่ตี skipped ไม่งั้นจะขึ้นป้ายแดงค้างถาวร ค่าแอดจริงมาจาก ad_daily อยู่แล้ว
+  if (!rows.length) return jobResult('ads: 0 แอด (ข้ามการเขียนทับ — คงข้อมูลเดิม)');
   await replaceTable('ads', rows, 'ad_id');
-  return `ads: ${rows.length} แอด`;
+  return jobResult(`ads: ${rows.length} แอด`, { rowsWritten: rows.length, scope: 'ads' });
 }
 
 /* ---------------- ADMINS (roster + online) ---------------- */
@@ -1060,7 +1112,7 @@ async function logOnlineChanges(rows: { user_id: string; is_online: boolean }[])
   }
 }
 
-export async function syncAdminsRoster(): Promise<string> {
+export async function syncAdminsRoster(): Promise<JobResult> {
   requireCredentials();
   const { pages, tokens } = await loadPagesWithTokens();
   const byUser: Record<string, any> = {};
@@ -1193,14 +1245,17 @@ export async function syncAdminsRoster(): Promise<string> {
   msg += await logOnlineChanges(flips);
   if (prevErr) msg += ' | อ่านสถานะเดิมพลาด (ข้าม log รอบนี้)';
   if (errors.length) msg += ` | ผิดพลาด: ${errors.slice(0, 3).join('; ')}`;
-  return msg;
+  return jobResult(msg, {
+    subject: 'เพจ', unitsTotal: pages.length, unitsFailed: failedPages.length,
+    unitsOk: okPages, rowsWritten: rows.length, scope: 'admins-roster',
+  });
 }
 
 /** อัปเดตเฉพาะสถานะออนไลน์ (เบากว่า full roster) */
-export async function syncOnlineStatus(): Promise<string> {
+export async function syncOnlineStatus(): Promise<JobResult> {
   requireCredentials();
   const { pages, tokens } = await loadPagesWithTokens();
-  if (!pages.length) return 'ยังไม่มีเพจ';
+  if (!pages.length) return jobResult('ยังไม่มีเพจ', { skipped: 'ไม่มีเพจที่มี token' });
   const { data: existing } = await supabase.from('admins').select('*');
   if (!existing || !existing.length) return syncAdminsRoster();
 
@@ -1215,7 +1270,7 @@ export async function syncOnlineStatus(): Promise<string> {
     } catch { failedPages.push(String(p.name || p.page_id)); }
     await sleep(100);
   }
-  if (!checked) return 'เช็คสถานะออนไลน์ไม่ได้สักเพจ';
+  if (!checked) throw new Error('เช็คสถานะออนไลน์ไม่ได้สักเพจ');
 
   const now = new Date().toISOString();
   const changed = existing.filter((r: any) => {
@@ -1234,12 +1289,16 @@ export async function syncOnlineStatus(): Promise<string> {
   let msg = `online status: เปลี่ยน ${changed.length} คน (${Object.keys(online).length} ออนไลน์)`;
   msg += await logOnlineChanges(changed.map((r: any) => ({ user_id: r.user_id, is_online: r.is_online })));
   if (failedPages.length) msg += ` | ดึงพลาด ${failedPages.length} เพจ`;
-  return msg;
+  // rowsWritten ของงานนี้คือ "จำนวนคนที่สถานะเปลี่ยน" ซึ่งขึ้นลงตามธรรมชาติ (กลางคืนเป็น 0 ได้)
+  // จึงไม่ส่ง rowsWritten — ไม่งั้นกฎ "แถวหายเกินครึ่ง" จะเตือนมั่วทุกดึก
+  return jobResult(msg, {
+    subject: 'เพจ', unitsTotal: pages.length, unitsFailed: failedPages.length, unitsOk: checked,
+  });
 }
 
 /* ---------------- ADMIN CHAT DAILY ---------------- */
 
-export async function syncAdminChatForDate(dateStr: string): Promise<string> {
+export async function syncAdminChatForDate(dateStr: string): Promise<JobResult> {
   const { pages, tokens } = await loadPagesWithTokens();
   const from = parsePancakeTime(`${dateStr}T00:00:00`)!;
   const to = parsePancakeTime(`${dateStr}T23:59:59`)!;
@@ -1267,15 +1326,28 @@ export async function syncAdminChatForDate(dateStr: string): Promise<string> {
   if (rows.length) await upsertRows('admin_chat_daily', rows, 'key');
   let msg = `admin chat ${dateStr}: ${rows.length} แถว`;
   if (errors.length) msg += ` | ผิดพลาด ${errors.length} เพจ`;
-  return msg;
+  return jobResult(msg, {
+    subject: 'เพจ', unitsTotal: pages.length, unitsFailed: errors.length,
+    unitsOk: pages.length - errors.length, rowsWritten: rows.length,
+    scope: 'admin-chat|' + dateStr,
+  });
 }
 
 export const syncAdminChatToday = () => syncAdminChatForDate(fmtDateBkk(new Date()));
 
-export async function syncAdminChatBackfill(days = 7): Promise<string> {
-  const msgs: string[] = [];
-  for (let i = days; i >= 1; i--) msgs.push(await syncAdminChatForDate(fmtDateBkk(daysAgo(i))));
-  return msgs.join(' | ');
+export async function syncAdminChatBackfill(days = 7): Promise<JobResult> {
+  const parts: JobResult[] = [];
+  for (let i = days; i >= 1; i--) parts.push(await syncAdminChatForDate(fmtDateBkk(daysAgo(i))));
+  // รวมสถิติของทุกวันเป็นใบเดียว — ไม่งั้นตัวเฝ้าระวังเห็นแค่วันสุดท้าย
+  const sum = (f: (r: JobResult) => number) => parts.reduce((a, r) => a + (f(r) || 0), 0);
+  return jobResult(parts.map((r) => r.message).join(' | '), {
+    subject: 'เพจ-วัน',
+    unitsTotal: sum((r) => r.unitsTotal || 0),
+    unitsFailed: sum((r) => r.unitsFailed || 0),
+    unitsOk: sum((r) => r.unitsOk || 0),
+    rowsWritten: sum((r) => r.rowsWritten || 0),
+    scope: 'admin-chat-backfill|' + days,
+  });
 }
 
 /* ---------------- DAILY: catch-up + prune ---------------- */
@@ -1306,5 +1378,6 @@ export async function prune(): Promise<string> {
   try {
     removed += await deleteOlder('chat_engagement_daily', 'date', cutDate(RETENTION_DAYS.CHAT_ENGAGEMENT));
   } catch { /* ยังไม่มีตาราง chat_engagement_daily */ }
+  removed += await deleteOlder('sync_log', 'ts', cutIso(RETENTION_DAYS.SYNC_LOG));
   return `ลบข้อมูลเก่า ${removed} แถว`;
 }

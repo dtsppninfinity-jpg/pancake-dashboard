@@ -9,8 +9,9 @@
 import '../../lib/env';
 import { requireCredentials, daysAgo } from '../../lib/config';
 import * as jobs from '../sync/jobs';
+import type { JobOutput } from '../../lib/jobstat';
 
-async function step(label: string, fn: () => Promise<string>) {
+async function step(label: string, fn: () => Promise<JobOutput>) {
   const t0 = Date.now();
   process.stdout.write(`⏳ ${label} ... `);
   try {

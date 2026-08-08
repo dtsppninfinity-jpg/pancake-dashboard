@@ -12,7 +12,7 @@ import { syncAdCreatives, syncAdCreativesAllAccounts } from '../sync/jobs';
 async function main() {
   const mode = String(process.argv[3] || '').toLowerCase();
   const t0 = Date.now();
-  let msg: string;
+  let msg: string | { toString(): string };
   if (mode === 'all') {
     console.log('▶ backfill ครีเอทีฟ: กวาดทุกบัญชี (/act_{id}/ads)');
     msg = await syncAdCreativesAllAccounts();

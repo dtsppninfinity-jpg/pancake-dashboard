@@ -4,9 +4,10 @@
 import '../../lib/env';
 import { requireCredentials, daysAgo } from '../../lib/config';
 import { setState } from '../../lib/supabase';
+import type { JobOutput } from '../../lib/jobstat';
 import * as jobs from '../sync/jobs';
 
-const STEPS: [string, () => Promise<string>][] = [
+const STEPS: [string, () => Promise<JobOutput>][] = [
   ['ออเดอร์ 30 วัน', () => jobs.syncOrdersBackfill(30)],
   ['สถิติแชท 7 วัน', () => jobs.syncChatStats(daysAgo(7), new Date())],
   ['บทสนทนา', () => jobs.syncConversations()],
