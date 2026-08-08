@@ -460,11 +460,17 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 }
 .pg-controls .spacer { flex: 1; }
 
-/* ---------- horizontal bars ---------- */
+/* ---------- horizontal bars ----------
+   มือถือ: ชื่อขึ้นบรรทัดของตัวเองเต็มความกว้าง แล้วแท่ง+ตัวเลขอยู่บรรทัดล่าง
+   ของเดิมบีบชื่อไว้ในช่อง 130px ซึ่งชื่อสินค้าไทยยาว 200-240px ทุกอัน
+   ผลคือทุกแถวอ่านได้แค่ "📘 โคคอลลี่ - ผงมะพร้าวสะก…" เหมือนกันหมด แยกไม่ออกว่าอันไหนคืออันไหน
+   จอ ≥900 ค่อยกลับเป็น 3 คอลัมน์ในบรรทัดเดียวตามเดิม */
 .hbar-row {
-  display: grid; grid-template-columns: 130px 1fr 48px; gap: var(--sp-3);
-  align-items: center; font-size: var(--fs-3); margin-bottom: var(--sp-2);
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--sp-1) var(--sp-3);
+  align-items: center; font-size: var(--fs-3); margin-bottom: var(--sp-3);
 }
+.hbar-row > .hbar-label { grid-column: 1 / -1; white-space: normal; overflow: visible; text-overflow: clip; }
 .hbar-row.clickable { cursor: pointer; border-radius: 7px; padding: var(--sp-1) var(--sp-2); margin-left: -6px; margin-right: -6px; transition: background .15s; }
 .hbar-row.clickable:hover { background: rgba(108,92,231,.10); }
 table.tbl tr.clickable { cursor: pointer; }
@@ -572,14 +578,16 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
    ใช้ padding เพิ่มพื้นที่นิ้วแล้วหักกลับด้วย margin ติดลบ เลย์เอาต์จึงเท่าเดิมแต่กดง่ายขึ้น */
 .sr-needcheck {
   background: none; border: 0; font: inherit; color: var(--red); font-weight: 700;
-  padding: var(--sp-2) var(--sp-1); margin: calc(var(--sp-2) * -1) calc(var(--sp-1) * -1);
+  /* ขยายเฉพาะแนวตั้ง — เคยเผื่อแนวนอนด้วยแล้วมันยื่นพ้นขอบขวาของแถวไป 4px */
+  padding: var(--sp-2) 0; margin: calc(var(--sp-2) * -1) 0;
   cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px;
 }
 .sr-needcheck:hover { text-decoration-style: solid; }
 /* hbar ที่ตัวเลขยาว (฿x,xxx,xxx) — ขยายช่องเลขจาก 48px */
 /* ชื่อสินค้าไทยยาวกว่าอังกฤษมาก — ให้คอลัมน์ชื่อยืดตามการ์ด (สูงสุด 42%) แทน 140px ตายตัว
    ที่ตัดคำทิ้งตั้งแต่การ์ดยังกว้างอยู่ • เพดาน 280px กันชื่อกินครึ่งจอตอนการ์ดเต็มความกว้าง */
-.hbar-wide .hbar-row { grid-template-columns: minmax(96px, min(42%, 280px)) 1fr 92px; }
+/* จอกว้างค่อยเอาชื่อกลับมาอยู่บรรทัดเดียวกับแท่ง (กฎอยู่ในบล็อก ≥900) */
+.hbar-wide .hbar-row { grid-template-columns: minmax(0, 1fr) auto; }
 /* การ์ดเต็มความกว้าง + รายการเยอะ = แท่งยาวเป็นหางว่าวและการ์ดสูงเกินจอ
    แบ่งเป็น 2 คอลัมน์ด้วย column-count (ไม่ใช่ grid) เพราะมันไล่เต็มคอลัมน์ซ้ายก่อนแล้วขึ้นขวา
    อันดับจึงยังอ่านจากบนลงล่างได้ตามปกติ — grid จะสลับเป็นซ้าย-ขวาสลับกันซึ่งอ่านอันดับไม่รู้เรื่อง */
@@ -712,7 +720,10 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .ca-media-note { font-size: var(--fs-1); color: var(--text-3); margin-top: var(--sp-2); line-height: 1.5; }
 
 /* ---------- admin management ---------- */
-.pg-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr)); gap: var(--sp-3); margin-bottom: var(--sp-4); }
+/* ⚠️ ช่องละ 160px ไม่ใช่ 120px — ไทล์พวกนี้ใส่ตัวเลขเงินเต็มจำนวน (฿83,126,917 = 124px ที่ 21px)
+   ตอนที่ตั้ง 120px ไทล์ยังใส่แค่จำนวนนับหลักเดียว พอหน้ากำไรมาใช้ เลขเลยโดนตัดหายไปครึ่งตัว
+   บนจอ 412px ได้ 3 คอลัมน์ ช่องละ 129px ซึ่งใส่ไม่พอ (วัดแล้ว: กล่อง 87 < เนื้อหา 129) */
+.pg-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: var(--sp-3); margin-bottom: var(--sp-4); }
 .pgs-item {
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
   padding: var(--sp-3) var(--sp-4); text-align: center;
@@ -877,11 +888,15 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 }
 @media (prefers-reduced-motion: reduce) { .live-dot.on { animation: none; } }
 
-/* ---------- attention list ---------- */
+/* ---------- attention list ----------
+   มือถือ: ปุ่ม "เปิดใน Pancake" ตกลงมาเป็นบรรทัดของตัวเอง แทนที่จะยืนยันความกว้างของตัวเอง
+   แล้วบีบช่องชื่อจนแคบกว่าป้าย "รอ 22 ชม." (ป้ายเป็น nowrap มันเลยยื่นพ้นกล่องออกไป) */
 .attn-item {
-  display: flex; gap: var(--sp-3); align-items: center; padding: var(--sp-3);
+  display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap; padding: var(--sp-3);
   border-radius: 10px; cursor: default;
 }
+.attn-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; width: 100%; }
+.attn-page { font-size: var(--fs-1); color: var(--text-3); }
 .attn-item:hover { background: rgba(108,92,231,.08); }
 .attn-body { flex: 1; min-width: 0; }
 /* ชื่อ + ป้าย "รอ 20 ชม. 40 นาที" — ป้ายเป็น nowrap ยาว ~120px ถ้าไม่ให้ตัดบรรทัด
@@ -1474,7 +1489,9 @@ table.tbl.tbl-scroll-x th:first-child,
 table.tbl.tbl-scroll-x td:first-child {
   position: sticky; left: 0; z-index: 1;
   background: var(--surface);
-  box-shadow: 1px 0 0 var(--border);     /* เส้นคั่นบอกว่าคอลัมน์นี้ไม่ได้เลื่อนไปกับเพื่อน */
+  /* เงาทึบพอให้อ่านออกว่าคอลัมน์นี้ "ลอยอยู่ข้างบน" ส่วนคอลัมน์ถัดไปมุดอยู่ข้างใต้
+     เส้น 1px เฉยๆ ทำให้ตัวเลขที่โดนบังครึ่งตัวดูเหมือนตารางพัง */
+  box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px rgba(0, 0, 0, .28);
 }
 table.tbl.tbl-scroll-x thead th:first-child { z-index: 2; background: var(--surface); }
 /* แถวที่มีพื้นของตัวเอง (hover / ยังไม่จัดกลุ่ม) ต้องทาสีช่องที่ตรึงด้วย ไม่งั้นช่องแรกสีไม่ตรงกับแถว
@@ -1635,6 +1652,12 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
   table.tbl.tbl-cards td .btn-mini { flex: none; }
 
   .hbar-cols { column-count: 2; }
+  /* จอกว้าง: ชื่อ | แท่ง | ตัวเลข อยู่บรรทัดเดียวกันตามเดิม */
+  .hbar-row { grid-template-columns: 130px minmax(0, 1fr) 48px; gap: var(--sp-3); margin-bottom: var(--sp-2); }
+  .hbar-row > .hbar-label { grid-column: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* ชื่อสินค้าไทยยาวกว่าอังกฤษมาก ให้ช่องชื่อยืดตามการ์ด (สูงสุด 42%) แทน 130px ตายตัว
+     เพดาน 280px กันชื่อกินครึ่งจอตอนการ์ดเต็มความกว้าง */
+  .hbar-wide .hbar-row { grid-template-columns: minmax(96px, min(42%, 280px)) minmax(0, 1fr) 92px; }
   .top3-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr); }
   .top3-card.first { order: 0; }
   .rank-card { flex-wrap: nowrap; padding: var(--sp-3) var(--sp-4); }
@@ -1642,6 +1665,8 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
   .sp-row { grid-template-columns: 190px minmax(0, 1fr) minmax(0, 1.2fr) 130px; gap: var(--sp-3); }
   .sp-row > .sp-metric, .sp-row > .sp-dir { grid-column: auto; }
   .ca-card { flex-wrap: nowrap; padding: var(--sp-3) var(--sp-4); }
+  .attn-item { flex-wrap: nowrap; }
+  .attn-actions { width: auto; flex: none; flex-direction: column; align-items: flex-end; gap: var(--sp-1); }
 }
 
 /* ============================================================

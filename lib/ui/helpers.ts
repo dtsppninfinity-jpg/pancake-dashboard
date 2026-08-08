@@ -118,43 +118,47 @@ export function openModal(html: string): void {
   // ต้อง querySelectorAll — modal ส่วนใหญ่มีปุ่มปิด 2 ตัว (✕ มุมบน + "ยกเลิก" ท้ายฟอร์ม)
   // ถ้า bind แค่ตัวแรก ปุ่ม "ยกเลิก" จะกดไม่ติด (เคยเป็นบั๊กจริงบนหน้าจัดการผู้ใช้)
   root.querySelectorAll('.modal-close').forEach((x) => x.addEventListener('click', closeModal));
-  bindSheetDrag_(root.querySelector('.modal') as HTMLElement, overlay);
+  bindSheetDrag_(overlay);
 }
 
 /* ---------- ลากแผ่นลงเพื่อปิด (bottom sheet) ----------
    ขีดจับด้านบนต้องลากได้จริง ไม่ใช่ขีดตกแต่ง — ของที่หน้าตาเหมือนจับได้แต่จับไม่ได้
    แย่กว่าไม่มีขีดเลย เพราะคนลองแล้วคิดว่าเว็บค้าง
    จับที่ .modal-head เท่านั้น ไม่ใช่ทั้งแผ่น ไม่งั้นจะไปแย่งการเลื่อนเนื้อหาข้างใน
-   (คู่กับ .modal-head { touch-action: none } ใน globals.css ซึ่งบอกเบราว์เซอร์ว่า
-    ท่าทางบนหัวแผ่นเราจัดการเอง ไม่ต้องเอาไปทำ scroll) */
+   ⚠️ ผูกที่ .modal-overlay แล้วค่อยเช็คว่าโดน .modal-head ไหม (event delegation)
+      ไม่ผูกที่ .modal-head ตรงๆ เพราะบางโมดัลเขียนทับเนื้อหาตัวเองทีหลัง (เช่น กำไรรายวัน
+      ที่โหลดเสร็จแล้วแทน innerHTML ทั้งก้อน) หัวแผ่นอันเดิมจะหายไปพร้อม listener */
 
 const SHEET_CLOSE_RATIO = 0.25;   // ลากลงเกิน 1 ใน 4 ของความสูงแผ่น = ปิด
 const SHEET_FLING_SPEED = 0.6;    // px ต่อ ms — สะบัดลงเร็วๆ สั้นๆ ก็ต้องปิดได้
 const SHEET_ANIM_MS = 180;
 
-function bindSheetDrag_(sheet: HTMLElement, overlay: HTMLElement): void {
-  const head = sheet ? (sheet.querySelector('.modal-head') as HTMLElement | null) : null;
-  if (!head) return;
+function bindSheetDrag_(overlay: HTMLElement): void {
   let id = -1, y0 = 0, t0 = 0, dy = 0;
+  let sheet: HTMLElement | null = null;
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  head.addEventListener('pointerdown', function (e) {
+  overlay.addEventListener('pointerdown', function (e) {
     // จอ ≥600 โมดัลเป็นกล่องลอยกลางจอ ไม่ใช่แผ่น จึงไม่มีอะไรให้ลาก
     if (window.matchMedia('(min-width: 600px)').matches) return;
-    if ((e.target as Element).closest('button, a, input, select')) return;
+    const tgt = e.target as Element | null;
+    if (!tgt || !tgt.closest || !tgt.closest('.modal-head')) return;
+    if (tgt.closest('button, a, input, select')) return;
+    sheet = overlay.querySelector('.modal');
+    if (!sheet) return;
     id = e.pointerId; y0 = e.clientY; t0 = e.timeStamp; dy = 0;
-    head.setPointerCapture(id);
+    overlay.setPointerCapture(id);
     sheet.style.transition = 'none';
   });
 
   // กันเบราว์เซอร์เอาท่าทางนี้ไปทำ scroll — ต้องเป็น listener แบบ non-passive ถึงจะ preventDefault ได้
   // (ใช้แทน CSS touch-action ซึ่งแก้ปัญหาเดียวกันได้แต่ไปกลืนการแตะครั้งถัดไป — ดูคอมเมนต์ที่ .modal-head)
-  head.addEventListener('touchmove', function (e) {
+  overlay.addEventListener('touchmove', function (e) {
     if (id !== -1 && e.cancelable) e.preventDefault();
   }, { passive: false });
 
-  head.addEventListener('pointermove', function (e) {
-    if (e.pointerId !== id) return;
+  overlay.addEventListener('pointermove', function (e) {
+    if (e.pointerId !== id || !sheet) return;
     dy = Math.max(0, e.clientY - y0);   // ลากขึ้นไม่ต้องทำอะไร แผ่นชิดขอบล่างอยู่แล้ว
     sheet.style.transform = 'translateY(' + dy + 'px)';
     // ฉากหลังจางลงตามระยะที่ลาก ให้รู้สึกว่ากำลัง "ปล่อยออก" ไม่ใช่แค่เลื่อนกล่อง
@@ -162,7 +166,7 @@ function bindSheetDrag_(sheet: HTMLElement, overlay: HTMLElement): void {
   });
 
   function end(e: PointerEvent): void {
-    if (e.pointerId !== id) return;
+    if (e.pointerId !== id || !sheet) return;
     id = -1;
     const speed = dy / Math.max(1, e.timeStamp - t0);
     if (dy > sheet.offsetHeight * SHEET_CLOSE_RATIO || speed > SHEET_FLING_SPEED) {
@@ -181,16 +185,24 @@ function bindSheetDrag_(sheet: HTMLElement, overlay: HTMLElement): void {
       overlay.style.background = '';
     }
   }
-  head.addEventListener('pointerup', end);
+  overlay.addEventListener('pointerup', end);
   // pointercancel = เบราว์เซอร์ยึดท่าทางไปทำอย่างอื่น (เช่น เลื่อนเนื้อหา) ไม่ใช่เจตนาปิดของผู้ใช้
   // จึงเด้งกลับเสมอ ไม่ปิด — ปิดโดยที่ผู้ใช้ไม่ได้ตั้งใจแย่กว่าไม่ปิด
-  head.addEventListener('pointercancel', function (e) {
-    if (e.pointerId !== id) return;
+  overlay.addEventListener('pointercancel', function (e) {
+    if (e.pointerId !== id || !sheet) return;
     id = -1;
     sheet.style.transition = reduce ? 'none' : 'transform ' + SHEET_ANIM_MS + 'ms ease-out';
     sheet.style.transform = '';
     overlay.style.background = '';
   });
+}
+
+/** โมดัลที่โหลดเนื้อหาทีหลังแล้วเขียนทับตัวเอง เรียกอันนี้แทนการผูกปุ่มปิดเอง
+    (ปุ่มปิดของ openModal ผูกไว้กับ element เดิมซึ่งหายไปพร้อม innerHTML) */
+export function rebindModalClose(): void {
+  const root = document.getElementById('modal-root');
+  if (!root) return;
+  root.querySelectorAll('.modal-close').forEach((x) => x.addEventListener('click', closeModal));
 }
 
 export function closeModal(): void {

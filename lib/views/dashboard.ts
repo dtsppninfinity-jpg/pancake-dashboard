@@ -356,10 +356,12 @@ function attentionCardHtml(attention?: AttentionItem[]): string {
         ' <span class="badge admin">' + esc(waitLabel(a.waitMins)) + '</span></div>' +
         '<div class="attn-snippet">' + esc(a.snippet || '') + '</div>' +
         '</div>' +
-        '<div style="text-align:right;flex-shrink:0">' +
+        // ⚠️ ต้องเป็นคลาส ไม่ใช่ style="flex-shrink:0" ฝังใน HTML — บล็อกนี้ไม่ยอมหด
+        // ช่องชื่อจึงถูกบีบจนแคบกว่าป้าย "รอ 22 ชม." ป้ายเลยยื่นพ้นออกไปนอกกล่องบนมือถือ
+        '<div class="attn-actions">' +
         '<a class="btn-mini" href="' + esc(pancakeUrl) + '" target="_blank" rel="noopener" ' +
           'title="เปิดแชทนี้ใน Pancake (แท็บใหม่)">↗ เปิดใน Pancake</a>' +
-        '<div style="font-size:10.5px;color:var(--text-3);margin-top:4px">' + esc(a.pageName || '') + '</div>' +
+        '<div class="attn-page">' + esc(a.pageName || '') + '</div>' +
         '</div></div>';
     }).join('');
   } else {

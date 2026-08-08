@@ -1,7 +1,7 @@
 // lib/views/profit.ts — หน้า "กำไร & ตีกลับ" (บรีฟ 2026-07-31: กำไรภาพรวมรายปี ยูนิต พร้อมตีกลับ)
 // กำไรจริงจากชีทสรุปรายสินค้า (unit_daily) — ตาราง pivot ยูนิต × เดือน + drill รายวัน + ตีกลับรายเดือน
 
-import { serverCall, esc, fmtNum, THB, pctFmt, openModal, showError, downloadCSV, toast } from '@/lib/ui/helpers';
+import { serverCall, esc, fmtNum, THB, pctFmt, openModal, rebindModalClose, showError, downloadCSV, toast } from '@/lib/ui/helpers';
 
 interface Cell { profit: number; sales: number; ads: number }
 interface UnitAge { firstSale: string; days: number; openEnded: boolean; active: boolean }
@@ -230,9 +230,8 @@ function openDaily(u: string, month: string): void {
         '<th>วันที่</th><th class="num">ยอดขาย</th><th class="num">ออเดอร์</th>' +
         '<th class="num">ค่าแอด</th><th class="num">กำไรสุทธิ</th><th class="num">มาร์จิ้น</th>' +
       '</tr></thead><tbody>' + (body || '<tr><td colspan="6">ไม่มีข้อมูล</td></tr>') + '</tbody></table></div>';
-    modal.querySelectorAll('.modal-close').forEach(function (x) {
-      x.addEventListener('click', function () { const rt = document.getElementById('modal-root'); if (rt) rt.innerHTML = ''; });
-    });
+    // โมดัลนี้เขียนทับเนื้อหาตัวเอง ปุ่มปิดที่ openModal ผูกไว้จึงหายไปกับของเดิม ต้องผูกใหม่
+    rebindModalClose();
   }).catch(function () { toast('⚠️ โหลดรายวันไม่สำเร็จ'); });
 }
 

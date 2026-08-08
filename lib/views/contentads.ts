@@ -579,7 +579,7 @@ function cardHtml(it: any, rank: number): string {
   h += '<div class="ca-id">' + esc(it.name || ('Ad ' + it.adId)) +
     ' <span class="badge ' + esc(st.cls || 'neutral') + '">' + esc(st.label || '-') + '</span>' +
     (it.campaign
-      ? ' <span class="chip" style="padding:2px 10px;font-size:10.5px">' + esc(it.campaign) + '</span>'
+      ? ' <span class="chip" style="padding:2px 10px;font-size:var(--fs-1)">' + esc(it.campaign) + '</span>'
       : '') +
     '</div>';
   const isOrganic = !!it.organicPost;
@@ -595,7 +595,7 @@ function cardHtml(it: any, rank: number): string {
   // ยอดขาย POS จริง (เทียบกับที่ Meta ตี) — โชว์เป็นบรรทัดเล็กใต้ตัวเลข Meta
   const posRev = num(it.revenuePos);
   const posSub = (!isOrganic && posRev > 0 && posRev !== num(it.revenue))
-    ? '<span style="font-size:10px;color:var(--text-3)">จริง ' + THB(posRev) + '</span>' : '';
+    ? '<span style="font-size:var(--fs-1);color:var(--text-3)">จริง ' + THB(posRev) + '</span>' : '';
   h += '<div class="ca-nums">';
   h += caNum('<b class="txt-good" title="' +
     (isOrganic ? 'ยอดขายจากออเดอร์ที่ผูกโพสต์นี้'

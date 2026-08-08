@@ -29,9 +29,19 @@ export interface LineOpts {
   unit?: string;       // หน่วยต่อท้ายเมื่อ fmt=num เช่น 'ข้อความ'
 }
 
+/* ⚠️ ตัวหนังสือใน SVG อยู่ในหน่วยของ viewBox มันย่อ/ขยายไปพร้อมกราฟ
+   กราฟ viewBox 780 หน่วย พอวางในการ์ดกว้าง 342px บนมือถือ ทุกอย่างย่อลง 0.44 เท่า
+   ตัวอักษรที่เขียนไว้ 11px จึงเห็นจริงแค่ ~4.8px — อ่านไม่ออก และแก้ด้วย CSS ไม่ได้
+   ทางออก: บนจอแคบใช้ viewBox ที่แคบลงให้ใกล้ขนาดจริง อัตราย่อจะเข้าใกล้ 1 เท่า
+   ตัวอักษรเลยเห็นเท่าที่เขียนไว้จริงๆ (และแท่ง/ระยะห่างก็ได้สัดส่วนที่เหมาะกับจอแคบไปด้วย)
+   หมายเหตุ: ตัดสินตอนสร้าง HTML หมุนจอแล้วจะได้สัดส่วนใหม่ตอน render รอบถัดไป */
+function vbWidth(wide: number, narrow: number): number {
+  return (typeof window !== 'undefined' && window.innerWidth < 600) ? narrow : wide;
+}
+
 /** กราฟแท่งคู่ 7 วัน: data = [{label, total, replied}] (ลูกค้าทัก/เพจตอบ, มุมมน) */
 export function svgWeekBars(data: WeekBar[]): string {
-  const W = 560, H = 208, padX = 14, bottom = 28, topPad = 26;
+  const W = vbWidth(560, 330), H = 208, padX = 14, bottom = 28, topPad = 26;
   const innerH = H - bottom - topPad;
   const baseY = H - bottom;
   // สเกลรวมทั้ง 2 ชุด (ลูกค้าทัก + เพจตอบ) กันไม่ให้แท่งไหนพุ่งทะลุกราฟ
@@ -68,9 +78,9 @@ export function svgWeekBars(data: WeekBar[]): string {
     const hP = Math.round((rep / max) * innerH);
     parts.push('<path d="' + topRoundRect(xC, baseY - hC, barW, hC, r) + '" fill="url(#gradCust)"/>');
     parts.push('<path d="' + topRoundRect(xP, baseY - hP, barW, hP, r) + '" fill="url(#gradPage)"/>');
-    if (tot > 0) parts.push('<text x="' + (xC + barW / 2) + '" y="' + (baseY - hC - 5) + '" text-anchor="middle" font-size="9" font-weight="600" style="fill:var(--text-3)">' + kFmt(tot) + '</text>');
-    if (rep > 0) parts.push('<text x="' + (xP + barW / 2) + '" y="' + (baseY - hP - 5) + '" text-anchor="middle" font-size="9" font-weight="700" style="fill:var(--text-2)">' + kFmt(rep) + '</text>');
-    parts.push('<text x="' + cx + '" y="' + (H - 9) + '" text-anchor="middle" font-size="10.5" style="fill:var(--text-3)">' + esc(d.label) + '</text>');
+    if (tot > 0) parts.push('<text x="' + (xC + barW / 2) + '" y="' + (baseY - hC - 5) + '" text-anchor="middle" font-size="11" font-weight="600" style="fill:var(--text-3)">' + kFmt(tot) + '</text>');
+    if (rep > 0) parts.push('<text x="' + (xP + barW / 2) + '" y="' + (baseY - hP - 5) + '" text-anchor="middle" font-size="11" font-weight="700" style="fill:var(--text-2)">' + kFmt(rep) + '</text>');
+    parts.push('<text x="' + cx + '" y="' + (H - 9) + '" text-anchor="middle" font-size="11" style="fill:var(--text-3)">' + esc(d.label) + '</text>');
     // เป้า hover ให้ทูลทิปการ์ดลอย (bindChartTips) — แทน <title> เดิม
     // ⚠️ ทั้งสองแท่งเป็น "จำนวนข้อความ" ไม่ใช่จำนวนบทสนทนา — เพจส่งสคริปต์ขายทีละหลายบับเบิล
     //    อัตราส่วนจึงอยู่ที่ 5-15 เท่าเป็นปกติ เอามาเรียก "% การตอบ" ไม่ได้ (เคยโชว์ 828%)
@@ -98,7 +108,7 @@ export function svgDonut(pct: number, centerTop: string | number, centerSub: str
     '<circle cx="65" cy="65" r="' + r + '" fill="none" stroke="' + (color || '#2dd4a0') + '" stroke-width="16" stroke-linecap="round"' +
     ' stroke-dasharray="' + arc + ' ' + (c - arc) + '" stroke-dashoffset="' + (c / 4) + '"/>' +
     '<text x="65" y="63" text-anchor="middle" font-size="22" font-weight="800" style="fill:var(--text)">' + esc(centerTop) + '</text>' +
-    '<text x="65" y="80" text-anchor="middle" font-size="9.5" style="fill:var(--text-3)">' + esc(centerSub) + '</text></svg>';
+    '<text x="65" y="80" text-anchor="middle" font-size="11" style="fill:var(--text-3)">' + esc(centerSub) + '</text></svg>';
 }
 
 /** กราฟเส้น 24 ชั่วโมง: main/prev = array 24 ตัวเลข (opts.fmt='num' → ทูลทิปเป็นจำนวน ไม่ใช่ ฿) */
@@ -106,7 +116,7 @@ export function svgHourlyLine(main: number[], prev?: number[] | null, opts?: Lin
   const fmtAttr = opts && opts.fmt === 'num'
     ? ' data-fmt="num"' + (opts.unit ? ' data-unit="' + esc(opts.unit) + '"' : '')
     : '';
-  const W = 780, H = 260, padL = 46, padR = 14, padT = 16, padB = 28;
+  const W = vbWidth(780, 340), H = vbWidth(260, 190), padL = vbWidth(46, 34), padR = 14, padT = 16, padB = 28;
   const all = main.concat(prev || []);
   const max = Math.max(...all.concat([1])) * 1.1;
   function pt(i: number, v: number): [number, number] {
@@ -119,10 +129,10 @@ export function svgHourlyLine(main: number[], prev?: number[] | null, opts?: Lin
     const gy = padT + (g / 4) * (H - padT - padB);
     const gv = max * (1 - g / 4);
     parts.push('<line x1="' + padL + '" y1="' + gy + '" x2="' + (W - padR) + '" y2="' + gy + '" style="stroke:var(--track)"/>');
-    parts.push('<text x="' + (padL - 6) + '" y="' + (gy + 3) + '" text-anchor="end" font-size="10" style="fill:var(--text-3)">' + kFmt(gv) + '</text>');
+    parts.push('<text x="' + (padL - 6) + '" y="' + (gy + 3) + '" text-anchor="end" font-size="11" style="fill:var(--text-3)">' + kFmt(gv) + '</text>');
   }
   for (let hx = 0; hx < 24; hx += 2) {
-    parts.push('<text x="' + pt(hx, 0)[0] + '" y="' + (H - 8) + '" text-anchor="middle" font-size="10" style="fill:var(--text-3)">' + hx + 'h</text>');
+    parts.push('<text x="' + pt(hx, 0)[0] + '" y="' + (H - 8) + '" text-anchor="middle" font-size="11" style="fill:var(--text-3)">' + hx + 'h</text>');
   }
   if (prev) {
     parts.push('<polyline fill="none" stroke="#5b6478" stroke-width="2" stroke-dasharray="6 4" points="' +
