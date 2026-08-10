@@ -100,7 +100,7 @@ let lastFetchAt: number | null = null;                   // เวลาที�
 const AUTO_MS = 75000;                                   // 75 วิ — ถี่พอสำหรับ realtime แต่ไม่ถล่ม API
 let autoOn = true;                                       // ผู้ใช้กดปิด/เปิดได้จากปุ่มบนหน้า
 let autoTimer: ReturnType<typeof setInterval> | null = null;
-const state: PerfState = { preset: 'today', from: '', to: '', channel: '', group: '', mode: 'overall', panelOpen: false, kpiOpen: false };
+const state: PerfState = { preset: 'today', from: '', to: '', channel: '', group: '', mode: 'roas', panelOpen: false, kpiOpen: false };
 
 /* ---------- filter กลุ่มสินค้า (จาก admin_settings — client-side) ---------- */
 
@@ -130,6 +130,8 @@ function visRows(data: PerfData | null): PerfRow[] {
 }
 
 const RANK_MODES = [
+  // ทีมขอ 2026-08-10: อันดับหลักใช้ "เท่า" นำ แล้วค่อยดู %ปิด → เปอร์บิล → ตอบเร็ว
+  { key: 'roas', label: '🔥 เท่า (ROAS)' },
   { key: 'overall', label: '🏆 Overall' },
   { key: 'sales', label: '💰 ยอดขายดีที่สุด' },
   { key: 'close', label: '🎯 % ปิดการขายดีที่สุด' },
@@ -196,6 +198,22 @@ function roasHtml(r: PerfRow): string {
 }
 
 /** เปอร์บิล = ยอดขาย ÷ ออเดอร์ (โชว์ทุกโหมด ไม่ใช่เฉพาะโหมดที่ไม่ใช่ Overall) */
+/**
+ * ค่า "เท่า" ที่ใช้จัดอันดับ — ปัดเป็น 2 ตำแหน่งเท่ากับที่โชว์บนจอ
+ * (ถ้าเทียบค่าดิบ คนที่จอขึ้น 2.29x เท่ากันจะถูกตัดสินด้วยทศนิยมตำแหน่งที่ 3 ที่ไม่มีใครเห็น
+ *  → เงื่อนไขที่ 2-4 จะไม่มีวันได้ทำงาน)
+ */
+function roasOf(r: PerfRow): number | null {
+  const v = Number(r.roas);
+  if (r.roas === null || r.roas === undefined || !isFinite(v)) return null;
+  return Math.round(v * 100) / 100;
+}
+
+function roasTxt(r: PerfRow): string {
+  const v = roasOf(r);
+  return v === null ? '—' : v.toFixed(2);
+}
+
 function perBillHtml(r: PerfRow): string {
   return '<span title="เปอร์บิล = ยอดขาย ÷ จำนวนออเดอร์ ในช่วงเวลาที่เลือก">🧾 เปอร์บิล ' +
     esc(THB(r.avgOrder)) + '</span>';
@@ -309,6 +327,7 @@ function modeLabel(key: string): string {
 }
 
 function modeValue(r: PerfRow): string {
+  if (state.mode === 'roas') return roasTxt(r) + ' เท่า';
   if (state.mode === 'overall') return scoreFmt(r._score) + ' คะแนน';
   if (state.mode === 'close') return pctFmt(r.closeRate);
   if (state.mode === 'speed') return hasResp(r) ? fmtNum(respRound(r.avgRespMins)) + ' นาที' : '-';
@@ -337,7 +356,34 @@ function eligible(r: PerfRow, mode: string): boolean {
   if (mode === 'overall') return r._score !== null && r._score !== undefined;
   if (mode === 'close') return (Number(r.orders) || 0) > 0 && hasClose(r);
   if (mode === 'speed') return (Number(r.replies) || 0) > 0 && hasResp(r);
+  if (mode === 'roas') return roasOf(r) !== null;   // ไม่มียอดผูกแอด = จัดอันดับด้วย "เท่า" ไม่ได้
   return true;
+}
+
+/* ---- โหมด "🔥 เท่า" — 4 เงื่อนไขเรียงตามลำดับความสำคัญ (ทีมขอ 2026-08-10) ----
+ * เท่า (ROAS) → %ปิด → เปอร์บิล → ตอบเร็ว
+ * เป็นการเทียบ "ทีละชั้น" ไม่ใช่คะแนนถ่วงน้ำหนัก: เงื่อนไขถัดไปได้ทำงานเฉพาะตอนชั้นบนเสมอกัน
+ * → รับประกันว่าคนอันดับ 1 คือคนที่ "เท่า" สูงสุดเสมอ ตามที่ทีมสั่ง
+ * ทุกค่าปัดเท่าที่โชว์บนจอ เพื่อให้ลำดับที่เห็นอธิบายได้จากตัวเลขบนการ์ด
+ */
+const ROAS_ORDER: { get: (r: PerfRow) => number | null; dir: 'high' | 'low' }[] = [
+  { get: roasOf, dir: 'high' },
+  { get: (r) => (hasClose(r) ? Math.round(Number(r.closeRate) * 10) / 10 : null), dir: 'high' },
+  { get: (r) => (isFinite(Number(r.avgOrder)) ? Math.round(Number(r.avgOrder)) : null), dir: 'high' },
+  { get: (r) => (hasResp(r) && Number(r.avgRespMins) > 0 ? respRound(r.avgRespMins) : null), dir: 'low' },
+];
+
+function cmpRoas4(a: PerfRow, b: PerfRow): number {
+  for (let i = 0; i < ROAS_ORDER.length; i++) {
+    const c = ROAS_ORDER[i];
+    const va = c.get(a);
+    const vb = c.get(b);
+    if (va === null && vb === null) continue;
+    if (va === null) return 1;        // ไม่มีข้อมูลชั้นนี้ = ลงท้ายชั้นนี้ (ไม่ใช่ 0 คะแนน)
+    if (vb === null) return -1;
+    if (va !== vb) return c.dir === 'high' ? vb - va : va - vb;
+  }
+  return 0;
 }
 
 function sortRows(rows: PerfRow[], mode: string): PerfRow[] {
@@ -347,6 +393,10 @@ function sortRows(rows: PerfRow[], mode: string): PerfRow[] {
     const eb = eligible(b, mode) ? 1 : 0;
     if (ea !== eb) return eb - ea; // คนที่เข้าเกณฑ์มาก่อน
     if (ea === 1) {
+      if (mode === 'roas') {
+        const c = cmpRoas4(a, b);
+        if (c !== 0) return c;
+      }
       if (mode === 'overall' && b._score !== a._score) {
         return (b._score as number) - (a._score as number); // มาก → น้อย
       }
@@ -422,6 +472,12 @@ function controlsHtml(data: PerfData | null): string {
     '</div>' +
     '<div class="pg-controls">' +
       modeBtns +
+      (state.mode === 'roas'
+        ? '<span class="chip" title="' + esc('เทียบทีละชั้น: ดู "เท่า" ก่อนเสมอ — เท่ากัน (ปัด 2 ตำแหน่ง) ค่อยดู %ปิด → ' +
+            'เปอร์บิล → ตอบเร็ว ตามลำดับ • อันดับ 1 คือคนที่เท่าสูงสุดเสมอ • ' +
+            'คนที่ไม่มียอดผูกแอด (เช่นสาย LINE) จัดอันดับด้วยเท่าไม่ได้ ถูกต่อท้ายลิสต์') + '">' +
+          '1️⃣ เท่า → 2️⃣ %ปิด → 3️⃣ เปอร์บิล → 4️⃣ ตอบเร็ว</span>'
+        : '') +
       '<div class="spacer"></div>' +
       '<button class="btn' + (state.kpiOpen ? ' primary' : '') + '" id="rk-kpi-toggle">🎯 เป้า KPI</button>' +
       '<button class="btn' + (state.panelOpen ? ' primary' : '') + '" id="rk-toggle">⚙️ เกณฑ์การให้คะแนน</button>' +
@@ -851,9 +907,11 @@ function rankCardHtml(r: PerfRow, idx: number): string {
   // โหมด Overall โชว์คะแนนเป็นตัวใหญ่ + ยอดขายเป็นตัวรอง; โหมดอื่นโชว์ยอดขายเป็นตัวใหญ่
   const big = (state.mode === 'overall')
     ? '<div class="rank-big">' + esc(scoreFmt(r._score)) + '<span class="rank-big-u"> คะแนน</span></div>'
-    : '<div class="rank-big">' + esc(THB(r.revenue)) + '</div>';
+    : (state.mode === 'roas')
+      ? '<div class="rank-big">' + esc(roasTxt(r)) + '<span class="rank-big-u"> เท่า</span></div>'
+      : '<div class="rank-big">' + esc(THB(r.revenue)) + '</div>';
   // เปอร์บิล + ROAS อยู่ในทุกโหมด (เดิมเปอร์บิลโผล่เฉพาะโหมดที่ไม่ใช่ Overall)
-  const mini = (state.mode === 'overall' ? '💰 ' + esc(THB(r.revenue)) + ' • ' : '') +
+  const mini = ((state.mode === 'overall' || state.mode === 'roas') ? '💰 ' + esc(THB(r.revenue)) + ' • ' : '') +
     '<span title="%ปิดการขาย = ออเดอร์ ÷ คนทัก (อินบ็อกซ์ใหม่+ความคิดเห็น)">🎯 ' + esc(pctFmt(r.closeRate)) + '</span> • ⚡ ' + esc(respLong(r)) +
     '<br>' + perBillHtml(r) + ' • ' + roasHtml(r);
   return '<div class="' + cardCls + '">' +

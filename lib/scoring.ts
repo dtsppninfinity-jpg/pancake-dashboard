@@ -46,6 +46,8 @@ export const METRICS: Metric[] = [
   { key: 'replies',     label: 'ข้อความที่ตอบ',      unit: '',     dir: 'high' },
   { key: 'chats',       label: 'แชทที่ดูแล',         unit: '',     dir: 'high' },
   { key: 'avgOrder',    label: 'ยอดเฉลี่ย/ออเดอร์',  unit: '฿',    dir: 'high' },
+  // เท่า (ROAS) = ยอดที่ผูกแอด ÷ ค่าแอดปันส่วน — null สำหรับคนที่ไม่มียอดจากแอด (สาย LINE) → ไม่ถูกคิด
+  { key: 'roas',        label: 'เท่า (ROAS)',        unit: 'เท่า', dir: 'high' },
 ];
 
 export const METRIC_BY_KEY: Record<string, Metric> = METRICS.reduce((m, x) => {
@@ -65,6 +67,8 @@ export const DEFAULT_CONFIG: MetricConfig[] = [
   { key: 'replies',     weight: 0,  target: 1000, enabled: false },
   { key: 'chats',       weight: 0,  target: 200,  enabled: false },
   { key: 'avgOrder',    weight: 0,  target: 300,  enabled: false },
+  // ปิดไว้ก่อน — โหมดจัดอันดับ "🔥 เท่า" ใช้ ROAS ตรงๆ อยู่แล้ว ตัวนี้ไว้ให้เปิดถ้าอยากผสมเข้าคะแนน Overall
+  { key: 'roas',        weight: 0,  target: 3,    enabled: false },
 ];
 
 /** คีย์ที่เป้าหมายเป็นจำนวนเงิน — ใช้ตอนย้ายค่าที่ทีมเคยตั้งไว้ให้เข้าหน่วยใหม่ */

@@ -249,7 +249,9 @@ function rankCard(): string {
 
 export function adminperfSkel(): string {
   let h = controlsBar(chips([60, 96, 108, 84, 96], '30px') + inputSk('130px') + '<div class="spacer"></div>' + inputSk('80px'));
-  h += controlsBar(pill('110px', '28px') + pill('150px', '28px') + pill('140px', '28px') + pill('110px', '28px') + '<div class="spacer"></div>' + inputSk('160px'));
+  // 5 ปุ่มโหมด (เท่า/Overall/ยอดขาย/%ปิด/ตอบเร็ว) + แถบอธิบายลำดับเงื่อนไข
+  h += controlsBar(pill('120px', '28px') + pill('110px', '28px') + pill('150px', '28px') + pill('140px', '28px') +
+    pill('110px', '28px') + pill('210px', '28px') + '<div class="spacer"></div>' + inputSk('160px'));
   h += '<div class="top3-grid">' + podiumCard(false) + podiumCard(true) + podiumCard(false) + '</div>';
   let rows = '';
   for (let i = 0; i < 6; i++) rows += rankCard();
