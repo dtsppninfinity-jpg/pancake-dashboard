@@ -13,6 +13,8 @@ import {
   metaListAdAccounts, metaAccountAdInsights, metaAccountAdCreatives, metaAdCreativesByIds, metaPool,
 } from '../../lib/meta';
 import { supabase, upsertRows, replaceTable, setState, getState } from '../../lib/supabase';
+// ตัวช่วยอ่านแบบ "หั่นก้อนตามช่วงเวลา" — ใช้แทนการไล่ OFFSET ลึกซึ่งชน statement timeout เมื่อตารางโต
+import { fetchAllSliced, fetchAllDateSliced } from '../../lib/db';
 import { jobResult, type JobResult } from '../../lib/jobstat';
 import { getUnitsForAlert } from '../../lib/api/umap';
 import { nicknameByName } from '../../lib/api/adminsettings';
@@ -97,50 +99,53 @@ export async function syncUnitAlerts(): Promise<JobResult> {
   const monthStartStr = yesterdayStr.slice(0, 7) + '-01';
   const profFromStr = monthStartStr < sinceStr ? monthStartStr : sinceStr;
 
-  // ---- ยอดขายรายวันต่อยูนิต (เฉพาะออเดอร์ที่ยืนยันแล้ว เหมือนนิยามยอดขายหลัก) ----
+  /* ---- ยอดขายรายวันต่อยูนิต (เฉพาะออเดอร์ที่ยืนยันแล้ว เหมือนนิยามยอดขายหลัก) ----
+   * ⚠️ เดิมวน .range(from, from+999) ไล่ OFFSET ไปเรื่อยๆ — 14 วัน = ~40k แถว = OFFSET ลึกถึง 40,000
+   * ฐานต้องนับข้ามแถวที่ทิ้งทุกหน้า พอตารางโตขึ้นก็ชน statement timeout แล้วงานล้มทั้งตัว
+   * (เจอจริงบน prod 2026-08-10 "canceling statement due to statement timeout" — การ์ดขาดทุนค้างเงียบ)
+   * → หั่นเป็นก้อนตามช่วงเวลาแทน แต่ละก้อนตื้น ใช้ index ที่ inserted_at ได้ + มี retry ให้ในตัว
+   */
   const rev: Record<string, number> = {};
   {
-    let from = 0;
-    for (;;) {
-      const { data, error } = await supabase.from('orders')
-        .select('id,inserted_at,status,total_price,items_count,page_id')
-        .gte('inserted_at', sinceDate.toISOString())
-        .order('id', { ascending: true }).range(from, from + 999);
-      if (error) throw new Error(`อ่าน orders ล้มเหลว: ${error.message}`);
-      const rows = data || [];
-      for (const o of rows as any[]) {
-        const st = num(o.status);
-        if (EXCLUDED_STATUSES.indexOf(st) >= 0 || NEED_CHECK_STATUSES.indexOf(st) >= 0) continue;
-        if (isPlaceholderOrder(o)) continue;
-        const u = unitOf[String(o.page_id || '')];
-        if (!u) continue;
-        const d = fmtDateBkk(new Date(o.inserted_at));
-        rev[`${d}|${u}`] = (rev[`${d}|${u}`] || 0) + money_(o.total_price);
-      }
-      if (rows.length < 1000) break;
-      from += 1000;
+    let orderRows: any[];
+    try {
+      orderRows = await fetchAllSliced<any>((f, t) =>
+        supabase.from('orders')
+          .select('id,inserted_at,status,total_price,items_count,page_id')
+          .gte('inserted_at', f).lt('inserted_at', t),
+        sinceDate, new Date()
+      );
+    } catch (e: any) {
+      throw new Error(`อ่าน orders ล้มเหลว: ${(e && e.message) || e}`);
+    }
+    for (const o of orderRows) {
+      const st = num(o.status);
+      if (EXCLUDED_STATUSES.indexOf(st) >= 0 || NEED_CHECK_STATUSES.indexOf(st) >= 0) continue;
+      if (isPlaceholderOrder(o)) continue;
+      const u = unitOf[String(o.page_id || '')];
+      if (!u) continue;
+      const d = fmtDateBkk(new Date(o.inserted_at));
+      rev[`${d}|${u}`] = (rev[`${d}|${u}`] || 0) + money_(o.total_price);
     }
   }
 
   // ---- ค่าแอดรายวันต่อยูนิต ----
   const spend: Record<string, number> = {};
   {
-    let from = 0;
-    for (;;) {
-      const { data, error } = await supabase.from('ad_daily')
-        .select('date,ad_id,page_id,spend').gte('date', sinceStr)
-        .order('date', { ascending: true }).order('ad_id', { ascending: true })
-        .range(from, from + 999);
-      if (error) throw new Error(`อ่าน ad_daily ล้มเหลว: ${error.message}`);
-      const rows = data || [];
-      for (const a of rows as any[]) {
-        const u = unitOf[String(a.page_id || '')];
-        if (!u) continue;
-        const d = String(a.date || '').slice(0, 10);
-        spend[`${d}|${u}`] = (spend[`${d}|${u}`] || 0) + num(a.spend);
-      }
-      if (rows.length < 1000) break;
-      from += 1000;
+    let adRows: any[];
+    try {
+      adRows = await fetchAllDateSliced<any>((f, t) =>
+        supabase.from('ad_daily').select('date,ad_id,page_id,spend').gte('date', f).lte('date', t),
+        sinceStr, todayStr, { orderColumn: 'date,ad_id' }
+      );
+    } catch (e: any) {
+      throw new Error(`อ่าน ad_daily ล้มเหลว: ${(e && e.message) || e}`);
+    }
+    for (const a of adRows) {
+      const u = unitOf[String(a.page_id || '')];
+      if (!u) continue;
+      const d = String(a.date || '').slice(0, 10);
+      spend[`${d}|${u}`] = (spend[`${d}|${u}`] || 0) + num(a.spend);
     }
   }
 
@@ -150,19 +155,13 @@ export async function syncUnitAlerts(): Promise<JobResult> {
   // (ชีททีมเขียนเองว่า "ROAS รวม *ห้าม ≤ 3" — ขาย 2 เท่าของค่าแอดก็ยังขาดทุนจริง)
   const prof: Record<string, { profit: number; sales: number; ads: number }> = {};
   try {
-    let from = 0;
-    for (;;) {
-      const { data, error } = await supabase.from('unit_daily')
-        .select('key,u,date,profit,sales,ads').gte('date', profFromStr)
-        .order('key', { ascending: true }).range(from, from + 999);
-      if (error) throw new Error(error.message);
-      const rows = data || [];
-      for (const p of rows as any[]) {
-        const d = String(p.date || '').slice(0, 10);
-        prof[`${d}|${String(p.u)}`] = { profit: num(p.profit), sales: num(p.sales), ads: num(p.ads) };
-      }
-      if (rows.length < 1000) break;
-      from += 1000;
+    const profRows = await fetchAllDateSliced<any>((f, t) =>
+      supabase.from('unit_daily').select('key,u,date,profit,sales,ads').gte('date', f).lte('date', t),
+      profFromStr, todayStr, { orderColumn: 'key' }
+    );
+    for (const p of profRows) {
+      const d = String(p.date || '').slice(0, 10);
+      prof[`${d}|${String(p.u)}`] = { profit: num(p.profit), sales: num(p.sales), ads: num(p.ads) };
     }
   } catch { /* ยังไม่รัน migration unit_daily → ใช้ ROAS ล้วนเหมือนเดิม */ }
   const profUnits = new Set(Object.keys(prof).map((k) => k.split('|')[1]));
