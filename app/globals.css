@@ -410,6 +410,9 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
   background: var(--surface-2); border: 1px solid var(--border);
   color: var(--text-2); padding: var(--sp-1) var(--sp-3); border-radius: 99px; font-size: var(--fs-2);
 }
+/* chip ที่กดได้ (เช่นแถบอธิบายโหมดเท่า → เปิดแผงเกณฑ์) — สูงพอสำหรับนิ้วบนมือถือ */
+.chip.chip-btn { cursor: pointer; min-height: 32px; }
+.chip.chip-btn:hover { border-color: var(--primary); color: var(--text-1); }
 .conv-filters { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-4); }
 .filter-btn {
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2);

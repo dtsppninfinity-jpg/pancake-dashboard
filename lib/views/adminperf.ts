@@ -30,8 +30,11 @@ import {
   DEFAULT_KPI_TARGETS,
   normalizeKpiTargets,
   kpiProgress,
+  DEFAULT_RANK_RULES,
+  normalizeRankRules,
   type MetricConfig,
   type KpiTargets,
+  type RankRules,
 } from '@/lib/scoring';
 import { hbarRows, svgHourlyLine, bindChartTips, hideChartTip } from '@/lib/ui/charts';
 import { adminperfSkel } from '@/lib/ui/skeletons';
@@ -93,6 +96,7 @@ interface PerfState extends RangeState {
 let lastData: PerfData | null = null;
 let reqSeq = 0;
 let scoreConfig: MetricConfig[] = normalizeConfig(null);
+let rankRules: RankRules = { ...DEFAULT_RANK_RULES };   // เกณฑ์เข้าอันดับโหมด "เท่า" (โหลด/บันทึกคู่กับ scoreConfig)
 let configLoaded = false;
 let kpiTargets: KpiTargets = { ...DEFAULT_KPI_TARGETS }; // sync จาก data ทุกครั้งที่โหลดสำเร็จ
 let lastFetchAt: number | null = null;                   // เวลาที่ได้ข้อมูลชุดล่าสุด (ไฟกระพริบ)
@@ -356,7 +360,13 @@ function eligible(r: PerfRow, mode: string): boolean {
   if (mode === 'overall') return r._score !== null && r._score !== undefined;
   if (mode === 'close') return (Number(r.orders) || 0) > 0 && hasClose(r);
   if (mode === 'speed') return (Number(r.replies) || 0) > 0 && hasResp(r);
-  if (mode === 'roas') return roasOf(r) !== null;   // ไม่มียอดผูกแอด = จัดอันดับด้วย "เท่า" ไม่ได้
+  if (mode === 'roas') {
+    if (roasOf(r) === null) return false;           // ไม่มียอดผูกแอด = จัดอันดับด้วย "เท่า" ไม่ได้
+    // ตัวหารเล็กเกินไป = ตัวเลขเท่าไม่น่าเชื่อถือ ไม่ใช่ผลงาน — ทีมตั้งขั้นต่ำเองได้ (0 = ไม่กัน)
+    if ((Number(r.adSpend) || 0) < rankRules.minAdSpend) return false;
+    if ((Number(r.orders) || 0) < rankRules.minOrders) return false;
+    return true;
+  }
   return true;
 }
 
@@ -450,6 +460,28 @@ function liveChipHtml(): string {
     '<span class="live-dot' + (on ? ' on' : '') + '"></span>อัปเดต ' + esc(t) + '</span>';
 }
 
+/** แถบอธิบายลำดับเงื่อนไข + ด่านขั้นต่ำที่ใช้อยู่ — กดแล้วเปิดแผงไปแก้ได้เลย */
+function roasHintText(): string {
+  const floors: string[] = [];
+  if (rankRules.minAdSpend > 0) floors.push('ค่าแอด ≥ ' + THB(rankRules.minAdSpend));
+  if (rankRules.minOrders > 0) floors.push('ออเดอร์ ≥ ' + fmtNum(rankRules.minOrders));
+  return '1️⃣ เท่า → 2️⃣ %ปิด → 3️⃣ เปอร์บิล → 4️⃣ ตอบเร็ว' +
+    (floors.length ? ' • ขั้นต่ำ ' + floors.join(' + ') : '');
+}
+
+function roasHintTip(): string {
+  const gated = rankRules.minAdSpend > 0 || rankRules.minOrders > 0;
+  return 'เทียบทีละชั้น: ดู "เท่า" ก่อนเสมอ — เท่ากัน (ปัด 2 ตำแหน่ง) ค่อยดู %ปิด → เปอร์บิล → ตอบเร็ว ตามลำดับ • ' +
+    'อันดับ 1 คือคนที่เท่าสูงสุดเสมอ • คนที่ไม่มียอดผูกแอด (เช่นสาย LINE) จัดอันดับด้วยเท่าไม่ได้ ถูกต่อท้ายลิสต์' +
+    (gated ? ' • คนที่ต่ำกว่าขั้นต่ำก็ต่อท้ายเหมือนกัน (กันเลขเท่าพุ่งเพราะค่าแอดนิดเดียว)' : '') +
+    ' • กดเพื่อเปิดแผงแก้ขั้นต่ำ';
+}
+
+function roasHintChipHtml(): string {
+  return '<span class="chip chip-btn" id="rk-roas-hint" title="' + esc(roasHintTip()) + '">' +
+    esc(roasHintText()) + '</span>';
+}
+
 function controlsHtml(data: PerfData | null): string {
   const modeBtns = RANK_MODES.map(function (m) {
     return '<button class="btn-mini' + (state.mode === m.key ? ' primary' : '') +
@@ -472,12 +504,7 @@ function controlsHtml(data: PerfData | null): string {
     '</div>' +
     '<div class="pg-controls">' +
       modeBtns +
-      (state.mode === 'roas'
-        ? '<span class="chip" title="' + esc('เทียบทีละชั้น: ดู "เท่า" ก่อนเสมอ — เท่ากัน (ปัด 2 ตำแหน่ง) ค่อยดู %ปิด → ' +
-            'เปอร์บิล → ตอบเร็ว ตามลำดับ • อันดับ 1 คือคนที่เท่าสูงสุดเสมอ • ' +
-            'คนที่ไม่มียอดผูกแอด (เช่นสาย LINE) จัดอันดับด้วยเท่าไม่ได้ ถูกต่อท้ายลิสต์') + '">' +
-          '1️⃣ เท่า → 2️⃣ %ปิด → 3️⃣ เปอร์บิล → 4️⃣ ตอบเร็ว</span>'
-        : '') +
+      (state.mode === 'roas' ? roasHintChipHtml() : '') +
       '<div class="spacer"></div>' +
       '<button class="btn' + (state.kpiOpen ? ' primary' : '') + '" id="rk-kpi-toggle">🎯 เป้า KPI</button>' +
       '<button class="btn' + (state.panelOpen ? ' primary' : '') + '" id="rk-toggle">⚙️ เกณฑ์การให้คะแนน</button>' +
@@ -831,12 +858,27 @@ function panelRowHtml(c: MetricConfig): string {
     '</div>';
 }
 
+/** เกณฑ์ "ใครมีสิทธิ์เข้าอันดับ" ของโหมดเท่า — คนละเรื่องกับน้ำหนักคะแนน Overall จึงแยกแถวไว้บนสุด */
+function rankRulesRowHtml(): string {
+  return '<div class="sp-row" id="rk-rankrules">' +
+    '<label class="sp-metric"><span>🔥 เข้าอันดับโหมด &quot;เท่า&quot;</span></label>' +
+    '<div class="sp-field">ค่าแอดขั้นต่ำ <input type="number" min="0" step="50" class="input sp-num" id="rk-min-spend" value="' +
+      rankRules.minAdSpend + '"><span class="sp-u">฿</span></div>' +
+    '<div class="sp-field">ออเดอร์ขั้นต่ำ <input type="number" min="0" step="1" class="input sp-num" id="rk-min-orders" value="' +
+      rankRules.minOrders + '"><span class="sp-u">ออเดอร์</span></div>' +
+    '<div class="sp-dir">0 = ไม่กัน</div>' +
+    '</div>';
+}
+
 function panelHtml(): string {
   const rows = scoreConfig.map(panelRowHtml).join('');
   return '<div class="score-panel' + (state.panelOpen ? '' : ' collapsed') + '" id="rk-panel">' +
       '<div class="sp-hint">ปรับ <b>น้ำหนัก (%)</b> และ <b>เป้าหมาย</b> ของแต่ละตัวชี้วัดได้เอง — คะแนน Overall = ผลรวมถ่วงน้ำหนัก ' +
         '(ได้ครบ 100 คะแนนของตัวนั้นเมื่อถึงเป้า) • คนที่ไม่มีข้อมูลตัวไหนจะไม่ถูกคิดตัวนั้น • กด "บันทึกเกณฑ์" เพื่อให้ทุกคนใช้เกณฑ์เดียวกัน</div>' +
-      '<div class="sp-list">' + rows + '</div>' +
+      '<div class="sp-hint">แถวแรกไม่ใช่คะแนน แต่เป็น <b>ด่านเข้าอันดับของโหมด 🔥 เท่า</b> — ' +
+        'เท่า = ยอดจากแอด ÷ ค่าแอด คนที่ค่าแอดปันมานิดเดียวจะได้เลขสูงลิ่วโดยไม่ได้แปลว่าเก่ง ' +
+        '(เจอจริง: 3 ออเดอร์ ค่าแอด ฿35 = 27.82 เท่า) • ใส่ 0 ทั้งสองช่อง = ไม่กันใครเลย เรียงด้วยเท่าล้วน</div>' +
+      '<div class="sp-list">' + rankRulesRowHtml() + rows + '</div>' +
       '<div class="sp-foot">' +
         '<span class="chip">รวมน้ำหนักที่เปิด <b id="rk-wsum">' + enabledWeightSum() + '</b>%</span>' +
         '<div class="spacer" style="flex:1"></div>' +
@@ -1104,10 +1146,33 @@ function bindEvents(container: HTMLElement): void {
     });
   });
 
+  // ด่านเข้าอันดับโหมดเท่า — พิมพ์แล้วอันดับขยับทันที (บันทึกด้วยปุ่มเดียวกับเกณฑ์คะแนน)
+  const bindFloor = function (id: string, set: (n: number) => void): void {
+    const el = container.querySelector(id) as HTMLInputElement | null;
+    if (!el) return;
+    el.addEventListener('input', function () {
+      const n = Number(el.value);
+      set(isFinite(n) && n >= 0 ? Math.round(n) : 0);
+      updateRanking(container);
+      // อัปเดตข้อความในแถบเดิม ไม่แทน node — ถ้าแทนจะทำให้ handler กดเปิดแผงหลุด
+      const chip = container.querySelector('#rk-roas-hint') as HTMLElement | null;
+      if (chip) { chip.textContent = roasHintText(); chip.setAttribute('title', roasHintTip()); }
+    });
+  };
+  bindFloor('#rk-min-spend', function (n) { rankRules.minAdSpend = n; });
+  bindFloor('#rk-min-orders', function (n) { rankRules.minOrders = n; });
+
+  // แถบอธิบายโหมดเท่า — กดแล้วเปิดแผงเกณฑ์ไปแก้ขั้นต่ำ
+  const hintChip = container.querySelector('#rk-roas-hint');
+  if (hintChip) hintChip.addEventListener('click', function () {
+    state.panelOpen = true;
+    render(container, lastData);
+  });
+
   // บันทึกเกณฑ์ (เก็บบนเซิร์ฟเวอร์)
   const saveBtn = container.querySelector('#rk-save');
   if (saveBtn) saveBtn.addEventListener('click', function () {
-    serverCall('apiScoreConfig', { config: scoreConfig })
+    serverCall('apiScoreConfig', { config: scoreConfig, rank: rankRules })
       .then(function () { toast('💾 บันทึกเกณฑ์แล้ว — ทุกคนจะเห็นเกณฑ์นี้'); })
       .catch(function () { toast('⚠️ บันทึกเกณฑ์ไม่สำเร็จ'); });
   });
@@ -1116,6 +1181,7 @@ function bindEvents(container: HTMLElement): void {
   const resetBtn = container.querySelector('#rk-reset');
   if (resetBtn) resetBtn.addEventListener('click', function () {
     scoreConfig = normalizeConfig(null);
+    rankRules = normalizeRankRules(null);
     state.panelOpen = true;
     render(container, lastData);
     toast('↺ กลับไปใช้ค่าเริ่มต้นแล้ว (ยังไม่บันทึก)');
@@ -1244,10 +1310,12 @@ function fetchData(container: HTMLElement, background: boolean): void {
 /** โหลด scoreConfig ที่บันทึกไว้ (ครั้งเดียว) */
 async function loadConfig(): Promise<void> {
   try {
-    const res = await serverCall<{ config: unknown }>('apiScoreConfig', {});
+    const res = await serverCall<{ config: unknown; rank: unknown }>('apiScoreConfig', {});
     scoreConfig = normalizeConfig(res && res.config);
+    rankRules = normalizeRankRules(res && res.rank);
   } catch (e) {
     scoreConfig = normalizeConfig(null);
+    rankRules = normalizeRankRules(null);
   }
   configLoaded = true;
 }

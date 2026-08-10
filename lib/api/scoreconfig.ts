@@ -1,10 +1,11 @@
 // lib/api/scoreconfig.ts — เก็บ/อ่าน "เกณฑ์การให้คะแนน Overall" ของหน้า Admin Performance
 // เก็บเป็น JSON ในตาราง sync_state (key เดียว) → หัวหน้าตั้งครั้งเดียว ทุกคนเห็นเกณฑ์เดียวกัน
 import { db } from '@/lib/db';
-import { normalizeConfig, MONEY_METRIC_KEYS } from '@/lib/scoring';
+import { normalizeConfig, normalizeRankRules, MONEY_METRIC_KEYS } from '@/lib/scoring';
 import { MONEY_SCALE } from '@/lib/config';
 
 const KEY = 'adminperf_score_config';
+const RANK_KEY = 'adminperf_rank_rules';   // เกณฑ์เข้าอันดับโหมด "เท่า" — คนละเรื่องกับน้ำหนักคะแนน จึงแยกคีย์
 const MIGRATED_KEY = 'score_config_money_scaled'; // มาร์กว่าย้ายหน่วยเงินแล้ว (กันรันซ้ำ)
 
 /**
@@ -33,15 +34,30 @@ async function migrateMoneyTargets_(raw: any[]): Promise<{ config: any[]; migrat
 }
 
 export async function apiScoreConfig(params: any) {
-  // มี config ส่งมา → บันทึก
-  if (params && params.config) {
-    const clean = normalizeConfig(params.config);           // กันค่าเพี้ยน/คีย์แปลกปลอม
-    const value = JSON.stringify(clean);
-    const { error } = await db
-      .from('sync_state')
-      .upsert({ key: KEY, value, updated_at: new Date().toISOString() }, { onConflict: 'key' });
-    if (error) throw new Error('บันทึกเกณฑ์ไม่สำเร็จ: ' + error.message);
-    return { ok: true, config: clean };
+  const now = new Date().toISOString();
+  const hasConfig = !!(params && params.config);
+  const hasRank = !!(params && params.rank);
+
+  // มีอะไรส่งมา → บันทึก (ปุ่ม 💾 ส่งมาพร้อมกันทั้งสองก้อน)
+  if (hasConfig || hasRank) {
+    const out: any = { ok: true };
+    if (hasConfig) {
+      const clean = normalizeConfig(params.config);         // กันค่าเพี้ยน/คีย์แปลกปลอม
+      const { error } = await db
+        .from('sync_state')
+        .upsert({ key: KEY, value: JSON.stringify(clean), updated_at: now }, { onConflict: 'key' });
+      if (error) throw new Error('บันทึกเกณฑ์ไม่สำเร็จ: ' + error.message);
+      out.config = clean;
+    }
+    if (hasRank) {
+      const cleanRank = normalizeRankRules(params.rank);
+      const { error } = await db
+        .from('sync_state')
+        .upsert({ key: RANK_KEY, value: JSON.stringify(cleanRank), updated_at: now }, { onConflict: 'key' });
+      if (error) throw new Error('บันทึกเกณฑ์เข้าอันดับไม่สำเร็จ: ' + error.message);
+      out.rank = cleanRank;
+    }
+    return out;
   }
 
   // ไม่มี → อ่านค่าปัจจุบัน (null = ยังไม่เคยตั้ง → ฝั่ง client จะใช้ค่าเริ่มต้น)
@@ -56,5 +72,11 @@ export async function apiScoreConfig(params: any) {
       moneyRescaled = res.migrated;
     } catch (e) { config = null; }
   }
-  return { ok: true, config, moneyRescaled };
+
+  const { data: rankRow } = await db.from('sync_state').select('value').eq('key', RANK_KEY).maybeSingle();
+  let rank: any = null;
+  if (rankRow && rankRow.value) {
+    try { rank = normalizeRankRules(JSON.parse(rankRow.value)); } catch (e) { rank = null; }
+  }
+  return { ok: true, config, rank, moneyRescaled };
 }

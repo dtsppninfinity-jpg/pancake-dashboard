@@ -95,6 +95,36 @@ export function normalizeConfig(raw: unknown): MetricConfig[] {
 }
 
 /* ================================================================
+ * เกณฑ์เข้าอันดับของโหมด "🔥 เท่า (ROAS)"
+ *
+ * ทำไมต้องมี: ROAS = ยอดจากแอด ÷ ค่าแอด — ตัวหารเล็กทำให้เลขพุ่งโดยไม่ได้แปลว่าเก่ง
+ * ของจริงที่เจอ 2026-08-10: คนขาย 3 ออเดอร์ ค่าแอดปันมา ฿35 ได้ 27.82 เท่า ขึ้นอันดับ 1
+ * แซงคนขาย 21 ออเดอร์ ค่าแอด ฿1,782 ที่ได้ 5.45 เท่า
+ * หน้านี้มีตัวกันแบบเดียวกันอยู่แล้วที่การ์ด "ตอบเร็วสุด" (ตัดคนตอบ < 20 ข้อความ)
+ * ต่างกันตรงตัวเลขนี้ทีมปรับเองได้ เพราะขึ้นกับสเกลค่าแอดของแต่ละช่วง
+ * ================================================================ */
+
+export interface RankRules {
+  minAdSpend: number;  // ค่าแอดปันส่วนขั้นต่ำถึงเข้าอันดับโหมดเท่า (0 = ไม่กัน)
+  minOrders: number;   // ออเดอร์ขั้นต่ำถึงเข้าอันดับโหมดเท่า (0 = ไม่กัน)
+}
+
+export const DEFAULT_RANK_RULES: RankRules = { minAdSpend: 500, minOrders: 0 };
+
+export function normalizeRankRules(raw: unknown): RankRules {
+  const r = (raw || {}) as Record<string, unknown>;
+  const num = (v: unknown, dv: number, max: number): number => {
+    const n = Number(v);
+    if (!isFinite(n) || n < 0) return dv;   // ค่าเพี้ยน → ค่าเริ่มต้น; 0 = ตั้งใจปิด ต้องผ่าน
+    return Math.min(max, Math.round(n));
+  };
+  return {
+    minAdSpend: num(r.minAdSpend, DEFAULT_RANK_RULES.minAdSpend, 10000000),
+    minOrders: num(r.minOrders, DEFAULT_RANK_RULES.minOrders, 100000),
+  };
+}
+
+/* ================================================================
  * เป้า KPI ต่อคน/ต่อวัน (หน้า Admin Performance — แถบความคืบหน้า realtime)
  *
  * ทำไมเก็บชุดเดียวใน sync_state (ไม่ใช่ต่อคนใน admin_settings):
