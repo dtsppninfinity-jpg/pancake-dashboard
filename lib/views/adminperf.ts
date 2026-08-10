@@ -93,7 +93,7 @@ interface PerfState extends RangeState {
   mode: string;
   panelOpen: boolean;
   kpiOpen: boolean;   // แผงตั้งเป้า KPI เปิดอยู่ไหม
-  rankTab: 'top' | 'bottom';  // สลับหัวลิสต์: โพเดียมท็อป 3 / โซนเตือนบ๊วย 5 (สลับกันเพื่อไม่กินที่)
+  rankTab: 'top' | 'bottom';  // สลับหัวลิสต์: โพเดียมท็อป 3 / โซนเตือน ต่ำสุด 5 (สลับกันเพื่อไม่กินที่)
 }
 
 let lastData: PerfData | null = null;
@@ -924,7 +924,7 @@ function podiumHtml(sorted: PerfRow[]): string {
     '</div>';
 }
 
-/* ---------- 🚨 โซนเตือน "บ๊วย 5" (ทีมขอ 2026-08-10) ----------
+/* ---------- 🚨 โซนเตือน "ต่ำสุด 5" (ทีมขอ 2026-08-10) ----------
  * สลับกับโพเดียมด้วยปุ่ม — โชว์ทีละอันเพื่อไม่กินที่หน้าจอ
  * นับเฉพาะคนที่ "เข้าเกณฑ์จัดอันดับในโหมดนี้" เท่านั้น คนที่จัดอันดับไม่ได้ (เช่นสาย LINE
  * ไม่มียอดผูกแอดในโหมดเท่า) กองอยู่ท้ายลิสต์อยู่แล้ว ถ้านับรวมจะกลายเป็นว่าโดนประจานทั้งที่วัดไม่ได้
@@ -950,20 +950,27 @@ function unitChipsHtml(r: PerfRow): string {
   }).join('');
 }
 
-function b5CardHtml(r: PerfRow, pos: number, worst: boolean): string {
+/**
+ * lowNo = ลำดับในกลุ่มต่ำสุด (1 = ต่ำสุดของทั้งทีม) — ทีมบอกว่าเห็นแต่เลขอันดับรวมแล้ว
+ * แยกไม่ออกว่าใครหนักกว่าใคร เลยต้องมีเลข 1-5 ของตัวเองอยู่หน้าการ์ด
+ * ส่วนอันดับรวม (#27 จาก 27) ยังโชว์ไว้เป็นตัวรอง ให้เทียบกับลิสต์เต็มข้างล่างได้
+ */
+function b5CardHtml(r: PerfRow, lowNo: number, pos: number, total: number): string {
   const full = fullNameSub(r);
   const stats = '<span title="เท่า (ROAS)">🔥 ' + esc(roasTxt(r)) + '</span> • ' +
     '<span title="%ปิดการขาย">🎯 ' + esc(pctFmt(r.closeRate)) + '</span> • ' +
     '<span title="เปอร์บิล">🧾 ' + esc(THB(r.avgOrder)) + '</span> • ' +
     '<span title="เวลาตอบเฉลี่ย">⚡ ' + esc(respLong(r)) + '</span> • ' +
     '🛒 ' + esc(fmtNum(r.orders)) + ' • 💰 ' + esc(THB(r.revenue));
-  return '<div class="b5-card' + (worst ? ' worst' : '') + '">' +
-    '<div class="b5-rank" title="อันดับจากทั้งหมดในโหมดนี้">#' + pos + '</div>' +
+  return '<div class="b5-card' + (lowNo === 1 ? ' worst' : '') + '">' +
+    '<div class="b5-rank" title="' + esc('ต่ำสุดอันดับ ' + lowNo + ' (อันดับ 1 = ต่ำสุดของทีม)') + '">' +
+      '<span class="b5-rank-lo">ต่ำสุด</span><span class="b5-rank-n">' + lowNo + '</span></div>' +
     avatarHtml(r.id, r.name, r.online, 'sm') +
     '<div class="b5-mid">' +
       '<div class="b5-name">' + esc(nickOf(r)) +
         (full ? ' <span class="rank-fullname" title="ชื่อเต็มใน Pancake">' + esc(full) + '</span>' : '') +
-        (worst ? ' <span class="b5-worst-tag">ท้ายสุด</span>' : '') + '</div>' +
+        ' <span class="b5-overall" title="อันดับรวมของโหมดนี้ ตรงกับเลขในลิสต์เต็มข้างล่าง">อันดับรวม #' +
+          pos + '/' + fmtNum(total) + '</span></div>' +
       '<div class="b5-units">' + unitChipsHtml(r) + '</div>' +
       '<div class="b5-stats">' + stats + '</div>' +
     '</div>' +
@@ -975,15 +982,16 @@ function bottom5Html(sorted: PerfRow[]): string {
   const idx: number[] = [];
   sorted.forEach(function (r, i) { if (eligible(r, state.mode)) idx.push(i); });
   if (!idx.length) {
-    return '<div class="empty-note">ยังไม่มีใครเข้าเกณฑ์จัดอันดับในโหมดนี้ — เลยยังไม่มีบ๊วย</div>';
+    return '<div class="empty-note">ยังไม่มีใครเข้าเกณฑ์จัดอันดับในโหมดนี้ — ยังจัด 5 อันดับต่ำสุดไม่ได้</div>';
   }
   const skipped = sorted.length - idx.length;
-  // เอาท้ายสุดขึ้นก่อน — โซนนี้ไว้ไล่ดูว่าใครต้องช่วยด่วนสุด ไม่ใช่ตารางอ่านไล่ลง
+  // ต่ำสุดขึ้นก่อน — โซนนี้ไว้ไล่ดูว่าใครต้องช่วยด่วนสุด ไม่ใช่ตารางอ่านไล่ลง
   const pick = idx.slice(-BOTTOM_N).reverse();
   const cards = pick.map(function (i, n) {
-    return b5CardHtml(sorted[i], i + 1, n === 0);
+    return b5CardHtml(sorted[i], n + 1, i + 1, idx.length);
   }).join('');
-  const note = 'เรียงจากท้ายสุดขึ้นมา • เกณฑ์ที่ใช้ตัดสิน: ' + esc(modeLabel(state.mode)) +
+  const note = '<b>อันดับ 1 = ต่ำสุดของทีม</b> ไล่ขึ้นไปหาอันดับ ' + pick.length +
+    ' • เกณฑ์ที่ใช้ตัดสิน: ' + esc(modeLabel(state.mode)) +
     ' • นับจากคนที่จัดอันดับได้ ' + fmtNum(idx.length) + ' คน' +
     (skipped > 0
       ? ' <span title="โหมดนี้วัดคนกลุ่มนี้ไม่ได้ (เช่นไม่มียอดผูกแอด หรือต่ำกว่าขั้นต่ำที่ตั้งไว้) — ไม่เอามาประจาน">' +
@@ -991,20 +999,20 @@ function bottom5Html(sorted: PerfRow[]): string {
       : '');
   return '<div class="b5-zone">' +
       '<div class="b5-head">' +
-        '<div class="b5-title">🚨 ' + fmtNum(pick.length) + ' อันดับล่างสุด — ต้องเข้าไปดูแล</div>' +
+        '<div class="b5-title">⚠️ ' + fmtNum(pick.length) + ' อันดับต่ำสุด — ต้องเข้าไปดูแล</div>' +
         '<div class="b5-note">' + note + '</div>' +
       '</div>' +
       cards +
     '</div>';
 }
 
-/** ปุ่มสลับ ท็อป 3 / บ๊วย 5 — โชว์ทีละอัน ประหยัดพื้นที่ */
+/** ปุ่มสลับ ท็อป 3 / ต่ำสุด 5 — โชว์ทีละอัน ประหยัดพื้นที่ */
 function rankTabsHtml(): string {
   const btn = function (key: string, label: string, cls: string): string {
     return '<button class="rank-tab ' + cls + (state.rankTab === key ? ' active' : '') +
       '" data-ranktab="' + key + '">' + label + '</button>';
   };
-  return '<div class="rank-tabs">' + btn('top', '🥇 ท็อป 3', 'good') + btn('bottom', '🚨 บ๊วย 5', 'warn') + '</div>';
+  return '<div class="rank-tabs">' + btn('top', '🥇 ท็อป 3', 'good') + btn('bottom', '⚠️ ต่ำสุด 5', 'warn') + '</div>';
 }
 
 function rankCardHtml(r: PerfRow, idx: number): string {
@@ -1291,7 +1299,7 @@ function bindEvents(container: HTMLElement): void {
   const csvBtn = container.querySelector('#rk-csv');
   if (csvBtn) csvBtn.addEventListener('click', exportCSV);
 
-  bindRankTabs(container);  // ปุ่ม ท็อป 3 / บ๊วย 5
+  bindRankTabs(container);  // ปุ่ม ท็อป 3 / ต่ำสุด 5
   bindComEvents(container); // ตัวกรองเดือน + CSV ของตารางค่าคอม (วาดจากแคช comData)
 }
 

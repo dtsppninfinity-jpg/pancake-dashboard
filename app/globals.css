@@ -794,7 +794,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .top3-card .val { font-size: var(--fs-6); font-weight: 800; color: var(--green); margin: var(--sp-1) 0; }
 .top3-card.first .val { font-size: var(--fs-7); }
 .top3-card .sub { font-size: var(--fs-1); color: var(--text-3); }
-/* ---------- สลับหัวลิสต์: ท็อป 3 / บ๊วย 5 (ทีมขอ 2026-08-10 — โชว์ทีละอัน ไม่กินที่) ---------- */
+/* ---------- สลับหัวลิสต์: ท็อป 3 / ต่ำสุด 5 (ทีมขอ 2026-08-10 — โชว์ทีละอัน ไม่กินที่) ---------- */
 .rank-tabs { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-3); flex-wrap: wrap; }
 .rank-tab {
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2);
@@ -805,7 +805,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .rank-tab.good.active { background: var(--green-soft); border-color: var(--green); color: var(--green); }
 .rank-tab.warn.active { background: var(--red-soft); border-color: var(--red); color: var(--red); }
 
-/* ---------- 🚨 โซนเตือน "บ๊วย 5" — แดงทั้งโซนให้เห็นว่าคนละเรื่องกับโพเดียม ---------- */
+/* ---------- 🚨 โซนเตือน "ต่ำสุด 5" — แดงทั้งโซนให้เห็นว่าคนละเรื่องกับโพเดียม ---------- */
 .b5-zone {
   border: 2px solid var(--red); border-radius: 16px; padding: var(--sp-3);
   background: var(--red-soft); margin-bottom: var(--sp-4);
@@ -820,17 +820,18 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
   border-radius: 12px; padding: var(--sp-3); min-width: 0;
 }
 .b5-card.worst { border-width: 2px; border-left-width: 6px; box-shadow: 0 4px 14px var(--red-soft); }
+/* ป้าย "ต่ำสุด N" — ทีมบอกว่าเห็นแต่เลขอันดับรวมแล้วแยกไม่ออกว่าใครหนักกว่าใคร */
 .b5-rank {
-  width: 40px; height: 34px; border-radius: 99px; flex-shrink: 0;
-  background: var(--red-soft); color: var(--red);
-  display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: var(--fs-2);
+  width: 52px; flex-shrink: 0; border-radius: 10px; padding: var(--sp-1) 0;
+  background: var(--red-soft); color: var(--red); text-align: center; line-height: 1.15;
 }
+.b5-rank-lo { display: block; font-size: var(--fs-1); font-weight: 700; opacity: .85; }
+.b5-rank-n { display: block; font-size: var(--fs-5); font-weight: 800; }
+.b5-overall { font-size: var(--fs-1); font-weight: 500; color: var(--text-3); }
 .b5-mid { flex: 1 1 160px; min-width: 0; }
 .b5-name { font-weight: 700; font-size: var(--fs-4); display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
-.b5-worst-tag {
-  background: var(--red); color: #fff; font-size: var(--fs-1); font-weight: 800;
-  padding: 2px var(--sp-2); border-radius: 99px;
-}
+/* ใบอันดับ 1 (ต่ำสุด) — ป้ายทึบ + กรอบหนา ให้สะดุดตากว่าอีก 4 ใบ */
+.b5-card.worst .b5-rank { background: var(--red); color: #fff; }
 .b5-units { display: flex; gap: var(--sp-1); flex-wrap: wrap; margin-top: var(--sp-1); }
 .b5-unit {
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2);
