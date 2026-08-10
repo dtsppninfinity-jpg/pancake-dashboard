@@ -58,6 +58,8 @@ interface PerfRow {
   topPage: string;
   lastOrderAt: string;
   productGroups?: string;
+  units?: string[];     // ยูนิตที่คนนี้สังกัด — คนเดียวอยู่ได้หลายยูนิต
+  unitsGuess?: boolean; // true = เดาจากเพจที่ขายได้ (ทีมยังไม่ได้จับคู่ใน U Map/ชีทค่าคอม)
   adRevenue?: number;   // ยอด POS ที่ผูก ad_id (เฉพาะแอดที่มีค่าแอดจริง)
   adSpend?: number;     // ค่าแอดที่ปันมาให้คนนี้ตามสัดส่วนยอดขายในแต่ละแอด
   roas?: number | null; // null = ไม่มียอดผูกแอดเลย (สาย LINE) → โชว์ "—" ห้ามเดา
@@ -91,6 +93,7 @@ interface PerfState extends RangeState {
   mode: string;
   panelOpen: boolean;
   kpiOpen: boolean;   // แผงตั้งเป้า KPI เปิดอยู่ไหม
+  rankTab: 'top' | 'bottom';  // สลับหัวลิสต์: โพเดียมท็อป 3 / โซนเตือนบ๊วย 5 (สลับกันเพื่อไม่กินที่)
 }
 
 let lastData: PerfData | null = null;
@@ -104,7 +107,7 @@ let lastFetchAt: number | null = null;                   // เวลาที�
 const AUTO_MS = 75000;                                   // 75 วิ — ถี่พอสำหรับ realtime แต่ไม่ถล่ม API
 let autoOn = true;                                       // ผู้ใช้กดปิด/เปิดได้จากปุ่มบนหน้า
 let autoTimer: ReturnType<typeof setInterval> | null = null;
-const state: PerfState = { preset: 'today', from: '', to: '', channel: '', group: '', mode: 'roas', panelOpen: false, kpiOpen: false };
+const state: PerfState = { preset: 'today', from: '', to: '', channel: '', group: '', mode: 'roas', panelOpen: false, kpiOpen: false, rankTab: 'top' };
 
 /* ---------- filter กลุ่มสินค้า (จาก admin_settings — client-side) ---------- */
 
@@ -921,6 +924,89 @@ function podiumHtml(sorted: PerfRow[]): string {
     '</div>';
 }
 
+/* ---------- 🚨 โซนเตือน "บ๊วย 5" (ทีมขอ 2026-08-10) ----------
+ * สลับกับโพเดียมด้วยปุ่ม — โชว์ทีละอันเพื่อไม่กินที่หน้าจอ
+ * นับเฉพาะคนที่ "เข้าเกณฑ์จัดอันดับในโหมดนี้" เท่านั้น คนที่จัดอันดับไม่ได้ (เช่นสาย LINE
+ * ไม่มียอดผูกแอดในโหมดเท่า) กองอยู่ท้ายลิสต์อยู่แล้ว ถ้านับรวมจะกลายเป็นว่าโดนประจานทั้งที่วัดไม่ได้
+ */
+const BOTTOM_N = 5;
+
+/**
+ * ป้ายยูนิตที่คนนี้สังกัด
+ * ตัวเดา (`unitsGuess`) ต้องหน้าตาต่างจากตัวที่ทีมประกาศไว้ — ไม่งั้นหัวหน้าจะเชื่อผิดคน
+ */
+function unitChipsHtml(r: PerfRow): string {
+  const us = (r.units || []).filter(function (u) { return !!u; });
+  if (!us.length) {
+    return '<span class="b5-unit none" title="ยังไม่ได้จับคู่แอดมินคนนี้กับยูนิต (หน้า U Map / ชีทค่าคอม) และเดาจากเพจที่ขายก็ไม่ได้">ไม่ระบุยูนิต</span>';
+  }
+  const guess = !!r.unitsGuess;
+  const tip = guess
+    ? 'เดาจากเพจที่คนนี้ขายได้จริงในช่วงนี้ — ทีมยังไม่ได้จับคู่คนนี้กับยูนิตในหน้า U Map'
+    : 'ยูนิตที่ทีมจับคู่ไว้ (หน้า U Map หรือชีทค่าคอม)';
+  return us.map(function (u) {
+    return '<span class="b5-unit' + (guess ? ' guess' : '') + '" title="' + esc(tip) + '">' +
+      (guess ? '~' : '') + esc(u) + '</span>';
+  }).join('');
+}
+
+function b5CardHtml(r: PerfRow, pos: number, worst: boolean): string {
+  const full = fullNameSub(r);
+  const stats = '<span title="เท่า (ROAS)">🔥 ' + esc(roasTxt(r)) + '</span> • ' +
+    '<span title="%ปิดการขาย">🎯 ' + esc(pctFmt(r.closeRate)) + '</span> • ' +
+    '<span title="เปอร์บิล">🧾 ' + esc(THB(r.avgOrder)) + '</span> • ' +
+    '<span title="เวลาตอบเฉลี่ย">⚡ ' + esc(respLong(r)) + '</span> • ' +
+    '🛒 ' + esc(fmtNum(r.orders)) + ' • 💰 ' + esc(THB(r.revenue));
+  return '<div class="b5-card' + (worst ? ' worst' : '') + '">' +
+    '<div class="b5-rank" title="อันดับจากทั้งหมดในโหมดนี้">#' + pos + '</div>' +
+    avatarHtml(r.id, r.name, r.online, 'sm') +
+    '<div class="b5-mid">' +
+      '<div class="b5-name">' + esc(nickOf(r)) +
+        (full ? ' <span class="rank-fullname" title="ชื่อเต็มใน Pancake">' + esc(full) + '</span>' : '') +
+        (worst ? ' <span class="b5-worst-tag">ท้ายสุด</span>' : '') + '</div>' +
+      '<div class="b5-units">' + unitChipsHtml(r) + '</div>' +
+      '<div class="b5-stats">' + stats + '</div>' +
+    '</div>' +
+    '<div class="b5-val">' + esc(modeValue(r)) + '</div>' +
+    '</div>';
+}
+
+function bottom5Html(sorted: PerfRow[]): string {
+  const idx: number[] = [];
+  sorted.forEach(function (r, i) { if (eligible(r, state.mode)) idx.push(i); });
+  if (!idx.length) {
+    return '<div class="empty-note">ยังไม่มีใครเข้าเกณฑ์จัดอันดับในโหมดนี้ — เลยยังไม่มีบ๊วย</div>';
+  }
+  const skipped = sorted.length - idx.length;
+  // เอาท้ายสุดขึ้นก่อน — โซนนี้ไว้ไล่ดูว่าใครต้องช่วยด่วนสุด ไม่ใช่ตารางอ่านไล่ลง
+  const pick = idx.slice(-BOTTOM_N).reverse();
+  const cards = pick.map(function (i, n) {
+    return b5CardHtml(sorted[i], i + 1, n === 0);
+  }).join('');
+  const note = 'เรียงจากท้ายสุดขึ้นมา • เกณฑ์ที่ใช้ตัดสิน: ' + esc(modeLabel(state.mode)) +
+    ' • นับจากคนที่จัดอันดับได้ ' + fmtNum(idx.length) + ' คน' +
+    (skipped > 0
+      ? ' <span title="โหมดนี้วัดคนกลุ่มนี้ไม่ได้ (เช่นไม่มียอดผูกแอด หรือต่ำกว่าขั้นต่ำที่ตั้งไว้) — ไม่เอามาประจาน">' +
+        '(ไม่นับอีก ' + fmtNum(skipped) + ' คนที่โหมดนี้วัดไม่ได้)</span>'
+      : '');
+  return '<div class="b5-zone">' +
+      '<div class="b5-head">' +
+        '<div class="b5-title">🚨 ' + fmtNum(pick.length) + ' อันดับล่างสุด — ต้องเข้าไปดูแล</div>' +
+        '<div class="b5-note">' + note + '</div>' +
+      '</div>' +
+      cards +
+    '</div>';
+}
+
+/** ปุ่มสลับ ท็อป 3 / บ๊วย 5 — โชว์ทีละอัน ประหยัดพื้นที่ */
+function rankTabsHtml(): string {
+  const btn = function (key: string, label: string, cls: string): string {
+    return '<button class="rank-tab ' + cls + (state.rankTab === key ? ' active' : '') +
+      '" data-ranktab="' + key + '">' + label + '</button>';
+  };
+  return '<div class="rank-tabs">' + btn('top', '🥇 ท็อป 3', 'good') + btn('bottom', '🚨 บ๊วย 5', 'warn') + '</div>';
+}
+
 function rankCardHtml(r: PerfRow, idx: number): string {
   const pos = idx + 1;
   const cardCls = 'rank-card' + (pos <= 3 ? ' top' + pos : '');
@@ -980,8 +1066,20 @@ function rankingHtml(data: PerfData | null): string {
   if (!rows.length) return '<div class="empty-note">🏆 ยังไม่มีข้อมูลในช่วง/ตัวกรองนี้</div>';
   scoreRows(rows);
   const sorted = sortRows(rows, state.mode);
-  return podiumHtml(sorted) +
+  return rankTabsHtml() +
+    (state.rankTab === 'bottom' ? bottom5Html(sorted) : podiumHtml(sorted)) +
     '<div class="rank-list">' + sorted.map(function (r, i) { return rankCardHtml(r, i); }).join('') + '</div>';
+}
+
+/** ปุ่มสลับหัวลิสต์ — ต้องผูกใหม่ทุกครั้งที่ #rk-ranking ถูกวาดใหม่ (innerHTML ทิ้ง handler เดิม) */
+function bindRankTabs(container: HTMLElement): void {
+  container.querySelectorAll('[data-ranktab]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      const key = b.getAttribute('data-ranktab');
+      state.rankTab = (key === 'bottom') ? 'bottom' : 'top';
+      updateRanking(container);
+    });
+  });
 }
 
 /* ---------- render + events ---------- */
@@ -1013,7 +1111,9 @@ function render(container: HTMLElement, data: PerfData | null): void {
 /** อัปเดตเฉพาะส่วนอันดับ — ไม่แตะแผงเกณฑ์ (กัน focus ในช่องกรอกหลุดตอนพิมพ์) */
 function updateRanking(container: HTMLElement): void {
   const box = container.querySelector('#rk-ranking');
-  if (box) box.innerHTML = rankingHtml(lastData);
+  if (!box) return;
+  box.innerHTML = rankingHtml(lastData);
+  bindRankTabs(container);
 }
 
 function refreshWsum(container: HTMLElement): void {
@@ -1191,6 +1291,7 @@ function bindEvents(container: HTMLElement): void {
   const csvBtn = container.querySelector('#rk-csv');
   if (csvBtn) csvBtn.addEventListener('click', exportCSV);
 
+  bindRankTabs(container);  // ปุ่ม ท็อป 3 / บ๊วย 5
   bindComEvents(container); // ตัวกรองเดือน + CSV ของตารางค่าคอม (วาดจากแคช comData)
 }
 

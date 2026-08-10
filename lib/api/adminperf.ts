@@ -12,6 +12,7 @@ import {
 } from '@/lib/config';
 import { getAppSettings } from '@/lib/api/appsettings';
 import { getKpiTargets, nicknameOf } from '@/lib/api/adminsettings';
+import { getUMapDoc } from '@/lib/api/umap';
 import { allocateReached } from '@/lib/api/chat-reached';
 
 /* ---------------- utilities (พอร์ตจาก WebApi.gs) ---------------- */
@@ -240,7 +241,7 @@ export async function apiAdminPerf(params: any) {
   // แล้วค่อยตามด้วยแชท/แอด/conversations จนทะลุเพดาน 60s ของ Vercel — FUNCTION_INVOCATION_TIMEOUT)
   const [
     orders, adminRows, pageRows, chatRows, engRows, nc,
-    appSettings, convRows, spendByAd, snapsRes, kpiTargets,
+    appSettings, convRows, spendByAd, snapsRes, kpiTargets, uMap, comUnitRows,
   ] = await Promise.all([
     loadOrders_(r),
     fetchAll<any>(() => db.from('admins').select('user_id,pos_user_id,name,is_online'), 'user_id'),
@@ -277,8 +278,81 @@ export async function apiAdminPerf(params: any) {
     // snapshot คนปิดใช้งาน (กัน "seller ผี") — คอลัมน์มาจาก migration v2 ถ้าไม่มี error ก็ข้าม
     db.from('admin_settings').select('user_id,enabled,pos_user_id,snap_name'),
     getKpiTargets(),
+    // ยูนิตของแต่ละแอดมิน — มาจากหน้า U Map (sync_state 'u_map') แหล่งเดียวกับที่หน้า Sales ใช้
+    // ใช้โชว์บนการ์ด "บ๊วย 5" ว่าคนที่ต้องดูแลอยู่ยูนิตไหน (หัวหน้ายูนิตจะได้รู้ตัว)
+    getUMapDoc().catch(() => ({ units: [], updatedAt: '' })),
+    // ชีทค่าคอมบอกยูนิตของแต่ละคนไว้ด้วย (คีย์ = ชื่อเล่น) — ใช้เป็นแหล่งสำรองเมื่อ U Map ยังไม่ได้จับคู่
+    // ตารางเล็ก (หลักร้อยแถว) และเป็นข้อมูลที่ทีมกรอกเอง เชื่อถือได้พอๆ กับ U Map
+    fetchAll<any>(() => db.from('admin_commission').select('u,month,admin'), 'key').catch(() => [] as any[]),
   ]);
   await settingsJob;
+
+  /* ---- ยูนิตของแต่ละแอดมิน: 3 ชั้น เอาชั้นที่ "ทีมประกาศไว้" ก่อนเสมอ ----
+   * 1) U Map (หน้า 6) — ทีมจับคู่เอง แม่นสุด แต่ตอนนี้ครอบคลุมแค่ 12/34 คน
+   * 2) ชีทค่าคอม (admin_commission) — ทีมกรอกเองเหมือนกัน คีย์ด้วยชื่อเล่น ใช้เดือนล่าสุดของคนนั้น
+   * 3) เดาจากเพจที่คนนี้ขายได้จริง (เพจ→ยูนิต จาก U Map) — ติดธง guess ให้หน้าเว็บบอกผู้ใช้ว่าเป็นการเดา
+   *    ไม่งั้นการ์ด "บ๊วย 5" จะขึ้น "ไม่ระบุยูนิต" เกินครึ่ง จนหัวหน้ายูนิตใช้ประโยชน์ไม่ได้
+   */
+  const unitsById: Record<string, string[]> = {};
+  const unitsByName: Record<string, string[]> = {};
+  const unitByPageName: Record<string, string> = {};
+  ((uMap && uMap.units) || []).forEach((u: any) => {
+    const code = String(u.u);
+    (u.admins || []).forEach((m: any) => {
+      const id = String(m.id || '');
+      const nm = String(m.name || '').trim();
+      if (id) (unitsById[id] = unitsById[id] || []).push(code);
+      if (nm) (unitsByName[nm] = unitsByName[nm] || []).push(code);
+    });
+    (u.pages || []).forEach((pg: any) => {
+      const nm = String(pg.name || '').trim();
+      if (nm && !unitByPageName[nm]) unitByPageName[nm] = code;
+    });
+  });
+
+  // ชีทค่าคอม — เก็บเฉพาะเดือนล่าสุดที่คนนั้นมีข้อมูล (คนย้ายยูนิตได้ ห้ามเอาเดือนเก่ามาปน)
+  const comLatestMonth: Record<string, string> = {};
+  (comUnitRows || []).forEach((c: any) => {
+    const nick = String(c.admin || '').trim();
+    const mo = String(c.month || '');
+    if (!nick || !mo) return;
+    if (!comLatestMonth[nick] || mo > comLatestMonth[nick]) comLatestMonth[nick] = mo;
+  });
+  const unitsByNick: Record<string, string[]> = {};
+  (comUnitRows || []).forEach((c: any) => {
+    const nick = String(c.admin || '').trim();
+    const u = String(c.u || '').trim();
+    if (!nick || !u || String(c.month || '') !== comLatestMonth[nick]) return;
+    const arr = (unitsByNick[nick] = unitsByNick[nick] || []);
+    if (arr.indexOf(u) < 0) arr.push(u);
+  });
+
+  /** เดายูนิตจากเพจที่คนนี้ขายได้จริง — เอาเฉพาะยูนิตที่กินยอด ≥20% สูงสุด 2 ยูนิต */
+  function guessUnits_(pagesByName: Record<string, number> | null): string[] {
+    if (!pagesByName) return [];
+    const byUnit: Record<string, number> = {};
+    let total = 0;
+    Object.keys(pagesByName).forEach((nm) => {
+      const u = unitByPageName[nm];
+      const v = toNum_(pagesByName[nm]);
+      if (!u || v <= 0) return;
+      byUnit[u] = (byUnit[u] || 0) + v;
+      total += v;
+    });
+    if (!total) return [];
+    return Object.keys(byUnit)
+      .filter((u) => byUnit[u] / total >= 0.2)
+      .sort((a, b) => byUnit[b] - byUnit[a])
+      .slice(0, 2);
+  }
+
+  /** คืน [ยูนิต, เป็นการเดาไหม] ตามลำดับความน่าเชื่อถือ */
+  function unitsFor_(id: string, name: string, nick: string, pages: Record<string, number> | null): [string[], boolean] {
+    const declared = unitsById[id] || unitsByName[name] || unitsByNick[nick] || [];
+    if (declared.length) return [declared.slice().sort(), false];
+    const g = guessUnits_(pages);
+    return [g, g.length > 0];
+  }
 
   const pageNames: Record<string, string> = {};
   pageRows.forEach((p) => {
@@ -482,10 +556,12 @@ export async function apiAdminPerf(params: any) {
     const nOrders = sale ? sale.orders : 0;
     const chats = chat ? chat.chats : 0;
     const ad = roasOf(sale ? sale.adRev : null);
+    const nick = nicknameOf(name, nickById[String(a.user_id)]); // พิมพ์ทับ > เดาจากคำแรก
+    const unitInfo = unitsFor_(String(a.user_id), name, nick, sale ? sale.pages : null);
     rows.push({
       id: String(a.user_id),
       name: name,
-      nickname: nicknameOf(name, nickById[String(a.user_id)]), // พิมพ์ทับ > เดาจากคำแรก
+      nickname: nick,
       online: toBool_(a.is_online),
       revenue: Math.round(revenue),
       orders: nOrders,
@@ -499,6 +575,8 @@ export async function apiAdminPerf(params: any) {
       topPage: sale ? topKey(sale.pages) : '',
       lastOrderAt: (sale && sale.lastOrderAt) ? fmtDateTime_(new Date(sale.lastOrderAt)) : '',
       productGroups: groupsById[String(a.user_id)] || '',
+      units: unitInfo[0],
+      unitsGuess: unitInfo[1],
       adRevenue: ad.adRevenue, // ยอด POS ที่ผูก ad_id (เฉพาะแอดที่มีค่าแอดจริง)
       adSpend: ad.adSpend,     // ค่าแอดที่ปันมาให้คนนี้ (บาท)
       roas: ad.roas,           // null = ไม่มียอดผูกแอดเลย → หน้าเว็บโชว์ "—"
@@ -514,10 +592,12 @@ export async function apiAdminPerf(params: any) {
     if (usedSellerKeys[k2]) return;
     const s = bySeller[k2];
     const ad = roasOf(s.adRev);
+    const sNick = nicknameOf(s.name, ''); // ไม่มีแถวใน admin_settings → เดาจากคำแรกอย่างเดียว
+    const sUnits = unitsFor_('', s.name, sNick, s.pages);
     rows.push({
       id: 'seller:' + k2,
       name: s.name,
-      nickname: nicknameOf(s.name, ''), // ไม่มีแถวใน admin_settings → เดาจากคำแรกอย่างเดียว
+      nickname: sNick,
       online: false,
       revenue: Math.round(s.revenue),
       orders: s.orders,
@@ -528,6 +608,8 @@ export async function apiAdminPerf(params: any) {
       topPage: topKey(s.pages),
       lastOrderAt: s.lastOrderAt ? fmtDateTime_(new Date(s.lastOrderAt)) : '',
       productGroups: '',
+      units: sUnits[0],
+      unitsGuess: sUnits[1],
       adRevenue: ad.adRevenue,
       adSpend: ad.adSpend,
       roas: ad.roas,
