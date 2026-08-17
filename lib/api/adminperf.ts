@@ -185,20 +185,24 @@ async function loadOrders_(r: { start: Date; end: Date }) {
  * ⚠️ ad_daily.spend เป็น "บาทจริง" (มีทศนิยม) ไม่ใช่สตางค์เหมือน orders.total_price — ห้ามหาร 100
  * คืน null เมื่อตารางยังไม่ถูกสร้าง (ยังไม่รัน migration) → หน้าเว็บต้องโชว์ "—" ไม่ใช่ 0
  */
-async function loadAdSpend_(fromDate: string, toDate: string): Promise<Record<string, number> | null> {
+async function loadAdSpend_(fromDate: string, toDate: string): Promise<{ byAd: Record<string, number>; pageOfAd: Record<string, string> } | null> {
   try {
     // หั่นตามวัน — ช่วงยาว ad_daily มี ~800 แอด/วัน (35 วัน = ~28k แถว) OFFSET ลึกช้า+โดนตัด
+    // page_id ใช้ปันค่าแอดของ "แอดที่ยังไม่มีออเดอร์" ให้คนที่ขายในเพจเดียวกัน
     const rows = await fetchAllDateSliced<any>((f, t) =>
-      db.from('ad_daily').select('date,ad_id,spend').gte('date', f).lte('date', t),
+      db.from('ad_daily').select('date,ad_id,page_id,spend').gte('date', f).lte('date', t),
       fromDate, toDate, { orderColumn: 'date,ad_id' }
     );
     const byAd: Record<string, number> = {};
+    const pageOfAd: Record<string, string> = {};
     rows.forEach((a) => {
       const id = String(a.ad_id || '');
       if (!id) return;
       byAd[id] = (byAd[id] || 0) + toNum_(a.spend);
+      const pid = String(a.page_id || '');
+      if (pid && !pageOfAd[id]) pageOfAd[id] = pid;
     });
-    return byAd;
+    return { byAd, pageOfAd };
   } catch (e: any) {
     const m = String((e && e.message) || e || '');
     if (m.includes('ad_daily') && (m.includes('does not exist') || m.includes('schema cache'))) return null;
@@ -241,7 +245,7 @@ export async function apiAdminPerf(params: any) {
   // แล้วค่อยตามด้วยแชท/แอด/conversations จนทะลุเพดาน 60s ของ Vercel — FUNCTION_INVOCATION_TIMEOUT)
   const [
     orders, adminRows, pageRows, chatRows, engRows, nc,
-    appSettings, convRows, spendByAd, snapsRes, kpiTargets, uMap, comUnitRows,
+    appSettings, convRows, adSpendData, snapsRes, kpiTargets, uMap, comUnitRows,
   ] = await Promise.all([
     loadOrders_(r),
     fetchAll<any>(() => db.from('admins').select('user_id,pos_user_id,name,is_online'), 'user_id'),
@@ -539,6 +543,40 @@ export async function apiAdminPerf(params: any) {
     return m;
   }
 
+  /* ---- ก้อนค่าแอดที่ยังไม่มีออเดอร์ผูก (ต้องปันให้ครบ ไม่งั้น ROAS ทุกคนพอง) ----
+   * linkedRevByPage / linkedRevTotal ต้องนับด้วยเงื่อนไขเดียวกับตัวตั้งของ roasOf เป๊ะ
+   * (เฉพาะแอดที่ spend > 0 และมียอดผูก) ไม่งั้นสัดส่วนที่ใช้เฉลี่ยจะไม่ใช่ฐานเดียวกัน
+   */
+  const spendByAd = adSpendData ? adSpendData.byAd : null;
+  const pageOfAd = adSpendData ? adSpendData.pageOfAd : ({} as Record<string, string>);
+  const linkedRevByPage: Record<string, number> = {};
+  const leftoverByPage: Record<string, number> = {};
+  let linkedRevTotal = 0;
+  let leftoverGlobal = 0;
+  if (spendByAd) {
+    Object.keys(spendByAd).forEach((adId) => {
+      const sp = spendByAd[adId] || 0;
+      if (!(sp > 0)) return;
+      const pid = pageOfAd[adId] || '';
+      const rv = revByAd[adId] || 0;
+      if (rv > 0) {
+        linkedRevTotal += rv;
+        if (pid) linkedRevByPage[pid] = (linkedRevByPage[pid] || 0) + rv;
+      } else {
+        // จ่ายเงินไปแล้วแต่ยังไม่มีออเดอร์ผูก — เก็บเข้าก้อนรอเฉลี่ย
+        if (pid) leftoverByPage[pid] = (leftoverByPage[pid] || 0) + sp;
+        else leftoverGlobal += sp;
+      }
+    });
+    // เพจที่มีค่าแอดเหลือแต่ไม่มียอดผูกเลยในเพจนั้น → เฉลี่ยไม่ได้ ย้ายไปก้อนรวม
+    Object.keys(leftoverByPage).forEach((pid) => {
+      if (!(linkedRevByPage[pid] > 0)) {
+        leftoverGlobal += leftoverByPage[pid];
+        delete leftoverByPage[pid];
+      }
+    });
+  }
+
   /**
    * ROAS รายแอดมิน — ปันค่าแอดตาม ad_id ถ่วงด้วย "สัดส่วนยอดขายในแอดนั้น" (บอสเลือกวิธีนี้)
    *   spend_admin = Σ_ad [ spend(ad) × rev_admin_ad / rev_ad_total ]
@@ -551,17 +589,39 @@ export async function apiAdminPerf(params: any) {
    * นับเฉพาะแอดที่ "มีค่าแอดจริง > 0" ทั้งตัวตั้งและตัวหาร — แอดที่ ad_daily ไม่มี/spend 0
    * ถ้าเอายอดมาใส่ตัวตั้งด้วยจะทำให้ ROAS พองโดยไม่มีค่าแอดรองรับ
    * คืน null เมื่อคนนั้นไม่มียอดผูก ad_id เลย (สาย LINE) — บอสสั่ง "ห้ามเดา" ให้โชว์ "—"
+   *
+   * ⚠️ แก้ 2026-08-17 (ทีมทักว่า ROAS สูงเกินจริง — วัดแล้วสูงกว่าความจริง ~1.6 เท่าทุกวัน):
+   * เดิมปันเฉพาะค่าแอดของแอดที่ "มีออเดอร์ผูก" → ค่าแอดของแอดที่จ่ายเงินแล้วแต่ยังไม่มีออเดอร์
+   * (37-40% ของค่าแอดทั้งวัน, ~2,600-3,100 แอด) ไม่มีใครรับผิดชอบ หายไปจากตัวหารทั้งกระดาน
+   * ผลวัด 16 ส.ค.: ปันจริง ฿189,313 จาก ฿310,215 → ROAS ทั้งทีมโชว์ 3.42 ทั้งที่ของจริง 2.09
+   * (Meta รายงานเอง 2.10 — ข้อมูลดิบเราตรง เพี้ยนที่การปันส่วนล้วนๆ)
+   * ตอนนี้ปันครบ 100%: ก้อนที่เหลือเฉลี่ยตามสัดส่วนยอดในเพจเดียวกัน ถ้าไม่รู้เพจค่อยเฉลี่ยรวมทั้งทีม
+   * → ผลรวมค่าแอดที่ปัน = ค่าแอดจริง และ ROAS เฉลี่ยทั้งทีมกลับมาเท่ากับตัวเลขฝั่ง Meta
    */
   function roasOf(adRev: Record<string, number> | null | undefined) {
     if (!spendByAd || !adRev) return { adRevenue: 0, adSpend: 0, roas: null as number | null };
     let rev = 0, spend = 0;
+    const myRevByPage: Record<string, number> = {};
     Object.keys(adRev).forEach((adId) => {
       const adSpend = spendByAd[adId] || 0;
       const adTotal = revByAd[adId] || 0;
       if (!(adSpend > 0) || !(adTotal > 0)) return;
       rev += adRev[adId];
       spend += adSpend * (adRev[adId] / adTotal);
+      const pid = pageOfAd[adId] || '';
+      if (pid) myRevByPage[pid] = (myRevByPage[pid] || 0) + adRev[adId];
     });
+    if (rev <= 0) return { adRevenue: 0, adSpend: 0, roas: null as number | null };
+
+    // ค่าแอดของแอดที่ "ยังไม่มีออเดอร์" — เฉลี่ยตามสัดส่วนยอดในเพจเดียวกันก่อน
+    Object.keys(myRevByPage).forEach((pid) => {
+      const pool = leftoverByPage[pid] || 0;
+      const total = linkedRevByPage[pid] || 0;
+      if (pool > 0 && total > 0) spend += pool * (myRevByPage[pid] / total);
+    });
+    // แอดที่ไม่รู้เพจ (page_id ยังว่างระหว่างวัน) — เฉลี่ยตามสัดส่วนยอดรวมทั้งทีม
+    if (leftoverGlobal > 0 && linkedRevTotal > 0) spend += leftoverGlobal * (rev / linkedRevTotal);
+
     return {
       adRevenue: Math.round(rev),
       adSpend: Math.round(spend),
@@ -699,6 +759,6 @@ export async function apiAdminPerf(params: any) {
     // ให้ใช้เป้าชุดเดียวกับหน้า Ranking (ตั้งที่เดียว ทุกหน้าตรงกัน)
     targets: kpiTargets,
     // ยังไม่ได้รัน migration ad_daily (หรือยังไม่มี sync รอบแรก) → ROAS รายคนคิดไม่ได้ทั้งกระดาน
-    adSetupNeeded: spendByAd === null,
+    adSetupNeeded: adSpendData === null,
   };
 }

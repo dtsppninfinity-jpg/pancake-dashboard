@@ -108,12 +108,13 @@ export interface RankRules {
   minAdSpend: number;      // ค่าแอดปันส่วนขั้นต่ำถึงเข้าอันดับโหมดเท่า (0 = ไม่กัน)
   minOrders: number;       // ออเดอร์ขั้นต่ำถึงเข้าอันดับโหมดเท่า (0 = ไม่กัน)
   // ค่าแอดต้องคิดเป็นอย่างน้อยกี่ % ของยอดขาย ถึงจะเอา "เท่า" มาจัดอันดับได้ (0 = ไม่กัน)
-  // กันเคสเพจหยุดยิงแอดแล้วยอดยังมาจากลูกค้าเก่า → เท่าพุ่งทั้งที่ไม่ได้ยิงแอด
-  // (15% ≈ เพดานเท่า ~6.7 — ทั้งทีมอยู่ที่ ~3 เท่า สิ้นเดือนปรับได้ในหน้าเว็บ)
+  // เคยตั้ง 15% ไว้กันเพจที่หยุดยิงแอดแล้วเท่าพุ่ง — พอแก้การปันค่าแอดให้ครบ 100% (17 ส.ค.)
+  // ต้นเหตุหายไปเอง (ค่าแอดกลายเป็น ~44% ของยอดโดยเฉลี่ย ทุกคนผ่านด่านนี้หมด) จึงปิดเป็นค่าเริ่มต้น
+  // เก็บช่องไว้ให้เปิดเองได้ถ้าวันหนึ่งอยากกรอง
   minSpendPctOfRev: number;
 }
 
-export const DEFAULT_RANK_RULES: RankRules = { minAdSpend: 500, minOrders: 0, minSpendPctOfRev: 15 };
+export const DEFAULT_RANK_RULES: RankRules = { minAdSpend: 500, minOrders: 0, minSpendPctOfRev: 0 };
 
 export function normalizeRankRules(raw: unknown): RankRules {
   const r = (raw || {}) as Record<string, unknown>;
