@@ -354,9 +354,33 @@ export async function apiAdminPerf(params: any) {
       .slice(0, 2);
   }
 
-  /** คืน [ยูนิต, เป็นการเดาไหม] ตามลำดับความน่าเชื่อถือ */
+  /**
+   * คืน [ยูนิต, เป็นการเดาไหม] — เอา "ยูนิตที่เขารับแชทจริงในช่วงนี้" ก่อนเสมอ
+   *
+   * ทำไมไม่ใช้ที่ผูกไว้ใน U Map ตรงๆ: มีเคสย้ายชั่วคราว (ทีมแจ้ง 2026-08-17 — มลไปช่วย UN9
+   * แค่วันเดียว พรุ่งนี้เอาออก) ถ้ายึดตามที่ผูกไว้ ป้ายจะค้างจนกว่าจะมีคนไปแก้ U Map เอง
+   * ยึดตามงานที่ทำจริงแล้วป้ายจะหายเองตอนเขาเลิกรับแชทเพจนั้น — ตรงกับที่ทีมแจ้งมาทุกคน
+   * (มล U9+U25+UN9 · น้ำแข็ง UN5 · แบม UN8+U26 · กัน U16+U25)
+   *
+   * กติกา 2 ชั้น (ปรับตามลิสต์จริงที่ทีมส่งมา ให้ออกมาตรงทั้ง 4 คน):
+   *   - ยูนิตที่ "ผูกไว้ + มีงานจริง" → โชว์ ต่อให้สัดส่วนน้อย (มลรับ U9/UN9 แค่ 2-3% ก็ยังนับ)
+   *   - ยูนิตที่ "ไม่ได้ผูกไว้" → โชว์เมื่อ ≥5% เท่านั้น (แบมไปช่วย UN5 3% ไม่นับว่าย้ายยูนิต)
+   */
   function unitsFor_(id: string, name: string, nick: string, pages: Record<string, number> | null): [string[], boolean] {
     const declared = unitsById[id] || unitsByName[name] || unitsByNick[nick] || [];
+    const worked = reachByUidUnit[id];
+    if (worked) {
+      let tot = 0;
+      Object.keys(worked).forEach((u) => { if (u) tot += worked[u]; });
+      if (tot > 0) {
+        const show = Object.keys(worked).filter((u) => {
+          if (!u || !(worked[u] > 0)) return false;
+          return declared.indexOf(u) >= 0 ? true : worked[u] / tot >= 0.05;
+        });
+        // ติดธงเมื่อมียูนิตที่ทำจริงแต่ยังไม่ได้ผูกไว้ — หน้าเว็บจะได้บอกว่าอ่านมาจากงาน ไม่ใช่จากที่ผูก
+        if (show.length) return [show.sort(), show.some((u) => declared.indexOf(u) < 0)];
+      }
+    }
     if (declared.length) return [declared.slice().sort(), false];
     const g = guessUnits_(pages);
     return [g, g.length > 0];
