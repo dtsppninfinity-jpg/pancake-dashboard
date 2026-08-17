@@ -13,7 +13,7 @@ import {
 import { getAppSettings } from '@/lib/api/appsettings';
 import { getKpiTargets, nicknameOf } from '@/lib/api/adminsettings';
 import { getUMapDoc } from '@/lib/api/umap';
-import { allocateReached } from '@/lib/api/chat-reached';
+import { allocateReached, allocateReachedByPage } from '@/lib/api/chat-reached';
 
 /* ---------------- utilities (พอร์ตจาก WebApi.gs) ---------------- */
 
@@ -301,6 +301,7 @@ export async function apiAdminPerf(params: any) {
   const unitsById: Record<string, string[]> = {};
   const unitsByName: Record<string, string[]> = {};
   const unitByPageName: Record<string, string> = {};
+  const unitOfPageId: Record<string, string> = {};   // page_id → รหัสยูนิต (ใช้คิดค่าทักต่อคนรายยูนิต)
   ((uMap && uMap.units) || []).forEach((u: any) => {
     const code = String(u.u);
     (u.admins || []).forEach((m: any) => {
@@ -312,6 +313,8 @@ export async function apiAdminPerf(params: any) {
     (u.pages || []).forEach((pg: any) => {
       const nm = String(pg.name || '').trim();
       if (nm && !unitByPageName[nm]) unitByPageName[nm] = code;
+      const pid = String(pg.id || '').trim();
+      if (pid && !unitOfPageId[pid]) unitOfPageId[pid] = code;
     });
   });
 
@@ -543,89 +546,90 @@ export async function apiAdminPerf(params: any) {
     return m;
   }
 
-  /* ---- ก้อนค่าแอดที่ยังไม่มีออเดอร์ผูก (ต้องปันให้ครบ ไม่งั้น ROAS ทุกคนพอง) ----
-   * linkedRevByPage / linkedRevTotal ต้องนับด้วยเงื่อนไขเดียวกับตัวตั้งของ roasOf เป๊ะ
-   * (เฉพาะแอดที่ spend > 0 และมียอดผูก) ไม่งั้นสัดส่วนที่ใช้เฉลี่ยจะไม่ใช่ฐานเดียวกัน
-   */
+  /* ================================================================
+   * ต้นทุนแอดรายแอดมิน — วิธี "ค่าทักต่อคน" (ทีมกำหนด 2026-08-17)
+   *
+   *   ค่าทักต่อคนของยูนิต = ค่าแอดของยูนิต ÷ คนทักของยูนิต
+   *   ต้นทุนแอดของแอดมิน = Σ ทุกยูนิต [ ค่าทักต่อคนของยูนิตนั้น × คนทักที่เขารับในยูนิตนั้น ]
+   *   ROAS               = ยอดขายรวมของแอดมิน ÷ ต้นทุนแอดของเขา
+   *
+   * ทำไมคิดแยกรายยูนิต: ค่าทักต่อคนต่างกัน 2-3 เท่า (วัด 16 ส.ค. U10 ฿44 vs UN5 ฿108)
+   * ถ้าใช้อัตราเดียวทั้งบริษัท คนในยูนิตที่ทักถูกจะโดนคิดต้นทุนเกินจริง (Fa Tima 1.09 vs 1.97)
+   *
+   * ทำไมไม่ต้องมีลิสต์ว่าใครสังกัดยูนิตไหน: ปันตาม "เพจที่เขารับแชทจริง" ไม่ใช่ตามชื่อที่ผูกไว้
+   * คนควบ 2-3 ยูนิตจึงได้ต้นทุนบวกกันเองจากข้อมูล
+   *
+   * ตัวหารของแต่ละยูนิตใช้ "คนทักที่ปันให้แอดมินแล้ว" ไม่ใช่คนทักระดับเพจดิบ —
+   * เพจที่มีคนทักแต่ไม่มีแอดมินคนไหนมีแถวแชทวันนั้น จะไม่มีใครรับต้นทุน ถ้าใช้ตัวหารดิบ
+   * ค่าแอดก้อนนั้นจะหายไปเงียบๆ เหมือนบั๊กรอบก่อน
+   * ================================================================ */
   const spendByAd = adSpendData ? adSpendData.byAd : null;
   const pageOfAd = adSpendData ? adSpendData.pageOfAd : ({} as Record<string, string>);
-  const linkedRevByPage: Record<string, number> = {};
-  const leftoverByPage: Record<string, number> = {};
-  let linkedRevTotal = 0;
-  let leftoverGlobal = 0;
+
+  // คนทักรายแอดมิน แยกรายเพจ (ฐานเดียวกับตัวเลข "คนทัก" ที่โชว์บนการ์ด)
+  const reachByUidPage = allocateReachedByPage(chatRows, engRows);
+  const UNIT_UNKNOWN = '';
+  const unitKeyOfPage = (pid: string): string => unitOfPageId[pid] || UNIT_UNKNOWN;
+
+  // คนทักที่ปันแล้ว แยกตาม (แอดมิน, ยูนิต) + ผลรวมรายยูนิต
+  const reachByUidUnit: Record<string, Record<string, number>> = {};
+  const reachByUnit: Record<string, number> = {};
+  let reachAllocTotal = 0;
+  Object.keys(reachByUidPage).forEach((uid) => {
+    Object.keys(reachByUidPage[uid]).forEach((pid) => {
+      const v = reachByUidPage[uid][pid];
+      if (!(v > 0)) return;
+      const u = unitKeyOfPage(pid);
+      (reachByUidUnit[uid] = reachByUidUnit[uid] || {})[u] = ((reachByUidUnit[uid] || {})[u] || 0) + v;
+      reachByUnit[u] = (reachByUnit[u] || 0) + v;
+      reachAllocTotal += v;
+    });
+  });
+
+  // ค่าแอดรายยูนิต — แอดที่ยังไม่รู้เพจ (page_id ว่างระหว่างวัน) ลงก้อนรวม
+  const spendByUnit: Record<string, number> = {};
+  let spendPool = 0;   // ก้อนที่ระบุยูนิตไม่ได้ → เฉลี่ยตามสัดส่วนคนทักรวมทั้งทีม
   if (spendByAd) {
     Object.keys(spendByAd).forEach((adId) => {
       const sp = spendByAd[adId] || 0;
       if (!(sp > 0)) return;
       const pid = pageOfAd[adId] || '';
-      const rv = revByAd[adId] || 0;
-      if (rv > 0) {
-        linkedRevTotal += rv;
-        if (pid) linkedRevByPage[pid] = (linkedRevByPage[pid] || 0) + rv;
-      } else {
-        // จ่ายเงินไปแล้วแต่ยังไม่มีออเดอร์ผูก — เก็บเข้าก้อนรอเฉลี่ย
-        if (pid) leftoverByPage[pid] = (leftoverByPage[pid] || 0) + sp;
-        else leftoverGlobal += sp;
-      }
-    });
-    // เพจที่มีค่าแอดเหลือแต่ไม่มียอดผูกเลยในเพจนั้น → เฉลี่ยไม่ได้ ย้ายไปก้อนรวม
-    Object.keys(leftoverByPage).forEach((pid) => {
-      if (!(linkedRevByPage[pid] > 0)) {
-        leftoverGlobal += leftoverByPage[pid];
-        delete leftoverByPage[pid];
-      }
+      const u = pid ? unitKeyOfPage(pid) : UNIT_UNKNOWN;
+      if (u && reachByUnit[u] > 0) spendByUnit[u] = (spendByUnit[u] || 0) + sp;
+      else spendPool += sp;   // ไม่รู้ยูนิต หรือยูนิตนั้นไม่มีคนทักเลย = ปันรายยูนิตไม่ได้
     });
   }
 
   /**
-   * ROAS รายแอดมิน — ปันค่าแอดตาม ad_id ถ่วงด้วย "สัดส่วนยอดขายในแอดนั้น" (บอสเลือกวิธีนี้)
-   *   spend_admin = Σ_ad [ spend(ad) × rev_admin_ad / rev_ad_total ]
-   *   ROAS_admin  = rev_admin_from_ads / spend_admin      (ตัวตั้ง = ยอด POS จริง ไม่ใช่ตัวเลข Meta)
-   *
-   * ⚠️ ข้อจำกัดที่ต้องสื่อสารบนหน้าเว็บ: ในแอดเดียวกัน ROAS ของทุกคน "เท่ากันโดยบังคับ"
-   *    (ค่าแอดถูกหารตามยอดขาย) ความต่างระหว่างคนจึงมาจาก "ไปอยู่แอดไหน" ไม่ใช่ "ใครปิดเก่งกว่า"
-   *    — 1 แอดมักมีหลายแอดมินขาย (2 คน = 870 แอด, 3 คน = 285 แอด เมื่อ 2026-07-27)
-   *
-   * นับเฉพาะแอดที่ "มีค่าแอดจริง > 0" ทั้งตัวตั้งและตัวหาร — แอดที่ ad_daily ไม่มี/spend 0
-   * ถ้าเอายอดมาใส่ตัวตั้งด้วยจะทำให้ ROAS พองโดยไม่มีค่าแอดรองรับ
-   * คืน null เมื่อคนนั้นไม่มียอดผูก ad_id เลย (สาย LINE) — บอสสั่ง "ห้ามเดา" ให้โชว์ "—"
-   *
-   * ⚠️ แก้ 2026-08-17 (ทีมทักว่า ROAS สูงเกินจริง — วัดแล้วสูงกว่าความจริง ~1.6 เท่าทุกวัน):
-   * เดิมปันเฉพาะค่าแอดของแอดที่ "มีออเดอร์ผูก" → ค่าแอดของแอดที่จ่ายเงินแล้วแต่ยังไม่มีออเดอร์
-   * (37-40% ของค่าแอดทั้งวัน, ~2,600-3,100 แอด) ไม่มีใครรับผิดชอบ หายไปจากตัวหารทั้งกระดาน
-   * ผลวัด 16 ส.ค.: ปันจริง ฿189,313 จาก ฿310,215 → ROAS ทั้งทีมโชว์ 3.42 ทั้งที่ของจริง 2.09
-   * (Meta รายงานเอง 2.10 — ข้อมูลดิบเราตรง เพี้ยนที่การปันส่วนล้วนๆ)
-   * ตอนนี้ปันครบ 100%: ก้อนที่เหลือเฉลี่ยตามสัดส่วนยอดในเพจเดียวกัน ถ้าไม่รู้เพจค่อยเฉลี่ยรวมทั้งทีม
-   * → ผลรวมค่าแอดที่ปัน = ค่าแอดจริง และ ROAS เฉลี่ยทั้งทีมกลับมาเท่ากับตัวเลขฝั่ง Meta
+   * ต้นทุนแอดของแอดมิน 1 คน (บาท) — ผลรวมของทุกคนจะเท่ากับค่าแอดจริงทั้งช่วงพอดี
+   * คืน null เมื่อยังไม่มีข้อมูลค่าแอด (ตาราง ad_daily ยังไม่มี) → หน้าเว็บโชว์ "—" ไม่ใช่ 0
    */
-  function roasOf(adRev: Record<string, number> | null | undefined) {
-    if (!spendByAd || !adRev) return { adRevenue: 0, adSpend: 0, roas: null as number | null };
-    let rev = 0, spend = 0;
-    const myRevByPage: Record<string, number> = {};
-    Object.keys(adRev).forEach((adId) => {
-      const adSpend = spendByAd[adId] || 0;
-      const adTotal = revByAd[adId] || 0;
-      if (!(adSpend > 0) || !(adTotal > 0)) return;
-      rev += adRev[adId];
-      spend += adSpend * (adRev[adId] / adTotal);
-      const pid = pageOfAd[adId] || '';
-      if (pid) myRevByPage[pid] = (myRevByPage[pid] || 0) + adRev[adId];
+  function adCostOf(uid: string): number | null {
+    if (!spendByAd) return null;
+    const mine = reachByUidUnit[uid];
+    if (!mine) return 0;
+    let cost = 0;
+    let myReach = 0;
+    Object.keys(mine).forEach((u) => {
+      const r = mine[u];
+      myReach += r;
+      const sp = spendByUnit[u] || 0;
+      const tot = reachByUnit[u] || 0;
+      if (sp > 0 && tot > 0) cost += sp * (r / tot);
     });
-    if (rev <= 0) return { adRevenue: 0, adSpend: 0, roas: null as number | null };
+    if (spendPool > 0 && reachAllocTotal > 0) cost += spendPool * (myReach / reachAllocTotal);
+    return cost;
+  }
 
-    // ค่าแอดของแอดที่ "ยังไม่มีออเดอร์" — เฉลี่ยตามสัดส่วนยอดในเพจเดียวกันก่อน
-    Object.keys(myRevByPage).forEach((pid) => {
-      const pool = leftoverByPage[pid] || 0;
-      const total = linkedRevByPage[pid] || 0;
-      if (pool > 0 && total > 0) spend += pool * (myRevByPage[pid] / total);
-    });
-    // แอดที่ไม่รู้เพจ (page_id ยังว่างระหว่างวัน) — เฉลี่ยตามสัดส่วนยอดรวมทั้งทีม
-    if (leftoverGlobal > 0 && linkedRevTotal > 0) spend += leftoverGlobal * (rev / linkedRevTotal);
-
+  /** ก้อนตัวเลข ROAS ที่ส่งขึ้นหน้าเว็บ — ตัวตั้ง = ยอดขายรวม, ตัวหาร = ต้นทุนแอดของคนนั้น */
+  function roasBlock_(uid: string, revenue: number) {
+    const cost = adCostOf(uid);
+    if (cost === null) return { adRevenue: Math.round(revenue), adSpend: 0, roas: null as number | null };
     return {
-      adRevenue: Math.round(rev),
-      adSpend: Math.round(spend),
-      roas: spend > 0 ? Math.round((rev / spend) * 100) / 100 : null,
+      adRevenue: Math.round(revenue),
+      adSpend: Math.round(cost),
+      // ไม่มีคนทัก = ไม่มีต้นทุนแอดรองรับยอดนี้ → ห้ามเดา ให้โชว์ "—"
+      roas: (cost > 0 && revenue > 0) ? Math.round((revenue / cost) * 100) / 100 : null,
     };
   }
 
@@ -664,7 +668,7 @@ export async function apiAdminPerf(params: any) {
     const nOrders = sale ? sale.orders : 0;
     const chats = chat ? chat.chats : 0;
     const newOrders = nOrders * newOrderRatioOf_(sale ? sale.pageOrders : null);
-    const ad = roasOf(sale ? sale.adRev : null);
+    const ad = roasBlock_(String(a.user_id), revenue);
     const nick = nicknameOf(name, nickById[String(a.user_id)]); // พิมพ์ทับ > เดาจากคำแรก
     const unitInfo = unitsFor_(String(a.user_id), name, nick, sale ? sale.pages : null);
     rows.push({
@@ -687,9 +691,9 @@ export async function apiAdminPerf(params: any) {
       productGroups: groupsById[String(a.user_id)] || '',
       units: unitInfo[0],
       unitsGuess: unitInfo[1],
-      adRevenue: ad.adRevenue, // ยอด POS ที่ผูก ad_id (เฉพาะแอดที่มีค่าแอดจริง)
-      adSpend: ad.adSpend,     // ค่าแอดที่ปันมาให้คนนี้ (บาท)
-      roas: ad.roas,           // null = ไม่มียอดผูกแอดเลย → หน้าเว็บโชว์ "—"
+      adRevenue: ad.adRevenue, // ตัวตั้งของ ROAS = ยอดขายรวมของคนนี้ (ทีมกำหนด 2026-08-17)
+      adSpend: ad.adSpend,     // ต้นทุนแอด = Σ (ค่าทักต่อคนของยูนิต × คนทักที่รับในยูนิตนั้น)
+      roas: ad.roas,           // null = ไม่มีคนทัก/ไม่มีค่าแอดรองรับ → หน้าเว็บโชว์ "—"
       activeNow: activeByName[name] || 0,   // แชทที่ดูแล (ถูกมอบหมาย) ตอนนี้ 24 ชม. — ไม่ขึ้นกับช่วงที่เลือก
       waitingNow: waitingByName[name] || 0, // แชทที่ลูกค้ารอตอบตอนนี้ (= "แชทค้าง" ตัวจริง)
       waitingCommentNow: waitingCommentByName[name] || 0, // ในนั้นเป็นคอมเมนต์ใต้โพสต์กี่รายการ
@@ -701,7 +705,7 @@ export async function apiAdminPerf(params: any) {
   Object.keys(bySeller).forEach((k2) => {
     if (usedSellerKeys[k2]) return;
     const s = bySeller[k2];
-    const ad = roasOf(s.adRev);
+    const ad = roasBlock_('seller:' + k2, s.revenue);
     const sNick = nicknameOf(s.name, ''); // ไม่มีแถวใน admin_settings → เดาจากคำแรกอย่างเดียว
     const sUnits = unitsFor_('', s.name, sNick, s.pages);
     rows.push({

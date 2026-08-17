@@ -23,6 +23,24 @@ const dk_ = (d: unknown): string => String(d ?? '').slice(0, 10); // date เป
  * @returns { user_id: จำนวนคนทักที่จัดสรรแล้ว (ปัดจำนวนเต็ม) }
  */
 export function allocateReached(chatRows: ChatRow[], engRows: EngRow[]): Record<string, number> {
+  const byPage = allocateReachedByPage(chatRows, engRows);
+  const reached: Record<string, number> = {};
+  Object.keys(byPage).forEach((uid) => {
+    let s = 0;
+    Object.keys(byPage[uid]).forEach((pid) => { s += byPage[uid][pid]; });
+    reached[uid] = Math.round(s);
+  });
+  return reached;
+}
+
+/**
+ * เหมือน allocateReached แต่ยังไม่รวมยอด — คืน { user_id: { page_id: คนทัก } } (ไม่ปัดเศษ)
+ *
+ * ใช้ปันค่าแอดแบบ "ค่าทักต่อคน" รายยูนิต (ทีมกำหนด 2026-08-17): ต้องรู้ว่าคนนี้รับแชท
+ * มาจากเพจไหนบ้าง เพราะแต่ละยูนิตค่าทักต่อคนต่างกัน 2-3 เท่า (U10 ฿44 vs UN5 ฿108)
+ * และแอดมิน 1 คนควบได้หลายยูนิต — ปันตามเพจที่ทำจริงจึงไม่ต้องมีลิสต์ว่าใครสังกัดยูนิตไหน
+ */
+export function allocateReachedByPage(chatRows: ChatRow[], engRows: EngRow[]): Record<string, Record<string, number>> {
   // ยอดคนทักระดับ (วันที่|เพจ)
   const engByKey: Record<string, number> = {};
   engRows.forEach((e) => {
@@ -42,22 +60,21 @@ export function allocateReached(chatRows: ChatRow[], engRows: EngRow[]): Record<
     grp[key].sum += u;
   });
 
-  const reached: Record<string, number> = {};
+  const out: Record<string, Record<string, number>> = {};
+  const add = (uid: string, pid: string, v: number) => {
+    (out[uid] = out[uid] || {})[pid] = (out[uid][pid] || 0) + v;
+  };
   Object.keys(grp).forEach((key) => {
     const g = grp[key];
     const E = engByKey[key];
+    const pid = key.slice(key.indexOf('|') + 1);
     if (E !== undefined && g.sum > 0) {
       // มียอดเพจ → กระจายตามสัดส่วน unique_inbox
-      Object.keys(g.admins).forEach((uid) => {
-        reached[uid] = (reached[uid] || 0) + E * (g.admins[uid] / g.sum);
-      });
+      Object.keys(g.admins).forEach((uid) => { add(uid, pid, E * (g.admins[uid] / g.sum)); });
     } else {
       // ไม่มียอด engagement ของเพจนี้ (เพจ LINE ที่ API ไม่คืน หรือยังไม่ sync) → ใช้ unique_inbox ดิบ
-      Object.keys(g.admins).forEach((uid) => {
-        reached[uid] = (reached[uid] || 0) + g.admins[uid];
-      });
+      Object.keys(g.admins).forEach((uid) => { add(uid, pid, g.admins[uid]); });
     }
   });
-  Object.keys(reached).forEach((uid) => { reached[uid] = Math.round(reached[uid]); });
-  return reached;
+  return out;
 }
