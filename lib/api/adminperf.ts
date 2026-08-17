@@ -255,7 +255,8 @@ export async function apiAdminPerf(params: any) {
     // ยอด "คนทัก" (บทสนทนาอินบ็อกซ์ใหม่ + ความคิดเห็น) ระดับเพจ จาก chat_engagement_daily
     fetchAll<any>(() =>
       db.from('chat_engagement_daily')
-        .select('date,page_id,new_inbox,comment')
+        // order_count/old_order_count ใช้หา "ออเดอร์วันนี้กี่ % มาจากแชทที่เปิดวันก่อน"
+        .select('date,page_id,new_inbox,comment,order_count,old_order_count')
         .gte('date', chatFrom).lte('date', chatTo),
       'key'
     ).catch(() => [] as any[]),
@@ -362,6 +363,42 @@ export async function apiAdminPerf(params: any) {
   // จัดสรร "คนทัก" รายแอดมินตามสัดส่วน unique_inbox → ตัวเลข "แชท" + ตัวหาร %ปิดที่ตรงจอ Pancake
   const reachedByUid = allocateReached(chatRows, engRows);
 
+  /* ---- สัดส่วน "ออเดอร์จากแชทใหม่" รายเพจ (ทีมสั่ง 2026-08-17) ----
+   * ปัญหาที่ทีมจับได้: %ปิด = ออเดอร์ ÷ คนทักใหม่ — ตัวเศษนับออเดอร์จากลูกค้าเก่าที่ทักไว้เมื่อวันก่อนด้วย
+   * พอเพจหยุดยิงแอด คนทักใหม่หายเกือบหมดแต่ออเดอร์จากฐานลูกค้าเดิมยังมา → %ปิดพุ่งไร้ความหมาย
+   * ของจริง 15 ส.ค. เพจ Cocolly: คนทัก 862→45 แต่ออเดอร์ 316→37 (ในนั้นมาจากแชทเก่า 21 = 57%) → 84%
+   * แก้: ตัดออเดอร์จากแชทเก่าออกจากตัวเศษ ให้เศษกับส่วนเป็น "ของใหม่" ทั้งคู่
+   * (Pancake ให้ order_count/old_order_count ระดับเพจ — เอามาเป็นสัดส่วนแล้วคูณกับออเดอร์ของแต่ละคนในเพจนั้น)
+   */
+  const engOrd: Record<string, { all: number; old: number }> = {};
+  engRows.forEach((e: any) => {
+    const pid = String(e.page_id || '');
+    if (!pid) return;
+    if (!engOrd[pid]) engOrd[pid] = { all: 0, old: 0 };
+    engOrd[pid].all += toNum_(e.order_count);
+    engOrd[pid].old += toNum_(e.old_order_count);
+  });
+  /** null = เพจนี้ไม่มีข้อมูล → ไม่ลดตัวเศษ (ไม่เดา) */
+  function newOrderRatioOfPage_(pid: string): number | null {
+    const g = engOrd[pid];
+    if (!g || g.all <= 0) return null;
+    return Math.max(0, Math.min(1, (g.all - g.old) / g.all));
+  }
+  /** ถ่วงน้ำหนักตามจำนวนออเดอร์ที่คนนี้ขายในแต่ละเพจ — คนเดียวขายหลายเพจได้ */
+  function newOrderRatioOf_(pageOrders: Record<string, number> | null | undefined): number {
+    if (!pageOrders) return 1;
+    let w = 0;
+    let acc = 0;
+    Object.keys(pageOrders).forEach((pid) => {
+      const n = toNum_(pageOrders[pid]);
+      if (n <= 0) return;
+      const ratio = newOrderRatioOfPage_(pid);
+      acc += n * (ratio === null ? 1 : ratio);   // ไม่มีข้อมูล = นับเต็มไปก่อน
+      w += n;
+    });
+    return w > 0 ? acc / w : 1;
+  }
+
   // ลูกค้าใหม่รวมทีม + ปริมาณลูกค้าทักรายชั่วโมง (จาก chat_hourly — ระดับเพจ ไม่มีรายแอดมิน)
   let newCustomers = 0;
   const teamHourly: number[] = [];
@@ -421,12 +458,16 @@ export async function apiAdminPerf(params: any) {
       bySeller[k2] = {
         name: String(o.seller_name || o.creator_name || 'ไม่ระบุ'),
         revenue: 0, orders: 0, products: {} as Record<string, number>, pages: {} as Record<string, number>,
+        // จำนวนออเดอร์แยกตาม page_id — ใช้ถ่วงน้ำหนัก "สัดส่วนออเดอร์จากแชทใหม่" ของแต่ละเพจ
+        pageOrders: {} as Record<string, number>,
         adRev: {} as Record<string, number>, lastOrderAt: null as number | null,
       };
     }
     const s = bySeller[k2];
     s.revenue += o.total_price;
     s.orders++;
+    const pid = String(o.page_id || '');
+    if (pid) s.pageOrders[pid] = (s.pageOrders[pid] || 0) + 1;
     // ยอดที่ผูกแอดได้ — เก็บรายแอดไว้ปันค่าแอดตามสัดส่วนทีหลัง (ROAS รายคน)
     const adId = String(o.ad_id || '');
     if (adId) {
@@ -473,7 +514,11 @@ export async function apiAdminPerf(params: any) {
   /** รวมยอดขายจากหลาย key (posId + name) ของคนเดียวกัน */
   function mergeSales(parts: any[]) {
     if (!parts.length) return null;
-    const m = { revenue: 0, orders: 0, products: {} as Record<string, number>, pages: {} as Record<string, number>, adRev: {} as Record<string, number>, lastOrderAt: null as number | null };
+    const m = {
+      revenue: 0, orders: 0, products: {} as Record<string, number>, pages: {} as Record<string, number>,
+      pageOrders: {} as Record<string, number>,
+      adRev: {} as Record<string, number>, lastOrderAt: null as number | null,
+    };
     parts.forEach((p) => {
       m.revenue += p.revenue;
       m.orders += p.orders;
@@ -482,6 +527,9 @@ export async function apiAdminPerf(params: any) {
       });
       Object.keys(p.pages).forEach((k2) => {
         m.pages[k2] = (m.pages[k2] || 0) + p.pages[k2];
+      });
+      Object.keys(p.pageOrders || {}).forEach((k2) => {
+        m.pageOrders[k2] = (m.pageOrders[k2] || 0) + p.pageOrders[k2];
       });
       Object.keys(p.adRev || {}).forEach((k2) => {
         m.adRev[k2] = (m.adRev[k2] || 0) + p.adRev[k2];
@@ -555,6 +603,7 @@ export async function apiAdminPerf(params: any) {
     const revenue = sale ? sale.revenue : 0;
     const nOrders = sale ? sale.orders : 0;
     const chats = chat ? chat.chats : 0;
+    const newOrders = nOrders * newOrderRatioOf_(sale ? sale.pageOrders : null);
     const ad = roasOf(sale ? sale.adRev : null);
     const nick = nicknameOf(name, nickById[String(a.user_id)]); // พิมพ์ทับ > เดาจากคำแรก
     const unitInfo = unitsFor_(String(a.user_id), name, nick, sale ? sale.pages : null);
@@ -568,7 +617,8 @@ export async function apiAdminPerf(params: any) {
       chats: chats,
       replies: chat ? chat.replies : 0,
       phones: chat ? chat.phones : 0,
-      closeRate: chats ? Math.min(100, Math.round(nOrders / chats * 1000) / 10) : null,
+      closeRate: chats ? Math.min(100, Math.round(newOrders / chats * 1000) / 10) : null,
+      newOrders: Math.round(newOrders * 10) / 10,  // ออเดอร์ที่มาจากแชทใหม่ (ตัวเศษของ %ปิด)
       avgRespMins: (chat && chat.respWeight) ? Math.round(chat.respWSum / chat.respWeight / 60 * 10) / 10 : null,
       avgOrder: nOrders ? Math.round(revenue / nOrders) : 0, // "เปอร์บิล" = ยอดเฉลี่ยต่อบิล
       topProduct: sale ? topKey(sale.products) : '',

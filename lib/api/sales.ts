@@ -461,7 +461,9 @@ function bkkWeekStart_(d: Date): string {
   return fmtDateBkk(new Date(noon.getTime() - dow * 86400000));
 }
 
-export interface UnitCost { spend: number; msgs: number; reached: number; engOrders: number }
+// engOldOrders = ในออเดอร์จากแชทนั้น มาจากแชทที่เปิดวันก่อนกี่ราย — ต้องตัดออกจากตัวเศษของ %ปิด
+// (นิยามเดียวกับหน้า Admin Performance ตั้งแต่ 2026-08-17 — สองหน้าต้องได้เลขเดียวกัน)
+export interface UnitCost { spend: number; msgs: number; reached: number; engOrders: number; engOldOrders: number }
 type UnitCostByChannel = Record<string, Record<string, UnitCost>>;
 
 /**
@@ -487,12 +489,13 @@ async function loadUnitCost_(
     const ch = platformChannel_(pagePlatform[pageId] || '');
     for (const bucket of ['all', ch]) {
       if (!out[bucket]) continue;   // ch = 'other' ไม่มีถัง — นับเฉพาะ all
-      if (!out[bucket][key]) out[bucket][key] = { spend: 0, msgs: 0, reached: 0, engOrders: 0 };
+      if (!out[bucket][key]) out[bucket][key] = { spend: 0, msgs: 0, reached: 0, engOrders: 0, engOldOrders: 0 };
       const t = out[bucket][key];
       t.spend += patch.spend || 0;
       t.msgs += patch.msgs || 0;
       t.reached += patch.reached || 0;
       t.engOrders += patch.engOrders || 0;
+      t.engOldOrders += patch.engOldOrders || 0;
     }
   };
 
@@ -509,12 +512,13 @@ async function loadUnitCost_(
 
   try {
     const eng = await fetchAll<Row>(() =>
-      db.from('chat_engagement_daily').select('key,date,page_id,new_inbox,comment,order_count')
+      db.from('chat_engagement_daily').select('key,date,page_id,new_inbox,comment,order_count,old_order_count')
         .gte('date', from).lte('date', to), 'key');
     eng.forEach((e) => {
       const pid = String(e.page_id || '');
       if (!pid) return;
-      bump(pid, { reached: toNum_(e.new_inbox) + toNum_(e.comment), engOrders: toNum_(e.order_count) });
+      bump(pid, { reached: toNum_(e.new_inbox) + toNum_(e.comment), engOrders: toNum_(e.order_count),
+        engOldOrders: toNum_((e as any).old_order_count) });
     });
   } catch { /* ยังไม่มีตาราง chat_engagement_daily */ }
 
@@ -572,7 +576,7 @@ function unitRows_(
   return keys
     .map((k) => {
       const agg = unitAgg[k] || { u: k === unmappedKey ? '' : k, product: k === unmappedKey ? 'ยังไม่จัดกลุ่ม' : '', revenue: 0, orders: 0 };
-      const c = cost[k] || { spend: 0, msgs: 0, reached: 0, engOrders: 0 };
+      const c = cost[k] || { spend: 0, msgs: 0, reached: 0, engOrders: 0, engOldOrders: 0 };
       const revenue = Math.round(agg.revenue);
       const spend = Math.round(c.spend);
       const rep = repeatStats_(unitCust[k] || {});
@@ -590,8 +594,11 @@ function unitRows_(
         costPerMsg: c.msgs > 0 ? Math.round((c.spend / c.msgs) * 100) / 100 : null,
         msgs: Math.round(c.msgs),
         reached: Math.round(c.reached),
-        // %ปิด = ออเดอร์จากแชท ÷ คนทัก (สูตรเดียวกับ KPI ด้านบน — ตัวเลขทั้งคู่มาจาก Pancake)
-        closeRate: c.reached > 0 ? Math.round((c.engOrders / c.reached) * 1000) / 10 : null,
+        // %ปิด = ออเดอร์จาก "แชทใหม่" ÷ คนทัก — ตัดออเดอร์ที่มาจากแชทวันก่อนออกจากตัวเศษ
+        // ไม่งั้นยูนิตที่หยุดยิงแอดจะได้ %ปิดพุ่ง (ตัวหารหด แต่ยอดยังมาจากฐานลูกค้าเดิม)
+        closeRate: c.reached > 0
+          ? Math.round((Math.max(0, c.engOrders - c.engOldOrders) / c.reached) * 1000) / 10
+          : null,
         // สัดส่วนยอดของยูนิตนี้ต่อยอดรวมทั้งหมดในช่วง
         share: grand > 0 ? Math.round((agg.revenue / grand) * 1000) / 10 : null,
         // กำไรขั้นต้นแบบหยาบ: ยอดขาย - ค่าแอด (ยังไม่มีต้นทุนสินค้าในระบบ ห้ามเรียกว่า "กำไร")

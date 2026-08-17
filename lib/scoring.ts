@@ -105,11 +105,15 @@ export function normalizeConfig(raw: unknown): MetricConfig[] {
  * ================================================================ */
 
 export interface RankRules {
-  minAdSpend: number;  // ค่าแอดปันส่วนขั้นต่ำถึงเข้าอันดับโหมดเท่า (0 = ไม่กัน)
-  minOrders: number;   // ออเดอร์ขั้นต่ำถึงเข้าอันดับโหมดเท่า (0 = ไม่กัน)
+  minAdSpend: number;      // ค่าแอดปันส่วนขั้นต่ำถึงเข้าอันดับโหมดเท่า (0 = ไม่กัน)
+  minOrders: number;       // ออเดอร์ขั้นต่ำถึงเข้าอันดับโหมดเท่า (0 = ไม่กัน)
+  // ค่าแอดต้องคิดเป็นอย่างน้อยกี่ % ของยอดขาย ถึงจะเอา "เท่า" มาจัดอันดับได้ (0 = ไม่กัน)
+  // กันเคสเพจหยุดยิงแอดแล้วยอดยังมาจากลูกค้าเก่า → เท่าพุ่งทั้งที่ไม่ได้ยิงแอด
+  // (15% ≈ เพดานเท่า ~6.7 — ทั้งทีมอยู่ที่ ~3 เท่า สิ้นเดือนปรับได้ในหน้าเว็บ)
+  minSpendPctOfRev: number;
 }
 
-export const DEFAULT_RANK_RULES: RankRules = { minAdSpend: 500, minOrders: 0 };
+export const DEFAULT_RANK_RULES: RankRules = { minAdSpend: 500, minOrders: 0, minSpendPctOfRev: 15 };
 
 export function normalizeRankRules(raw: unknown): RankRules {
   const r = (raw || {}) as Record<string, unknown>;
@@ -121,6 +125,7 @@ export function normalizeRankRules(raw: unknown): RankRules {
   return {
     minAdSpend: num(r.minAdSpend, DEFAULT_RANK_RULES.minAdSpend, 10000000),
     minOrders: num(r.minOrders, DEFAULT_RANK_RULES.minOrders, 100000),
+    minSpendPctOfRev: num(r.minSpendPctOfRev, DEFAULT_RANK_RULES.minSpendPctOfRev, 100),
   };
 }
 

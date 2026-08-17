@@ -52,6 +52,7 @@ interface PerfRow {
   replies: number;
   phones: number;
   closeRate: number | null;
+  newOrders?: number;   // ออเดอร์ที่มาจากแชทใหม่ (ตัวเศษของ %ปิด — ตัดออเดอร์จากแชทวันก่อนออกแล้ว)
   avgRespMins: number | null;
   avgOrder: number;     // "เปอร์บิล" = ยอดขาย ÷ ออเดอร์
   topProduct: string;
@@ -221,6 +222,21 @@ function roasTxt(r: PerfRow): string {
   return v === null ? '—' : v.toFixed(2);
 }
 
+/**
+ * คำอธิบาย %ปิด — ต้องบอกด้วยว่าตัวเศษถูกตัดออเดอร์จากแชทเก่าออกแล้ว
+ * ไม่งั้นทีมเอา "ออเดอร์" บนการ์ด (ทั้งหมด) ไปหารเองแล้วได้คนละเลข
+ */
+function closeRateTip(r: PerfRow): string {
+  const all = Number(r.orders) || 0;
+  const fresh = (r.newOrders === null || r.newOrders === undefined) ? all : Number(r.newOrders);
+  const cut = Math.max(0, Math.round((all - fresh) * 10) / 10);
+  return '%ปิดการขาย = ออเดอร์ที่มาจากแชทใหม่ ÷ คนทัก (อินบ็อกซ์ใหม่+ความคิดเห็น)' +
+    ' • ออเดอร์ทั้งหมด ' + fmtNum(all) + ' ตัดที่มาจากแชทวันก่อนออก ' + fmtNum(cut) +
+    ' เหลือเข้าสูตร ' + fmtNum(Math.round(fresh * 10) / 10) + ' ÷ ' + fmtNum(Number(r.chats) || 0) +
+    ' • ตัดออกเพราะลูกค้าที่ทักไว้ตั้งแต่วันก่อนไม่ได้อยู่ในตัวหารของวันนี้ ' +
+    '(ถ้าไม่ตัด เพจที่หยุดยิงแอดจะได้ %ปิดพุ่งเกินจริง)';
+}
+
 function perBillHtml(r: PerfRow): string {
   return '<span title="เปอร์บิล = ยอดขาย ÷ จำนวนออเดอร์ ในช่วงเวลาที่เลือก">🧾 เปอร์บิล ' +
     esc(THB(r.avgOrder)) + '</span>';
@@ -368,6 +384,12 @@ function eligible(r: PerfRow, mode: string): boolean {
     // ตัวหารเล็กเกินไป = ตัวเลขเท่าไม่น่าเชื่อถือ ไม่ใช่ผลงาน — ทีมตั้งขั้นต่ำเองได้ (0 = ไม่กัน)
     if ((Number(r.adSpend) || 0) < rankRules.minAdSpend) return false;
     if ((Number(r.orders) || 0) < rankRules.minOrders) return false;
+    // ค่าแอดต้องสมเหตุกับยอด — เพจที่หยุดยิงแอดแล้วยอดยังมาจากลูกค้าเก่าจะได้เท่าสูงลอย
+    // ทั้งที่วันนั้นแทบไม่ได้ลงเงิน (ของจริง 15 ส.ค.: ค่าแอด 11% ของยอด ได้ 6.74 เท่า = อันดับ 1)
+    if (rankRules.minSpendPctOfRev > 0) {
+      const rev = Number(r.revenue) || 0;
+      if (rev > 0 && ((Number(r.adSpend) || 0) / rev) * 100 < rankRules.minSpendPctOfRev) return false;
+    }
     return true;
   }
   return true;
@@ -468,12 +490,13 @@ function roasHintText(): string {
   const floors: string[] = [];
   if (rankRules.minAdSpend > 0) floors.push('ค่าแอด ≥ ' + THB(rankRules.minAdSpend));
   if (rankRules.minOrders > 0) floors.push('ออเดอร์ ≥ ' + fmtNum(rankRules.minOrders));
+  if (rankRules.minSpendPctOfRev > 0) floors.push('ค่าแอด ≥ ' + fmtNum(rankRules.minSpendPctOfRev) + '% ของยอด');
   return '1️⃣ เท่า → 2️⃣ %ปิด → 3️⃣ เปอร์บิล → 4️⃣ ตอบเร็ว' +
     (floors.length ? ' • ขั้นต่ำ ' + floors.join(' + ') : '');
 }
 
 function roasHintTip(): string {
-  const gated = rankRules.minAdSpend > 0 || rankRules.minOrders > 0;
+  const gated = rankRules.minAdSpend > 0 || rankRules.minOrders > 0 || rankRules.minSpendPctOfRev > 0;
   return 'เทียบทีละชั้น: ดู "เท่า" ก่อนเสมอ — เท่ากัน (ปัด 2 ตำแหน่ง) ค่อยดู %ปิด → เปอร์บิล → ตอบเร็ว ตามลำดับ • ' +
     'อันดับ 1 คือคนที่เท่าสูงสุดเสมอ • คนที่ไม่มียอดผูกแอด (เช่นสาย LINE) จัดอันดับด้วยเท่าไม่ได้ ถูกต่อท้ายลิสต์' +
     (gated ? ' • คนที่ต่ำกว่าขั้นต่ำก็ต่อท้ายเหมือนกัน (กันเลขเท่าพุ่งเพราะค่าแอดนิดเดียว)' : '') +
@@ -869,6 +892,8 @@ function rankRulesRowHtml(): string {
       rankRules.minAdSpend + '"><span class="sp-u">฿</span></div>' +
     '<div class="sp-field">ออเดอร์ขั้นต่ำ <input type="number" min="0" step="1" class="input sp-num" id="rk-min-orders" value="' +
       rankRules.minOrders + '"><span class="sp-u">ออเดอร์</span></div>' +
+    '<div class="sp-field">ค่าแอดต้องเป็นอย่างน้อย <input type="number" min="0" max="100" step="1" class="input sp-num" id="rk-min-spend-pct" value="' +
+      rankRules.minSpendPctOfRev + '"><span class="sp-u">% ของยอดขาย</span></div>' +
     '<div class="sp-dir">0 = ไม่กัน</div>' +
     '</div>';
 }
@@ -880,7 +905,9 @@ function panelHtml(): string {
         '(ได้ครบ 100 คะแนนของตัวนั้นเมื่อถึงเป้า) • คนที่ไม่มีข้อมูลตัวไหนจะไม่ถูกคิดตัวนั้น • กด "บันทึกเกณฑ์" เพื่อให้ทุกคนใช้เกณฑ์เดียวกัน</div>' +
       '<div class="sp-hint">แถวแรกไม่ใช่คะแนน แต่เป็น <b>ด่านเข้าอันดับของโหมด 🔥 เท่า</b> — ' +
         'เท่า = ยอดจากแอด ÷ ค่าแอด คนที่ค่าแอดปันมานิดเดียวจะได้เลขสูงลิ่วโดยไม่ได้แปลว่าเก่ง ' +
-        '(เจอจริง: 3 ออเดอร์ ค่าแอด ฿35 = 27.82 เท่า) • ใส่ 0 ทั้งสองช่อง = ไม่กันใครเลย เรียงด้วยเท่าล้วน</div>' +
+        '(เจอจริง: 3 ออเดอร์ ค่าแอด ฿35 = 27.82 เท่า) • ช่อง <b>% ของยอดขาย</b> กันอีกเคส: ' +
+        'เพจที่หยุดยิงแอดแล้วยอดยังมาจากลูกค้าเก่า เท่าจะพุ่งทั้งที่วันนั้นแทบไม่ได้ลงเงิน ' +
+        '(15 ส.ค. Cocolly ค่าแอด 11% ของยอด ได้ 6.74 เท่า = อันดับ 1) • ใส่ 0 = ไม่กันช่องนั้น</div>' +
       '<div class="sp-list">' + rankRulesRowHtml() + rows + '</div>' +
       '<div class="sp-foot">' +
         '<span class="chip">รวมน้ำหนักที่เปิด <b id="rk-wsum">' + enabledWeightSum() + '</b>%</span>' +
@@ -1048,7 +1075,7 @@ function rankCardHtml(r: PerfRow, idx: number): string {
       : '<div class="rank-big">' + esc(THB(r.revenue)) + '</div>';
   // เปอร์บิล + ROAS อยู่ในทุกโหมด (เดิมเปอร์บิลโผล่เฉพาะโหมดที่ไม่ใช่ Overall)
   const mini = ((state.mode === 'overall' || state.mode === 'roas') ? '💰 ' + esc(THB(r.revenue)) + ' • ' : '') +
-    '<span title="%ปิดการขาย = ออเดอร์ ÷ คนทัก (อินบ็อกซ์ใหม่+ความคิดเห็น)">🎯 ' + esc(pctFmt(r.closeRate)) + '</span> • ⚡ ' + esc(respLong(r)) +
+    '<span title="' + esc(closeRateTip(r)) + '">🎯 ' + esc(pctFmt(r.closeRate)) + '</span> • ⚡ ' + esc(respLong(r)) +
     '<br>' + perBillHtml(r) + ' • ' + roasHtml(r);
   return '<div class="' + cardCls + '">' +
     noHtml +
@@ -1269,6 +1296,7 @@ function bindEvents(container: HTMLElement): void {
   };
   bindFloor('#rk-min-spend', function (n) { rankRules.minAdSpend = n; });
   bindFloor('#rk-min-orders', function (n) { rankRules.minOrders = n; });
+  bindFloor('#rk-min-spend-pct', function (n) { rankRules.minSpendPctOfRev = Math.min(100, n); });
 
   // แถบอธิบายโหมดเท่า — กดแล้วเปิดแผงเกณฑ์ไปแก้ขั้นต่ำ
   const hintChip = container.querySelector('#rk-roas-hint');
