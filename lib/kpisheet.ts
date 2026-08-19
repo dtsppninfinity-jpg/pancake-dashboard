@@ -16,6 +16,24 @@ const num_ = (v: unknown): number => {
   return isFinite(n) ? n : 0;
 };
 const clean_ = (v: unknown) => String(v || '').replace(/\s+/g, ' ').trim();
+/**
+ * เหมือน num_ แต่แยก "เซลล์ว่าง" ออกจาก "เลขศูนย์" — คืน null เมื่อทีมยังไม่กรอก
+ *
+ * เจ็บมาแล้ว: ทีมหยุดกรอก "ต้นทุนค่าโฆษณารวม" ตั้งแต่ ก.ค. 2026 แล้วหน้าเว็บโชว์ "0.0%"
+ * ซึ่งอ่านได้ว่า "ยิงแอดฟรี" แทนที่จะบอกว่า "ยังไม่มีข้อมูล" — ทีมเข้าใจผิดว่าระบบดึงค่าผิด
+ */
+const numOrNull_ = (v: unknown): number | null => {
+  const raw = String(v ?? '').trim();
+  if (!raw) return null;
+  const n = Number(raw.replace(/,/g, ''));
+  return isFinite(n) ? n : null;
+};
+/**
+ * สัดส่วน 0-1 ในชีท → เปอร์เซ็นต์ • ว่าง = null
+ * ค่า 0 ก็ถือว่า "ยังไม่กรอก" — ต้นทุนแอด 0% ของยูนิตที่ยิงแอดอยู่เป็นไปไม่ได้จริง
+ * (แท็บหัวหน้าใส่เลข 0 ไว้จริงตั้งแต่ ก.ค. ไม่ได้ปล่อยว่างเหมือนแท็บรอง)
+ */
+const pct100_ = (v: number | null): number | null => (v === null || v === 0 ? null : v * 100);
 const isEmpId_ = (v: unknown) => /^\d{4,6}$/.test(clean_(v));
 
 /** 'U16 C Biofla' → 'U16' (คืน '' ถ้าไม่ใช่รหัสยูนิต) */
@@ -30,12 +48,12 @@ export interface KpiAdminMonthRow {
 }
 export interface KpiSubMonthRow {
   id: string; name: string; nick: string; unit: string; unitFull: string;
-  target: number; teamSales: number; teamCount: number; hitTarget: number;
-  close: number; perBill: number; adCost: number; err: number; score: number; kpiAvg: number;
+  target: number; teamSales: number; teamCount: number | null; hitTarget: number | null;
+  close: number; perBill: number; adCost: number | null; err: number; score: number; kpiAvg: number;
 }
 export interface KpiHeadMonth {
   id: string; name: string; nick: string;
-  kpiSub: number; target: number; sales: number; adCost: number; score: number;
+  kpiSub: number; target: number; sales: number; adCost: number | null; score: number;
   units: Array<{ unit: string; unitFull: string; score: number; sales: number; target: number }>;
 }
 export interface KpiAdminYearRow {
@@ -102,11 +120,11 @@ export function parseKpiSubMonth(grid: string[][]): Record<number, KpiSubMonthRo
         id: cur.id, name: cur.name, nick: cur.nick, unit, unitFull,
         target: num_(row[b + 1]),
         teamSales: num_(row[b + 2]),
-        teamCount: num_(row[b + 4]),
-        hitTarget: num_(row[b + 5]),
+        teamCount: numOrNull_(row[b + 4]),
+        hitTarget: numOrNull_(row[b + 5]),
         close: num_(row[b + 7]) * 100,
         perBill: num_(row[b + 9]),
-        adCost: num_(row[b + 11]) * 100, // สัดส่วนต้นทุนแอดต่อยอด (เป้า ≤33%)
+        adCost: pct100_(numOrNull_(row[b + 11])), // สัดส่วนต้นทุนแอดต่อยอด (เป้า ≤33%)
         err: num_(row[b + 13]) * 100,
         score: num_(row[b + 14]),
         kpiAvg: cur.kpiAvg,
@@ -131,7 +149,7 @@ export function parseKpiHeadMonth(grid: string[][]): Record<number, KpiHeadMonth
         const h: KpiHeadMonth = {
           id: clean_(row[2]), name: clean_(row[3]), nick: clean_(row[4]),
           kpiSub: num_(row[b]), target: num_(row[b + 2]), sales,
-          adCost: num_(row[b + 5]) * 100, score, units: [],
+          adCost: pct100_(numOrNull_(row[b + 5])), score, units: [],
         };
         curByMonth[m + 1] = h;
         (out[m + 1] = out[m + 1] || []).push(h);

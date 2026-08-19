@@ -659,6 +659,16 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 .ca-num span { font-size: var(--fs-1); color: var(--text-3); }
 .txt-good { color: var(--green); }
 .txt-bad { color: var(--red); }
+/* ค่าที่ต้นทางยังไม่กรอก — ต้องอ่านออกว่า "ไม่มีข้อมูล" ไม่ใช่ "ศูนย์" */
+.txt-dim { color: var(--text-3); cursor: help; }
+
+/* ---------- แถบเตือน "ชีท KPI กรอกไม่ครบ" (บนสุดหน้า KPI ทีมขาย) ---------- */
+/* ต้องเห็นก่อนตัวเลข เพราะทีมจะอ่านเกรด D แล้วตกใจก่อนจะรู้ว่าคะแนนขาดตัวตั้ง */
+.kpi-gap {
+  margin-top: var(--sp-3); border-color: rgba(253, 203, 110, .5);
+  background: linear-gradient(0deg, rgba(253, 203, 110, .07), rgba(253, 203, 110, .07)), var(--card);
+}
+.kpi-gap b { color: var(--amber); }
 
 /* ---------- แจ้งเตือนยูนิตขาดทุน (บนสุดหน้า Sales) ---------- */
 /* การ์ดนี้ต้องสะดุดตากว่าการ์ดอื่นทั้งหน้า — ทีมสั่งว่า "ต้องขึ้นแจ้งเตือนทันที" */

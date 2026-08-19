@@ -12,12 +12,12 @@ interface AdminRow {
 interface Person { id: string; name: string; nick: string; units: string[]; sales: number; score: number }
 interface SubRow {
   id: string; name: string; nick: string; unit: string;
-  target: number; teamSales: number; teamCount: number; hitTarget: number;
-  close: number; perBill: number; adCost: number; err: number; score: number; kpiAvg: number;
+  target: number; teamSales: number; teamCount: number | null; hitTarget: number | null;
+  close: number; perBill: number; adCost: number | null; err: number; score: number; kpiAvg: number;
 }
 interface HeadRow {
   id: string; name: string; nick: string;
-  kpiSub: number; target: number; sales: number; adCost: number; score: number;
+  kpiSub: number; target: number; sales: number; adCost: number | null; score: number;
   units: Array<{ unit: string; score: number; sales: number; target: number }>;
 }
 interface YearRow {
@@ -33,6 +33,7 @@ interface KpiData {
   personHistory: Record<string, Array<{ m: number; s: number }>>;
   noComAlerts: Array<{ admin: string; months: string[] }>;
   unitAlerts: Array<{ u: string; days: number; level: string }>;
+  gaps?: Record<string, { missing: number; total: number; weight: number; who: string }>;
   topSales: Person[]; topKpi: Person[]; topSalesYear: YearRow[];
 }
 
@@ -56,6 +57,19 @@ const MEDALS = ['🥇', '🥈', '🥉'];
 /** คะแนนชีทเป็นสัดส่วน (0.7947) → แต้มเต็ม 100 (79.5) — เกิน 100 ได้เมื่อทะลุเป้า */
 const pts = (v: number | null | undefined): number | null =>
   (v === null || v === undefined || isNaN(Number(v))) ? null : Math.round(Number(v) * 1000) / 10;
+
+/**
+ * ค่าที่ "ชีทยังไม่กรอก" — โชว์ขีดพร้อมบอกเหตุ ไม่ใช่ 0%
+ * เดิมเซลล์ว่างถูกแปลงเป็น 0 แล้วขึ้นว่า "ค่าแอด/ยอด 0.0%" ทีมอ่านแล้วนึกว่าระบบดึงค่าผิด
+ */
+function sheetVal_(v: number | null | undefined, fmt: (n: number) => string): string {
+  return (v === null || v === undefined || isNaN(Number(v)))
+    ? '<span class="txt-dim" title="ชีท KPI ยังไม่กรอกช่องนี้ของเดือนนี้">—</span>'
+    : fmt(Number(v));
+}
+/** ค่าแอด/ยอด: ว่าง = ขีด • เกิน 33% = แดง */
+const adCostHtml_ = (v: number | null | undefined): string =>
+  sheetVal_(v, (n) => (n > 33 ? '<span class="txt-bad">' + pctFmt(n) + '</span>' : pctFmt(n)));
 
 function scorePct(v: number | null | undefined): string {
   const p = pts(v);
@@ -100,6 +114,36 @@ function ring(p: number | null): string {
   const color = g === 'A' ? 'var(--green)' : g === 'B' ? 'var(--blue)' : g === 'C' ? 'var(--amber)' : 'var(--red)';
   return '<div class="kpi-ring" style="--p:' + Math.max(0, Math.min(100, p)) + ';--rc:' + color + '">' +
     '<span style="color:' + color + '">' + g + '</span></div>';
+}
+
+/* ---------- แถบเตือน "ชีทเดือนนี้ยังกรอกไม่ครบ" ---------- */
+
+// ป้ายชื่อช่องในชีท → ข้อความที่ทีมเข้าใจ (คีย์ตรงกับ gaps ที่ lib/api/kpi.ts ส่งมา)
+const GAP_LABEL: Record<string, string> = {
+  subAdCost: 'ต้นทุนค่าโฆษณารวม (แท็บ KPI รอง ADMIN/month)',
+  subTeamCount: 'จำนวนแอดมินในทีม (ตัวหารของ "ลูกทีมถึงเป้า" แท็บ KPI รอง)',
+  headAdCost: 'ต้นทุนค่าโฆษณารวม (แท็บ KPI หัวหน้า ADMIN/month)',
+};
+
+/**
+ * ชีทคิดคะแนนจากทุกหมวดเสมอ — หมวดที่ไม่กรอกได้ 0 คะแนน ไม่ใช่ "ข้ามไม่คิด"
+ * เดือน ก.ค. 2026 ค่าโฆษณาว่างทั้งแท็บรองและหัวหน้า → รองหาย 20 คะแนน หัวหน้าหาย 20
+ * ถ้าไม่ฟ้อง ทีมจะอ่านหน้านี้ว่า "ตกเกรด D ทั้งฝ่าย" ทั้งที่คะแนนแค่ขาดตัวตั้ง
+ */
+function gapBanner_(d: KpiData): string {
+  const g = d.gaps;
+  if (!g) return '';
+  const hit = Object.keys(g).filter((k) => g[k].total > 0 && g[k].missing === g[k].total);
+  if (!hit.length) return '';
+  const lostBy: Record<string, number> = {};
+  hit.forEach((k) => { lostBy[g[k].who] = (lostBy[g[k].who] || 0) + g[k].weight; });
+  const lost = Object.keys(lostBy).map((who) => who + ' −' + lostBy[who] + ' คะแนน').join(' • ');
+  return '<div class="card kpi-gap">' +
+    '<div><b>⚠️ ชีท KPI เดือน' + esc(TH_MONTHS[d.month - 1]) + ' ยังกรอกไม่ครบ — คะแนน/เกรดในหน้านี้จึงต่ำกว่าจริง</b>' +
+      '<div class="card-sub" style="margin:6px 0 0">ช่องที่ว่าง: ' +
+        hit.map((k) => esc(GAP_LABEL[k] || k)).join(' · ') + '</div>' +
+      '<div class="card-sub" style="margin:4px 0 0">ผลกระทบ: ' + esc(lost) +
+        ' — ตัวเลขที่หน้านี้ดึงมาถูกต้องตรงชีททุกช่อง เติมสูตรในชีทแล้วรีเฟรชได้เลย</div></div></div>';
 }
 
 /* ---------- การ์ดสรุปบนสุด ---------- */
@@ -178,7 +222,8 @@ function computeSubs_(d: KpiData): SubAgg[] {
     a.target += r.target; a.teamSales += r.teamSales;
     const w = r.teamSales > 0 ? r.teamSales : 1;
     a.close += r.close * w; a._cw += w;
-    a.adCost += r.adCost * w; a._aw += w;
+    // ช่องค่าแอดที่ชีทไม่กรอก (null) ต้องไม่ถูกนับเป็น 0 — ไม่งั้นค่าเฉลี่ยถูกถ่วงลงจนเป็น 0%
+    if (r.adCost !== null && r.adCost !== undefined) { a.adCost += r.adCost * w; a._aw += w; }
     if (r.perBill > 0) { a.perBill += r.perBill * w; a._pw += w; }
     a.score += r.score; a.n++;
     const pv = d.prevSub[`${r.id}|${r.unit}`];
@@ -259,7 +304,7 @@ function hierarchyHtml_(d: KpiData): string {
       '<td><span class="chip">ทุกยูนิต</span></td>' +
       '<td class="num"><b>' + (attain === null ? '—' : pctFmt(attain)) + '</b>' +
         '<div class="kpi-subnum" title="' + esc(THB(h.sales) + ' / เป้า ' + THB(h.target)) + '">' + kFmt(h.sales) + ' / ' + kFmt(h.target) + '</div></td>' +
-      '<td class="num">' + (h.adCost > 33 ? '<span class="txt-bad">' + pctFmt(h.adCost) + '</span>' : pctFmt(h.adCost)) + '</td>' +
+      '<td class="num">' + adCostHtml_(h.adCost) + '</td>' +
       '<td class="num">' + fmtNum(passOf(persons)) + '/' + fmtNum(persons.length) + '</td>' +
       '<td class="num"><b>' + esc(scorePct(hp)) + '</b></td>' +
       '<td>' + gradeChip(pts(hp)) + '</td>' +
@@ -281,7 +326,7 @@ function hierarchyHtml_(d: KpiData): string {
       '<td>' + s.units.map((u) => '<span class="chip">' + esc(u) + '</span>').join(' ') + '</td>' +
       '<td class="num"><b>' + (attain === null ? '—' : pctFmt(attain)) + '</b>' +
         '<div class="kpi-subnum" title="' + esc(THB(s.teamSales) + ' / เป้า ' + THB(s.target)) + '">' + kFmt(s.teamSales) + ' / ' + kFmt(s.target) + '</div></td>' +
-      '<td class="num">' + (adCost === null ? '—' : (adCost > 33 ? '<span class="txt-bad">' + pctFmt(adCost) + '</span>' : pctFmt(adCost))) + '</td>' +
+      '<td class="num">' + adCostHtml_(adCost) + '</td>' +
       '<td class="num">' + fmtNum(passOf(team)) + '/' + fmtNum(team.length) + '</td>' +
       '<td class="num"><b>' + esc(scorePct(score)) + '</b>' +
         (close === null ? '' : '<div class="kpi-subnum">%ปิด ' + pctFmt(close) + '</div>') + '</td>' +
@@ -428,7 +473,7 @@ function structureTab_(d: KpiData): string {
           '<div class="kpi-big">' + esc(h.nick || h.name) + ' — ' + (hp === null ? '—' : hp) + '<span class="kpi-max">/100</span> ' +
           gradeChip(hp) + ' ' + trendHtml(h.score, d.prevHead[h.id || h.name]) + '</div>' +
           '<div class="card-sub" style="margin:4px 0 0">KPI รองเฉลี่ย ' + esc(scorePct(h.kpiSub)) + ' • ยอด ' + kFmt(h.sales) +
-            ' / เป้า ' + kFmt(h.target) + ' • ค่าแอด/ยอด ' + pctFmt(h.adCost) + '</div></div>' +
+            ' / เป้า ' + kFmt(h.target) + ' • ค่าแอด/ยอด ' + adCostHtml_(h.adCost) + '</div></div>' +
         '<div style="width:280px;max-width:100%">' + sparkSvg_(d.headHistory.filter((x) => x.score !== null).map((x) => ({ m: x.month, s: x.score as number }))) + '</div>' +
       '</div></div>'
     : '';
@@ -552,7 +597,8 @@ function coachingTab_(d: KpiData): string {
     const attain = h.target > 0 ? (h.sales / h.target) * 100 : null;
     rows = metricRow_('KPI รองที่ดูแล (น้ำหนัก 40)', esc(scorePct(h.kpiSub)), 'เฉลี่ยรองทุกคน', pts(h.kpiSub), (pts(h.kpiSub) || 0) >= 70) +
       metricRow_('ยอดขายรวม (น้ำหนัก 40)', kFmt(h.sales), '/ เป้า ' + kFmt(h.target), attain, attain !== null ? attain >= 100 : null) +
-      metricRow_('ค่าแอดต่อยอด (น้ำหนัก 20)', pctFmt(h.adCost), 'เป้า ≤33%', h.adCost > 0 ? Math.min(100, (33 / h.adCost) * 100) : null, h.adCost <= 33);
+      metricRow_('ค่าแอดต่อยอด (น้ำหนัก 20)', adCostHtml_(h.adCost), 'เป้า ≤33%',
+        h.adCost ? Math.min(100, (33 / h.adCost) * 100) : null, h.adCost === null ? null : h.adCost <= 33);
     tipsHtml = '<div class="kpi-alert">ดูภาพรวมลูกทีมในแท็บ โครงสร้างทีม — โค้ชผ่านรองหัวหน้ารายทีม</div>';
   } else if (selSub) {
     const s = selSub;
@@ -567,7 +613,8 @@ function coachingTab_(d: KpiData): string {
     rows = metricRow_('ยอดทีม (น้ำหนัก 30)', kFmt(s.teamSales), '/ เป้า ' + kFmt(s.target), attain, attain !== null ? attain >= 100 : null) +
       metricRow_('ลูกทีมผ่าน KPI (น้ำหนัก 20)', fmtNum(passN) + '/' + fmtNum(team.length), 'เกรด B ขึ้นไป', team.length ? (passN / team.length) * 100 : null, team.length ? passN / team.length >= 0.7 : null) +
       metricRow_('%ปิดเฉลี่ย (น้ำหนัก 20)', pctFmt(close), 'เป้า ≥40%', close !== null ? (close / 40) * 100 : null, close !== null ? close >= 40 : null) +
-      metricRow_('ค่าแอดต่อยอด (น้ำหนัก 20)', pctFmt(adCost), 'เป้า ≤33%', adCost !== null && adCost > 0 ? Math.min(100, (33 / adCost) * 100) : null, adCost !== null ? adCost <= 33 : null) +
+      metricRow_('ค่าแอดต่อยอด (น้ำหนัก 20)', adCostHtml_(adCost), 'เป้า ≤33%',
+        adCost !== null && adCost > 0 ? Math.min(100, (33 / adCost) * 100) : null, adCost !== null ? adCost <= 33 : null) +
       (s._pw > 0
         ? metricRow_('เปอร์บิล (น้ำหนัก 10)', '฿' + fmtNum(Math.round(s.perBill / s._pw)), 'เป้า ≥฿500', (s.perBill / s._pw / 500) * 100, s.perBill / s._pw >= 500)
         : '');
@@ -746,14 +793,15 @@ function personCsv_(): void {
     const h = d.head[0];
     name = h.nick || h.name; role = 'หัวหน้าฝ่าย'; unit = 'ทุกยูนิต'; score = pts(h.score);
     metric.push(['KPI รองที่ดูแล', 40, Math.round((pts(h.kpiSub) || 0) * 10) / 10],
-      ['ยอดขายรวม', 40, h.sales], ['เป้ายอด', '', h.target], ['ค่าแอดต่อยอด (%)', 20, h.adCost]);
+      ['ยอดขายรวม', 40, h.sales], ['เป้ายอด', '', h.target],
+      ['ค่าแอดต่อยอด (%)', 20, h.adCost === null ? 'ชีทยังไม่กรอก' : h.adCost]);
   } else if (state.sel.startsWith('sub:')) {
     const s = subs.find((x) => 'sub:' + x.id === state.sel);
     if (!s) { toast('ไม่พบข้อมูล'); return; }
     name = s.nick; role = 'รองหัวหน้า'; unit = s.units.join(' '); score = pts(s.score / s.n);
     metric.push(['ยอดทีม', 30, Math.round(s.teamSales)], ['เป้ายอด', '', Math.round(s.target)],
       ['%ปิดเฉลี่ย', 20, s._cw ? Math.round((s.close / s._cw) * 10) / 10 : ''],
-      ['ค่าแอดต่อยอด (%)', 20, s._aw ? Math.round((s.adCost / s._aw) * 10) / 10 : '']);
+      ['ค่าแอดต่อยอด (%)', 20, s._aw ? Math.round((s.adCost / s._aw) * 10) / 10 : 'ชีทยังไม่กรอก']);
   } else {
     const p = d.persons.find((x) => x.id === state.sel);
     if (!p) { toast('ไม่พบข้อมูล'); return; }
@@ -785,7 +833,7 @@ function personCsv_(): void {
 function render(container: HTMLElement, d: KpiData | null): void {
   if (!d) return;
   if ((d as any).setupNeeded) {
-    container.innerHTML = '<div class="empty-note">⏳ ยังไม่มีข้อมูล KPI — รอ sync รายวัน หรือรัน <code>npm run import:kpi</code></div>';
+    container.innerHTML = '<div class="empty-note">⏳ ยังไม่มีข้อมูล KPI — รอ sync รอบชั่วโมง หรือรัน <code>npm run import:kpi</code></div>';
     return;
   }
   const monthBtns = d.months.map(function (m) {
@@ -824,10 +872,11 @@ function render(container: HTMLElement, d: KpiData | null): void {
   container.innerHTML =
     '<div class="pg-controls">' + monthBtns +
       '<div class="spacer"></div>' +
-      '<span class="chip" title="ดึงจากชีท KPI กลางของทีมวันละครั้ง">🕐 อัปเดต ' +
+      '<span class="chip" title="ดึงจากชีท KPI กลางของทีมทุกชั่วโมง — แก้ชีทแล้วรออีกไม่เกิน 1 ชม.">🕐 อัปเดต ' +
         esc(String(d.updatedAt).slice(8, 10) + ' ' + (TH_MONTHS[Number(String(d.updatedAt).slice(5, 7)) - 1] || '')) + '</span>' +
     '</div>' +
     tabBar_() +
+    gapBanner_(d) +
     summaryCards_(d) +
     body;
 

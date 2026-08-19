@@ -1,5 +1,5 @@
 // lib/api/kpi.ts — KPI ทีมขาย (แอดมิน/รองหัวหน้า/หัวหน้า) + ท็อปประจำเดือน/ปี
-// อ่านคะแนนที่ sync จากชีท KPI กลาง (sync_state 'kpi_scores' — jobs.syncKpiSheet รายวัน)
+// อ่านคะแนนที่ sync จากชีท KPI กลาง (sync_state 'kpi_scores' — jobs.syncKpiSheet รายชั่วโมง)
 // เราไม่คำนวณคะแนนเอง สูตรอยู่ในชีทของทีม — หน้าเว็บคือกระจกของชีท + จัดอันดับให้ดูง่าย
 import { db } from '@/lib/db';
 import type { KpiAdminMonthRow, KpiSubMonthRow, KpiHeadMonth, KpiAdminYearRow } from '@/lib/kpisheet';
@@ -115,6 +115,17 @@ export async function apiKpi(params: any) {
       .map((a: any) => ({ u: String(a.u), days: Number(a.days) || 0, level: String(a.level) }));
   } catch { /* ยังไม่เคยคำนวณ */ }
 
+  // ---- ช่องที่ทีมยังไม่กรอกในชีทเดือนนี้ ----
+  // ทำไมต้องบอก: คะแนนในชีทถูกคิดจากทุกหมวดเสมอ — หมวดที่ไม่กรอกได้ 0 คะแนน ไม่ใช่ "ข้าม"
+  // เดือน ก.ค. 2026 ค่าโฆษณา + จำนวนแอดมินในทีมว่าง = รองหายไป 40 คะแนน หัวหน้าหาย 20
+  // ถ้าไม่ฟ้อง ทีมจะอ่านว่า "ทุกคนตกเกรด D" ทั้งที่คะแนนแค่ขาดตัวตั้ง
+  const gapCount_ = (rows: any[], key: string) => rows.filter((r) => r[key] === null || r[key] === undefined).length;
+  const gaps = {
+    subAdCost: { missing: gapCount_(subRows, 'adCost'), total: subRows.length, weight: 20, who: 'รองหัวหน้า' },
+    subTeamCount: { missing: gapCount_(subRows, 'teamCount'), total: subRows.length, weight: 20, who: 'รองหัวหน้า' },
+    headAdCost: { missing: gapCount_(headRows, 'adCost'), total: headRows.length, weight: 20, who: 'หัวหน้าฝ่าย' },
+  };
+
   // สรุปรายปี: เรียงตาม KPI เฉลี่ยรวม (W — เฉพาะเดือนที่มีข้อมูล) — ตัดคนที่ไม่มียอดทั้งปีออกให้ตารางสั้นลง
   const year = (doc.adminYear || [])
     .filter((r) => r.sales > 0 || r.kpiAvg > 0)
@@ -132,6 +143,7 @@ export async function apiKpi(params: any) {
     sub: subRows,
     head: headRows,
     adminYear: year,
+    gaps,                      // ช่องที่ชีทยังไม่กรอกเดือนนี้ — หน้าเว็บขึ้นแถบเตือน
     prevPersons,               // id → คะแนนเดือนก่อน (แนวโน้มรายคน)
     prevSub,                   // id|unit → คะแนนเดือนก่อน
     prevHead,                  // id → คะแนนเดือนก่อน
