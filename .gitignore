@@ -26,3 +26,6 @@ service-account*.json
 
 # โฟลเดอร์ mirror ของ Claude Code (ซ้ำกับ .claude/skills) — ไม่ต้องขึ้น git
 .agents/
+
+# ไฟล์ชั่วคราว/ที่โหลดมาดูเอง (ชีตส่งออก, ไฟล์ทดลอง) — ห้ามขึ้น git
+temp/
