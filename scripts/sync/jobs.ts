@@ -21,6 +21,7 @@ import { nicknameByName } from '../../lib/api/adminsettings';
 import { googleConfigured, driveListSheets, sheetTabs, sheetValuesBatch } from '../../lib/google';
 import { unitFromTitle, parseSalesSummary, parseMonthTotals, parseCommission } from '../../lib/productsheet';
 import { parseKpiAdminMonth, parseKpiSubMonth, parseKpiHeadMonth, parseKpiAdminYear } from '../../lib/kpisheet';
+import { parseRosterData, type RosterRow } from '../../lib/rostersheet';
 
 /* ---------------- helper: โหลดเพจ + token จาก DB ---------------- */
 
@@ -434,6 +435,111 @@ export async function syncKpiSheet(): Promise<JobResult> {
   const msg = `KPI sheet: แอดมิน ${months.length} เดือน (ล่าสุดเดือน ${last}: ${(admin[last] || []).length} แถว) | ` +
     `รอง ${(sub[last] || []).length} แถว | หัวหน้า ${(head[last] || []).length} คน | สรุปปี ${year.length} คน`;
   return jobResult(msg, { rowsWritten: (admin[last] || []).length });
+}
+
+/* ---------------- ทะเบียนแอดมิน (ชีท "ยันยอดแอดมิน" แท็บ Data) ---------------- */
+
+/** ชีทยันยอดแอดมิน — เปลี่ยนได้ผ่าน env เผื่อทีมย้ายไฟล์ */
+const ROSTER_SHEET_ID = process.env.ROSTER_SHEET_ID || '1ZQJ1tskuG9-PzVVvydDXNgTQXLVxPwFlIiV6cdyllxo';
+const ROSTER_RANGE = `'Data'!A1:D200`;
+
+const rosterNorm_ = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+/**
+ * ตั้งชื่อเล่นแอดมิน + ปิดคนที่ลาออก ตามชีททะเบียนของทีม
+ *
+ * ทำไมต้อง sync ไม่ใช่ seed มือ: ชื่อ Facebook ในชีทคือกุญแจจับคู่ ซึ่งทีม "ส่งต่อบัญชีเฟส"
+ * ให้คนใหม่ได้ตลอด ถ้าเขียนเฉพาะช่องที่ว่าง (แบบสคริปต์ seed เดิม) ชื่อเก่าจะค้างผิดถาวร
+ * — จึงเขียนทับเสมอเมื่อชีทกับ DB ไม่ตรง
+ *
+ * ทำไมไม่เปิด enabled=true ให้คนที่ไม่ได้ลาออก: หัวหน้าปิดแอดมินเองได้จากหน้า Admin Management
+ * ด้วยเหตุผลอื่น (ลาคลอด/พักงาน) งานนี้จึงปิดได้อย่างเดียว ไม่เปิดคืนทับการตัดสินใจของคน
+ */
+export async function syncRosterSheet(): Promise<JobResult> {
+  if (!googleConfigured()) return jobResult('ข้าม: ยังไม่ได้ตั้ง GOOGLE_SA_KEY', { skipped: 'ไม่มี GOOGLE_SA_KEY' });
+
+  let grid: string[][];
+  try {
+    const batch = await sheetValuesBatch(ROSTER_SHEET_ID, [ROSTER_RANGE]);
+    grid = batch[ROSTER_RANGE] || [];
+  } catch (e: any) {
+    const msg = String(e?.message || e);
+    // 403 = ยังไม่ได้แชร์ชีทให้บัญชีระบบ — เป็นงานของคน ไม่ใช่บั๊ก รันซ้ำกี่รอบก็เหมือนเดิม
+    if (/permission|403|404/i.test(msg)) {
+      return jobResult(`ข้าม: อ่านชีทยันยอดแอดมินไม่ได้ — แชร์ไฟล์ให้อีเมลบัญชีระบบ (สิทธิ์ Viewer) ก่อน`,
+        { skipped: 'ยังไม่ได้แชร์ชีทให้ service account' });
+    }
+    throw e;
+  }
+
+  const rows = parseRosterData(grid);
+  if (!rows.length) throw new Error('อ่านชีทยันยอดแอดมินไม่เจอข้อมูลเลย — โครงแท็บ Data อาจเปลี่ยน (ดู lib/rostersheet.ts)');
+
+  const res = await applyRosterRows(rows);
+  let msg = `roster sheet: ชีท ${rows.length} แถว | ตั้งชื่อเล่น ${res.renamed} | ปิดคนที่ออก ${res.disabled}`;
+  if (res.unmatched.length) {
+    // จับคู่ไม่ได้ = ชื่อเฟสในชีทไม่ตรงกับที่ Pancake เห็น (เปลี่ยนชื่อ/พิมพ์ผิด) — ต้องมีคนไปแก้ชีท
+    msg += ` | ⚠️ จับคู่ชื่อเฟสไม่ได้ ${res.unmatched.length}: ` +
+      res.unmatched.slice(0, 3).map((r) => `${r.nick}(${r.fbRaw})`).join(', ');
+  }
+  return jobResult(msg, {
+    subject: 'คน', unitsTotal: rows.length, unitsOk: rows.length - res.unmatched.length,
+    unitsFailed: res.unmatched.length, rowsWritten: res.written, scope: 'roster-sheet',
+  });
+}
+
+/**
+ * เขียนทะเบียนลง admin_settings — แยกออกมาให้สคริปต์มือ (scripts/setup/seed-nicknames.ts)
+ * ใช้ตัวเดียวกับงาน sync ได้ ตอนที่ชีทยังไม่ถูกแชร์ให้บัญชีระบบและต้องกรอกจากไฟล์ส่งออกไปก่อน
+ */
+export async function applyRosterRows(rows: RosterRow[], dryRun = false): Promise<{
+  renamed: number; disabled: number; written: number;
+  unmatched: RosterRow[]; changes: Array<{ uid: string; fb: string; from: string; to: string; off: boolean }>;
+}> {
+  const { data: admins, error: aErr } = await supabase.from('admins').select('user_id,name');
+  if (aErr) throw new Error('อ่าน admins ไม่สำเร็จ: ' + aErr.message);
+  const { data: settings, error: sErr } = await supabase.from('admin_settings').select('user_id,nickname,enabled');
+  if (sErr) throw new Error('อ่าน admin_settings ไม่สำเร็จ: ' + sErr.message);
+
+  // ชื่อเดียวกันมีได้หลาย user_id (บัญชีซ้ำใน Pancake) — เก็บทุกตัวแล้วตั้งชื่อให้ครบ
+  const byName: Record<string, string[]> = {};
+  (admins || []).forEach((a: any) => {
+    const k = rosterNorm_(a.name);
+    if (k) (byName[k] = byName[k] || []).push(String(a.user_id));
+  });
+  const nameOf: Record<string, string> = {};
+  (admins || []).forEach((a: any) => { nameOf[String(a.user_id)] = String(a.name || ''); });
+  const cur: Record<string, { nickname: string; enabled: boolean }> = {};
+  (settings || []).forEach((x: any) => {
+    cur[String(x.user_id)] = { nickname: String(x.nickname || ''), enabled: x.enabled !== false };
+  });
+
+  const patch: Record<string, any> = {};   // user_id → แถวที่จะ upsert (รวมหลายเหตุผลไว้แถวเดียว)
+  const changes: Array<{ uid: string; fb: string; from: string; to: string; off: boolean }> = [];
+  const unmatched: RosterRow[] = [];
+  let renamed = 0, disabled = 0;
+  for (const r of rows) {
+    // ลองชื่อดิบก่อน (เผื่อชื่อเฟสจริงมีวงเล็บ) แล้วค่อยลองแบบตัดหมายเหตุท้ายชื่อ
+    const ids = byName[rosterNorm_(r.fbRaw)] || byName[rosterNorm_(r.fb)] || [];
+    if (!ids.length) { unmatched.push(r); continue; }
+    for (const uid of ids) {
+      const c = cur[uid];
+      const nickChanged = !c || rosterNorm_(c.nickname) !== rosterNorm_(r.nick);
+      const turnOff = r.left && (!c || c.enabled);
+      if (nickChanged) { (patch[uid] = patch[uid] || { user_id: uid }).nickname = r.nick; renamed++; }
+      if (turnOff) { (patch[uid] = patch[uid] || { user_id: uid }).enabled = false; disabled++; }
+      if (nickChanged || turnOff) {
+        changes.push({ uid, fb: nameOf[uid] || r.fbRaw, from: (c && c.nickname) || '(ไม่มี)', to: r.nick, off: turnOff });
+      }
+    }
+  }
+
+  const toWrite = Object.keys(patch).map((uid) => ({ ...patch[uid], updated_at: new Date().toISOString() }));
+  if (toWrite.length && !dryRun) {
+    const { error } = await supabase.from('admin_settings').upsert(toWrite, { onConflict: 'user_id' });
+    if (error) throw new Error('เขียน admin_settings ไม่สำเร็จ: ' + error.message);
+  }
+  return { renamed, disabled, written: dryRun ? 0 : toWrite.length, unmatched, changes };
 }
 
 /* ---------------- RETURNS (สินค้าตีกลับ — จาก Google Sheets ของทีม) ---------------- */

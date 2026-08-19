@@ -102,7 +102,11 @@ async function runHourly(): Promise<boolean> {
   // แจ้งเตือนยูนิตขาดทุน — ตัดสินจาก "วันที่จบแล้ว" จึงเปลี่ยนวันละครั้ง แต่รันรายชั่วโมง
   // เพื่อให้ยอดของเมื่อวานที่ทยอยยืนยันเข้ามาตอนเช้าถูกนับทัน
   const e = await runJob('unit-alerts', jobs.syncUnitAlerts);
-  return a && b && c && d && e && g;
+  // ชีทของทีม 2 ใบ — ทั้งคู่ยิงครั้งเดียวจบ (batchGet) ถูกพอสำหรับรอบชั่วโมง
+  // เดิมอยู่รอบ daily ตอนตี 2 ทีมแก้ชีทตอนกลางวันแล้วหน้าเว็บไม่ขยับจนวันรุ่งขึ้น เข้าใจว่าระบบดึงค่าผิด
+  const f = await runJob('kpi-sheet', jobs.syncKpiSheet);
+  const i = await runJob('roster-sheet', jobs.syncRosterSheet);
+  return a && b && c && d && e && f && g && i;
 }
 
 async function runDaily(): Promise<boolean> {
@@ -123,10 +127,8 @@ async function runDaily(): Promise<boolean> {
   const j = await runJob('returns', jobs.syncReturns);
   // กำไรจริง + ค่าคอม จากชีทสรุปรายสินค้า (ต้องมาก่อน unit-alerts ที่ใช้กำไรตัดสิน)
   const k = await runJob('product-sheets', jobs.syncProductSheets);
-  // คะแนน KPI ทุกตำแหน่งจากชีท KPI กลาง (สูตรทีมคิดในชีท — เราอ่านผลอย่างเดียว)
-  const l = await runJob('kpi-sheet', jobs.syncKpiSheet);
   const c = await runJob('prune', jobs.prune);
-  return a && b && c && d && e && f && g && h && i && j && k && l;
+  return a && b && c && d && e && f && g && h && i && j && k;
 }
 
 const MODE = (process.argv[2] || 'fast').toLowerCase();

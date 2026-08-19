@@ -15,6 +15,7 @@ const NAMES: Record<string, () => Promise<any>> = {
   returns: jobs.syncReturns,
   'product-sheets': jobs.syncProductSheets,
   'kpi-sheet': jobs.syncKpiSheet,
+  'roster-sheet': jobs.syncRosterSheet,
 };
 
 const name = String(process.argv[2] || '');
