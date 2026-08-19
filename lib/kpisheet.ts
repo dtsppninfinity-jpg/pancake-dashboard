@@ -36,6 +36,12 @@ const numOrNull_ = (v: unknown): number | null => {
 const pct100_ = (v: number | null): number | null => (v === null || v === 0 ? null : v * 100);
 /** สัดส่วน 0-1 → เปอร์เซ็นต์ • ว่าง = null แต่ 0 คือ 0 จริง (ไม่มีของตีกลับ/ไม่มี error เกิดขึ้นได้) */
 const pct_ = (v: number | null): number | null => (v === null ? null : v * 100);
+/**
+ * ช่องที่ทีมใส่ `-` แปลว่า "ไม่มี/ไม่ตั้ง" ไม่ใช่ "ยังไม่กรอก" — ต้องได้ 0 ไม่ใช่ null
+ * ใช้กับ "แอดมินในทีม (คน)" และ "เป้า/เดือน" ของแท็บรอง (เจอจริง 5 ช่อง 2026-08-19)
+ * ถ้าปล่อยเป็น null แถบเตือน "ชีทกรอกไม่ครบ" จะขึ้นหลอกทั้งที่ทีมตั้งใจเว้น
+ */
+const dashZero_ = (v: unknown): number | null => (String(v ?? '').trim() === '-' ? 0 : numOrNull_(v));
 const isEmpId_ = (v: unknown) => /^\d{4,6}$/.test(clean_(v));
 
 /** 'U16 C Biofla' → 'U16' (คืน '' ถ้าไม่ใช่รหัสยูนิต) */
@@ -53,7 +59,9 @@ export interface KpiAdminMonthRow {
 export interface KpiSubMonthRow {
   id: string; name: string; nick: string; unit: string; unitFull: string;
   target: number; teamSales: number; teamCount: number | null; hitTarget: number | null;
-  close: number; perBill: number; adCost: number | null; err: number; score: number; kpiAvg: number;
+  // ว่าง = null ไม่ใช่ 0 (เหมือนแท็บ ADMIN) — ก.ค. 2026 มีแถวที่ %ปิด ว่างทั้งที่ยอดทีม 4 แสน
+  close: number | null; perBill: number | null; adCost: number | null; err: number | null;
+  score: number; kpiAvg: number;
 }
 export interface KpiHeadMonth {
   id: string; name: string; nick: string;
@@ -125,12 +133,12 @@ export function parseKpiSubMonth(grid: string[][]): Record<number, KpiSubMonthRo
         id: cur.id, name: cur.name, nick: cur.nick, unit, unitFull,
         target: num_(row[b + 1]),
         teamSales: num_(row[b + 2]),
-        teamCount: numOrNull_(row[b + 4]),
+        teamCount: dashZero_(row[b + 4]),
         hitTarget: numOrNull_(row[b + 5]),
-        close: num_(row[b + 7]) * 100,
-        perBill: num_(row[b + 9]),
+        close: pct_(numOrNull_(row[b + 7])),
+        perBill: numOrNull_(row[b + 9]),
         adCost: pct100_(numOrNull_(row[b + 11])), // สัดส่วนต้นทุนแอดต่อยอด (เป้า ≤33%)
-        err: num_(row[b + 13]) * 100,
+        err: pct_(numOrNull_(row[b + 13])),
         score: num_(row[b + 14]),
         kpiAvg: cur.kpiAvg,
       });

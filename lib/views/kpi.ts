@@ -15,7 +15,8 @@ interface Person { id: string; name: string; nick: string; units: string[]; sale
 interface SubRow {
   id: string; name: string; nick: string; unit: string;
   target: number; teamSales: number; teamCount: number | null; hitTarget: number | null;
-  close: number; perBill: number; adCost: number | null; err: number; score: number; kpiAvg: number;
+  close: number | null; perBill: number | null; adCost: number | null; err: number | null;
+  score: number; kpiAvg: number;
 }
 interface HeadRow {
   id: string; name: string; nick: string;
@@ -142,15 +143,19 @@ const GAP_LABEL: Record<string, string> = {
 function gapBanner_(d: KpiData): string {
   const g = d.gaps;
   if (!g) return '';
-  const hit = Object.keys(g).filter((k) => g[k].total > 0 && g[k].missing === g[k].total);
+  // ว่าง "บางแถว" ก็ต้องบอก — คนที่แถวตัวเองว่างเสียคะแนนเต็มหมวดนั้น ต่อให้เพื่อนกรอกครบ
+  // (ของจริง มิ.ย. 2026: ก้อย/UN4 ว่างแถวเดียวจาก 13 เสียไป 13 คะแนน โดยหน้าเว็บไม่บอกอะไรเลย)
+  const hit = Object.keys(g).filter((k) => g[k].total > 0 && g[k].missing > 0);
   if (!hit.length) return '';
   const lostBy: Record<string, number> = {};
   hit.forEach((k) => { lostBy[g[k].who] = (lostBy[g[k].who] || 0) + g[k].weight; });
-  const lost = Object.keys(lostBy).map((who) => who + ' −' + lostBy[who] + ' คะแนน').join(' • ');
+  const lost = Object.keys(lostBy).map((who) => who + ' สูงสุด −' + lostBy[who] + ' คะแนน').join(' • ');
+  const partial = hit.some((k) => g[k].missing < g[k].total);
   return '<div class="card kpi-gap">' +
-    '<div><b>⚠️ ชีท KPI เดือน' + esc(TH_MONTHS[d.month - 1]) + ' ยังกรอกไม่ครบ — คะแนน/เกรดในหน้านี้จึงต่ำกว่าจริง</b>' +
+    '<div><b>⚠️ ชีท KPI เดือน ' + esc(TH_MONTHS[d.month - 1]) + ' ยังกรอกไม่ครบ — คะแนน/เกรด' +
+      (partial ? 'ของคนที่แถวว่าง' : 'ในหน้านี้') + 'จึงต่ำกว่าจริง</b>' +
       '<div class="card-sub" style="margin:6px 0 0">ช่องที่ว่าง: ' +
-        hit.map((k) => esc(GAP_LABEL[k] || k)).join(' · ') + '</div>' +
+        hit.map((k) => esc(GAP_LABEL[k] || k) + ' (' + g[k].missing + '/' + g[k].total + ' แถว)').join(' · ') + '</div>' +
       '<div class="card-sub" style="margin:4px 0 0">ผลกระทบ: ' + esc(lost) +
         ' — ตัวเลขที่หน้านี้ดึงมาถูกต้องตรงชีททุกช่อง เติมสูตรในชีทแล้วรีเฟรชได้เลย</div></div></div>';
 }
@@ -230,10 +235,11 @@ function computeSubs_(d: KpiData): SubAgg[] {
     a.units.push(r.unit);
     a.target += r.target; a.teamSales += r.teamSales;
     const w = r.teamSales > 0 ? r.teamSales : 1;
-    a.close += r.close * w; a._cw += w;
-    // ช่องค่าแอดที่ชีทไม่กรอก (null) ต้องไม่ถูกนับเป็น 0 — ไม่งั้นค่าเฉลี่ยถูกถ่วงลงจนเป็น 0%
-    if (r.adCost !== null && r.adCost !== undefined) { a.adCost += r.adCost * w; a._aw += w; }
-    if (r.perBill > 0) { a.perBill += r.perBill * w; a._pw += w; }
+    // ช่องที่ชีทไม่กรอก (null) ต้องไม่ถูกนับเป็น 0 — ไม่งั้นค่าเฉลี่ยถูกถ่วงลง
+    // ของจริง ก.ค. 2026: ก้อย/UN4 %ปิด ว่างทั้งที่ยอดทีม ฿441,942 → เฉลี่ยตกจาก 37.6% เหลือ 34.3%
+    if (r.close !== null) { a.close += r.close * w; a._cw += w; }
+    if (r.adCost !== null) { a.adCost += r.adCost * w; a._aw += w; }
+    if (r.perBill !== null && r.perBill > 0) { a.perBill += r.perBill * w; a._pw += w; }
     a.score += r.score; a.n++;
     const pv = d.prevSub[`${r.id}|${r.unit}`];
     if (pv !== undefined) { a.prevSum += pv; a.prevN++; }

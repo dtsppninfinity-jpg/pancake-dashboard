@@ -494,11 +494,13 @@ export async function syncRosterSheet(): Promise<JobResult> {
  */
 export async function applyRosterRows(rows: RosterRow[], dryRun = false): Promise<{
   renamed: number; disabled: number; written: number;
-  unmatched: RosterRow[]; changes: Array<{ uid: string; fb: string; from: string; to: string; off: boolean }>;
+  unmatched: RosterRow[];
+  changes: Array<{ uid: string; fb: string; from: string; to: string; off: boolean; why: string }>;
 }> {
-  const { data: admins, error: aErr } = await supabase.from('admins').select('user_id,name');
+  const { data: admins, error: aErr } = await supabase.from('admins').select('user_id,name,pos_user_id');
   if (aErr) throw new Error('อ่าน admins ไม่สำเร็จ: ' + aErr.message);
-  const { data: settings, error: sErr } = await supabase.from('admin_settings').select('user_id,nickname,enabled');
+  const { data: settings, error: sErr } = await supabase.from('admin_settings')
+    .select('user_id,nickname,enabled,pos_user_id,snap_name');
   if (sErr) throw new Error('อ่าน admin_settings ไม่สำเร็จ: ' + sErr.message);
 
   // ชื่อเดียวกันมีได้หลาย user_id (บัญชีซ้ำใน Pancake) — เก็บทุกตัวแล้วตั้งชื่อให้ครบ
@@ -508,14 +510,41 @@ export async function applyRosterRows(rows: RosterRow[], dryRun = false): Promis
     if (k) (byName[k] = byName[k] || []).push(String(a.user_id));
   });
   const nameOf: Record<string, string> = {};
-  (admins || []).forEach((a: any) => { nameOf[String(a.user_id)] = String(a.name || ''); });
-  const cur: Record<string, { nickname: string; enabled: boolean }> = {};
+  const posOf: Record<string, string> = {};
+  (admins || []).forEach((a: any) => {
+    nameOf[String(a.user_id)] = String(a.name || '');
+    posOf[String(a.user_id)] = String(a.pos_user_id || '');
+  });
+  const cur: Record<string, { nickname: string; enabled: boolean; pos_user_id: string; snap_name: string }> = {};
   (settings || []).forEach((x: any) => {
-    cur[String(x.user_id)] = { nickname: String(x.nickname || ''), enabled: x.enabled !== false };
+    cur[String(x.user_id)] = {
+      nickname: String(x.nickname || ''), enabled: x.enabled !== false,
+      pos_user_id: String(x.pos_user_id || ''), snap_name: String(x.snap_name || ''),
+    };
   });
 
+  /**
+   * แถวที่จะ upsert ต้องมี "คีย์ครบชุดเท่ากันทุกแถว" เสมอ
+   *
+   * เจ็บมาแล้ว 2026-08-19: ส่งก้อนที่บางแถวมี enabled บางแถวไม่มี → PostgREST เอา union ของคีย์
+   * ทั้งก้อนไปสร้าง statement เดียว แถวที่ไม่ได้ส่งคอลัมน์นั้นเลยได้ NULL ทับของเดิม
+   * (แอดมิน 9 คนมี enabled = NULL อยู่บน prod จนต้องมาไล่ซ่อม)
+   * จึงตั้งค่าเริ่มจาก "ค่าปัจจุบันใน DB" ทุกคอลัมน์ก่อน แล้วค่อยทับเฉพาะที่ต้องเปลี่ยน
+   */
+  const seed = (uid: string) => {
+    const c = cur[uid];
+    return {
+      user_id: uid,
+      nickname: c ? c.nickname : '',
+      enabled: c ? c.enabled : true,
+      // snapshot กัน "seller ผี": ยอดเก่าของคนที่ปิดไปแล้วยังโผล่เป็นแถวใหม่ได้ถ้าไม่มีคู่นี้
+      pos_user_id: (c && c.pos_user_id) || posOf[uid] || '',
+      snap_name: (c && c.snap_name) || nameOf[uid] || '',
+    };
+  };
+
   const patch: Record<string, any> = {};   // user_id → แถวที่จะ upsert (รวมหลายเหตุผลไว้แถวเดียว)
-  const changes: Array<{ uid: string; fb: string; from: string; to: string; off: boolean }> = [];
+  const changes: Array<{ uid: string; fb: string; from: string; to: string; off: boolean; why: string }> = [];
   const unmatched: RosterRow[] = [];
   let renamed = 0, disabled = 0;
   for (const r of rows) {
@@ -526,10 +555,22 @@ export async function applyRosterRows(rows: RosterRow[], dryRun = false): Promis
       const c = cur[uid];
       const nickChanged = !c || rosterNorm_(c.nickname) !== rosterNorm_(r.nick);
       const turnOff = r.left && (!c || c.enabled);
-      if (nickChanged) { (patch[uid] = patch[uid] || { user_id: uid }).nickname = r.nick; renamed++; }
-      if (turnOff) { (patch[uid] = patch[uid] || { user_id: uid }).enabled = false; disabled++; }
-      if (nickChanged || turnOff) {
-        changes.push({ uid, fb: nameOf[uid] || r.fbRaw, from: (c && c.nickname) || '(ไม่มี)', to: r.nick, off: turnOff });
+      // ปิดไว้อยู่แล้วแต่ยังไม่มี snapshot (ปิดก่อนที่โค้ดจะเขียนคู่นี้) — เติมย้อนหลังให้ด้วย
+      const needSnap = r.left && c && !c.enabled && !c.pos_user_id && !!posOf[uid];
+      if (nickChanged) { (patch[uid] = patch[uid] || seed(uid)).nickname = r.nick; renamed++; }
+      if (turnOff || needSnap) {
+        const row = (patch[uid] = patch[uid] || seed(uid));
+        row.enabled = false;
+        // ตอนปิดต้องมี snapshot แน่นอน — คนที่ออกแล้วยอดเก่ายังไหลเข้ามาได้อีกหลายวัน
+        row.pos_user_id = row.pos_user_id || posOf[uid] || '';
+        row.snap_name = row.snap_name || nameOf[uid] || '';
+        if (turnOff) disabled++;
+      }
+      if (nickChanged || turnOff || needSnap) {
+        changes.push({
+          uid, fb: nameOf[uid] || r.fbRaw, from: (c && c.nickname) || '(ไม่มี)', to: r.nick, off: turnOff,
+          why: turnOff ? 'ปิดใช้งาน: ลาออก' : nickChanged ? 'ตั้งชื่อเล่นตามชีท' : 'เติม snapshot ของคนที่ปิดไปแล้ว',
+        });
       }
     }
   }

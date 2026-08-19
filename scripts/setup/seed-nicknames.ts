@@ -40,7 +40,7 @@ async function main() {
   const res = await applyRosterRows(rows, !apply);
   console.log(`ไฟล์ ${rows.length} แถว | จับคู่ไม่ได้ ${res.unmatched.length} | จะเปลี่ยน ${res.changes.length} แถว`);
   res.changes.forEach((c) => console.log(
-    `  ${c.off ? '⛔' : '✏️'} ${c.fb.padEnd(28)} ${c.from} → ${c.to}${c.off ? '  (ปิดใช้งาน: ลาออก)' : ''}`));
+    `  ${c.off ? '⛔' : '✏️'} ${c.fb.padEnd(28)} ${c.from} → ${c.to}  (${c.why})`));
   if (res.unmatched.length) {
     console.log('--- ชื่อเฟสนี้ไม่มีในระบบ (Pancake เปลี่ยนชื่อ / พิมพ์ผิดในชีท) ---');
     res.unmatched.forEach((m) => console.log(`  ✗ ${String(m.fbRaw).padEnd(28)} (${m.nick})`));
