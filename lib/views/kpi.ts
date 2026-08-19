@@ -7,7 +7,9 @@ import { serverCall, esc, fmtNum, THB, kFmt, pctFmt, avatarHtml, showError, down
 
 interface AdminRow {
   id: string; name: string; nick: string; unit: string; unitFull: string;
-  sales: number; close: number; err: number; perBill: number; ret: number; score: number;
+  sales: number;
+  // ว่างในชีท = null (ไม่ใช่ 0) — ดู lib/kpisheet.ts
+  close: number | null; err: number | null; perBill: number | null; ret: number | null; score: number;
 }
 interface Person { id: string; name: string; nick: string; units: string[]; sales: number; score: number }
 interface SubRow {
@@ -22,7 +24,8 @@ interface HeadRow {
 }
 interface YearRow {
   id: string; name: string; nick: string;
-  kpiYear: number; sales: number; close: number; err: number; perBill: number; ret: number; kpiAvg: number;
+  kpiYear: number; sales: number;
+  close: number | null; err: number | null; perBill: number | null; ret: number | null; kpiAvg: number;
 }
 interface KpiData {
   setupNeeded?: boolean;
@@ -67,6 +70,12 @@ function sheetVal_(v: number | null | undefined, fmt: (n: number) => string): st
     ? '<span class="txt-dim" title="ชีท KPI ยังไม่กรอกช่องนี้ของเดือนนี้">—</span>'
     : fmt(Number(v));
 }
+/** ค่าที่แดงเมื่อเกินเกณฑ์ • ว่าง = ขีด */
+const overHtml_ = (v: number | null | undefined, limit: number, abs = false): string =>
+  sheetVal_(v, (n) => ((abs ? Math.abs(n) : n) > limit ? '<span class="txt-bad">' + pctFmt(n) + '</span>' : pctFmt(n)));
+/** ตัวเลขล้วนจากชีท (เปอร์บิล) — ว่าง = ขีด */
+const numVal_ = (v: number | null | undefined): string => sheetVal_(v, (n) => fmtNum(Math.round(n)));
+
 /** ค่าแอด/ยอด: ว่าง = ขีด • เกิน 33% = แดง */
 const adCostHtml_ = (v: number | null | undefined): string =>
   sheetVal_(v, (n) => (n > 33 ? '<span class="txt-bad">' + pctFmt(n) + '</span>' : pctFmt(n)));
@@ -243,18 +252,24 @@ interface PersonDetail { close: number | null; err: number | null; perBill: numb
 /** รวมค่าจริงรายคนจากแถว (คน,ยูนิต) — ถ่วงด้วยยอดขาย เพื่อโชว์ในแผง Coaching */
 function personDetail_(d: KpiData): Record<string, PersonDetail> {
   const by: Record<string, any> = {};
+  // ช่องที่ชีทไม่กรอก (null) ต้องไม่ถูกนับเป็น 0 — ถ่วงแยกน้ำหนักรายตัวชี้วัด
+  const KEYS: Array<keyof PersonDetail> = ['close', 'err', 'perBill', 'ret'];
   d.admin.forEach(function (r) {
-    const a = (by[r.id] = by[r.id] || { close: 0, err: 0, perBill: 0, ret: 0, _w: 0, units: [] });
+    const a = (by[r.id] = by[r.id] || { close: 0, err: 0, perBill: 0, ret: 0, _w: {} as Record<string, number>, units: [] });
     const w = r.sales > 0 ? r.sales : 1;
-    a.close += r.close * w; a.err += r.err * w; a.perBill += r.perBill * w; a.ret += r.ret * w;
-    a._w += w; a.units.push(r.unit);
+    KEYS.forEach(function (k) {
+      const v = (r as any)[k];
+      if (v === null || v === undefined) return;
+      a[k] += v * w; a._w[k] = (a._w[k] || 0) + w;
+    });
+    a.units.push(r.unit);
   });
   const out: Record<string, PersonDetail> = {};
   Object.keys(by).forEach(function (id) {
     const a = by[id];
-    out[id] = a._w
-      ? { close: a.close / a._w, err: a.err / a._w, perBill: a.perBill / a._w, ret: a.ret / a._w, units: a.units }
-      : { close: null, err: null, perBill: null, ret: null, units: a.units };
+    const o: any = { units: a.units };
+    KEYS.forEach(function (k) { o[k] = a._w[k] ? a[k] / a._w[k] : null; });
+    out[id] = o as PersonDetail;
   });
   return out;
 }
@@ -630,10 +645,10 @@ function coachingTab_(d: KpiData): string {
     score = p.score; prev = d.prevPersons[p.id];
     hist = d.personHistory[p.id] || [];
     rows = metricRow_('ยอดขาย (น้ำหนัก 35)', THB(p.sales), 'รวมทุกยูนิตเดือนนี้', null, null) +
-      metricRow_('%ปิด (น้ำหนัก 35)', pctFmt(det ? det.close : null), 'เป้า ≥40%', det && det.close !== null ? (det.close / 40) * 100 : null, det && det.close !== null ? det.close >= 40 : null) +
+      metricRow_('%ปิด (น้ำหนัก 35)', sheetVal_(det ? det.close : null, pctFmt), 'เป้า ≥40%', det && det.close !== null ? (det.close / 40) * 100 : null, det && det.close !== null ? det.close >= 40 : null) +
       metricRow_('เปอร์บิล (น้ำหนัก 20)', det && det.perBill !== null ? '฿' + fmtNum(Math.round(det.perBill)) : '—', 'เป้า ≥฿500', det && det.perBill !== null ? (det.perBill / 500) * 100 : null, det && det.perBill !== null ? det.perBill >= 500 : null) +
-      metricRow_('%Error (น้ำหนัก 5)', pctFmt(det ? det.err : null), 'เป้า ±5%', det && det.err !== null ? Math.max(0, 100 - Math.abs(det.err) * 10) : null, det && det.err !== null ? Math.abs(det.err) <= 5 : null) +
-      metricRow_('%ตีกลับ (น้ำหนัก 5)', pctFmt(det ? det.ret : null), 'เป้า <5%', det && det.ret !== null ? Math.max(0, 100 - det.ret * 10) : null, det && det.ret !== null ? det.ret < 5 : null);
+      metricRow_('%Error (น้ำหนัก 5)', sheetVal_(det ? det.err : null, pctFmt), 'เป้า ±5%', det && det.err !== null ? Math.max(0, 100 - Math.abs(det.err) * 10) : null, det && det.err !== null ? Math.abs(det.err) <= 5 : null) +
+      metricRow_('%ตีกลับ (น้ำหนัก 5)', sheetVal_(det ? det.ret : null, pctFmt), 'เป้า <5%', det && det.ret !== null ? Math.max(0, 100 - det.ret * 10) : null, det && det.ret !== null ? det.ret < 5 : null);
     tipsHtml = coachTips_(d, p, det).map(function (t) {
       return '<div class="kpi-alert ' + t.sev + '">' + esc(t.txt) + '</div>';
     }).join('');
@@ -682,9 +697,9 @@ function coachingTab_(d: KpiData): string {
       '<td><b>' + esc(p.nick || p.name) + '</b> <span class="rank-fullname">' + esc(p.name) + '</span></td>' +
       '<td>' + p.units.map((u) => '<span class="chip">' + esc(u) + '</span>').join(' ') + '</td>' +
       '<td class="num">' + THB(p.sales) + '</td>' +
-      '<td class="num">' + pctFmt(det ? det.close : null) + '</td>' +
-      '<td class="num">' + (det && det.perBill !== null ? fmtNum(Math.round(det.perBill)) : '—') + '</td>' +
-      '<td class="num">' + pctFmt(det ? det.ret : null) + '</td>' +
+      '<td class="num">' + sheetVal_(det ? det.close : null, pctFmt) + '</td>' +
+      '<td class="num">' + numVal_(det ? det.perBill : null) + '</td>' +
+      '<td class="num">' + sheetVal_(det ? det.ret : null, pctFmt) + '</td>' +
       '<td class="num ' + scoreCls(p.score) + '"><b>' + esc(scorePct(p.score)) + '</b></td>' +
       '<td>' + gradeChip(pts(p.score)) + '</td>' +
       '<td>' + statusBadge(p.score, d.prevPersons[p.id]) + '</td>' +
@@ -737,10 +752,10 @@ function adminTableHtml_(d: KpiData): string {
       '<td><b>' + esc(r.nick || r.name) + '</b> <span class="rank-fullname">' + esc(r.name) + '</span></td>' +
       '<td><span class="badge neutral" title="' + esc(r.unitFull) + '">' + esc(r.unit) + '</span></td>' +
       '<td class="num">' + THB(r.sales) + '</td>' +
-      '<td class="num">' + pctFmt(r.close) + '</td>' +
-      '<td class="num"' + (Math.abs(r.err) > 5 ? ' style="color:var(--bad,#e74c3c)"' : '') + '>' + pctFmt(r.err) + '</td>' +
-      '<td class="num">' + fmtNum(Math.round(r.perBill)) + '</td>' +
-      '<td class="num"' + (r.ret > 5 ? ' style="color:var(--bad,#e74c3c)"' : '') + '>' + pctFmt(r.ret) + '</td>' +
+      '<td class="num">' + sheetVal_(r.close, pctFmt) + '</td>' +
+      '<td class="num">' + overHtml_(r.err, 5, true) + '</td>' +
+      '<td class="num">' + numVal_(r.perBill) + '</td>' +
+      '<td class="num">' + overHtml_(r.ret, 5) + '</td>' +
       '<td class="num ' + scoreCls(r.score) + '"><b>' + esc(scorePct(r.score)) + '</b></td>' +
       '<td>' + gradeChip(pts(r.score)) + '</td>' +
     '</tr>';
@@ -761,9 +776,9 @@ function yearTableHtml_(d: KpiData): string {
       '<td>' + (i + 1) + (i < 3 ? ' ' + MEDALS[i] : '') + '</td>' +
       '<td><b>' + esc(r.nick || r.name) + '</b> <span class="rank-fullname">' + esc(r.name) + '</span></td>' +
       '<td class="num">' + THB(r.sales) + '</td>' +
-      '<td class="num">' + pctFmt(r.close) + '</td>' +
-      '<td class="num">' + fmtNum(Math.round(r.perBill)) + '</td>' +
-      '<td class="num">' + pctFmt(r.ret) + '</td>' +
+      '<td class="num">' + sheetVal_(r.close, pctFmt) + '</td>' +
+      '<td class="num">' + numVal_(r.perBill) + '</td>' +
+      '<td class="num">' + sheetVal_(r.ret, pctFmt) + '</td>' +
       '<td class="num ' + scoreCls(r.kpiAvg) + '"><b>' + esc(scorePct(r.kpiAvg)) + '</b></td>' +
       '<td>' + gradeChip(pts(r.kpiAvg)) + '</td>' +
     '</tr>';
@@ -936,8 +951,9 @@ function bindEvents(container: HTMLElement): void {
       ['ชื่อเล่น', 'ชื่อจริง', 'ยูนิต', 'ยอดขาย', '%ปิด', '%Error', 'เปอร์บิล', '%ตีกลับ', 'คะแนน KPI (%)', 'เกรด'],
     ];
     d.admin.forEach(function (r) {
-      out.push([r.nick, r.name, r.unit, r.sales, Math.round(r.close * 10) / 10,
-        Math.round(r.err * 100) / 100, Math.round(r.perBill), Math.round(r.ret * 100) / 100,
+      const cell = (v: number | null, dp: number) => (v === null ? 'ชีทยังไม่กรอก' : Math.round(v * dp) / dp);
+      out.push([r.nick, r.name, r.unit, r.sales, cell(r.close, 10),
+        cell(r.err, 100), cell(r.perBill, 1), cell(r.ret, 100),
         Math.round(r.score * 1000) / 10, gradeOf(pts(r.score))]);
     });
     downloadCSV(out, 'kpi-admin-' + d.year + '-' + String(d.month).padStart(2, '0'));

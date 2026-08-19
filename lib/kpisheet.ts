@@ -34,6 +34,8 @@ const numOrNull_ = (v: unknown): number | null => {
  * (แท็บหัวหน้าใส่เลข 0 ไว้จริงตั้งแต่ ก.ค. ไม่ได้ปล่อยว่างเหมือนแท็บรอง)
  */
 const pct100_ = (v: number | null): number | null => (v === null || v === 0 ? null : v * 100);
+/** สัดส่วน 0-1 → เปอร์เซ็นต์ • ว่าง = null แต่ 0 คือ 0 จริง (ไม่มีของตีกลับ/ไม่มี error เกิดขึ้นได้) */
+const pct_ = (v: number | null): number | null => (v === null ? null : v * 100);
 const isEmpId_ = (v: unknown) => /^\d{4,6}$/.test(clean_(v));
 
 /** 'U16 C Biofla' → 'U16' (คืน '' ถ้าไม่ใช่รหัสยูนิต) */
@@ -44,7 +46,9 @@ export function kpiUnitCode(s: unknown): string {
 
 export interface KpiAdminMonthRow {
   id: string; name: string; nick: string; unit: string; unitFull: string;
-  sales: number; close: number; err: number; perBill: number; ret: number; score: number;
+  sales: number;
+  // ว่าง = null ไม่ใช่ 0 — เดือนที่ทีมยังไม่กรอกจะได้ไม่โชว์ "0.0%" ให้เข้าใจผิดว่าไม่มีของตีกลับ/ไม่มี error
+  close: number | null; err: number | null; perBill: number | null; ret: number | null; score: number;
 }
 export interface KpiSubMonthRow {
   id: string; name: string; nick: string; unit: string; unitFull: string;
@@ -58,7 +62,8 @@ export interface KpiHeadMonth {
 }
 export interface KpiAdminYearRow {
   id: string; name: string; nick: string;
-  kpiYear: number; sales: number; close: number; err: number; perBill: number; ret: number; kpiAvg: number;
+  kpiYear: number; sales: number;
+  close: number | null; err: number | null; perBill: number | null; ret: number | null; kpiAvg: number;
 }
 
 const ADMIN_BASE = 6, ADMIN_STRIDE = 17;
@@ -84,10 +89,10 @@ export function parseKpiAdminMonth(grid: string[][]): Record<number, KpiAdminMon
       (out[m + 1] = out[m + 1] || []).push({
         id, name, nick, unit, unitFull,
         sales: num_(row[b + 1]),
-        close: num_(row[b + 2]) * 100,
-        err: num_(row[b + 3]) * 100,
-        perBill: num_(row[b + 4]),
-        ret: num_(row[b + 5]) * 100,
+        close: pct_(numOrNull_(row[b + 2])),
+        err: pct_(numOrNull_(row[b + 3])),
+        perBill: numOrNull_(row[b + 4]),
+        ret: pct_(numOrNull_(row[b + 5])),
         score: num_(row[b + 16]), // สัดส่วน 0-1+ (เกิน 1 ได้เมื่อทะลุเป้า)
       });
     }
@@ -186,10 +191,10 @@ export function parseKpiAdminYear(grid: string[][]): KpiAdminYearRow[] {
       id, name: clean_(row[4]), nick: clean_(row[5]),
       kpiYear: num_(row[6]),
       sales: num_(row[7]),
-      close: num_(row[8]) * 100,
-      err: num_(row[9]) * 100,
-      perBill: num_(row[10]),
-      ret: num_(row[11]) * 100,
+      close: pct_(numOrNull_(row[8])),
+      err: pct_(numOrNull_(row[9])),
+      perBill: numOrNull_(row[10]),
+      ret: pct_(numOrNull_(row[11])),
       kpiAvg: num_(row[22]), // W = KPI เฉลี่ยรวมเฉพาะเดือนที่มีข้อมูล
     });
   }
