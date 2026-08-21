@@ -89,6 +89,10 @@ async function runFast(): Promise<void> {
 }
 
 async function runHourly(): Promise<boolean> {
+  // ทะเบียนเพจต้องมาก่อนงานที่วนตามรายชื่อเพจ (admins-roster/ad-stats)
+  // เดิมอยู่แค่รอบ daily ตอนตี 2 — เพจที่ทีมเปิดใหม่ตอนกลางวันจึงหาไม่เจอใน U Map ทั้งวัน
+  // (เจอจริง 21 ส.ค.: หัวหน้าจับคู่เพจ Myco 2 ตัวไม่ได้ตอนเที่ยงคืนครึ่ง ทั้งที่ขายมาแล้วตั้งแต่บ่าย)
+  const h = await runJob('pages', jobs.syncPages);
   const a = await runJob('ads', jobs.syncAds);
   const b = await runJob('admins-roster', jobs.syncAdminsRoster);
   // Pancake เป็นตัวเติม page_id / ชื่อแอด / สถานะ ให้ ad_daily (วนทุกเพจ จึงหนักเกินรอบ 15 นาที)
@@ -106,7 +110,7 @@ async function runHourly(): Promise<boolean> {
   // เดิมอยู่รอบ daily ตอนตี 2 ทีมแก้ชีทตอนกลางวันแล้วหน้าเว็บไม่ขยับจนวันรุ่งขึ้น เข้าใจว่าระบบดึงค่าผิด
   const f = await runJob('kpi-sheet', jobs.syncKpiSheet);
   const i = await runJob('roster-sheet', jobs.syncRosterSheet);
-  return a && b && c && d && e && f && g && i;
+  return a && b && c && d && e && f && g && h && i;
 }
 
 async function runDaily(): Promise<boolean> {
