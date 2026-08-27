@@ -1002,7 +1002,38 @@ const META_POOL = 4;
 export async function syncMetaAdsRange(since: string, until: string): Promise<JobResult> {
   const token = process.env.META_ACCESS_TOKEN || '';
   if (!token) return jobResult('ข้าม: ยังไม่ได้ตั้ง META_ACCESS_TOKEN', { skipped: 'ไม่มี META_ACCESS_TOKEN' });
-  const accounts = await metaListAdAccounts();
+  // เดิมบรรทัด metaListAdAccounts อยู่นอก try → me/adaccounts โดน rate limit ทีเดียวล้มทั้งงาน
+  // ไม่ได้เขียนสักแถว (เกิดจริง 27 ส.ค. 08:20 และ 09:04)
+  const ACCOUNTS_KEY = 'meta_ad_accounts';
+  const ACCOUNTS_CACHE_MAX_MS = 6 * 60 * 60 * 1000;   // แคชเก่ากว่า 6 ชม. = ไม่ยอมใช้ ล้มดังๆ ดีกว่าเงียบ
+  // จับเฉพาะรหัส rate-limit ที่ metaGet ปล่อยผ่านมาเป็น `meta <code>: ...`
+  // ห้ามรวม 190 (token หมดอายุ) — วันที่ token ตายต้องขึ้น ❌ ไม่ใช่เขียวด้วยแคช
+  const RATE_LIMITED_RE = /^meta (4|17|32|613|8000[0-4]):/;
+  let accounts: Awaited<ReturnType<typeof metaListAdAccounts>>;
+  let cacheNote = '';   // '' = รายชื่อสดจาก Meta
+  try {
+    accounts = await metaListAdAccounts();
+  } catch (e: any) {
+    const emsg = String((e && e.message) || e);
+    if (!RATE_LIMITED_RE.test(emsg)) throw e;
+    let cached: { ts?: string; accounts?: any[] } | null = null;
+    try { cached = JSON.parse((await getState(ACCOUNTS_KEY)) || 'null'); } catch { cached = null; }
+    const ageMs = (cached && cached.ts) ? Date.now() - new Date(cached.ts).getTime() : Number.POSITIVE_INFINITY;
+    if (!cached || !Array.isArray(cached.accounts) || !cached.accounts.length || !(ageMs < ACCOUNTS_CACHE_MAX_MS)) {
+      return jobResult(`ข้าม: ขอรายชื่อบัญชี Meta ไม่สำเร็จ (${emsg.slice(0, 110)}) — ไม่มีรายชื่อแคชที่ยังสด`,
+        { skipped: 'metaListAdAccounts ติด rate limit และแคชหมดอายุ/ไม่มี' });
+    }
+    accounts = cached.accounts as any;
+    cacheNote = ` | ⚠️ ใช้รายชื่อบัญชีจากแคชอายุ ${Math.round(ageMs / 60000)} นาที (${emsg.slice(0, 70)})`;
+    console.warn('⚠️ metaListAdAccounts ล้ม — ใช้รายชื่อแคช ' + accounts.length + ' บัญชี: ' + emsg);
+    // ให้ตัวเฝ้าระวังเห็นด้วย ไม่ใช่เห็นแค่ console ของ GitHub Actions
+    await setState('meta_ad_accounts_fallback_at', new Date().toISOString()).catch(() => {});
+  }
+  // เขียนแคช "นอก" try — ถ้า setState เองพัง ต้องไม่ถูกตีความว่า Meta ล้มแล้วไปหยิบของเก่ามาใช้แทนของสด
+  if (!cacheNote && accounts.length) {
+    try { await setState(ACCOUNTS_KEY, JSON.stringify({ ts: new Date().toISOString(), accounts })); }
+    catch { /* แคชเขียนไม่ได้ ไม่ควรทำให้รอบ sync ล้ม */ }
+  }
   const active = accounts.filter((a) => a.account_status === 1);
   const rows: any[] = [];
   const errors: string[] = [];
@@ -1029,7 +1060,7 @@ export async function syncMetaAdsRange(since: string, until: string): Promise<Jo
   });
   if (rows.length) await upsertRows('ad_daily', rows, 'date,ad_id');
   const range = since === until ? since : `${since}..${until}`;
-  let msg = `meta ads ${range}: ${rows.length} แถว จาก ${active.length}/${accounts.length} บัญชี | spend ฿${spend.toFixed(2)}`;
+  let msg = `meta ads ${range}: ${rows.length} แถว จาก ${active.length}/${accounts.length} บัญชี | spend ฿${spend.toFixed(2)}` + cacheNote;
   if (errors.length) msg += ` | ผิดพลาด ${errors.length} บัญชี: ${errors.slice(0, 2).join('; ')}`;
   return jobResult(msg, {
     subject: 'บัญชี', unitsTotal: active.length, unitsFailed: errors.length,

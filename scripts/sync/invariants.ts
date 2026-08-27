@@ -8,7 +8,7 @@
 // จะถูกเขียนเป็นงานล้ม (job = invariants) ลง sync_log ให้ตัวเฝ้าระวังบนหน้าเว็บฟ้องทีมทันที
 //
 // ตรวจจาก "เมื่อวาน" เป็นหลัก — วันนี้ยังเดินอยู่ (Meta รายงานช้า ชีทยังไม่กรอก) ตรวจแล้วจะเตือนผิดทุกเช้า
-import { supabase, loadJobStats } from '../../lib/supabase';
+import { supabase, loadJobStats, getState } from '../../lib/supabase';
 import { coverageProblem } from '../../lib/jobstat';
 import { daysAgo, fmtDateBkk, startOfDayBkk, num, money_, BKK_OFFSET_MS, EXCLUDED_STATUSES, NEED_CHECK_STATUSES, isPlaceholderOrder } from '../../lib/config';
 
@@ -192,6 +192,18 @@ export async function checkInvariants(): Promise<{ ok: boolean; message: string;
   } catch (e: any) {
     add('sheet-read', `อ่าน unit_daily ไม่ได้: ${String(e.message || e).slice(0, 90)}`);
   }
+
+  /* ---- 4ก) รอบ meta-ads ที่วิ่งบนรายชื่อบัญชีแคช ----
+   * ทาง fallback คืน ok=true และใบรายงานเหมือนรอบสุขภาพดีทุกไบต์ ถ้าไม่ตรวจตรงนี้
+   * จะไม่มีป้ายไหนบอกว่า spend รายบัญชีอาจไม่ครบ */
+  try {
+    const fb = await getState('meta_ad_accounts_fallback_at');
+    if (fb && Date.now() - new Date(fb).getTime() < 3 * 60 * 60 * 1000) {
+      add('meta-accounts-cache',
+        `งาน meta-ads ใช้รายชื่อบัญชีจากแคชเมื่อ ${fb} (ขอรายชื่อสดไม่สำเร็จ) — ` +
+        `ตรวจว่ารอบถัดมากลับมาดึงสดได้แล้วหรือยัง`);
+    }
+  } catch { /* อ่าน sync_state ไม่ได้ ไม่ควรทำให้กฎข้ออื่นไม่ได้ตรวจ */ }
 
   /* ---- 5) ใบรายงานผลของแต่ละงาน: เพจพลาดเกิน 1 ใน 3 / ข้ามตัวเอง / แถวหายเกินครึ่ง ---- */
   try {
