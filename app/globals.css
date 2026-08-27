@@ -1625,7 +1625,83 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
 /* ============================================================
    📐 ≥600px — มือถือจอใหญ่ / มือถือแนวนอน: เริ่มวาง 2 คอลัมน์ได้
    ============================================================ */
+
+/* ---------- ปฏิทินเลือกช่วงวัน (โหมด "กำหนดเอง") ----------
+   MOBILE FIRST: ค่านอก @media = หน้าตาบนมือถือ (ปฏิทินเดือนเดียว เต็มความกว้าง)
+   ≥600px ค่อยกางเป็น 2 เดือนคู่กัน */
+.dp-wrap { position: relative; }
+.dp-trigger {
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+  padding: var(--sp-2) var(--sp-4); border-radius: 99px;
+  font-size: var(--fs-3); font-weight: 600; min-height: 40px;
+}
+.dp-trigger:hover { border-color: var(--primary); }
+.dp-trigger[aria-expanded="true"] { border-color: var(--primary); background: var(--primary-soft); }
+.dp-caret { color: var(--text-3); font-size: var(--fs-2); }
+
+.dp-host { position: absolute; z-index: 60; left: 0; top: calc(100% + var(--sp-2)); }
+.dp-pop {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: var(--sp-3);
+  width: min(92vw, 340px);
+  max-height: 76vh; overflow-y: auto;   /* มือถือ: 2 เดือนซ้อนกันแนวตั้ง เลื่อนดูได้ ไม่ดันจอ */
+}
+.dp-nav { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.dp-sum { font-size: var(--fs-3); font-weight: 700; color: var(--text); text-align: center; flex: 1; }
+.dp-arrow {
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+  width: 36px; height: 36px; border-radius: 10px; font-size: var(--fs-5); line-height: 1;
+}
+.dp-arrow:hover { border-color: var(--primary); }
+
+.dp-months { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
+.dp-mon-head { text-align: center; font-size: var(--fs-3); font-weight: 700; color: var(--text-2); margin-bottom: var(--sp-2); }
+.dp-dow, .dp-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.dp-dow { margin-bottom: var(--sp-1); }
+.dp-dow span { text-align: center; font-size: var(--fs-1); color: var(--text-3); font-weight: 600; }
+/* ตรึงความสูงไว้ 40px (เกณฑ์นิ้ว) — เดิมใช้ aspect-ratio:1 ซึ่งบนมือถือช่องกว้าง ~110px
+   ทำให้แถวสูงตามไปด้วย ปฏิทินเดือนเดียวก็ยาวเกินหน้าจอ */
+.dp-cell { position: relative; height: 40px;
+  display: flex; align-items: center; justify-content: center; }
+.dp-blank { visibility: hidden; }
+.dp-day {
+  width: 100%; height: 100%; border: 1px solid transparent; background: none;
+  color: var(--text); font-size: var(--fs-3); border-radius: 9px; line-height: 1;
+}
+.dp-day:hover { background: var(--surface-2); }
+.dp-day.dp-future { color: var(--text-3); }
+.dp-day.dp-today { border-color: var(--primary); font-weight: 700; }
+/* ช่วงที่คลุมอยู่ = แถบจางระหว่างหัวท้าย */
+.dp-day.dp-in { background: var(--primary-soft); border-radius: 0; }
+/* หัวและท้ายช่วง = ทึบ */
+.dp-day.dp-sel { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 700; }
+.dp-day.dp-start { border-radius: 9px 0 0 9px; }
+.dp-day.dp-end { border-radius: 0 9px 9px 0; }
+/* วงโฟกัสต้องอยู่ "ใน" ปุ่ม — offset บวกจะดันวงออกไปทับช่องข้างเคียง
+   ทำให้หัวท้ายช่วงดูเหมือนล้นออกนอกแถบ */
+.dp-day:focus { outline: none; }
+.dp-day:focus-visible { outline: 2px solid var(--text); outline-offset: -2px; }
+
+.dp-quicks { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-top: var(--sp-3); }
+.dp-quick {
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2);
+  padding: var(--sp-1) var(--sp-3); border-radius: 99px; font-size: var(--fs-2); font-weight: 600;
+  min-height: 32px;
+}
+.dp-quick:hover { border-color: var(--primary); color: var(--text); }
+.dp-foot { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-3);
+  border-top: 1px solid var(--border); padding-top: var(--sp-3); }
+
+:root[data-theme="light"] .dp-day.dp-in { background: rgba(108, 92, 231, 0.12); }
+
 @media (min-width: 600px) {
+  /* ปฏิทิน: จอ ≥600px กางเป็น 2 เดือน */
+  /* จอ ≥600px: กาง 2 เดือนคู่กัน คอลัมน์กว้างตายตัว —
+     ถ้าใช้ minmax(0, …) กล่องที่ position:absolute จะหดจนเลขวันทับกัน */
+  .dp-pop { width: max-content; max-height: none; overflow: visible; }
+  .dp-months { grid-template-columns: repeat(2, 236px); }
+
   .view { padding: var(--sp-4) var(--sp-4) var(--sp-8); }
   .card { padding: var(--sp-4); border-radius: var(--radius); }
   .stat-card { padding: var(--sp-4); border-radius: var(--radius); }

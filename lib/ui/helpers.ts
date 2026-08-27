@@ -288,6 +288,325 @@ export interface RangeState {
   from?: string;
   to?: string;
 }
+/* ---------------- ปฏิทินเลือกช่วงวัน (date range picker) ----------------
+ * ใช้แทนช่อง <input type="date"> 2 ช่องของโหมด "กำหนดเอง" — ทีมต้องเลือกช่วงวันบ่อย
+ * ช่องเดิมกดยาก (ต้องกรอก 2 ช่องแยกกันแล้วกดแสดง) และมองไม่เห็นว่าช่วงที่เลือกกินกี่วัน
+ *
+ * ⚠️ วันที่ในนี้เป็น "วันตามปฏิทิน" (civil date) เก็บเป็นสตริง 'YYYY-MM-DD' ล้วน
+ *    ห้ามแปลงเป็น Date object แล้วอ่านกลับ — new Date('2026-08-27') ตีความเป็น UTC
+ *    พอเครื่องอยู่ไทย (+7) จะกลายเป็นวันก่อนหน้า = คลาดไป 1 วันทั้งระบบ
+ *    เทียบมาก/น้อยใช้เทียบสตริงตรงๆ ได้เลย เพราะรูปแบบ YYYY-MM-DD เรียงตามตัวอักษร = เรียงตามเวลา
+ */
+
+const TH_MON = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+  'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+const TH_MON_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+  'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+const TH_DOW = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+
+const pad2_ = (n: number) => (n < 10 ? '0' + n : String(n));
+/** ปี-เดือน-วัน → 'YYYY-MM-DD' (m เริ่มที่ 0 เหมือน Date) */
+const ymd_ = (y: number, m: number, d: number) => y + '-' + pad2_(m + 1) + '-' + pad2_(d);
+/** 'YYYY-MM-DD' → [ปี, เดือน(0-11), วัน] — คืน null ถ้ารูปแบบไม่ถูก */
+function parseYmd_(s: unknown): [number, number, number] | null {
+  const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]) - 1, Number(m[3])];
+}
+/** วันนี้ตามนาฬิกาเครื่องผู้ใช้ (ไม่ใช่ UTC) */
+function todayYmd_(): string {
+  const d = new Date();
+  return ymd_(d.getFullYear(), d.getMonth(), d.getDate());
+}
+const daysInMonth_ = (y: number, m: number) => new Date(y, m + 1, 0).getDate();
+/** วันในสัปดาห์ของวันที่ 1 ของเดือน (0=อาทิตย์) — สร้าง Date จากตัวเลข ไม่ได้ parse สตริง จึงไม่โดนกับดัก UTC */
+const firstDow_ = (y: number, m: number) => new Date(y, m, 1).getDay();
+/** เลื่อนเดือน คืน [ปี, เดือน] */
+function addMonth_(y: number, m: number, delta: number): [number, number] {
+  const t = y * 12 + m + delta;
+  return [Math.floor(t / 12), ((t % 12) + 12) % 12];
+}
+/** บวกวัน (ใช้ Date เป็นตัวคำนวณล้วน ไม่แตะ timezone เพราะสร้างจากตัวเลขและอ่านกลับเป็นตัวเลข) */
+function addDays_(s: string, delta: number): string {
+  const p = parseYmd_(s);
+  if (!p) return s;
+  const d = new Date(p[0], p[1], p[2] + delta);
+  return ymd_(d.getFullYear(), d.getMonth(), d.getDate());
+}
+/** '2026-08-27' → '27 ส.ค. 69' (พ.ศ. 2 หลักท้าย — ทีมอ่านแบบนี้ในชีททุกใบ) */
+export function thaiDateShort(s: unknown): string {
+  const p = parseYmd_(s);
+  if (!p) return '—';
+  return p[2] + ' ' + TH_MON_SHORT[p[1]] + ' ' + String((p[0] + 543) % 100);
+}
+/** จำนวนวันในช่วง (นับหัวท้าย) */
+function spanDays_(from: string, to: string): number {
+  const a = parseYmd_(from), b = parseYmd_(to);
+  if (!a || !b) return 0;
+  return Math.round((new Date(b[0], b[1], b[2]).getTime() - new Date(a[0], a[1], a[2]).getTime()) / 86400000) + 1;
+}
+
+/* ---- สถานะของปฏิทินที่กำลังเปิดอยู่ (มีได้ทีละตัว) ---- */
+interface DpCtx {
+  state: RangeState;
+  idPrefix: string;
+  onChange: () => void;
+  /** เดือนซ้ายที่กำลังแสดง */
+  vy: number; vm: number;
+  /** ค่าที่กำลังเลือกอยู่ในปฏิทิน (ยังไม่ยืนยัน) */
+  from: string; to: string;
+  /** true = คลิกถัดไปคือ "วันจบ" */
+  picking: boolean;
+  /** วันที่เมาส์ชี้อยู่ ใช้ระบายช่วงล่วงหน้า */
+  hover: string;
+  /** วันที่คีย์บอร์ดโฟกัสอยู่ */
+  focus: string;
+}
+let dpCtx_: DpCtx | null = null;
+
+/** ปฏิทิน 1 เดือน */
+function dpMonthHtml_(c: DpCtx, y: number, m: number): string {
+  const today = todayYmd_();
+  const lo = c.from;
+  // ระหว่างเลือกวันจบ ให้ระบายตามวันที่เมาส์ชี้ เพื่อให้เห็นช่วงก่อนกดจริง
+  const hi = c.picking ? (c.hover && c.hover > c.from ? c.hover : c.from) : c.to;
+  let cells = '';
+  const blanks = firstDow_(y, m);
+  for (let i = 0; i < blanks; i++) cells += '<div class="dp-cell dp-blank" role="gridcell"></div>';
+  const n = daysInMonth_(y, m);
+  for (let d = 1; d <= n; d++) {
+    const s = ymd_(y, m, d);
+    const isStart = !!lo && s === lo;
+    const isEnd = !!hi && s === hi && hi !== lo;
+    const inRange = !!lo && !!hi && s > lo && s < hi;
+    const cls = ['dp-day'];
+    if (isStart || (isEnd && !isStart)) cls.push('dp-sel');
+    if (isStart && hi && hi !== lo) cls.push('dp-start');
+    if (isEnd) cls.push('dp-end');
+    if (inRange) cls.push('dp-in');
+    if (s === today) cls.push('dp-today');
+    if (s > today) cls.push('dp-future');   // เลือกอนาคตได้ แต่ทำให้จางลงเพื่อบอกว่ายังไม่มีข้อมูล
+    const sel = isStart || isEnd ? 'true' : 'false';
+    cells += '<div class="dp-cell" role="gridcell" aria-selected="' + sel + '">' +
+      '<button type="button" class="' + cls.join(' ') + '" data-d="' + s + '"' +
+      (s === c.focus ? ' data-focus="1"' : '') +
+      ' tabindex="' + (s === c.focus ? '0' : '-1') + '"' +
+      ' aria-label="' + d + ' ' + TH_MON[m] + ' ' + (y + 543) + '">' + d + '</button></div>';
+  }
+  return '<div class="dp-month">' +
+    '<div class="dp-mon-head">' + TH_MON[m] + ' ' + (y + 543) + '</div>' +
+    '<div class="dp-dow">' + TH_DOW.map((w) => '<span>' + w + '</span>').join('') + '</div>' +
+    '<div class="dp-grid" role="grid">' + cells + '</div>' +
+  '</div>';
+}
+
+/** ทั้งป๊อปโอเวอร์ */
+function dpHtml_(c: DpCtx): string {
+  const [ny, nm] = addMonth_(c.vy, c.vm, 1);
+  const days = c.from && c.to && !c.picking ? spanDays_(c.from, c.to) : 0;
+  const summary = c.picking
+    ? 'เลือกวันสิ้นสุด'
+    : (c.from && c.to
+      ? thaiDateShort(c.from) + ' – ' + thaiDateShort(c.to) + ' · ' + days + ' วัน'
+      : 'เลือกวันเริ่มต้น');
+  const quick = [
+    ['7', '7 วันล่าสุด'], ['14', '14 วันล่าสุด'], ['30', '30 วันล่าสุด'], ['90', '90 วันล่าสุด'],
+  ].map(([n, label]) =>
+    '<button type="button" class="dp-quick" data-quick="' + n + '">' + label + '</button>').join('');
+  return '<div class="dp-pop" role="dialog" aria-modal="false" aria-label="เลือกช่วงวันที่">' +
+    '<div class="dp-nav">' +
+      '<button type="button" class="dp-arrow" data-mv="-1" aria-label="เดือนก่อนหน้า">‹</button>' +
+      '<div class="dp-sum">' + summary + '</div>' +
+      '<button type="button" class="dp-arrow" data-mv="1" aria-label="เดือนถัดไป">›</button>' +
+    '</div>' +
+    '<div class="dp-months">' + dpMonthHtml_(c, c.vy, c.vm) + dpMonthHtml_(c, ny, nm) + '</div>' +
+    '<div class="dp-quicks">' + quick + '</div>' +
+    '<div class="dp-foot">' +
+      '<button type="button" class="btn" data-dp="cancel">ยกเลิก</button>' +
+      '<button type="button" class="btn primary" data-dp="apply"' +
+        (c.from && c.to && !c.picking ? '' : ' disabled') + '>แสดง</button>' +
+    '</div>' +
+  '</div>';
+}
+
+/** วาดใหม่ทั้งป๊อปโอเวอร์ แล้วผูก event ใหม่ (วิธีเดียวกับวิวอื่นในโปรเจกต์) */
+/**
+ * ดันกล่องให้อยู่ในจอเสมอ — กล่องเกาะซ้ายของปุ่ม พอปุ่มอยู่ค่อนไปทางขวาของจอ
+ * ปฏิทิน 2 เดือน (~500px) จะล้นขอบขวาจนเดือนที่สองโดนตัด (เจอจริงบนจอ 1280)
+ * วัดแล้วเลื่อนเอง ไม่ผูกกับ right:0 เพราะบางหน้าปุ่มอยู่ชิดซ้าย จะกลายเป็นล้นซ้ายแทน
+ */
+function dpPlace_(host: HTMLElement): void {
+  host.style.left = '0px';
+  const pop = host.firstElementChild as HTMLElement | null;
+  if (!pop) return;
+  const M = 8;   // เว้นขอบจอ
+  const vw = document.documentElement.clientWidth;
+  const r = pop.getBoundingClientRect();
+  let shift = 0;
+  if (r.right > vw - M) shift -= (r.right - (vw - M));
+  if (r.left + shift < M) shift += M - (r.left + shift);
+  if (shift) host.style.left = Math.round(shift) + 'px';
+}
+
+function dpPaint_(host: HTMLElement): void {
+  const c = dpCtx_;
+  if (!c) return;
+  host.innerHTML = dpHtml_(c);
+  dpPlace_(host);
+
+  host.querySelectorAll('[data-mv]').forEach((b) => b.addEventListener('click', () => {
+    const [y, m] = addMonth_(c.vy, c.vm, Number(b.getAttribute('data-mv')));
+    c.vy = y; c.vm = m;
+    dpPaint_(host);
+  }));
+
+  host.querySelectorAll('[data-quick]').forEach((b) => b.addEventListener('click', () => {
+    const n = Number(b.getAttribute('data-quick'));
+    const today = todayYmd_();
+    c.to = today;
+    c.from = addDays_(today, -(n - 1));
+    c.picking = false;
+    c.focus = c.from;
+    const p = parseYmd_(c.from)!;
+    c.vy = p[0]; c.vm = p[1];   // เลื่อนปฏิทินไปให้เห็นวันเริ่มต้นที่เพิ่งตั้ง
+    dpPaint_(host);
+  }));
+
+  host.querySelectorAll('.dp-day').forEach((b) => {
+    const d = b.getAttribute('data-d')!;
+    b.addEventListener('click', () => {
+      if (!c.picking) { c.from = d; c.to = ''; c.picking = true; }
+      else {
+        // กดย้อนหลังกว่าวันเริ่ม = ตีความว่าเริ่มใหม่ที่วันนั้น ดีกว่าสลับให้เงียบๆ แล้วได้ช่วงที่ไม่ได้ตั้งใจ
+        if (d < c.from) { c.from = d; c.to = ''; c.picking = true; }
+        else { c.to = d; c.picking = false; }
+      }
+      c.focus = d;
+      dpPaint_(host);
+    });
+    b.addEventListener('mouseenter', () => {
+      if (!c.picking) return;
+      c.hover = d;
+      dpPaint_(host);
+    });
+  });
+
+  host.querySelectorAll('[data-dp]').forEach((b) => b.addEventListener('click', () => {
+    if (b.getAttribute('data-dp') === 'apply') dpApply_();
+    else dpClose_();
+  }));
+
+  // คืนโฟกัสให้วันที่กำลังโฟกัส เพื่อให้ลูกศรเดินต่อได้หลังวาดใหม่
+  const f = host.querySelector('[data-focus="1"]') as HTMLElement | null;
+  if (f && document.activeElement && host.contains(document.activeElement)) f.focus();
+}
+
+function dpMoveFocus_(host: HTMLElement, delta: number, byMonth: boolean): void {
+  const c = dpCtx_;
+  if (!c) return;
+  if (byMonth) {
+    const p = parseYmd_(c.focus)!;
+    const [y, m] = addMonth_(p[0], p[1], delta);
+    c.focus = ymd_(y, m, Math.min(p[2], daysInMonth_(y, m)));
+  } else {
+    c.focus = addDays_(c.focus, delta);
+  }
+  const p = parseYmd_(c.focus)!;
+  // ให้เดือนที่โฟกัสอยู่ในสองเดือนที่แสดงเสมอ
+  const [ry, rm] = addMonth_(c.vy, c.vm, 1);
+  if (!((p[0] === c.vy && p[1] === c.vm) || (p[0] === ry && p[1] === rm))) { c.vy = p[0]; c.vm = p[1]; }
+  dpPaint_(host);
+  const f = host.querySelector('[data-focus="1"]') as HTMLElement | null;
+  if (f) f.focus();
+}
+
+let dpOutside_: ((e: Event) => void) | null = null;
+let dpKey_: ((e: KeyboardEvent) => void) | null = null;
+
+function dpClose_(): void {
+  const c = dpCtx_;
+  dpCtx_ = null;
+  if (dpOutside_) { document.removeEventListener('mousedown', dpOutside_, true); dpOutside_ = null; }
+  if (dpKey_) { document.removeEventListener('keydown', dpKey_, true); dpKey_ = null; }
+  document.querySelectorAll('.dp-host').forEach((h) => { h.innerHTML = ''; });
+  document.querySelectorAll('.dp-trigger[aria-expanded="true"]').forEach((t) => {
+    t.setAttribute('aria-expanded', 'false');
+    (t as HTMLElement).focus();
+  });
+  if (c) { /* ปิดเฉยๆ ไม่แตะ state — ค่าที่ยังไม่กด "แสดง" ต้องไม่มีผล */ }
+}
+
+/** ย้ายปฏิทินที่เปิดอยู่ไปยังปุ่ม/กล่องชุดใหม่ หลังแถวควบคุมถูกวาดใหม่ (คงค่าที่เลือกค้างไว้) */
+function dpRebind_(trig: HTMLElement, host: HTMLElement, state: RangeState, onChange: () => void): void {
+  const c = dpCtx_;
+  if (!c) return;
+  c.state = state;          // state object อาจเป็นตัวเดิม แต่ผูกใหม่ให้ชัวร์
+  c.onChange = onChange;
+  trig.setAttribute('aria-expanded', 'true');
+  dpPaint_(host);
+  // ตัวจับคลิกนอกกล่องยังชี้ไป node เก่า → ผูกใหม่ให้ชี้ของใหม่
+  if (dpOutside_) document.removeEventListener('mousedown', dpOutside_, true);
+  dpOutside_ = (e: Event) => {
+    const t = e.target as Node;
+    if (host.contains(t) || trig.contains(t)) return;
+    dpClose_();
+  };
+  document.addEventListener('mousedown', dpOutside_, true);
+}
+
+function dpApply_(): void {
+  const c = dpCtx_;
+  if (!c || !c.from || !c.to || c.picking) return;
+  c.state.from = c.from;
+  c.state.to = c.to;
+  const onChange = c.onChange;
+  dpClose_();
+  onChange();
+}
+
+function dpOpen_(trigger: HTMLElement, host: HTMLElement, state: RangeState, idPrefix: string, onChange: () => void): void {
+  if (dpCtx_ && dpCtx_.idPrefix === idPrefix) { dpClose_(); return; }   // กดซ้ำที่ปุ่มเดิม = ปิด
+  dpClose_();
+  const today = todayYmd_();
+  const from = parseYmd_(state.from) ? String(state.from) : today;
+  const to = parseYmd_(state.to) ? String(state.to) : from;
+  const p = parseYmd_(from)!;
+  // เปิดค้างไว้ที่เดือนของวันเริ่มต้น แต่ถ้าช่วงกินข้ามเดือนพอดี เดือนขวาจะโชว์วันจบให้เอง
+  dpCtx_ = { state, idPrefix, onChange, vy: p[0], vm: p[1], from, to, picking: false, hover: '', focus: from };
+  trigger.setAttribute('aria-expanded', 'true');
+  dpPaint_(host);
+
+  dpOutside_ = (e: Event) => {
+    const t = e.target as Node;
+    if (host.contains(t) || trigger.contains(t)) return;
+    dpClose_();
+  };
+  document.addEventListener('mousedown', dpOutside_, true);
+
+  dpKey_ = (e: KeyboardEvent) => {
+    if (!dpCtx_) return;
+    const k = e.key;
+    if (k === 'Escape') { e.preventDefault(); dpClose_(); return; }
+    if (k === 'Enter') {
+      const act = document.activeElement as HTMLElement | null;
+      if (act && act.classList.contains('dp-day')) return;   // ปล่อยให้ปุ่มวันจัดการเอง
+      if (dpCtx_.from && dpCtx_.to && !dpCtx_.picking) { e.preventDefault(); dpApply_(); }
+      return;
+    }
+    const map: Record<string, [number, boolean]> = {
+      ArrowLeft: [-1, false], ArrowRight: [1, false],
+      ArrowUp: [-7, false], ArrowDown: [7, false],
+      PageUp: [-1, true], PageDown: [1, true],
+    };
+    if (map[k]) { e.preventDefault(); dpMoveFocus_(host, map[k][0], map[k][1]); }
+  };
+  document.addEventListener('keydown', dpKey_, true);
+
+  const f = host.querySelector('[data-focus="1"]') as HTMLElement | null;
+  if (f) f.focus();
+}
+
+
 
 // เรียงลำดับตามหน้าเว็บแอด (วันนี้ → เมื่อวาน → 3/7/30 วัน → เดือนนี้ → กำหนดเอง) ตามที่บอสขอ
 // ⚠️ ทุก key ที่เพิ่มตรงนี้ ต้องมี case ใน resolveRange_ ของ lib/api/sales.ts และ lib/api/adminperf.ts ด้วย
@@ -313,11 +632,17 @@ export function rangeControlsHtml(state: RangeState, idPrefix: string): string {
   }).join('');
   // โหมดกำหนดเอง: แก้วันที่แล้ว "ยังไม่โหลด" จนกด แสดง/Enter — เดิมโหลดทันทีทุกช่องที่แก้
   // (เปลี่ยนช่วง 1 ครั้ง = แก้ 2 ช่อง = ยิงคิวรีช่วงยาว 2 รอบ ช้าและเปลืองฟรี — ผู้ใช้ขอแก้เอง)
+  // โหมดกำหนดเอง: ปุ่มเดียวเปิดปฏิทินเลือกช่วง — เดิมเป็นช่อง <input type="date"> 2 ช่อง
+  // ซึ่งกดยากบนมือถือ และไม่เห็นว่าช่วงที่เลือกกินกี่วันจนกว่าจะโหลดเสร็จ
+  const label = state.from && state.to
+    ? thaiDateShort(state.from) + ' – ' + thaiDateShort(state.to)
+    : 'เลือกช่วงวันที่';
   const dates = state.preset === 'custom'
-    ? '<input type="date" class="input" id="' + idPrefix + '-from" value="' + esc(state.from || '') + '">' +
-      '<span style="align-self:center">ถึง</span>' +
-      '<input type="date" class="input" id="' + idPrefix + '-to" value="' + esc(state.to || '') + '">' +
-      '<button class="btn primary" id="' + idPrefix + '-apply">แสดง</button>'
+    ? '<div class="dp-wrap">' +
+        '<button type="button" class="dp-trigger" id="' + idPrefix + '-dp" aria-haspopup="dialog"' +
+          ' aria-expanded="false">📅 ' + esc(label) + '<span class="dp-caret">▾</span></button>' +
+        '<div class="dp-host" id="' + idPrefix + '-dphost"></div>' +
+      '</div>'
     : '';
   return '<div class="conv-filters" id="' + idPrefix + '-presets" style="margin-bottom:0">' + pills + '</div>' + dates;
 }
@@ -346,24 +671,22 @@ export function bindRangeControls(
       onChange();
     });
   });
-  // แก้วันที่ = จำค่าไว้เฉยๆ — โหลดจริงเมื่อกดปุ่ม "แสดง" หรือ Enter เท่านั้น
-  const apply = () => {
-    if (!state.from || !state.to) return;
-    if (state.from > state.to) { // สลับให้เองถ้ากรอกกลับด้าน — ดีกว่าโหลดแล้วได้ตารางว่าง
-      const t = state.from;
-      state.from = state.to;
-      state.to = t;
-    }
-    onChange();
-  };
-  (['from', 'to'] as const).forEach((k) => {
-    const inp = container.querySelector('#' + idPrefix + '-' + k) as HTMLInputElement | null;
-    if (!inp) return;
-    inp.addEventListener('change', () => { state[k] = inp.value; });
-    inp.addEventListener('keydown', (e) => {
-      if ((e as KeyboardEvent).key === 'Enter') { state[k] = inp.value; apply(); }
-    });
-  });
-  const btn = container.querySelector('#' + idPrefix + '-apply');
-  if (btn) btn.addEventListener('click', apply);
+  // โหมดกำหนดเอง: ปุ่มเดียวเปิดปฏิทิน — ค่าจะมีผลต่อเมื่อกด "แสดง" ในปฏิทินเท่านั้น
+  // (เปลี่ยนช่วง 1 ครั้งเคยยิงคิวรีช่วงยาว 2 รอบ เพราะแก้ทีละช่อง)
+  const trig = container.querySelector('#' + idPrefix + '-dp') as HTMLElement | null;
+  const host = container.querySelector('#' + idPrefix + '-dphost') as HTMLElement | null;
+  // หน้าวาดแถวควบคุมใหม่ (โหลดข้อมูลเสร็จ / auto-refresh) = ปุ่มกับกล่องปฏิทินกลายเป็น node ใหม่
+  // ตัวที่เปิดค้างอยู่จะชี้ไป node เก่าที่หลุดจากหน้าไปแล้ว → ปฏิทินหายจากจอแต่ระบบยังคิดว่าเปิดอยู่
+  // คลิกรอบถัดไปเลยกลายเป็น "สั่งปิด" แทน "เปิด" (อาการ: เปิดไม่ขึ้น ต้องกด 2 ครั้ง)
+  // ย้ายไปกล่องใหม่แทนการปิดทิ้ง — ผู้ใช้ที่กำลังเลือกวันอยู่จะได้ไม่โดนปิดใส่หน้ากลางคัน
+  if (dpCtx_ && dpCtx_.idPrefix === idPrefix && trig && host) {
+    dpRebind_(trig, host, state, onChange);
+  }
+  // กันผูก event ซ้ำ: บางหน้าเรียก bindRangeControls ใหม่โดยไม่ได้สร้าง DOM ใหม่ (เช่นรอบ
+  // auto-refresh) ปุ่มเดิมจะมี listener 2 ตัว → คลิกเดียวสั่ง "เปิด" แล้ว "ปิด" ต่อทันที
+  // อาการคือปฏิทินเปิดไม่ขึ้นแบบสุ่ม ไล่ยากมากเพราะครั้งแรกหลังโหลดหน้าใช้ได้ปกติ
+  if (trig && host && !trig.getAttribute('data-dp-bound')) {
+    trig.setAttribute('data-dp-bound', '1');
+    trig.addEventListener('click', () => dpOpen_(trig, host, state, idPrefix, onChange));
+  }
 }
