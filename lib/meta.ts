@@ -109,7 +109,9 @@ export async function metaAccountAdInsights(accountId: string, since: string, un
     const r = await metaGet(`act_${accountId}/insights`, p);
     (r.data || []).forEach((row: any) => {
       out.push({
-        date: String(row.date_start || since),
+        // ช่วงหลายวันแล้วไม่มี date_start = ไม่รู้ว่าวันไหน ห้ามเดาเป็น since
+        // (ยอดวันนี้จะไหลไปกองเมื่อวาน) — แถวที่ได้ '' ถูกทิ้งอย่างปลอดภัยที่ jobs.ts `if (!it.date) continue`
+        date: String(row.date_start || (since === until ? since : '')),
         ad_id: String(row.ad_id || ''),
         ad_name: String(row.ad_name || ''),
         spend: Number(row.spend) || 0,

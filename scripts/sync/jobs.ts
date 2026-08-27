@@ -1060,18 +1060,34 @@ export async function syncMetaAdsRange(since: string, until: string): Promise<Jo
   });
   if (rows.length) await upsertRows('ad_daily', rows, 'date,ad_id');
   const range = since === until ? since : `${since}..${until}`;
+  // ⚠️ ตัวเฝ้าระวังเทียบ rowsWritten ข้ามรอบ (now < prev/2) และเทียบได้เฉพาะเมื่อ scope ตรงกัน
+  // ถ้ารายงานผลรวม 2 วัน แถวของ "เมื่อวาน" (~4,200) เป็นพื้นคงที่กลบการหายของ "วันนี้" จนสัญญาณ
+  // ดังไม่ได้เลย → รายงานเฉพาะวันปลายช่วง สัญญาณจึงบริสุทธิ์เท่าเดิม
+  // (ช่วงวันเดียว since===until ค่าทุกตัวเท่าของเดิมเป๊ะ = ไม่รีเซ็ต baseline)
+  const perDate: Record<string, number> = {};
+  rows.forEach((r) => { perDate[r.date] = (perDate[r.date] || 0) + 1; });
   let msg = `meta ads ${range}: ${rows.length} แถว จาก ${active.length}/${accounts.length} บัญชี | spend ฿${spend.toFixed(2)}` + cacheNote;
   if (errors.length) msg += ` | ผิดพลาด ${errors.length} บัญชี: ${errors.slice(0, 2).join('; ')}`;
   return jobResult(msg, {
     subject: 'บัญชี', unitsTotal: active.length, unitsFailed: errors.length,
-    unitsOk: active.length - errors.length, rowsWritten: rows.length,
-    scope: 'meta-ads|' + range,
+    unitsOk: active.length - errors.length,
+    rowsWritten: perDate[until] || 0,
+    scope: 'meta-ads|' + until,
   });
 }
 
 export const syncMetaAdsForDate = (dateStr: string) => syncMetaAdsRange(dateStr, dateStr);
 export const syncMetaAdsToday = () => syncMetaAdsForDate(fmtDateBkk(new Date()));
 export const syncMetaAdsYesterday = () => syncMetaAdsForDate(fmtDateBkk(daysAgo(1)));
+
+/**
+ * เมื่อวาน + วันนี้ ในคำขอชุดเดียว — metaAccountAdInsights ใช้ time_increment=1 จึงคืนแถวรายวัน
+ * อยู่แล้ว: ช่วง 2 วันใช้จำนวน call เท่ากับดึงวันเดียว (ยกเว้นบัญชีใหญ่ที่ทะลุ limit=500 ต่อหน้า
+ * แล้วต้องพลิกอีก 1 หน้า — วัด 26 ส.ค. มี 4 บัญชี = +4 call ต่อการเรียก 1 ครั้ง)
+ * แลกกับการที่ค่าแอด "เมื่อวาน" อัปเดตทุก 15 นาทีแทนชั่วโมงละครั้ง — Meta ยังปรับยอดของเมื่อวาน
+ * ต่อทั้งเช้า (26 ส.ค.: ฿303,619 ตอน 00:04 → ฿305,713 ตอน 08:02)
+ */
+export const syncMetaAdsRecent = () => syncMetaAdsRange(fmtDateBkk(daysAgo(1)), fmtDateBkk(new Date()));
 
 /** ถามเฉพาะ id ที่ต้องการ คุ้มกว่ากวาดทั้งตารางก็ต่อเมื่อ id ยังไม่เยอะ
  *  ad_creative ~56k แถว = 57 คำขอ/สแกน เทียบกับ .in() ทีละ 300 → จุดคุ้มทุนจริง ~17,100 id

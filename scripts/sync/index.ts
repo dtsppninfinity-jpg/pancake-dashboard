@@ -85,7 +85,9 @@ async function runFast(): Promise<void> {
   await runJob('admin-chat-today', jobs.syncAdminChatToday);
   // ค่าแอดจริง (Meta) — ย้ายจาก hourly มา fast: เดิมค่าแอดบนหน้าเว็บช้าได้ถึง 75 นาที
   // ยิง Meta ตรงๆ ไม่ต้องวนเพจ จึงเร็วพอสำหรับรอบ 15 นาที (ต่างจาก ad-stats-today ของ Pancake)
-  await runJob('meta-ads-today', jobs.syncMetaAdsToday);
+  // ช่วง 2 วัน (เมื่อวาน+วันนี้) — time_increment=1 แถมแถวรายวันให้ฟรีในคำขอชุดเดียว
+  // เดิมดึงแค่วันนี้ พอข้ามเที่ยงคืนเมื่อวานก็หยุดอัปเดตทันที ทั้งที่ Meta ยังปรับยอดต่อทั้งเช้า
+  await runJob('meta-ads-recent', jobs.syncMetaAdsRecent);
 }
 
 async function runHourly(): Promise<boolean> {
@@ -103,10 +105,9 @@ async function runHourly(): Promise<boolean> {
   const c = await runJob('ad-stats-today', jobs.syncAdStatsToday);
   // ต้องยิง Meta ซ้ำ "ปิดท้าย" รอบ hourly ด้วย — เพราะ runFast (Meta) เดินก่อน runHourly (Pancake)
   // ในโปรเซสเดียวกัน ถ้าไม่ทับกลับ ค่า spend จะกลายเป็นของ Pancake (ต่ำกว่าจริง ~7%) ไปจนรอบหน้า
-  const d = await runJob('meta-ads-today', jobs.syncMetaAdsToday);
-  // "คนทัก" (messaging_started) ของ Meta รายงานช้า/แก้ย้อนหลังได้เป็นวัน — ดึงเมื่อวานซ้ำรายชั่วโมง
-  // ให้ %ปิดจากแอดของเมื่อวานนิ่งเร็วที่สุด (เดิมดึงแค่รอบ daily ตอนเช้า เลขค้างสูงเกินจริงทั้งวัน)
-  const g = await runJob('meta-ads-yesterday', jobs.syncMetaAdsYesterday);
+  // ยิงเป็นช่วง 2 วันทีเดียว = ปิดท้ายให้ทั้ง "วันนี้" และ "เมื่อวาน" ด้วยคำขอชุดเดียว
+  // (เดิมแยก 2 งาน = จ่ายคำขอซ้ำ 124 ครั้ง/ชม. เปล่าๆ ทั้งที่ time_increment=1 แถม 2 วันให้ฟรี)
+  const d = await runJob('meta-ads-recent', jobs.syncMetaAdsRecent);
   // เติมเพจให้แถวค่าแอดที่เกิดใหม่ — ต้องอยู่รอบชั่วโมงด้วย ไม่ใช่แค่รอบ daily ตอนตี 2:
   // syncMetaAdsRange ไม่ส่งคีย์ page_id เลย แถวใหม่จึงเกิดมาพร้อม page_id='' ตาม column default
   // แล้ว lib/api/sales.ts `if (!pid) return;` ทิ้งทั้งแถวออกจากตารางค่าแอดรายยูนิต
@@ -122,7 +123,7 @@ async function runHourly(): Promise<boolean> {
   const i = await runJob('roster-sheet', jobs.syncRosterSheet);
   // หมายเหตุ: ค่านี้เป็นเครื่องสำอาง — main() ทิ้งค่าที่ runHourly คืน และ markHourly ถูกปั๊ม
   // ไปก่อนแล้ว งานที่ล้มจึงไม่ได้ถูกรันซ้ำในรอบเดียวกัน
-  return a && b && c && d && e && f && g && h && i && j && k;
+  return a && b && c && d && e && f && h && i && j && k;
 }
 
 async function runDaily(): Promise<boolean> {

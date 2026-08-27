@@ -68,12 +68,13 @@ export async function apiBootstrap(_params?: unknown) {
   const MAX_AGE_MINS: Record<string, number> = {
     // รอบ 15 นาที (เผื่อเป็น 90 นาที — Vercel cold start / Meta ช้าได้)
     orders: 90, 'chat-today': 90, conversations: 90, 'online-status': 90,
-    'engagements-today': 90, 'admin-chat-today': 90, 'meta-ads-today': 90,
+    'engagements-today': 90, 'admin-chat-today': 90, 'meta-ads-recent': 90,
     // delta รันรายนาที — เงียบเกิน 30 นาที = pinger/Pancake มีปัญหา
     'orders-delta': 30,
     // รายชั่วโมง
     ads: 3 * HOUR, 'admins-roster': 3 * HOUR, 'ad-stats-today': 3 * HOUR,
-    'meta-ads-yesterday': 3 * HOUR, 'unit-alerts': 3 * HOUR, invariants: 3 * HOUR,
+    // meta-ads-yesterday ย้ายไปรอบ daily แล้ว → ปล่อยให้ใช้ default 26 ชม. ด้านล่าง
+    'unit-alerts': 3 * HOUR, invariants: 3 * HOUR,
     // รายวัน (default 26 ชม. อยู่แล้ว — ระบุเฉพาะที่อยากตึงกว่า)
   };
   const nowMs = Date.now();
