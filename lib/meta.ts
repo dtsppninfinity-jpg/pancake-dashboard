@@ -231,8 +231,18 @@ async function creativesBatch_(ids: string[]): Promise<MetaAdCreative[] | null> 
       if (row) out.push(row);
     });
     return out;
-  } catch {
-    return null;
+  } catch (e: any) {
+    const m = String((e && e.message) || e);
+    // rate-limit / token ตาย / เน็ตสะดุด = "ยังไม่รู้" ไม่ใช่ "แอดนี้ไม่มีจริง"
+    // ถ้าคืน null ตรงนี้ solve() จะแตกครึ่งจนเหลือตัวเดียว = 2n-1 คำขอ (chunk 50 = 99 คำขอ
+    // × บันไดหน่วง 5s+10s ≈ 25 นาที) แล้ว syncAdCreatives เขียน "แถวเปล่า" post_id='' ทับ
+    // ad_creative ซึ่ง existingCreativeIds_ จะนับว่า "มีแล้ว" ตลอดกาล → syncAdPageFill
+    // เติมเพจให้ไม่ได้อีกเลย = ค่าแอดก้อนนั้นหายจากตารางรายยูนิตถาวร
+    // กู้ได้ทางเดียวคือ npx tsx scripts/setup/backfill-ad-creatives.ts <วัน> force
+    if (/meta (4|17|32|102|190|463|467|613|8000[0-4]):/.test(m)
+      || /too many calls|request limit|rate limit|session has expired|access token/i.test(m)
+      || /fetch failed|ETIMEDOUT|ECONNRESET|socket|network|50[234]/i.test(m)) throw e;
+    return null;   // เหลือเฉพาะ #100/#803/แอดถูกลบ ที่ควรแตกครึ่งหาตัวต้นเหตุ
   }
 }
 
