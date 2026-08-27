@@ -365,32 +365,33 @@ interface DpCtx {
 let dpCtx_: DpCtx | null = null;
 
 /** ปฏิทิน 1 เดือน */
+/** ข้อความสรุปหัวปฏิทิน — ระหว่างลากเมาส์บอกช่วงที่กำลังจะได้ให้เห็นก่อนกด */
+function dpSummary_(c: DpCtx): string {
+  if (c.picking) {
+    const hi = c.hover && c.hover > c.from ? c.hover : '';
+    return hi
+      ? thaiDateShort(c.from) + ' – ' + thaiDateShort(hi) + ' · ' + spanDays_(c.from, hi) + ' วัน'
+      : 'เลือกวันสิ้นสุด';
+  }
+  return c.from && c.to
+    ? thaiDateShort(c.from) + ' – ' + thaiDateShort(c.to) + ' · ' + spanDays_(c.from, c.to) + ' วัน'
+    : 'เลือกวันเริ่มต้น';
+}
+
 function dpMonthHtml_(c: DpCtx, y: number, m: number): string {
   const today = todayYmd_();
-  const lo = c.from;
-  // ระหว่างเลือกวันจบ ให้ระบายตามวันที่เมาส์ชี้ เพื่อให้เห็นช่วงก่อนกดจริง
-  const hi = c.picking ? (c.hover && c.hover > c.from ? c.hover : c.from) : c.to;
   let cells = '';
   const blanks = firstDow_(y, m);
   for (let i = 0; i < blanks; i++) cells += '<div class="dp-cell dp-blank" role="gridcell"></div>';
   const n = daysInMonth_(y, m);
   for (let d = 1; d <= n; d++) {
-    const s = ymd_(y, m, d);
-    const isStart = !!lo && s === lo;
-    const isEnd = !!hi && s === hi && hi !== lo;
-    const inRange = !!lo && !!hi && s > lo && s < hi;
-    const cls = ['dp-day'];
-    if (isStart || (isEnd && !isStart)) cls.push('dp-sel');
-    if (isStart && hi && hi !== lo) cls.push('dp-start');
-    if (isEnd) cls.push('dp-end');
-    if (inRange) cls.push('dp-in');
-    if (s === today) cls.push('dp-today');
-    if (s > today) cls.push('dp-future');   // เลือกอนาคตได้ แต่ทำให้จางลงเพื่อบอกว่ายังไม่มีข้อมูล
-    const sel = isStart || isEnd ? 'true' : 'false';
-    cells += '<div class="dp-cell" role="gridcell" aria-selected="' + sel + '">' +
-      '<button type="button" class="' + cls.join(' ') + '" data-d="' + s + '"' +
-      (s === c.focus ? ' data-focus="1"' : '') +
-      ' tabindex="' + (s === c.focus ? '0' : '-1') + '"' +
+    const sday = ymd_(y, m, d);
+    // ใช้ตัวคำนวณคลาสตัวเดียวกับ dpTint_ — ไม่งั้นสีตอนวาดกับตอนลากเมาส์จะเพี้ยนคนละแบบ
+    const cls = dpDayCls_(c, sday, today);
+    cells += '<div class="dp-cell" role="gridcell" aria-selected="' + (cls.indexOf('dp-sel') >= 0 ? 'true' : 'false') + '">' +
+      '<button type="button" class="' + cls + '" data-d="' + sday + '"' +
+      (sday === c.focus ? ' data-focus="1"' : '') +
+      ' tabindex="' + (sday === c.focus ? '0' : '-1') + '"' +
       ' aria-label="' + d + ' ' + TH_MON[m] + ' ' + (y + 543) + '">' + d + '</button></div>';
   }
   return '<div class="dp-month">' +
@@ -403,12 +404,7 @@ function dpMonthHtml_(c: DpCtx, y: number, m: number): string {
 /** ทั้งป๊อปโอเวอร์ */
 function dpHtml_(c: DpCtx): string {
   const [ny, nm] = addMonth_(c.vy, c.vm, 1);
-  const days = c.from && c.to && !c.picking ? spanDays_(c.from, c.to) : 0;
-  const summary = c.picking
-    ? 'เลือกวันสิ้นสุด'
-    : (c.from && c.to
-      ? thaiDateShort(c.from) + ' – ' + thaiDateShort(c.to) + ' · ' + days + ' วัน'
-      : 'เลือกวันเริ่มต้น');
+  const summary = dpSummary_(c);
   const quick = [
     ['7', '7 วันล่าสุด'], ['14', '14 วันล่าสุด'], ['30', '30 วันล่าสุด'], ['90', '90 วันล่าสุด'],
   ].map(([n, label]) =>
@@ -437,15 +433,141 @@ function dpHtml_(c: DpCtx): string {
  */
 function dpPlace_(host: HTMLElement): void {
   host.style.left = '0px';
+  host.style.top = '';      // ล้างค่าที่เคยพลิกไว้รอบก่อน ไม่งั้นค้างกางขึ้นบนตลอด
+  host.style.bottom = '';
   const pop = host.firstElementChild as HTMLElement | null;
   if (!pop) return;
   const M = 8;   // เว้นขอบจอ
   const vw = document.documentElement.clientWidth;
+  const vh = document.documentElement.clientHeight;
+
+  // แนวนอน
   const r = pop.getBoundingClientRect();
   let shift = 0;
   if (r.right > vw - M) shift -= (r.right - (vw - M));
   if (r.left + shift < M) shift += M - (r.left + shift);
   if (shift) host.style.left = Math.round(shift) + 'px';
+
+  // แนวตั้ง — ต้องจำกัดสูงตาม "ที่ว่างจริงบนจอ" ไม่ใช่ %ของ viewport เฉยๆ
+  // ไม่งั้นบนมือถือกล่องยาวเลยขอบล่าง แถวปุ่ม "แสดง" หลุดออกนอกจอจนกดไม่ได้เลย
+  const MIN_H = 260;
+  const belowTop = pop.getBoundingClientRect().top;
+  const spaceBelow = vh - belowTop - M;
+  if (spaceBelow >= MIN_H) {
+    pop.style.maxHeight = Math.round(spaceBelow) + 'px';
+    return;
+  }
+  // ที่ว่างข้างล่างไม่พอ → พลิกไปกางขึ้นข้างบนปุ่มแทน (ถ้าข้างบนกว้างกว่า)
+  const wrapTop = (host.parentElement || host).getBoundingClientRect().top;
+  const spaceAbove = wrapTop - M;
+  if (spaceAbove > spaceBelow) {
+    host.style.top = 'auto';
+    host.style.bottom = 'calc(100% + var(--sp-2))';
+    pop.style.maxHeight = Math.round(spaceAbove) + 'px';
+  } else {
+    pop.style.maxHeight = Math.round(Math.max(MIN_H, spaceBelow)) + 'px';
+  }
+}
+
+/** คลาสของช่องวันหนึ่งช่อง (ใช้ทั้งตอนวาดครั้งแรกและตอนระบายตามเมาส์) */
+function dpDayCls_(c: DpCtx, sday: string, today: string): string {
+  const lo = c.from;
+  // ระหว่างเลือกวันจบ ให้ระบายตามวันที่เมาส์ชี้ เพื่อให้เห็นช่วงก่อนกดจริง
+  const hi = c.picking ? (c.hover && c.hover > c.from ? c.hover : c.from) : c.to;
+  const isStart = !!lo && sday === lo;
+  const isEnd = !!hi && sday === hi && hi !== lo;
+  const cls = ['dp-day'];
+  if (isStart || isEnd) cls.push('dp-sel');
+  if (isStart && hi && hi !== lo) cls.push('dp-start');
+  if (isEnd) cls.push('dp-end');
+  if (!!lo && !!hi && sday > lo && sday < hi) cls.push('dp-in');
+  if (sday === today) cls.push('dp-today');
+  if (sday > today) cls.push('dp-future');
+  return cls.join(' ');
+}
+
+/**
+ * ระบายช่วงใหม่ "โดยไม่วาด HTML ใหม่" — สลับแค่คลาสของปุ่มที่มีอยู่
+ *
+ * ⚠️ ห้ามวาดใหม่ตอนเมาส์ลากผ่าน: การเขียน innerHTML ทับจะสร้างปุ่มวันชุดใหม่ทั้งหมด
+ * ปุ่มที่ผู้ใช้กำลังกดค้างอยู่จะถูกแทนที่ระหว่าง mousedown กับ mouseup
+ * เบราว์เซอร์เลยไม่นับเป็น click → กดเลือกวันจบไม่ติดเลยแม้แต่ครั้งเดียว
+ * (เทสที่สั่ง .click() ด้วยโค้ดจับบั๊กนี้ไม่ได้ เพราะไม่ได้ผ่านลำดับเมาส์จริง)
+ */
+function dpTint_(host: HTMLElement): void {
+  const c = dpCtx_;
+  if (!c) return;
+  const today = todayYmd_();
+  host.querySelectorAll('[data-d]').forEach((b) => {
+    const d = b.getAttribute('data-d') || '';
+    const cls = dpDayCls_(c, d, today) + (b.getAttribute('data-focus') === '1' ? '' : '');
+    if (b.className !== cls) b.className = cls;
+    const cell = b.parentElement;
+    if (cell) cell.setAttribute('aria-selected', cls.indexOf('dp-sel') >= 0 ? 'true' : 'false');
+  });
+  const sum = host.querySelector('.dp-sum');
+  if (sum) sum.textContent = dpSummary_(c);
+  const apply = host.querySelector('[data-dp="apply"]') as HTMLButtonElement | null;
+  if (apply) apply.disabled = !(c.from && c.to && !c.picking);
+}
+
+/** ผูก event ครั้งเดียวต่อกล่อง แล้วใช้การมอบหมาย (delegation) — ปุ่มถูกวาดใหม่กี่รอบก็ยังทำงาน */
+function dpWire_(host: HTMLElement): void {
+  if (host.getAttribute('data-dp-wired')) return;
+  host.setAttribute('data-dp-wired', '1');
+
+  host.addEventListener('click', (e) => {
+    const c = dpCtx_;
+    if (!c) return;
+    const t = (e.target as HTMLElement).closest('[data-d],[data-mv],[data-quick],[data-dp]') as HTMLElement | null;
+    if (!t) return;
+
+    const mv = t.getAttribute('data-mv');
+    if (mv) {
+      const [y, m] = addMonth_(c.vy, c.vm, Number(mv));
+      c.vy = y; c.vm = m;
+      dpPaint_(host);
+      return;
+    }
+    const q = t.getAttribute('data-quick');
+    if (q) {
+      const today = todayYmd_();
+      c.to = today;
+      c.from = addDays_(today, -(Number(q) - 1));
+      c.picking = false;
+      c.focus = c.from;
+      const pp = parseYmd_(c.from)!;
+      c.vy = pp[0]; c.vm = pp[1];   // เลื่อนปฏิทินไปให้เห็นวันเริ่มต้นที่เพิ่งตั้ง
+      dpPaint_(host);
+      return;
+    }
+    const act = t.getAttribute('data-dp');
+    if (act) {
+      if (act === 'apply') dpApply_(); else dpClose_();
+      return;
+    }
+    const d = t.getAttribute('data-d');
+    if (d) {
+      if (!c.picking) { c.from = d; c.to = ''; c.hover = ''; c.picking = true; }
+      // กดย้อนหลังกว่าวันเริ่ม = เริ่มใหม่ที่วันนั้น ดีกว่าสลับให้เงียบๆ แล้วได้ช่วงที่ไม่ได้ตั้งใจ
+      else if (d < c.from) { c.from = d; c.to = ''; c.hover = ''; c.picking = true; }
+      else { c.to = d; c.picking = false; }
+      c.focus = d;
+      dpPaint_(host);
+    }
+  });
+
+  // ระบายล่วงหน้าตามเมาส์ — แตะแค่คลาส ไม่วาด HTML ใหม่ (ดูคำเตือนใน dpTint_)
+  host.addEventListener('mouseover', (e) => {
+    const c = dpCtx_;
+    if (!c || !c.picking) return;
+    const t = (e.target as HTMLElement).closest('[data-d]') as HTMLElement | null;
+    if (!t) return;
+    const d = t.getAttribute('data-d') || '';
+    if (d === c.hover) return;
+    c.hover = d;
+    dpTint_(host);
+  });
 }
 
 function dpPaint_(host: HTMLElement): void {
@@ -453,49 +575,7 @@ function dpPaint_(host: HTMLElement): void {
   if (!c) return;
   host.innerHTML = dpHtml_(c);
   dpPlace_(host);
-
-  host.querySelectorAll('[data-mv]').forEach((b) => b.addEventListener('click', () => {
-    const [y, m] = addMonth_(c.vy, c.vm, Number(b.getAttribute('data-mv')));
-    c.vy = y; c.vm = m;
-    dpPaint_(host);
-  }));
-
-  host.querySelectorAll('[data-quick]').forEach((b) => b.addEventListener('click', () => {
-    const n = Number(b.getAttribute('data-quick'));
-    const today = todayYmd_();
-    c.to = today;
-    c.from = addDays_(today, -(n - 1));
-    c.picking = false;
-    c.focus = c.from;
-    const p = parseYmd_(c.from)!;
-    c.vy = p[0]; c.vm = p[1];   // เลื่อนปฏิทินไปให้เห็นวันเริ่มต้นที่เพิ่งตั้ง
-    dpPaint_(host);
-  }));
-
-  host.querySelectorAll('.dp-day').forEach((b) => {
-    const d = b.getAttribute('data-d')!;
-    b.addEventListener('click', () => {
-      if (!c.picking) { c.from = d; c.to = ''; c.picking = true; }
-      else {
-        // กดย้อนหลังกว่าวันเริ่ม = ตีความว่าเริ่มใหม่ที่วันนั้น ดีกว่าสลับให้เงียบๆ แล้วได้ช่วงที่ไม่ได้ตั้งใจ
-        if (d < c.from) { c.from = d; c.to = ''; c.picking = true; }
-        else { c.to = d; c.picking = false; }
-      }
-      c.focus = d;
-      dpPaint_(host);
-    });
-    b.addEventListener('mouseenter', () => {
-      if (!c.picking) return;
-      c.hover = d;
-      dpPaint_(host);
-    });
-  });
-
-  host.querySelectorAll('[data-dp]').forEach((b) => b.addEventListener('click', () => {
-    if (b.getAttribute('data-dp') === 'apply') dpApply_();
-    else dpClose_();
-  }));
-
+  dpWire_(host);
   // คืนโฟกัสให้วันที่กำลังโฟกัส เพื่อให้ลูกศรเดินต่อได้หลังวาดใหม่
   const f = host.querySelector('[data-focus="1"]') as HTMLElement | null;
   if (f && document.activeElement && host.contains(document.activeElement)) f.focus();

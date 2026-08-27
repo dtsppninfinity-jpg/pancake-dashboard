@@ -43,6 +43,30 @@ const press = async (k, vk) => {
   await sleep(150);
 };
 
+// ---- เมาส์จริง ----
+// ⚠️ ต้องมีเทสชุดนี้: การสั่ง .click() ด้วยโค้ดข้ามลำดับ mousedown/mouseup ของจริง
+// บั๊กที่ปุ่มถูกวาดใหม่ระหว่างกดค้าง (คลิกไม่ติด) จะไม่มีทางถูกจับได้เลยถ้าเทสด้วย .click()
+const rectOf = (sel) => evalJs('(function(){var e=document.querySelector(' + JSON.stringify(sel) + ');' +
+  'if(!e) return null; var r=e.getBoundingClientRect();' +
+  'return {x:Math.round(r.left+r.width/2), y:Math.round(r.top+r.height/2)};})()');
+const dayRect = (n) => evalJs('(function(){var g=document.querySelectorAll(".dp-month")[0];' +
+  'var d=[].slice.call(g.querySelectorAll(".dp-day"));' +
+  'var t=d.filter(function(x){return x.textContent.trim()==="' + n + '";})[0];' +
+  'if(!t) return null; var r=t.getBoundingClientRect();' +
+  'return {x:Math.round(r.left+r.width/2), y:Math.round(r.top+r.height/2)};})()');
+const mouseAt = async (pt, type, extra = {}) => {
+  if (!pt) throw new Error('หาตำแหน่งไม่เจอ');
+  await send('Input.dispatchMouseEvent', Object.assign({ type, x: pt.x, y: pt.y, button: 'left' }, extra));
+};
+const realClickPt = async (pt) => {
+  await mouseAt(pt, 'mouseMoved');
+  await sleep(60);
+  await mouseAt(pt, 'mousePressed', { clickCount: 1 });
+  await sleep(40);
+  await mouseAt(pt, 'mouseReleased', { clickCount: 1 });
+  await sleep(200);
+};
+
 const results = [];
 const check = (name, ok, detail) => {
   results.push({ name, ok });
@@ -158,6 +182,32 @@ async function main() {
   check('กดแสดงแล้วปฏิทินปิด', !(await evalJs('!!document.querySelector(".dp-pop")')));
   const label = await evalJs('(document.querySelector(".dp-trigger")||{}).textContent||""');
   check('ป้ายปุ่มกลายเป็นช่วงที่เลือก', /\u2013/.test(label), label);
+
+  // 5ข) เลือกช่วงด้วย "เมาส์จริง" — ลากผ่านวันกลางทางเหมือนคนใช้งานจริง
+  await evalJs('document.querySelector(".dp-trigger").click()');
+  await sleep(400);
+  await realClickPt(await dayRect(13));
+  check('เมาส์จริง: กดวันเริ่มติด',
+    (await evalJs('document.querySelector(".dp-sum").textContent')).indexOf('สิ้นสุด') >= 0 ||
+    (await evalJs('!!document.querySelector(".dp-day.dp-sel")')));
+  // ลากผ่าน 14→20 ให้เกิด hover หลายครั้ง (จุดที่เคยทำให้ปุ่มถูกวาดใหม่จนกดไม่ติด)
+  for (const n of [14, 16, 18, 20]) {
+    const pt = await dayRect(n);
+    if (pt) { await mouseAt(pt, 'mouseMoved'); await sleep(70); }
+  }
+  const tinted = await evalJs('document.querySelectorAll(".dp-day.dp-in").length');
+  check('เมาส์จริง: ระบายช่วงล่วงหน้าตามเมาส์', tinted > 0, 'ระบาย ' + tinted + ' วัน');
+  await realClickPt(await dayRect(21));
+  const sum2 = await evalJs('document.querySelector(".dp-sum").textContent');
+  check('เมาส์จริง: กดวันสิ้นสุดติด', sum2.indexOf('9 วัน') >= 0, sum2);
+  check('เมาส์จริง: ปุ่มแสดงกดได้', !(await evalJs('document.querySelector("[data-dp=apply]").disabled')));
+  const applyPt = await rectOf('[data-dp=apply]');
+  await realClickPt(applyPt);
+  await sleep(2500);
+  check('เมาส์จริง: กดแสดงแล้วปิด + ป้ายเปลี่ยน',
+    !(await evalJs('!!document.querySelector(".dp-pop")')) &&
+    /13 .*21 /.test(await evalJs('(document.querySelector(".dp-trigger")||{}).textContent||""')),
+    await evalJs('(document.querySelector(".dp-trigger")||{}).textContent||""'));
 
   // 6) ล้นจอ + ขนาดปุ่ม
   await evalJs('document.querySelector(".dp-trigger").click()');

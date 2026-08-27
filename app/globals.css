@@ -1690,8 +1690,11 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
   min-height: 32px;
 }
 .dp-quick:hover { border-color: var(--primary); color: var(--text); }
+/* บนมือถือกล่องเลื่อนได้ ปุ่ม "แสดง" จะตกไปอยู่ใต้ขอบล่างจนต้องเลื่อนหา —
+   ตรึงไว้ท้ายกล่องเสมอ กดได้ทันทีที่เลือกวันครบ */
 .dp-foot { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-3);
-  border-top: 1px solid var(--border); padding-top: var(--sp-3); }
+  border-top: 1px solid var(--border); padding: var(--sp-3) 0 0;
+  position: sticky; bottom: calc(var(--sp-3) * -1); background: var(--surface); }
 
 :root[data-theme="light"] .dp-day.dp-in { background: rgba(108, 92, 231, 0.12); }
 
