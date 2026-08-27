@@ -95,6 +95,10 @@ async function runHourly(): Promise<boolean> {
   const h = await runJob('pages', jobs.syncPages);
   const a = await runJob('ads', jobs.syncAds);
   const b = await runJob('admins-roster', jobs.syncAdminsRoster);
+  // ครีเอทีฟของแอดที่เพิ่งเกิด — ต้องมาก่อน ad-page-fill (งานนั้นอ่าน ad_creative.post_id เป็นแหล่งเดียว)
+  // และต้องอยู่ "ต้นรอบ" ไม่ใช่ท้ายก้อน Meta: ถ้าวางท้ายรอบ โควตา Meta ถูกเผาไปแล้วหลายร้อยคำขอ
+  // = จุดที่ rate limit 80004 เกิดจริง 27 ส.ค. 08:20 และ 09:04
+  const k = await runJob('ad-creatives', () => jobs.syncAdCreatives(2));
   // Pancake เป็นตัวเติม page_id / ชื่อแอด / สถานะ ให้ ad_daily (วนทุกเพจ จึงหนักเกินรอบ 15 นาที)
   const c = await runJob('ad-stats-today', jobs.syncAdStatsToday);
   // ต้องยิง Meta ซ้ำ "ปิดท้าย" รอบ hourly ด้วย — เพราะ runFast (Meta) เดินก่อน runHourly (Pancake)
@@ -118,7 +122,7 @@ async function runHourly(): Promise<boolean> {
   const i = await runJob('roster-sheet', jobs.syncRosterSheet);
   // หมายเหตุ: ค่านี้เป็นเครื่องสำอาง — main() ทิ้งค่าที่ runHourly คืน และ markHourly ถูกปั๊ม
   // ไปก่อนแล้ว งานที่ล้มจึงไม่ได้ถูกรันซ้ำในรอบเดียวกัน
-  return a && b && c && d && e && f && g && h && i && j;
+  return a && b && c && d && e && f && g && h && i && j && k;
 }
 
 async function runDaily(): Promise<boolean> {

@@ -779,7 +779,7 @@ function render(container: HTMLElement, data: any): void {
   // มีแอดแต่ไม่มีสื่อสักตัว = ยังไม่ได้เปิดใช้ตาราง ad_creative (บอกให้ชัด ไม่ใช่ปล่อยกล่องรูปว่าง)
   if (data && !data.needAdSetup && items.length && !num(data.creativeCount)) {
     html += '<div class="hint-box">🖼️ ยังไม่มีรูปครีเอทีฟ — รัน <b>db/migrations/2026-07-27-ad-creative.sql</b> ' +
-      'ใน Supabase แล้วสั่ง <b>npm run backfill:ad-creatives</b> (หลังจากนั้นเติมเองอัตโนมัติวันละครั้ง)</div>';
+      'ใน Supabase แล้วสั่ง <b>npm run backfill:ad-creatives</b> (หลังจากนั้นเติมเองอัตโนมัติทุกชั่วโมง)</div>';
   }
   if (data && data.note) html += '<div class="hint-box">' + esc(data.note) + '</div>';
   html += controlsHtml(items);
