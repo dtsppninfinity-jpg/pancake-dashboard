@@ -526,6 +526,8 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         '<td class="num ' + roasCls + '">' + (u.roas === null ? '—' : u.roas.toFixed(2)) + '</td>' +
         '<td class="num">' + (u.costPerMsg === null ? '—' : THB(u.costPerMsg)) + '</td>' +
         '<td class="num">' + (u.closeRate === null ? '—' : pctFmt(u.closeRate)) + '</td>' +
+        '<td class="num" title="' + PERBILL_TIP + '">' +
+          (perBill_(u.revenue, u.orders) === null ? '—' : THB(perBill_(u.revenue, u.orders))) + '</td>' +
         '<td class="num">' + (u.target ? THB(u.target) : '—') + '</td>' +
         '<td class="num ' + attainCls_(u.attain) + '">' + (u.attain === null ? '—' : pctFmt(u.attain)) + '</td>' +
         '</tr>';
@@ -570,6 +572,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
           ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>ยูนิต</th><th class="num">ยอดขาย</th>' +
             '<th class="num">สัดส่วน</th><th class="num">ค่าแอด</th><th class="num">ROAS</th>' +
             '<th class="num">ค่าทัก</th><th class="num">%ปิด</th>' +
+            '<th class="num" title="' + PERBILL_TIP + '">เปอร์บิล</th>' +
             '<th class="num">เป้า/เดือน</th><th class="num">%บรรลุ</th></tr></thead><tbody>' + unitTable + '</tbody></table></div>'
           : '<div class="empty-note">ยังไม่มีออเดอร์ในช่วงนี้</div>') +
       '</div>' +
@@ -906,6 +909,18 @@ function noteChip_(note: unknown): string {
   return t ? ' <span class="chip chip-note" title="หมายเหตุยูนิต — แก้/ลบได้ที่ปุ่ม ⚙️ ตั้งค่ายูนิต">📌 ' + esc(t) + '</span>' : '';
 }
 
+/**
+ * เปอร์บิล = ยอดขาย ÷ จำนวนออเดอร์ ในช่วงที่เลือก (ทีมแอดขอ 2026-08-27)
+ * ออเดอร์ = 0 คืน null ให้จอขึ้น "—" ไม่ใช่ ฿0 (หารศูนย์ไม่ได้ ไม่ใช่ "ขายได้บิลละ 0 บาท")
+ */
+function perBill_(revenue: unknown, orders: unknown): number | null {
+  const rev = Number(revenue) || 0;
+  const n = Number(orders) || 0;
+  return n > 0 ? Math.round(rev / n) : null;
+}
+
+const PERBILL_TIP = 'เปอร์บิล = ยอดขาย ÷ จำนวนออเดอร์ ในช่วงเวลาที่เลือก';
+
 function lossReasonHtml_(x: any): string {
   const sheetChip = ' <span class="chip" title="ตัวเลขจากแถว รวม คอลัมน์ กำไรสุทธิ (BI) แท็บสรุปยอดขาย ชีท สร. ของเดือนนี้ — เลขเดียวกับในชีทเป๊ะ (อัปเดตตามรอบ sync รายวัน)">💚 กำไรจริงจากชีท</span>';
   const isSheet = x.basis === 'profit' || x.basis === 'mixed';
@@ -1155,6 +1170,9 @@ function openUnitDrill(unitKey: string, chKey: string): void {
     '<div class="pill-grid" style="margin-bottom:12px">' +
       '<span class="chip">💰 ' + THB(unit.revenue) + '</span>' +
       '<span class="chip">🛒 ' + fmtNum(unit.orders) + ' ออเดอร์</span>' +
+      (perBill_(unit.revenue, unit.orders) === null ? ''
+        : '<span class="chip" title="' + PERBILL_TIP + '">🧾 เปอร์บิล ' +
+          THB(perBill_(unit.revenue, unit.orders)) + '</span>') +
       '<span class="chip">📄 ' + fmtNum(pages.length) + ' เพจ</span>' +
       (unit.share === null ? '' : '<span class="chip">🧮 สัดส่วน ' + pctFmt(unit.share) + '</span>') +
       (unit.spend ? '<span class="chip">📣 ค่าแอด ' + THB(unit.spend) + '</span>' : '') +
