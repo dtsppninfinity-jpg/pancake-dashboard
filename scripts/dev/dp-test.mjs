@@ -12,7 +12,7 @@ const PORT = 9344;
 const W = Number(process.argv[2] || 1280);
 const H = Number(process.argv[3] || 900);
 const APP_PORT = Number(process.argv[4] || 3001);
-const BASE = 'http://localhost:' + APP_PORT;
+const BASE = process.env.DP_BASE || ('http://localhost:' + APP_PORT);
 const MOBILE = W < 600;
 
 const env = Object.fromEntries(fs.readFileSync(new URL('../../.env.local', import.meta.url), 'utf8')
@@ -90,7 +90,7 @@ async function main() {
   const cookies = (res.headers.getSetCookie ? res.headers.getSetCookie() : []).map((c) => {
     const nv = c.split(';')[0];
     const i = nv.indexOf('=');
-    return { name: nv.slice(0, i).trim(), value: nv.slice(i + 1), domain: 'localhost', path: '/' };
+    return { name: nv.slice(0, i).trim(), value: nv.slice(i + 1), domain: new URL(BASE).hostname, path: '/' };
   });
   if (!cookies.length) throw new Error('ล็อกอินไม่ผ่าน ' + res.status);
   await send('Network.setCookies', { cookies });
