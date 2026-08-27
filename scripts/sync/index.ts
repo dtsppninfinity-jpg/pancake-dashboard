@@ -103,6 +103,12 @@ async function runHourly(): Promise<boolean> {
   // "คนทัก" (messaging_started) ของ Meta รายงานช้า/แก้ย้อนหลังได้เป็นวัน — ดึงเมื่อวานซ้ำรายชั่วโมง
   // ให้ %ปิดจากแอดของเมื่อวานนิ่งเร็วที่สุด (เดิมดึงแค่รอบ daily ตอนเช้า เลขค้างสูงเกินจริงทั้งวัน)
   const g = await runJob('meta-ads-yesterday', jobs.syncMetaAdsYesterday);
+  // เติมเพจให้แถวค่าแอดที่เกิดใหม่ — ต้องอยู่รอบชั่วโมงด้วย ไม่ใช่แค่รอบ daily ตอนตี 2:
+  // syncMetaAdsRange ไม่ส่งคีย์ page_id เลย แถวใหม่จึงเกิดมาพร้อม page_id='' ตาม column default
+  // แล้ว lib/api/sales.ts `if (!pid) return;` ทิ้งทั้งแถวออกจากตารางค่าแอดรายยูนิต
+  // → ขาดตั้งแต่ ~02:30 ของวันหนึ่งยาวถึง ~02:30 ของวันถัดไป (วัด 27 ส.ค.: 12.5-15.2% ของวัน)
+  // งานนี้อ่าน/เขียน Supabase ล้วน ไม่มี Meta call จึงยังทำงานได้แม้ token ตาย/ติด rate limit
+  const j = await runJob('ad-page-fill', () => jobs.syncAdPageFill(2));
   // แจ้งเตือนยูนิตขาดทุน — ตัดสินจาก "วันที่จบแล้ว" จึงเปลี่ยนวันละครั้ง แต่รันรายชั่วโมง
   // เพื่อให้ยอดของเมื่อวานที่ทยอยยืนยันเข้ามาตอนเช้าถูกนับทัน
   const e = await runJob('unit-alerts', jobs.syncUnitAlerts);
@@ -110,7 +116,9 @@ async function runHourly(): Promise<boolean> {
   // เดิมอยู่รอบ daily ตอนตี 2 ทีมแก้ชีทตอนกลางวันแล้วหน้าเว็บไม่ขยับจนวันรุ่งขึ้น เข้าใจว่าระบบดึงค่าผิด
   const f = await runJob('kpi-sheet', jobs.syncKpiSheet);
   const i = await runJob('roster-sheet', jobs.syncRosterSheet);
-  return a && b && c && d && e && f && g && h && i;
+  // หมายเหตุ: ค่านี้เป็นเครื่องสำอาง — main() ทิ้งค่าที่ runHourly คืน และ markHourly ถูกปั๊ม
+  // ไปก่อนแล้ว งานที่ล้มจึงไม่ได้ถูกรันซ้ำในรอบเดียวกัน
+  return a && b && c && d && e && f && g && h && i && j;
 }
 
 async function runDaily(): Promise<boolean> {

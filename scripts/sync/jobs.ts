@@ -1219,7 +1219,11 @@ export async function syncAdCreatives(days = 14, refresh = false): Promise<JobRe
   if (missing.length) msg += ` | ดึงไม่ได้ ${missing.length}`;
   if (want.length > capped.length) msg += ` | เหลือ ${want.length - capped.length} ไว้รอบหน้า`;
   return jobResult(msg, {
-    subject: 'แอด', unitsTotal: capped.length, unitsFailed: missing.length,
+    subject: 'แอด',
+    // รอบชั่วโมงมีแอดใหม่แค่ 2-30 ตัว — ดึงไม่ได้ 1 จาก 2 = 50% > COVERAGE_FAIL_RATIO 1/3
+    // แล้วหน้าเว็บจะปักป้ายแดงทุกชั่วโมงทั้งที่ปกติ จึงรายงานสัดส่วนเฉพาะเมื่อกลุ่มตัวอย่างใหญ่พอ
+    // (แนวเดียวกับพื้น 50 แถวของเกณฑ์ "แถวหายเกินครึ่ง")
+    ...(capped.length >= 30 ? { unitsTotal: capped.length, unitsFailed: missing.length } : {}),
     unitsOk: rows.length, rowsWritten: n,
   });
 }
