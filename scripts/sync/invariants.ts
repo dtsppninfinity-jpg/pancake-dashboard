@@ -109,7 +109,7 @@ export async function checkInvariants(): Promise<{ ok: boolean; message: string;
    * เคสจริง: sync ดึง msgs มาแล้วลืมเขียนคอลัมน์ ค่าเลยค้างของเก่า → 745 ซื้อ / 29 ทัก = 2289% */
   try {
     const rows = await scan_<any>(
-      () => supabase.from('ad_daily').select('ad_id,page_id,spend,msgs_started,meta_purchases').eq('date', yStr),
+      () => supabase.from('ad_daily').select('ad_id,page_id,page_name,spend,msgs_started,meta_purchases').eq('date', yStr),
       'ad_id'
     );
     let spend = 0, msgs = 0, purch = 0, blind = 0;
@@ -136,6 +136,49 @@ export async function checkInvariants(): Promise<{ ok: boolean; message: string;
   } catch (e: any) {
     add('ads-read', `อ่าน ad_daily ไม่ได้: ${String(e.message || e).slice(0, 90)}`);
   }
+
+  /* ---- 3ข) เพจที่ยิงแอดอยู่ แต่ยังไม่ถูกจับคู่ยูนิตใน U Map ----
+   * คนละเรื่องกับกฎ 3ก: กฎนั้นจับ "แถวยังไม่มี page_id" ซึ่งเป็นบั๊กของงาน sync (แก้แล้ว)
+   * ส่วนกฎนี้จับ "มี page_id แต่ไม่มีใครจับคู่ยูนิตให้" ซึ่งแก้ได้ที่หน้า U Map เท่านั้น
+   *
+   * เงินก้อนนี้หายจาก **ทุกจอที่จัดกลุ่มตามยูนิต** และหายคนละแบบกันด้วย:
+   *   - ตารางค่าแอดรายยูนิต (lib/api/sales.ts) โยนเข้าแถว "⚠️ ยังไม่จัดกลุ่ม"
+   *   - การ์ดเตือนยูนิตขาดทุน (scripts/sync/jobs.ts `if (!u) continue`) ทิ้งทั้งแถว
+   *   - ต้นทุนแอดรายแอดมิน (lib/api/adminperf.ts spendPool) เกลี่ยให้ทุกคนตามสัดส่วนคนทัก
+   * ตราบใดที่ก้อนนี้เล็ก ความต่างไม่มีผล — กฎนี้มีไว้บอกตอนมันเริ่มไม่เล็ก
+   * (วัด 13-27 ส.ค. = 0.05% ของค่าแอดทั้งหมด ส่วนใหญ่เป็นเพจเปิดใหม่ที่ทีมยังไม่ได้จับคู่) */
+  try {
+    let unitOf: Record<string, unknown> = {};
+    const doc = JSON.parse((await getState('u_map')) || 'null');
+    for (const unit of (doc && doc.units) || []) {
+      for (const pg of unit.pages || []) if (pg && pg.id) unitOf[String(pg.id)] = 1;
+    }
+    // ไม่มี u_map = ยังไม่ได้ตั้งค่าเลย ไม่ใช่ความผิดปกติ — ข้าม ไม่งั้นเตือน 100% ทุกวัน
+    if (Object.keys(unitOf).length) {
+      const rows = await scan_<any>(
+        () => supabase.from('ad_daily').select('ad_id,page_id,page_name,spend').eq('date', yStr),
+        'ad_id'
+      );
+      let tot = 0, orphan = 0;
+      const byPage: Record<string, { sp: number; name: string }> = {};
+      rows.forEach((r) => {
+        const sp = num(r.spend); tot += sp;
+        const pid = String(r.page_id || '');
+        if (!pid || unitOf[pid] || !(sp > 0)) return;
+        orphan += sp;
+        const c = byPage[pid] || (byPage[pid] = { sp: 0, name: String(r.page_name || '') });
+        c.sp += sp;
+      });
+      if (orphan >= 3000 && tot > 0 && orphan / tot > 0.01) {
+        const top = Object.keys(byPage).sort((a, b) => byPage[b].sp - byPage[a].sp).slice(0, 3)
+          .map((pid) => `${byPage[pid].name || pid} ${baht_(byPage[pid].sp)}`).join(' · ');
+        add('ads-page-no-unit',
+          `ค่าแอด ${yStr} ของเพจที่ยังไม่จับคู่ยูนิต ${baht_(orphan)} = ${pct_(orphan, tot)}% ` +
+          `จาก ${Object.keys(byPage).length} เพจ (${top}) — ไปจับคู่ที่หน้า U Map ` +
+          `ไม่งั้นเงินก้อนนี้ไม่เข้ายูนิตไหนเลยทั้งตารางค่าแอด การ์ดเตือนขาดทุน และต้นทุนแอดรายแอดมิน`);
+      }
+    }
+  } catch { /* อ่าน u_map ไม่ได้ ไม่ควรทำให้กฎข้ออื่นไม่ได้ตรวจ */ }
 
   /* ---- 3ก) %ปิดจากแอด "ของวันนี้" — จับเคสตัวหารค้างได้ตั้งแต่วันนั้นเลย ไม่ต้องรอข้ามคืน
    * ระหว่างวัน Meta รายงาน "คนทัก" ไวกว่า "ซื้อ" อัตราส่วนจึงควรต่ำ ไม่ใช่สูง
