@@ -10,7 +10,7 @@
 // ตรวจจาก "เมื่อวาน" เป็นหลัก — วันนี้ยังเดินอยู่ (Meta รายงานช้า ชีทยังไม่กรอก) ตรวจแล้วจะเตือนผิดทุกเช้า
 import { supabase, loadJobStats } from '../../lib/supabase';
 import { coverageProblem } from '../../lib/jobstat';
-import { daysAgo, fmtDateBkk, startOfDayBkk, num, money_, EXCLUDED_STATUSES, NEED_CHECK_STATUSES, isPlaceholderOrder } from '../../lib/config';
+import { daysAgo, fmtDateBkk, startOfDayBkk, num, money_, BKK_OFFSET_MS, EXCLUDED_STATUSES, NEED_CHECK_STATUSES, isPlaceholderOrder } from '../../lib/config';
 
 export interface Invariant {
   code: string;
@@ -49,6 +49,7 @@ export async function checkInvariants(): Promise<{ ok: boolean; message: string;
   const todayStr = fmtDateBkk(new Date());
   const yStart = startOfDayBkk(daysAgo(1));
   const yEnd = startOfDayBkk(new Date());
+  const bkkHour = new Date(Date.now() + BKK_OFFSET_MS).getUTCHours();
 
   /* ---- 1) ออเดอร์ของเมื่อวาน: ต้องมี + เก็บว่ามาจากเพจไหนบ้าง (ใช้ต่อในข้อ 2) ---- */
   const orderPages = new Set<string>();
@@ -108,16 +109,23 @@ export async function checkInvariants(): Promise<{ ok: boolean; message: string;
    * เคสจริง: sync ดึง msgs มาแล้วลืมเขียนคอลัมน์ ค่าเลยค้างของเก่า → 745 ซื้อ / 29 ทัก = 2289% */
   try {
     const rows = await scan_<any>(
-      () => supabase.from('ad_daily').select('ad_id,spend,msgs_started,meta_purchases').eq('date', yStr),
+      () => supabase.from('ad_daily').select('ad_id,page_id,spend,msgs_started,meta_purchases').eq('date', yStr),
       'ad_id'
     );
-    let spend = 0, msgs = 0, purch = 0;
-    rows.forEach((r) => { spend += num(r.spend); msgs += num(r.msgs_started); purch += num(r.meta_purchases); });
+    let spend = 0, msgs = 0, purch = 0, blind = 0;
+    rows.forEach((r) => { spend += num(r.spend); msgs += num(r.msgs_started); purch += num(r.meta_purchases);
+      if (!String(r.page_id || '')) blind += num(r.spend); });
 
     if (!rows.length || spend <= 0) {
       add('ads-empty', `ไม่มีค่าแอดของ ${yStr} เลย (${rows.length} แถว) — เช็ค META_ACCESS_TOKEN ว่าหมดอายุหรือยัง`);
     } else {
       notes.push(`ค่าแอด ${baht_(spend)}/ทัก ${msgs}`);
+      // เมื่อวานต้องถูก ad-page-fill เติมครบตั้งแต่รอบ daily แล้ว (วัด 18-26 ส.ค. = 0.00-0.01%)
+      // เกินนี้ = งาน ad-creatives / ad-page-fill ไม่ได้รันจริง ไม่ใช่ "แอดที่ยังไม่มีครีเอทีฟ"
+      if (blind >= 2000 && blind / spend > 0.01) {
+        add('ads-no-page', `ค่าแอด ${yStr} ที่ยังผูกเพจไม่ได้ ${baht_(blind)} = ${pct_(blind, spend)}% ` +
+          `(ปกติต้องเป็น 0.0%) — งาน ad-creatives / ad-page-fill ไม่ได้เติมของเมื่อวาน`);
+      }
       if (msgs <= 0) {
         add('ads-no-msgs', `มีค่าแอด ${baht_(spend)} ของ ${yStr} แต่ "คนทัก" เป็น 0 — คอลัมน์ msgs_started ไม่ถูกเขียน`);
       } else if (purch / msgs > 1.5) {
@@ -134,14 +142,29 @@ export async function checkInvariants(): Promise<{ ok: boolean; message: string;
    * ตั้งพื้นที่ทัก 100 ครั้ง กันช่วงหลังเที่ยงคืนที่ตัวเลขน้อยจนอัตราส่วนแกว่ง */
   try {
     const rows = await scan_<any>(
-      () => supabase.from('ad_daily').select('ad_id,msgs_started,meta_purchases').eq('date', todayStr),
+      () => supabase.from('ad_daily').select('ad_id,page_id,spend,msgs_started,meta_purchases').eq('date', todayStr),
       'ad_id'
     );
-    let msgs = 0, purch = 0;
-    rows.forEach((r) => { msgs += num(r.msgs_started); purch += num(r.meta_purchases); });
+    let msgs = 0, purch = 0, spendT = 0, blindT = 0;
+    rows.forEach((r) => {
+      msgs += num(r.msgs_started); purch += num(r.meta_purchases);
+      const sp = num(r.spend); spendT += sp;
+      if (!String(r.page_id || '')) blindT += sp;
+    });
     if (msgs >= 100 && purch / msgs > 1.5) {
       add('ad-close-rate-today',
         `%ปิดจากแอดของวันนี้ = ${pct_(purch, msgs)}% (ซื้อ ${purch} / ทัก ${msgs}) — ตัวหารไม่อัปเดต`);
+    }
+    // เงินที่ตารางค่าแอดรายยูนิตผูกยูนิตไม่ได้ "ณ ตอนนี้" — ต้องตรวจวันนี้ ไม่ใช่เมื่อวาน:
+    // ad_daily pk = (date, ad_id) ทุกแอดจึงเกิดแถวใหม่ page_id='' ทุกเที่ยงคืน แล้ว syncAdPageFill
+    // เป็นคนเติม ของ "เมื่อวาน" จึงถูกเติมครบตั้งแต่รอบ daily = 0.0% ตลอดเวลาที่คนดูจอ
+    // (วัด 27 ส.ค. 10:02: วันนี้ ฿11,207 = 15.2% ขณะที่เมื่อวาน 0.01%)
+    // ข้ามก่อน 06:00 น. — หลังเที่ยงคืนแถวยังไม่ถูกเติม จะ ~100% ของยอดน้อยๆ เตือนผิดทุกคืน
+    if (bkkHour >= 6 && blindT >= 5000 && blindT / spendT > 0.05) {
+      add('ads-no-page-today',
+        `ค่าแอดวันนี้ที่ยังผูกเพจไม่ได้ ${baht_(blindT)} = ${pct_(blindT, spendT)}% ของ ${baht_(spendT)} — ` +
+        `ก้อนนี้ไม่เข้ายูนิตไหนเลยในตารางค่าแอดรายยูนิต เช็คว่างาน ad-creatives / ad-page-fill ` +
+        `รอบชั่วโมงยังรันอยู่ไหม`);
     }
   } catch { /* ตรวจของเมื่อวานไปแล้ว วันนี้พลาดได้ */ }
 
