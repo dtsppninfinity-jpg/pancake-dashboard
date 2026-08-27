@@ -1042,6 +1042,12 @@ export const syncMetaAdsForDate = (dateStr: string) => syncMetaAdsRange(dateStr,
 export const syncMetaAdsToday = () => syncMetaAdsForDate(fmtDateBkk(new Date()));
 export const syncMetaAdsYesterday = () => syncMetaAdsForDate(fmtDateBkk(daysAgo(1)));
 
+/** ถามเฉพาะ id ที่ต้องการ คุ้มกว่ากวาดทั้งตารางก็ต่อเมื่อ id ยังไม่เยอะ
+ *  ad_creative ~56k แถว = 57 คำขอ/สแกน เทียบกับ .in() ทีละ 300 → จุดคุ้มทุนจริง ~17,100 id
+ *  ตั้ง 8,000 เผื่อโต (วัด 2026-08-27: distinct ad_id 2 วัน = 4,859 / 14 วัน = 20,056) */
+const CREATIVE_IN_MAX = 8000;
+const CREATIVE_IN_CHUNK = 300;   // เกินกว่านี้ URL ของ PostgREST เสี่ยง 414 (300 id ~ 6.4k ตัวอักษร)
+
 /**
  * เติม page_id ให้แถว ad_daily ที่ Pancake ผูกเพจให้ไม่ได้ โดยอ่านจากครีเอทีฟของแอด
  *
@@ -1066,20 +1072,31 @@ export async function syncAdPageFill(days = 45): Promise<string> {
   }
   if (!holes.length) return 'ad page fill: ไม่มีแถวที่ขาดเพจ';
 
-  const wanted = new Set(holes.map((h) => String(h.ad_id)));
+  const wanted = Array.from(new Set(holes.map((h) => String(h.ad_id))));
   const pageOfAd: Record<string, string> = {};
-  for (let page = 0; ; page++) {
-    const { data, error } = await supabase.from('ad_creative')
-      .select('ad_id,post_id').order('ad_id', { ascending: true })
-      .range(page * 1000, page * 1000 + 999);
-    if (error) throw new Error(`อ่าน ad_creative ล้มเหลว: ${error.message}`);
-    (data || []).forEach((c: any) => {
-      const adId = String(c.ad_id);
-      if (!wanted.has(adId)) return;
-      const pid = String(c.post_id || '').split('_')[0];
-      if (pid) pageOfAd[adId] = pid;
-    });
-    if ((data || []).length < 1000) break;
+  const take_ = (c: any) => {
+    const pid = String(c.post_id || '').split('_')[0];
+    if (pid) pageOfAd[String(c.ad_id)] = pid;
+  };
+  if (wanted.length <= CREATIVE_IN_MAX) {
+    // งานนี้รันรายชั่วโมง — ถามเฉพาะ id ที่ต้องการ (holes 2 วัน ~1,250 id = 5 คำขอ)
+    for (let i = 0; i < wanted.length; i += CREATIVE_IN_CHUNK) {
+      const { data, error } = await supabase.from('ad_creative')
+        .select('ad_id,post_id').in('ad_id', wanted.slice(i, i + CREATIVE_IN_CHUNK));
+      if (error) throw new Error(`อ่าน ad_creative ล้มเหลว: ${error.message}`);
+      (data || []).forEach(take_);
+    }
+  } else {
+    // id เยอะเกินคุ้ม (fill-ad-pages 400 วัน = 43k แถวไร้เพจ) → กวาดทั้งตารางแบบเดิม
+    const want_ = new Set(wanted);
+    for (let page = 0; ; page++) {
+      const { data, error } = await supabase.from('ad_creative')
+        .select('ad_id,post_id').order('ad_id', { ascending: true })
+        .range(page * 1000, page * 1000 + 999);
+      if (error) throw new Error(`อ่าน ad_creative ล้มเหลว: ${error.message}`);
+      (data || []).forEach((c: any) => { if (want_.has(String(c.ad_id))) take_(c); });
+      if ((data || []).length < 1000) break;
+    }
   }
 
   const { data: pgs } = await supabase.from('pages').select('page_id,name');
@@ -1128,19 +1145,31 @@ async function adIdsFromDaily_(days: number): Promise<string[]> {
 }
 
 /** ad_id ที่มีครีเอทีฟแล้ว — null = ยังไม่ได้สร้างตาราง (ให้ job ข้ามแบบไม่ล้ม) */
-async function existingCreativeIds_(): Promise<Record<string, 1> | null> {
+async function existingCreativeIds_(ids?: string[]): Promise<Record<string, 1> | null> {
   const have: Record<string, 1> = {};
+  // ยังไม่ได้รัน migration → ข้ามแบบไม่ล้ม; error อื่น (เน็ต/สิทธิ์) ต้องฟ้อง ไม่ใช่กลืน
+  const skip_ = (error: any): boolean => {
+    const m = String(error.message || '');
+    if (m.includes('ad_creative') || m.includes('schema cache')) return true;
+    throw new Error(`อ่าน ad_creative ไม่ได้: ${error.message}`);
+  };
+  if (ids && ids.length && ids.length <= CREATIVE_IN_MAX) {
+    for (let i = 0; i < ids.length; i += CREATIVE_IN_CHUNK) {
+      const { data, error } = await supabase.from('ad_creative').select('ad_id')
+        .in('ad_id', ids.slice(i, i + CREATIVE_IN_CHUNK));
+      if (error && skip_(error)) return null;
+      (data || []).forEach((r: any) => { have[String(r.ad_id)] = 1; });
+    }
+    return have;
+  }
+  // ids ว่าง หรือเยอะเกินคุ้ม → สแกนทั้งตารางแบบเดิม
+  // (กิ่งนี้ยังจำเป็น เพื่อให้เคส ids ว่างยังยิงจริง 1 ครั้ง = ตรวจเจอ "ยังไม่รัน migration")
   let offset = 0;
   for (;;) {
     // ad_id เป็น pk อยู่แล้ว → order ตัวเดียวก็ unique พอสำหรับแบ่งหน้า
     const { data, error } = await supabase.from('ad_creative').select('ad_id')
       .order('ad_id', { ascending: true }).range(offset, offset + 999);
-    if (error) {
-      const m = String(error.message || '');
-      // ยังไม่ได้รัน migration → ข้ามแบบไม่ล้ม; error อื่น (เน็ต/สิทธิ์) ต้องฟ้อง ไม่ใช่กลืน
-      if (m.includes('ad_creative') || m.includes('schema cache')) return null;
-      throw new Error(`อ่าน ad_creative ไม่ได้: ${error.message}`);
-    }
+    if (error && skip_(error)) return null;
     const batch = data || [];
     batch.forEach((r: any) => { have[String(r.ad_id)] = 1; });
     if (batch.length < 1000) break;
@@ -1159,13 +1188,14 @@ async function existingCreativeIds_(): Promise<Record<string, 1> | null> {
 export async function syncAdCreatives(days = 14, refresh = false): Promise<JobResult> {
   const token = process.env.META_ACCESS_TOKEN || '';
   if (!token) return jobResult('ข้าม: ยังไม่ได้ตั้ง META_ACCESS_TOKEN', { skipped: 'ไม่มี META_ACCESS_TOKEN' });
-  const have = await existingCreativeIds_();
+  const ids = await adIdsFromDaily_(days);
+  // refresh = ดึงทับทั้งหมดอยู่แล้ว ไม่ต้องรู้ว่ามีอะไรแล้ว
+  // (เดิมโหมด force เสียคำขอฟรี 57 ครั้งทุกครั้ง เพราะ have ถูกทิ้งทั้งก้อนที่บรรทัดถัดไป)
+  const have = refresh ? ({} as Record<string, 1>) : await existingCreativeIds_(ids);
   if (!have) {
     return jobResult('ข้าม: ยังไม่มีตาราง ad_creative (รัน db/migrations/2026-07-27-ad-creative.sql ก่อน)',
       { skipped: 'ยังไม่ได้รัน migration ad-creative' });
   }
-
-  const ids = await adIdsFromDaily_(days);
   const want = refresh ? ids : ids.filter((id) => !have[id]);
   // ไม่มีอะไรต้องดึง = ปกติของงานนี้ (ครีเอทีฟไม่เปลี่ยนรายวัน) ไม่ใช่การข้าม
   if (!want.length) return jobResult(`ad creatives: ครบแล้ว (${ids.length} แอดใน ${days} วันล่าสุด)`);
