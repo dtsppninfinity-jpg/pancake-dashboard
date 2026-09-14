@@ -7,7 +7,7 @@ import '../../lib/env'; // ต้องเป็นบรรทัดแรก �
 import { logJob, loadJobStats, saveJobStat } from '../../lib/supabase';
 import { toResult, type JobOutput, type StoredJobStat } from '../../lib/jobstat';
 import * as jobs from './jobs';
-import { dueHourly, markHourly, dueDaily, markDaily } from './schedule';
+import { dueHourly, markHourly, dailyStatus, markDailyAttempt, markDaily } from './schedule';
 import { checkEnv } from './envcheck';
 import { checkInvariants } from './invariants';
 
@@ -175,13 +175,18 @@ async function main() {
       await runInvariants();
     }
 
-    if (await dueDaily(now)) {
+    const daily = await dailyStatus(now);
+    if (daily.due) {
       console.log('↻ ถึงรอบ daily');
-      // ทำเครื่องหมายเฉพาะเมื่อสำเร็จครบ — ถ้าล้มเหลว (เช่น API ล่มช่วงตี 2) ปล่อยให้รอบ 15 นาทีถัดไปลองใหม่ในวันเดียวกัน
+      // จดว่า "เริ่มลองแล้ว" ก่อนรัน — รอบที่ถูก GitHub ตัดกลางคัน (timeout) ก็ยังนับ ไม่วนซ้ำทุก 15 นาที
+      await markDailyAttempt(now);
+      // ทำเครื่องหมายสำเร็จเฉพาะเมื่อครบ — ล้มแล้วลองใหม่ได้ในวันเดียวกัน แต่เว้นช่วง ≥2 ชม. (ดู schedule.ts)
       const ok = await runDaily();
       if (ok) await markDaily(now);
-      else console.log('⚠️ daily มีงานล้มเหลว — ยังไม่ทำเครื่องหมาย จะลองใหม่รอบถัดไป');
+      else console.log('⚠️ daily มีงานล้มเหลว — ยังไม่ทำเครื่องหมาย จะลองใหม่ในอีก ≥2 ชม.');
       await runInvariants();
+    } else if (daily.waitMins > 0) {
+      console.log(`⏸ daily ของวันนี้ยังไม่สำเร็จ — รอลองใหม่อีก ${daily.waitMins} นาที (กันรอบวนซ้ำจนเกิน timeout)`);
     }
   } else if (MODE === 'hourly') {
     await runHourly();
