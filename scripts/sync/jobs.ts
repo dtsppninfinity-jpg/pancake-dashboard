@@ -18,7 +18,7 @@ import { fetchAllSliced, fetchAllDateSliced } from '../../lib/db';
 import { jobResult, type JobResult } from '../../lib/jobstat';
 import { getUnitsForAlert } from '../../lib/api/umap';
 import { nicknameByName } from '../../lib/api/adminsettings';
-import { googleConfigured, driveListSheets, sheetTabs, sheetValuesBatch } from '../../lib/google';
+import { googleConfigured, driveListSheets, sheetTabs, sheetValues, sheetValuesBatch } from '../../lib/google';
 import { unitFromTitle, parseSalesSummary, parseMonthTotals, parseCommission } from '../../lib/productsheet';
 import { parseKpiAdminMonth, parseKpiSubMonth, parseKpiHeadMonth, parseKpiAdminYear } from '../../lib/kpisheet';
 import { parseRosterData, type RosterRow } from '../../lib/rostersheet';
@@ -374,6 +374,8 @@ export async function syncProductSheets(): Promise<JobResult> {
 /** ชีท KPI — เปลี่ยนได้ผ่าน env เผื่อทีมทำชีทปีใหม่ */
 const KPI_SHEET_ID = process.env.KPI_SHEET_ID || '1J_sTV9obDUXrYuQzPK7bCyz4ZC6Fygjc8cLZrYNtgK0';
 const KPI_SHEET_YEAR = 2026; // ชีทนี้คือ KPI ปี 2026 — ปีหน้าทีมสร้างชีทใหม่ค่อยอัปเดต
+/** ราคาเซ็ต + เป้าเปอร์บิลรายยูนิต (N=Unit, O=ราคาเซ็ต, P=เปอร์บิล) — ใช้ระบายสีเปอร์บิลหน้า Sales */
+const KPI_DATA_RANGE = process.env.KPI_DATA_RANGE || `'data'!N1:P60`;
 
 /**
  * ดึงคะแนน KPI รายคนรายเดือน (แอดมิน/รองหัวหน้า/หัวหน้า + สรุปปี) จากชีท KPI ของทีม
@@ -426,14 +428,73 @@ export async function syncKpiSheet(): Promise<JobResult> {
   // อ่านไม่เจอเลย = โครงชีทเปลี่ยน — ต้องฟ้องเป็นงานล้ม ไม่ใช่ผ่านพร้อมข้อความเตือนที่ไม่มีใครอ่าน
   if (!months.length) throw new Error('อ่านชีท KPI ไม่เจอข้อมูลเลย — โครงชีทอาจเปลี่ยน (ดู lib/kpisheet.ts)');
 
+  // เป้าเปอร์บิลรายยูนิต จากแท็บ data — ทีมกำหนดตามราคาเซ็ต (แท็บ ตัวชี้วัด: 390 → ฿500, 490 → ฿600)
+  // อ่านคอลัมน์เปอร์บิลตรงๆ ไม่คำนวณจากราคาเอง: ทีมเปลี่ยนเกณฑ์ในชีทเมื่อไหร่ หน้าเว็บตามทันที
+  // ⚠️ อ่านแยกจาก batch ข้างบนโดยตั้งใจ: Google batchGet ล้มทั้งคำขอถ้ามีแท็บเดียวหาย (400 Unable to parse range)
+  //    ถ้ารวมไว้ด้วยกัน ทีมเปลี่ยนชื่อแท็บ data ครั้งเดียว = คะแนน KPI + เป้ายอดขายหยุดอัปเดตทั้งหมด
+  const perBill: Record<string, number> = {};
+  const setPrice: Record<string, number> = {};
+  let dataTabError = '';
+  try {
+    for (const row of await sheetValues(KPI_SHEET_ID, KPI_DATA_RANGE)) {
+      const m = String(row[0] || '').trim().toUpperCase().match(/^(UN?\d{1,3})\b/);
+      if (!m || perBill[m[1]]) continue;   // แถวหัวตาราง "Unit" ไม่ตรง regex / ยูนิตซ้ำ = ยึดแถวแรกที่มีเป้า
+      const pb = Number(String(row[2] ?? '').replace(/,/g, ''));
+      if (!(isFinite(pb) && pb > 0)) continue;
+      perBill[m[1]] = pb;
+      const price = Number(String(row[1] ?? '').replace(/,/g, ''));
+      if (isFinite(price) && price > 0) setPrice[m[1]] = price;
+    }
+  } catch (e: any) {
+    dataTabError = String((e && e.message) || e);
+  }
+
   await setState('kpi_scores', JSON.stringify({
     year: KPI_SHEET_YEAR, sheetId: KPI_SHEET_ID,
     admin, sub, head, adminYear: year, targets, testProducts,
     updatedAt: new Date().toISOString(),
   }));
+
+  // ก้อนเล็กแยกให้หน้า Sales (รีเฟรชเองทุก 75 วิ) — อ่าน kpi_scores ทั้งก้อนทุกรอบจะเผา egress
+  // แท็บ data อ่านไม่ได้/ว่าง (ทีมเปลี่ยนชื่อแท็บ ย้ายคอลัมน์) → คงเป้าเปอร์บิลเดิมไว้ สีจะได้ไม่หายทั้งตาราง
+  // แล้วโยน error ให้งานขึ้นว่าล้ม — ข้อความเตือนในงานที่ "ผ่าน" ไม่มีใครอ่าน
+  let perBillOut = perBill;
+  let setPriceOut = setPrice;
+  let writeGoals = true;
+  const perBillMissing = !Object.keys(perBill).length;
+  if (perBillMissing) {
+    // อ่านตรงพร้อมเช็ค error — getState กลืน error เป็น '' ซึ่งจะทำให้เขียน perBill ว่างทับของเดิม
+    const { data: prevRow, error: prevErr } = await supabase
+      .from('sync_state').select('value').eq('key', 'unit_goals').maybeSingle();
+    let prev: any = null;
+    if (!prevErr) {
+      try { prev = prevRow && prevRow.value ? JSON.parse(String(prevRow.value)) : {}; } catch { prev = null; }
+    }
+    if (prev) {
+      perBillOut = prev.perBill || {};
+      setPriceOut = prev.setPrice || {};
+    } else {
+      writeGoals = false;   // อ่านค่าเดิมไม่ได้ = ไม่เขียนทับเลย เป้ายอดค้างรอบก่อน 1 ชม. ดีกว่าสีหายทั้งตาราง
+    }
+  }
+  if (writeGoals) {
+    await setState('unit_goals', JSON.stringify({
+      year: KPI_SHEET_YEAR, sheetId: KPI_SHEET_ID, targets, perBill: perBillOut, setPrice: setPriceOut,
+      updatedAt: new Date().toISOString(),
+    }));
+  }
+  if (perBillMissing) {
+    throw new Error(`อ่านเป้าเปอร์บิลจากชีท KPI ${KPI_DATA_RANGE} ไม่ได้ ` +
+      `(${dataTabError || 'ไม่เจอแถวยูนิตที่มีเปอร์บิล — คาดว่าคอลัมน์ N=Unit O=ราคาเซ็ต P=เปอร์บิล'}) — ` +
+      (writeGoals
+        ? `ใช้เป้าเปอร์บิลเดิม ${Object.keys(perBillOut).length} ยูนิต เป้ายอดขายอัปเดตแล้ว`
+        : 'อ่านเป้าเดิมจากฐานข้อมูลไม่ได้ จึงไม่เขียนทับเป้า') +
+      ' • คะแนน KPI บันทึกแล้วตามปกติ');
+  }
   const last = months[months.length - 1];
   const msg = `KPI sheet: แอดมิน ${months.length} เดือน (ล่าสุดเดือน ${last}: ${(admin[last] || []).length} แถว) | ` +
-    `รอง ${(sub[last] || []).length} แถว | หัวหน้า ${(head[last] || []).length} คน | สรุปปี ${year.length} คน`;
+    `รอง ${(sub[last] || []).length} แถว | หัวหน้า ${(head[last] || []).length} คน | สรุปปี ${year.length} คน | ` +
+    `เป้ายอด ${Object.keys(targets).length} ยูนิต | เป้าเปอร์บิล ${Object.keys(perBill).length} ยูนิต`;
   return jobResult(msg, { rowsWritten: (admin[last] || []).length });
 }
 

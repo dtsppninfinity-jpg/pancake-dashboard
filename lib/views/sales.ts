@@ -54,6 +54,8 @@ interface SalesData {
   } | null;
   // ยูนิตที่ขาดทุนติดต่อกัน (งาน sync คำนวณไว้) — ไม่ขึ้นกับฟิลเตอร์ช่วงวันที่
   unitAlerts?: { throughDate: string; computedAt: string; alerts: any[] } | null;
+  // ที่มาของเป้าในตารางยูนิต (ชีท KPI) — null = งาน kpi-sheet ยังไม่เขียนเป้า
+  unitGoal?: { sheetId: string; updatedAt: string; closeTarget: number; rangeEndsToday?: boolean } | null;
   // สินค้าตีกลับจริง (ส่งไปแล้วของกลับมา) จากชีทของทีม — null = ยังไม่ได้รัน migration returns
   returns?: {
     orders: number; value: number;
@@ -517,6 +519,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         : '⚠️ ยังไม่จัดกลุ่ม') + noteChip_(u.note);
       // ROAS ต่ำกว่า 1 = ขายได้ไม่คุ้มค่าแอด ต้องเห็นแต่ไกล
       const roasCls = u.roas === null || u.roas === undefined ? '' : (u.roas < 1 ? 'txt-bad' : (u.roas >= 3 ? 'txt-good' : ''));
+      const pb = perBill_(u.revenue, u.orders);
       return '<tr class="clickable' + (u.mapped ? '' : ' sr-unmapped') + '" data-drill-unit="' + esc(u.key) + '"' +
         ' title="คลิกดูรายเพจ + ยอดรายสัปดาห์ของยูนิตนี้">' +
         '<td>' + label + '</td>' +
@@ -525,14 +528,17 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         '<td class="num">' + (u.spend ? THB(u.spend) : '—') + '</td>' +
         '<td class="num ' + roasCls + '">' + (u.roas === null ? '—' : u.roas.toFixed(2)) + '</td>' +
         '<td class="num">' + (u.costPerMsg === null ? '—' : THB(u.costPerMsg)) + '</td>' +
-        '<td class="num">' + (u.closeRate === null ? '—' : pctFmt(u.closeRate)) + '</td>' +
-        '<td class="num" title="' + PERBILL_TIP + '">' +
-          (perBill_(u.revenue, u.orders) === null ? '—' : THB(perBill_(u.revenue, u.orders))) + '</td>' +
-        '<td class="num">' + (u.target ? THB(u.target) : '—') + '</td>' +
-        '<td class="num ' + attainCls_(u.attain) + '">' + (u.attain === null ? '—' : pctFmt(u.attain)) + '</td>' +
+        '<td class="num ' + closeCls_(u) + '" title="' + esc(closeTip_(u)) + '">' +
+          (u.closeRate === null ? '—' : pctFmt(u.closeRate)) + '</td>' +
+        '<td class="num ' + perBillCls_(u, pb) + '" title="' + esc(perBillTip_(u)) + '">' +
+          (pb === null ? '—' : THB(pb)) + '</td>' +
+        '<td class="num" title="' + esc(targetTip_(u)) + '">' + (u.target ? THB(u.target) : '—') + '</td>' +
+        '<td class="num ' + attainCls_(u.attain) + '" title="' + esc(targetTip_(u)) + '">' +
+          (u.attain === null ? '—' : pctFmt(u.attain)) + '</td>' +
         '</tr>';
     }).join('');
     const anyTarget = units.some(function (u: any) { return u.target > 0; });
+    const sheetId = d.unitGoal && d.unitGoal.sheetId ? String(d.unitGoal.sheetId) : '';
     const pageCount = (topCh.pagesFull || []).length;
     // ป้ายหัวการ์ดต้องตรงกับของที่โชว์จริง — ช่วงที่มีสินค้า 2 ตัว การเขียน "Top 10" ทำให้ทีม
     // นึกว่าระบบดึงมาไม่ครบ (API ตัดมาให้สูงสุด 10 อยู่แล้ว จำนวนที่เห็นคือทั้งหมดที่ขายได้จริง)
@@ -557,7 +563,14 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
           '<h3>🧩 ยอดขายตามยูนิต (สินค้า)</h3>' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
-            '<button class="btn-mini" id="sr-targets">🎯 ตั้งเป้ารายเดือน</button>' +
+            // เป้าย้ายไปอยู่ชีท KPI ที่เดียว (พีสั่ง 2026-09-14) — เดิมเป็นปุ่มกรอกเป้าบนเว็บ ซึ่งไม่มีใครกรอก
+            // และทำให้มีเป้า 2 ที่ไม่ตรงกัน
+            (sheetId
+              ? '<a class="btn-mini" href="https://docs.google.com/spreadsheets/d/' + esc(sheetId) + '"' +
+                ' target="_blank" rel="noopener noreferrer"' +
+                ' title="เป้ายอดขายแก้ที่แท็บ เป้ายอดขาย • เป้าเปอร์บิลแก้ที่แท็บ data — หน้าเว็บตามภายใน 1 ชั่วโมง">' +
+                '📄 แก้เป้าในชีท KPI</a>'
+              : '') +
             // ทางเข้าที่ 2 ของโมดัลตั้งค่ายูนิต — อีกปุ่มอยู่บนการ์ด 🚨 ซึ่งหายไปตอนไม่มียูนิตขาดทุน
             // (พอทีมทำกำไรครบทุกยูนิตจะแก้หมายเหตุไม่ได้เลย ซึ่งกลับหัวกลับหาง)
             '<button class="btn-mini" id="sr-unitcfg" title="จุดคุ้มทุน + 📌 หมายเหตุยูนิต เช่น รอรีแบรนด์">⚙️ ตั้งค่ายูนิต</button>' +
@@ -567,13 +580,14 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] +
           ' — ค่าแอดจริงจาก Meta • ค่าทัก = ค่าแอด ÷ บทสนทนาที่แอดเปิดได้ • %ปิด = ออเดอร์จากแชท ÷ คนทัก' +
           ' • 👆 คลิกยูนิตเพื่อดูรายเพจ + ยอดรายสัปดาห์' +
-          (anyTarget ? ' • <b>เป้า/%บรรลุ = ของเดือนนี้เสมอ</b> ไม่ขึ้นกับช่วงวันที่ที่เลือก' : '') + '</div>' +
+          unitGoalNote_(d, anyTarget) + '</div>' +
         (unitTable
           ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>ยูนิต</th><th class="num">ยอดขาย</th>' +
             '<th class="num">สัดส่วน</th><th class="num">ค่าแอด</th><th class="num">ROAS</th>' +
-            '<th class="num">ค่าทัก</th><th class="num">%ปิด</th>' +
-            '<th class="num" title="' + PERBILL_TIP + '">เปอร์บิล</th>' +
-            '<th class="num">เป้า/เดือน</th><th class="num">%บรรลุ</th></tr></thead><tbody>' + unitTable + '</tbody></table></div>'
+            '<th class="num">ค่าทัก</th><th class="num" title="' + esc(CLOSE_TIP) + '">%ปิด</th>' +
+            '<th class="num" title="' + esc(PERBILL_TIP) + '">เปอร์บิล</th>' +
+            '<th class="num" title="' + esc(TARGET_TIP) + '">เป้า</th>' +
+            '<th class="num" title="' + esc(TARGET_TIP) + '">%บรรลุ</th></tr></thead><tbody>' + unitTable + '</tbody></table></div>'
           : '<div class="empty-note">ยังไม่มีออเดอร์ในช่วงนี้</div>') +
       '</div>' +
     '</div>';
@@ -660,9 +674,6 @@ function bindEvents(container: HTMLElement): void {
     state.compare = cmp.value;
     refetch(container);
   });
-
-  const tgBtn = container.querySelector('#sr-targets');
-  if (tgBtn) tgBtn.addEventListener('click', openTargetEditor);
 
   const cancelBtn = container.querySelector('#sr-cancels');
   if (cancelBtn) cancelBtn.addEventListener('click', openCancelDrill);
@@ -920,6 +931,54 @@ function perBill_(revenue: unknown, orders: unknown): number | null {
 }
 
 const PERBILL_TIP = 'เปอร์บิล = ยอดขาย ÷ จำนวนออเดอร์ ในช่วงเวลาที่เลือก';
+const CLOSE_TIP = '%ปิด = ออเดอร์จากแชทใหม่ ÷ คนทัก • เขียว = ถึงเป้า, แดง = ไม่ถึงเป้า (เป้าจากชีท KPI แท็บ ตัวชี้วัด)';
+const TARGET_TIP = 'เป้าของช่วงวันที่ที่เลือก = เป้ารายเดือนในชีท KPI แท็บ เป้ายอดขาย ÷ จำนวนวันในเดือน × จำนวนวันที่เลือก' +
+  ' • %บรรลุ = ยอดขาย ÷ เป้า (เขียว = ถึงเป้า, แดง = ต่ำกว่าครึ่ง)';
+
+/** สี %ปิด เทียบเป้า (ถึง = เขียว, ไม่ถึง = แดง) — ยูนิตที่ไม่มีคนทักในช่วงนี้ไม่ตัดสิน */
+function closeCls_(u: any): string {
+  if (!u.closeTarget || u.closeRate === null || u.closeRate === undefined) return '';
+  return u.closeRate >= u.closeTarget ? 'txt-good' : 'txt-bad';
+}
+
+function closeTip_(u: any): string {
+  return u.closeTarget ? '%ปิด เป้า ' + u.closeTarget + '% ขึ้นไป' : '%ปิด = ออเดอร์จากแชทใหม่ ÷ คนทัก';
+}
+
+/** สีเปอร์บิล เทียบเป้าตามราคาเซ็ตของยูนิต — ยูนิตที่ชีทยังไม่มีราคาเซ็ตไม่ระบายสี (ไม่เดาเป้าให้) */
+function perBillCls_(u: any, pb: number | null): string {
+  if (!u.perBillTarget || pb === null) return '';
+  return pb >= u.perBillTarget ? 'txt-good' : 'txt-bad';
+}
+
+function perBillTip_(u: any): string {
+  if (!u.mapped) return PERBILL_TIP;
+  if (!u.perBillTarget) return PERBILL_TIP + ' • ยูนิตนี้ยังไม่มีราคาเซ็ตในชีท KPI แท็บ data จึงไม่ระบายสี';
+  return 'เปอร์บิล เป้า ' + THB(u.perBillTarget) + ' ขึ้นไป' +
+    (u.setPrice ? ' (ราคาเซ็ต ' + fmtNum(u.setPrice) + ' ตามชีท KPI แท็บ data)' : '');
+}
+
+function targetTip_(u: any): string {
+  if (!u.mapped) return '';
+  if (!u.target) return state.channel ? 'เป้ายอดดูได้ที่แท็บ 🌐 ทั้งหมด — เป้าในชีทเป็นยอดรวมทุกช่องทาง' : TARGET_TIP;
+  if (u.targetDays && u.rangeDays && u.targetDays < u.rangeDays) {
+    return 'ช่วงนี้มีเป้าแค่ ' + u.targetDays + ' จาก ' + u.rangeDays + ' วัน (เดือนที่เหลือชีทไม่ได้ตั้งเป้า)' +
+      ' — %บรรลุ นับเฉพาะยอดของวันที่มีเป้า';
+  }
+  return TARGET_TIP;
+}
+
+/** คำอธิบายเป้าและสีใต้หัวการ์ดยูนิต */
+function unitGoalNote_(d: any, anyTarget: boolean): string {
+  if (!d.unitGoal) return '';
+  let s = state.channel
+    ? ' • เป้า/%บรรลุ ดูได้ที่แท็บ 🌐 ทั้งหมด (เป้าในชีทเป็นยอดรวมทุกช่องทาง)'
+    : (anyTarget ? ' • <b>เป้า = ของช่วงวันที่ที่เลือก</b> (เป้ารายเดือนจากชีท KPI เฉลี่ยเป็นรายวัน)' : '');
+  if (!state.channel && anyTarget && d.unitGoal.rangeEndsToday) {
+    s += ' • ช่วงนี้รวมวันนี้ซึ่งยังไม่จบวัน แต่นับเป้าวันนี้เต็มวัน %บรรลุ จึงต่ำกว่าตอนจบวัน';
+  }
+  return s + ' • สี: %ปิด ถึง ' + (d.unitGoal.closeTarget || 40) + '% และเปอร์บิลถึงเป้าตามราคาเซ็ต = เขียว, ไม่ถึง = แดง';
+}
 
 function lossReasonHtml_(x: any): string {
   const sheetChip = ' <span class="chip" title="ตัวเลขจากแถว รวม คอลัมน์ กำไรสุทธิ (BI) แท็บสรุปยอดขาย ชีท สร. ของเดือนนี้ — เลขเดียวกับในชีทเป๊ะ (อัปเดตตามรอบ sync รายวัน)">💚 กำไรจริงจากชีท</span>';
@@ -996,57 +1055,6 @@ function lossAlertHtml_(a: any): string {
 function attainCls_(v: number | null | undefined): string {
   if (v === null || v === undefined) return '';
   return v >= 100 ? 'txt-good' : (v < 50 ? 'txt-bad' : '');
-}
-
-/**
- * โมดัลตั้ง "เป้ายอดขายต่อเดือน" รายยูนิต
- * เก็บไว้ใน u_map ที่เดียวกับยูนิต (ไม่ใช่ตารางใหม่) — ทีมแก้เองได้ ไม่ต้องรัน migration
- */
-function openTargetEditor(): void {
-  const units = (topOf('all').units || []).filter(function (u: any) { return u.mapped; });
-  if (!units.length) { toast('ยังไม่มียูนิตให้ตั้งเป้า'); return; }
-  const rows = units.map(function (u: any) {
-    return '<tr><td>' + esc(u.product || u.u) + ' <span class="chip">' + esc(u.u) + '</span></td>' +
-      '<td class="num">' + THB(u.monthRevenue || 0) + '</td>' +
-      '<td><input class="input tg-inp" data-u="' + esc(u.u) + '" type="number" min="0" step="10000" ' +
-      'value="' + (u.target || '') + '" placeholder="0 = ไม่ตั้งเป้า" style="width:130px"></td>' +
-      '<td class="num">' + (u.needPerDay === null ? '—' : THB(u.needPerDay) + '/วัน') + '</td></tr>';
-  }).join('');
-  openModal(
-    '<div class="modal-head"><h3>🎯 เป้ายอดขายต่อเดือน</h3><button class="modal-close">✕</button></div>' +
-    '<div class="card-sub" style="margin-bottom:10px">เป้าเป็นยอด<b>ทั้งเดือน</b> เทียบกับยอดเดือนปัจจุบันเสมอ ' +
-      '(ไม่ขึ้นกับช่วงวันที่ที่เลือกบนหน้า) • ใส่ 0 หรือเว้นว่าง = ไม่ตั้งเป้า</div>' +
-    '<div class="table-scroll"><table class="tbl"><thead><tr><th>ยูนิต</th><th class="num">ยอดเดือนนี้</th>' +
-      '<th>เป้า/เดือน (บาท)</th><th class="num">ต้องขายอีก</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-    '<div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">' +
-      '<button class="btn-mini modal-close">ยกเลิก</button>' +
-      '<button class="btn-mini" id="tg-save">💾 บันทึกเป้า</button></div>'
-  );
-  const root = document.getElementById('modal-root');
-  const saveBtn = root && root.querySelector('#tg-save');
-  if (saveBtn) saveBtn.addEventListener('click', function () {
-    const targets: Record<string, number> = {};
-    (root as HTMLElement).querySelectorAll('.tg-inp').forEach(function (el) {
-      const inp = el as HTMLInputElement;
-      const u = inp.getAttribute('data-u') || '';
-      const v = Number(inp.value || 0);
-      if (u && isFinite(v) && v >= 0) targets[u] = Math.round(v);
-    });
-    (saveBtn as HTMLButtonElement).disabled = true;
-    saveBtn.textContent = 'กำลังบันทึก...';
-    serverCall('apiUMap', { action: 'setTargets', targets: targets })
-      .then(function (res: any) {
-        if (res && res.ok === false) throw new Error(res.error || 'บันทึกไม่สำเร็จ');
-        closeModal();
-        toast('✅ บันทึกเป้าแล้ว');
-        if (lastContainer) refetch(lastContainer);
-      })
-      .catch(function (e: any) {
-        (saveBtn as HTMLButtonElement).disabled = false;
-        saveBtn.textContent = '💾 บันทึกเป้า';
-        toast('❌ ' + (e && e.message ? e.message : 'บันทึกไม่สำเร็จ'));
-      });
-  });
 }
 
 /**

@@ -2,7 +2,7 @@
 // server-side เท่านั้น: import { db, fetchAll } จาก @/lib/db
 // เปลี่ยนแค่แหล่งอ่าน (readTable_ → fetchAll) + กรองช่วงเวลาใน query เพื่อเลี่ยง 1000-row cap
 import { db, fetchAll, fetchAllSliced, fetchAllDateSliced, dbStats } from '@/lib/db';
-import { getPageUnitMap, getUnitTargets, getUnitNotes, getUnitPages } from './umap';
+import { getPageUnitMap, getUnitNotes, getUnitPages } from './umap';
 import { nicknameByName } from './adminsettings';
 import {
   EXCLUDED_STATUSES,
@@ -556,7 +556,94 @@ function repeatStats_(byCustomer: Record<string, number[]>) {
 }
 
 /**
- * ประกอบแถว "ยูนิต" ที่ส่งให้หน้าเว็บ — ยอดขาย + ต้นทุนแอด + คนทัก + รายสัปดาห์
+ * เป้า %ปิดรายยูนิต — ชีท KPI แท็บ "ตัวชี้วัด" เขียนว่า %ปิด ขั้นต่ำ 40% (ทั้งแอดมินและค่าเฉลี่ยยูนิตของรอง)
+ * ค่าเดียวกับค่าเริ่มต้นหน้า Admin Performance (lib/scoring.ts DEFAULT_KPI_TARGETS.closeRate)
+ */
+const UNIT_CLOSE_TARGET = 40;
+
+/** เป้าจากชีท KPI ที่งาน kpi-sheet เก็บไว้ใน sync_state 'unit_goals' (scripts/sync/jobs.ts syncKpiSheet) */
+interface UnitGoals {
+  year: number;
+  sheetId: string;
+  targets: Record<string, number[]>;   // เป้ายอดขายรายเดือน [ม.ค. .. ธ.ค.] แท็บ "เป้ายอดขาย"
+  perBill: Record<string, number>;     // เป้าเปอร์บิล แท็บ "data"
+  setPrice: Record<string, number>;    // ราคาเซ็ต แท็บ "data" (บอกในทูลทิปว่าเป้ามาจากไหน)
+  updatedAt: string;
+}
+
+/**
+ * อ่านเป้าก้อนเล็กที่แยกไว้ให้หน้านี้โดยเฉพาะ — ไม่อ่าน kpi_scores ทั้งก้อน (คะแนนแอดมินทุกเดือน)
+ * เพราะหน้า Sales รีเฟรชเองทุก 75 วิ อ่านก้อนใหญ่ = เผา egress ทุกรอบ
+ */
+async function loadUnitGoals_(): Promise<UnitGoals | null> {
+  try {
+    const { data } = await db.from('sync_state').select('value').eq('key', 'unit_goals').maybeSingle();
+    if (!data || !data.value) return null;
+    const g = JSON.parse(String(data.value));
+    return {
+      year: Number(g.year) || 0,
+      sheetId: String(g.sheetId || ''),
+      targets: g.targets || {},
+      perBill: g.perBill || {},
+      setPrice: g.setPrice || {},
+      updatedAt: String(g.updatedAt || ''),
+    };
+  } catch {
+    return null;   // งาน kpi-sheet ยังไม่เคยเขียนก้อนนี้ — ตารางยังโชว์ได้ปกติ แค่ไม่มีเป้าและสี
+  }
+}
+
+/** 'YYYY-MM-DD' ของวันถัดไป — คิดบนปฏิทินล้วน (UTC) ไม่ผ่านโซนเวลา กันวันเลื่อน */
+function nextYmd_(ymd: string): string {
+  const d = new Date(ymd + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * เป้ายอดขายของ "ช่วงวันที่ที่เลือก" รายยูนิต
+ *
+ * ชีทให้เป้าเป็นรายเดือน → แตกเป็นรายวัน = เป้าเดือน ÷ จำนวนวันในเดือนนั้น แล้วบวกเฉพาะวันในช่วง
+ * ช่วงคร่อมเดือนจึงถูกเอง (30 ส.ค.–2 ก.ย. = เป้ารายวันของ ส.ค. 2 วัน + ของ ก.ย. 2 วัน)
+ *
+ * วันที่เดือนนั้นไม่มีเป้า (ชีทเขียน '-' หรือคนละปีกับชีท) ไม่ถูกนับ และจดไว้ใน days —
+ * %บรรลุ ต้องเทียบเฉพาะยอดของวันที่มีเป้า ไม่งั้นยูนิตที่เริ่มมีเป้ากลางช่วงจะได้ % พองเกินจริง
+ */
+function rangeTargets_(goals: UnitGoals, fromYmd: string, toYmd: string) {
+  const target: Record<string, number> = {};
+  const days: Record<string, Record<string, 1>> = {};
+  let totalDays = 0;
+  // เพดาน 1,000 วันกันลูปไม่จบถ้าวันที่เพี้ยน (ช่วงยาวสุดที่หน้าเว็บให้เลือกสั้นกว่านี้มาก)
+  for (let d = fromYmd; d <= toYmd && totalDays < 1000; d = nextYmd_(d)) {
+    totalDays++;
+    const y = Number(d.slice(0, 4));
+    const m = Number(d.slice(5, 7));
+    if (y !== goals.year) continue;
+    const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    for (const u of Object.keys(goals.targets)) {
+      const monthly = Number((goals.targets[u] || [])[m - 1]) || 0;
+      if (monthly <= 0) continue;
+      target[u] = (target[u] || 0) + monthly / daysInMonth;
+      (days[u] = days[u] || {})[d] = 1;
+    }
+  }
+  return { target, days, totalDays };
+}
+
+/** เป้าที่ส่งเข้า unitRows_ — คำนวณครั้งเดียวใช้ร่วมทั้ง 3 แท็บช่องทาง */
+interface UnitGoalInput {
+  withTargets: boolean;                        // เป้ายอดโชว์เฉพาะแท็บ "ทั้งหมด" (เป้าในชีทเป็นยอดรวมทุกช่องทาง)
+  target: Record<string, number>;              // เป้ายอดของช่วงที่เลือก
+  revenue: Record<string, number>;             // ยอดของ "วันที่มีเป้า" = ตัวตั้งของ %บรรลุ
+  days: Record<string, Record<string, 1>>;     // วันที่มีเป้าต่อยูนิต
+  totalDays: number;                           // จำนวนวันในช่วงที่เลือก
+  perBill: Record<string, number>;
+  setPrice: Record<string, number>;
+  productOf: Record<string, string>;           // ชื่อสินค้าของยูนิตที่มีเป้าแต่ยังไม่มียอด/แอดในช่วงนี้
+}
+
+/**
+ * ประกอบแถว "ยูนิต" ที่ส่งให้หน้าเว็บ — ยอดขาย + ต้นทุนแอด + คนทัก + รายสัปดาห์ + เป้า
  *
  * ตัวหาร 0 คืน null ไม่ใช่ 0 ทุกจุด — หน้าเว็บจะได้แสดง "—" แทนเลขที่อ่านเหมือนวัดแล้วได้ศูนย์
  * (เช่นยูนิตที่ไม่ยิงแอดเลย ROAS ไม่ใช่ 0 แต่ "ไม่มีค่า")
@@ -568,25 +655,31 @@ function unitRows_(
   unitCust: Record<string, Record<string, number[]>>,
   cost: Record<string, UnitCost>,
   unmappedKey: string,
-  goal: { targets: Record<string, number>; monthRevenue: Record<string, number>; daysLeft: number }
+  goal: UnitGoalInput
 ) {
   // ยูนิตที่ "ยิงแอดแต่ยังไม่มียอด" ต้องโผล่ด้วย ไม่งั้นค่าแอดที่จ่ายไปหายจากหน้าจอเงียบๆ
-  const keys = Array.from(new Set(Object.keys(unitAgg).concat(Object.keys(cost))));
+  // ยูนิตที่ "มีเป้าแต่ยังขายไม่ได้เลย" ก็เช่นกัน — คือยูนิตที่ห่างเป้าที่สุด ต้องเห็นเป็น 0%
+  const targetKeys = goal.withTargets ? Object.keys(goal.target).filter((k) => goal.target[k] > 0) : [];
+  const keys = Array.from(new Set(Object.keys(unitAgg).concat(Object.keys(cost), targetKeys)));
   const grand = keys.reduce((s, k) => s + ((unitAgg[k] && unitAgg[k].revenue) || 0), 0);
   return keys
     .map((k) => {
-      const agg = unitAgg[k] || { u: k === unmappedKey ? '' : k, product: k === unmappedKey ? 'ยังไม่จัดกลุ่ม' : '', revenue: 0, orders: 0 };
+      const mapped = k !== unmappedKey;
+      const agg = unitAgg[k] || {
+        u: mapped ? k : '', product: mapped ? (goal.productOf[k] || '') : 'ยังไม่จัดกลุ่ม', revenue: 0, orders: 0,
+      };
       const c = cost[k] || { spend: 0, msgs: 0, reached: 0, engOrders: 0, engOldOrders: 0 };
       const revenue = Math.round(agg.revenue);
       const spend = Math.round(c.spend);
       const rep = repeatStats_(unitCust[k] || {});
+      const tgt = mapped && goal.withTargets && goal.target[k] > 0 ? goal.target[k] : 0;
       return {
         key: k,
         u: agg.u,
         product: agg.product,
         revenue,
         orders: agg.orders,
-        mapped: k !== unmappedKey,
+        mapped,
         spend,
         // ROAS = ยอดขาย POS ÷ ค่าแอดจริงจาก Meta (ไม่ใช่ ROAS ที่ Meta ตีเองจาก pixel)
         roas: c.spend > 0 ? Math.round((agg.revenue / c.spend) * 100) / 100 : null,
@@ -607,15 +700,17 @@ function unitRows_(
         repeatCustomers: rep.repeat,
         repeatRate: rep.rate,
         repeatCycleDays: rep.cycleDays,
-        // เป้า/ความคืบหน้า — ของ "เดือนปัจจุบัน" เสมอ ไม่ขึ้นกับช่วงวันที่ที่เลือก
-        // (เป้าที่ทีมตั้งเป็นเป้าต่อเดือน เอาไปเทียบกับช่วง 7 วันแล้วอ่านผิดทันที)
-        target: goal.targets[k] || 0,
-        monthRevenue: Math.round(goal.monthRevenue[k] || 0),
-        attain: goal.targets[k]
-          ? Math.round(((goal.monthRevenue[k] || 0) / goal.targets[k]) * 1000) / 10 : null,
-        // ต้องขายอีกวันละเท่าไหร่ถึงจะถึงเป้าสิ้นเดือน (ถึงเป้าแล้ว = 0)
-        needPerDay: goal.targets[k]
-          ? Math.max(0, Math.round((goal.targets[k] - (goal.monthRevenue[k] || 0)) / goal.daysLeft)) : null,
+        // เป้ายอดของ "ช่วงวันที่ที่เลือก" จากชีท KPI (ดู rangeTargets_) — null = ไม่มีเป้า / แท็บ Facebook, LINE
+        target: tgt > 0 ? Math.round(tgt) : null,
+        // %บรรลุ = ยอดของวันที่มีเป้า ÷ เป้า (ปกติทุกวันในช่วงมีเป้า = ยอดขายทั้งช่วง)
+        attain: tgt > 0 ? Math.round(((goal.revenue[k] || 0) / tgt) * 1000) / 10 : null,
+        // ช่วงนี้มีเป้ากี่วัน เทียบกับจำนวนวันที่เลือก — น้อยกว่า = หน้าเว็บบอกว่า % นับเฉพาะวันที่มีเป้า
+        targetDays: tgt > 0 ? Object.keys(goal.days[k] || {}).length : 0,
+        rangeDays: goal.totalDays,
+        // เกณฑ์ระบายสี %ปิด/เปอร์บิล — แถว "ยังไม่จัดกลุ่ม" ไม่มีเกณฑ์ (ไม่รู้ว่าเป็นสินค้าอะไร)
+        closeTarget: mapped ? UNIT_CLOSE_TARGET : null,
+        perBillTarget: mapped ? (goal.perBill[k] || null) : null,
+        setPrice: mapped ? (goal.setPrice[k] || null) : null,
         weekly: Object.keys(unitWeekly[k] || {})
           .sort()
           .map((w) => ({ week: w, revenue: Math.round(unitWeekly[k][w]) })),
@@ -676,12 +771,9 @@ export async function apiSales(params: any) {
   const orders = prevRows.concat(curRows, todayChunk);
   mark_(`orders prev=${prevRows.length} cur=${curRows.length}`);
 
-  /* ---- ความคืบหน้าเทียบเป้า "ของเดือนนี้" (ไม่ขึ้นกับฟิลเตอร์ช่วงวันที่) ----
-   * เป้าที่ทีมตั้งเป็นเป้า "ต่อเดือน" ถ้าเอาไปเทียบกับช่วงที่ผู้ใช้เลือก (เช่น 7 วัน) จะอ่านผิดทันที
-   * จึงยิงอีกคิวรีสั้นๆ เฉพาะเดือนปัจจุบัน แล้วรายงานคู่กันเสมอ — แบบเดียวกับการ์ด "วันนี้"
-   */
-  const monthStart = new Date(fmtDateBkk(new Date()).slice(0, 7) + '-01T00:00:00+07:00');
-  const unitTargets = await getUnitTargets().catch(() => ({} as Record<string, number>));
+  // เป้ายอด/เปอร์บิลรายยูนิตจากชีท KPI — เทียบกับ "ช่วงวันที่ที่เลือก" (ดู rangeTargets_)
+  // เดิมเป็นเป้ากรอกมือใน U Map เทียบกับเดือนปัจจุบันเสมอ ซึ่งไม่มีใครกรอก และต้องยิงคิวรีออเดอร์ทั้งเดือนเพิ่ม
+  const unitGoals = await loadUnitGoals_();
   // หมายเหตุยูนิต (เช่น "รอรีแบรนด์") — แปะทั้งตารางยูนิตและการ์ดแจ้งเตือน
   const unitNotes = await getUnitNotes().catch(() => ({} as Record<string, string>));
   // เพจทั้งหมดของยูนิตตาม U Map — เพจที่ยังไม่มียอดในช่วงต้องโผล่เป็น ฿0 (ทีมทัก: ผูก 4 เพจแต่เห็น 3)
@@ -692,15 +784,6 @@ export async function apiSales(params: any) {
     const nm = String(n || '').replace(/\s+/g, ' ').trim();
     return nm ? (nickBy[nm] || nm) : '';
   };
-  // ประหยัดคิวรี 2 ทาง: (1) ยังไม่มีใครตั้งเป้า = ไม่ต้องรู้ยอดเดือนนี้เลย
-  // (2) ช่วงที่เลือกครอบเดือนนี้อยู่แล้ว = ใช้ orders ที่โหลดมาแล้วได้ ไม่ต้องยิงซ้ำ
-  const hasTargets = Object.keys(unitTargets).length > 0;
-  const rangeCoversMonth = r.start.getTime() <= monthStart.getTime() && r.end.getTime() >= Date.now() - 60_000;
-  const monthRows: Row[] = !hasTargets ? []
-    : rangeCoversMonth ? orders
-    : await loadOrders_(monthStart.toISOString(), null, 'inserted_at,status,total_price,items_count,page_id');
-  mark_('month');
-
   function matchChannel(o: Row): boolean {
     return !channel || orderChannel_(o) === channel;
   }
@@ -881,21 +964,33 @@ export async function apiSales(params: any) {
   const unitCost = await loadUnitCost_(r, pageUnit, pagePlatform, UNMAPPED);
   mark_('unitCost');
 
-  // ยอดเดือนนี้ต่อยูนิต (ไว้เทียบเป้า) — นับเฉพาะออเดอร์ที่ยืนยันแล้ว เหมือนยอดขายหลัก
-  const monthByUnit: Record<string, number> = {};
-  monthRows.forEach((o) => {
-    if (o._excluded || o._needCheck) return;
+  // เป้าของช่วงที่เลือก + ยอดของ "วันที่มีเป้า" ต่อยูนิต (ตัวตั้งของ %บรรลุ)
+  // ชุดออเดอร์เดียวกับยอดขายแท็บ "ทั้งหมด" เป๊ะ: อยู่ในช่วง ไม่ถูกยกเลิก และยืนยันแล้ว
+  const rangeGoal = unitGoals
+    ? rangeTargets_(unitGoals, fmtDateBkk(r.start), fmtDateBkk(r.end))
+    : { target: {} as Record<string, number>, days: {} as Record<string, Record<string, 1>>, totalDays: 0 };
+  const goalRevenue: Record<string, number> = {};
+  cur.forEach((o) => {
+    if (o._needCheck) return;
     const um = pageUnit[String(o.page_id || '')];
-    const key = um ? um.u : UNMAPPED;
-    monthByUnit[key] = (monthByUnit[key] || 0) + o.total_price;
+    const dd = um ? rangeGoal.days[um.u] : null;
+    if (dd && dd[fmtDateBkk(o._at)]) goalRevenue[um!.u] = (goalRevenue[um!.u] || 0) + o.total_price;
   });
-  // เหลืออีกกี่วันในเดือน (รวมวันนี้) — ใช้คิด "ต้องขายอีกวันละเท่าไหร่ถึงจะถึงเป้า"
-  const daysLeftInMonth = (() => {
-    const today = fmtDateBkk(new Date());
-    const y = Number(today.slice(0, 4)), m = Number(today.slice(5, 7));
-    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();   // วันสุดท้ายของเดือนนี้
-    return Math.max(1, lastDay - Number(today.slice(8, 10)) + 1);
-  })();
+  const productOf: Record<string, string> = {};
+  Object.keys(pageUnit).forEach((pid) => {
+    const x = pageUnit[pid];
+    if (x.product && !productOf[x.u]) productOf[x.u] = x.product;
+  });
+  const goalInput = (chanKey: 'all' | 'facebook' | 'line'): UnitGoalInput => ({
+    withTargets: chanKey === 'all',
+    target: rangeGoal.target,
+    revenue: goalRevenue,
+    days: rangeGoal.days,
+    totalDays: rangeGoal.totalDays,
+    perBill: unitGoals ? unitGoals.perBill : {},
+    setPrice: unitGoals ? unitGoals.setPrice : {},
+    productOf,
+  });
 
   function topAgg(list: Row[], chanKey: 'all' | 'facebook' | 'line' = 'all') {
     const pages: Record<string, { revenue: number; orders: number }> = {};
@@ -986,7 +1081,7 @@ export async function apiSales(params: any) {
         .slice(0, 10),
       // ยอดขายจัดกลุ่มตามยูนิต (U/สินค้า) — เจาะ U→เพจ→สินค้า ได้ (กลุ่ม "ยังไม่จัดกลุ่ม" ต่อท้ายเสมอ)
       units: unitRows_(unitAgg, unitPages, unitWeekly, unitCust, unitCost[chanKey] || {}, UNMAPPED,
-        { targets: unitTargets, monthRevenue: monthByUnit, daysLeft: daysLeftInMonth }),
+        goalInput(chanKey)),
       pageProducts,   // เพจ→รายการสินค้าที่ขายได้
       productPages,   // สินค้า→เพจที่ขายได้
     };
@@ -1221,6 +1316,15 @@ export async function apiSales(params: any) {
     returns: returns,
     // ยูนิตที่ขาดทุนติดต่อกัน (คำนวณโดยงาน sync รายชั่วโมง) — ไม่ขึ้นกับฟิลเตอร์ช่วงวันที่
     unitAlerts: unitAlerts,
+    // ที่มาของเป้าในตารางยูนิต — หน้าเว็บทำลิงก์ "แก้เป้าในชีท KPI" + คำอธิบายสี (null = งาน kpi-sheet ยังไม่เขียนเป้า)
+    unitGoal: unitGoals
+      ? {
+        sheetId: unitGoals.sheetId, updatedAt: unitGoals.updatedAt, closeTarget: UNIT_CLOSE_TARGET,
+        // ช่วงที่จบ "วันนี้" (วันนี้ / 3-30 วัน / เดือนนี้ / กำหนดเองถึงวันนี้) นับเป้าวันนี้เต็มวัน
+        // ทั้งที่ยอดวันนี้ยังไม่จบ — หน้าเว็บต้องบอก ไม่งั้น %บรรลุ ดูต่ำผิดตอนเช้า
+        rangeEndsToday: fmtDateBkk(r.end) === fmtDateBkk(new Date()),
+      }
+      : null,
     kpis: {
       revenue: Math.round(sCur.revenue),
       orders: sCur.orders,
