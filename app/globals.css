@@ -554,7 +554,7 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
   display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2);
   margin-bottom: var(--sp-3); padding: var(--sp-2) var(--sp-3); border-radius: 10px;
   background: var(--primary-soft); border: 1px solid var(--primary);
-  color: var(--text); font-size: var(--fs-3); font-weight: 600; cursor: help;
+  color: var(--text); font-size: var(--fs-3); font-weight: 600;
 }
 .sr-chan-banner b { font-weight: 800; }
 .sr-chan-hint { font-size: var(--fs-2); font-weight: 500; color: var(--text-3); }
@@ -673,7 +673,7 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 .txt-good { color: var(--green); }
 .txt-bad { color: var(--red); }
 /* ค่าที่ต้นทางยังไม่กรอก — ต้องอ่านออกว่า "ไม่มีข้อมูล" ไม่ใช่ "ศูนย์" */
-.txt-dim { color: var(--text-3); cursor: help; }
+.txt-dim { color: var(--text-3); }
 
 /* ---------- แถบเตือน "ชีท KPI กรอกไม่ครบ" (บนสุดหน้า KPI ทีมขาย) ---------- */
 /* ต้องเห็นก่อนตัวเลข เพราะทีมจะอ่านเกรด D แล้วตกใจก่อนจะรู้ว่าคะแนนขาดตัวตั้ง */
@@ -1270,8 +1270,14 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 :root[data-theme="light"] .info-tip {
   box-shadow: 0 10px 28px -8px rgba(15,23,42,.18), 0 2px 6px -2px rgba(15,23,42,.10);
 }
-/* บอกผู้ใช้ว่าค่านี้ hover ดูสูตรได้ — เส้นใต้ประจุดจางๆ */
-[data-tip] { cursor: help; }
+/* ค่าที่ hover ดูคำอธิบายได้ = เมาส์ลูกศรปกติ (บอสไม่เอาเมาส์รูป ? — 2026-09-15)
+   :where ทำให้ความเจาะจงเป็น 0 → ปุ่ม/ลิงก์/แถวที่กดได้ยังเป็นรูปมือตาม rule ของตัวเอง
+   ของที่อยู่ "ข้างใน" ของกดได้ (เช่น ป้ายตัวเลขในเมนู, ช่องในแถวตาราง) ให้รับรูปมือจากตัวแม่ */
+:where([data-tip]) { cursor: default; }
+:where(a[href], [role="button"], [data-coach], summary, label):where([data-tip]) { cursor: pointer; }
+:where(a[href], button, [role="button"], [data-coach], summary, label, .kpi-tab, .tree-btn, .low-row, .chip-btn,
+  .hbar-row.clickable, tr.clickable, .ca-media-frame.clickable, .rank-tab, .sp-metric, .sr-needcheck,
+  .admin-pick, .u-tool-btn, .u-pages-btn, .page-pick, .u-card.droppable, .quiz-opt) :where([data-tip]) { cursor: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .chart-tip { transition: opacity .1s linear; transform: none !important; }
   .chart-tip.is-on { transform: none !important; }
