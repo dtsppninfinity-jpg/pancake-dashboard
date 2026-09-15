@@ -533,8 +533,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         '<td class="num ' + perBillCls_(u, pb) + '" title="' + esc(perBillTip_(u)) + '">' +
           (pb === null ? '—' : THB(pb)) + '</td>' +
         '<td class="num" title="' + esc(targetTip_(u)) + '">' + (u.target ? THB(u.target) : '—') + '</td>' +
-        '<td class="num ' + attainCls_(u.attain) + '" title="' + esc(targetTip_(u)) + '">' +
-          (u.attain === null ? '—' : pctFmt(u.attain)) + '</td>' +
+        '<td class="num" title="' + esc(targetTip_(u)) + '">' + attainBarHtml_(u) + '</td>' +
         '</tr>';
     }).join('');
     const anyTarget = units.some(function (u: any) { return u.target > 0; });
@@ -933,7 +932,7 @@ function perBill_(revenue: unknown, orders: unknown): number | null {
 const PERBILL_TIP = 'เปอร์บิล = ยอดขาย ÷ จำนวนออเดอร์ ในช่วงเวลาที่เลือก';
 const CLOSE_TIP = '%ปิด = ออเดอร์จากแชทใหม่ ÷ คนทัก • เขียว = ถึงเป้า, แดง = ไม่ถึงเป้า (เป้าจากชีท KPI แท็บ ตัวชี้วัด)';
 const TARGET_TIP = 'เป้าของช่วงวันที่ที่เลือก = เป้ารายเดือนในชีท KPI แท็บ เป้ายอดขาย ÷ จำนวนวันในเดือน × จำนวนวันที่เลือก' +
-  ' • %บรรลุ = ยอดขาย ÷ เป้า (เขียว = ถึงเป้า, แดง = ต่ำกว่าครึ่ง)';
+  ' • %บรรลุ = ยอดขาย ÷ เป้า — แถบเขียว = ถึงเป้า, ส้ม = 50-99%, แดง = ต่ำกว่าครึ่ง';
 
 /** สี %ปิด เทียบเป้า (ถึง = เขียว, ไม่ถึง = แดง) — ยูนิตที่ไม่มีคนทักในช่วงนี้ไม่ตัดสิน */
 function closeCls_(u: any): string {
@@ -1051,10 +1050,23 @@ function lossAlertHtml_(a: any): string {
   '</div>';
 }
 
-/** สีของ %บรรลุเป้า — ถึงเป้า = เขียว, ต่ำกว่าครึ่ง = แดง */
-function attainCls_(v: number | null | undefined): string {
-  if (v === null || v === undefined) return '';
-  return v >= 100 ? 'txt-good' : (v < 50 ? 'txt-bad' : '');
+/** ระดับความคืบหน้าเทียบเป้า — ถึงเป้า = good (เขียว), 50-99% = mid (ส้ม), ต่ำกว่าครึ่ง = low (แดง) */
+function attainLevel_(v: number): string {
+  return v >= 100 ? 'good' : (v >= 50 ? 'mid' : 'low');
+}
+
+/**
+ * แถบความคืบหน้า "ยอดขายตอนนี้ เทียบเป้าของช่วงที่เลือก" — ทีมขอ 2026-09-15 ตามตัวอย่างหน้าวิเคราะห์สื่อของทีม
+ * แถบเต็มสุดที่ 100% แต่ตัวเลขโชว์ค่าจริง (เช่น 147%) · ไม่มีเป้า / แท็บ Facebook, LINE = "—"
+ */
+function attainBarHtml_(u: any): string {
+  if (u.attain === null || u.attain === undefined) return '—';
+  const w = Math.max(0, Math.min(100, Number(u.attain) || 0));
+  return '<div class="sr-prog ' + attainLevel_(u.attain) + '" role="progressbar" aria-valuemin="0" aria-valuemax="100"' +
+    // valuenow ตันที่ 100 ตามความกว้างแถบ — valuetext บอกค่าจริงให้โปรแกรมอ่านจอ (147% ไม่ใช่ถูกอ่านเป็น 100)
+    ' aria-valuenow="' + Math.round(w) + '" aria-valuetext="' + esc(pctFmt(u.attain)) + '" aria-label="ถึงเป้า">' +
+    '<span class="sr-prog-track"><i style="width:' + w + '%"></i></span>' +
+    '<b>' + pctFmt(u.attain) + '</b></div>';
 }
 
 /**

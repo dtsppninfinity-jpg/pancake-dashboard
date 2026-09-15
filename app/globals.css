@@ -18,6 +18,7 @@
   --green: #2dd4a0;
   --green-soft: rgba(45, 212, 160, 0.14);
   --amber: #f5a742;
+  --amber-bar: #f5a742;                     /* สีเนื้อแถบความคืบหน้า (โหมดมืดใช้ค่าเดียวกับ --amber) */
   --amber-soft: rgba(245, 167, 66, 0.14);
   --red: #ff5d7a;
   --red-soft: rgba(255, 93, 122, 0.14);
@@ -80,6 +81,7 @@
   --green: #047857;                         /* 5.48:1 */
   --green-soft: rgba(4, 120, 87, 0.12);
   --amber: #9a5800;                         /* 5.57:1 */
+  --amber-bar: #d97706;                     /* เนื้อแถบกราฟิก 3.18:1 บนขาว (เกณฑ์กราฟิก 3:1) — #9a5800 เป็นตัวอักษรได้แต่เป็นแถบดูน้ำตาล */
   --amber-soft: rgba(154, 88, 0, 0.13);
   --red: #c2183e;                           /* 5.46:1 บนพื้นรอง (เดิม #e11d48 = 4.26:1 ตก) */
   --red-soft: rgba(194, 24, 62, 0.10);
@@ -613,6 +615,17 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
    วางข้างกันเมื่อไหร่ ฝั่งสั้นก็เหลือพื้นเทาโล่งเมื่อนั้น — เต็มความกว้างยังทำให้ตาราง 9 คอลัมน์
    ไม่ต้องเบียดจนต้องเลื่อนแนวนอนด้วย */
 .sr-split { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); margin-top: var(--sp-4); }
+/* ตารางยูนิตหน้า Sales: แถบยอดขายเทียบเป้า — กว้างขั้นต่ำกันแถบหดจนอ่านไม่ออกตอนตารางเลื่อนข้างบนมือถือ */
+.sr-prog { display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-2); min-width: 128px; }
+.sr-prog-track { flex: 1 1 auto; min-width: 64px; height: 8px; border-radius: 99px; background: var(--track); overflow: hidden; }
+.sr-prog-track i { display: block; height: 100%; border-radius: 99px; background: var(--text-3); }
+.sr-prog b { flex: none; min-width: 3.6em; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sr-prog.good i { background: var(--green); }
+.sr-prog.good b { color: var(--green); }
+.sr-prog.mid i { background: var(--amber-bar); }
+.sr-prog.mid b { color: var(--amber); }
+.sr-prog.low i { background: var(--red); }
+.sr-prog.low b { color: var(--red); }
 .sr-green { color: var(--green); }
 .sr-red { color: var(--red); }
 .sr-today-row { display: flex; justify-content: space-between; font-size: var(--fs-3); padding: var(--sp-2) 0; border-bottom: 1px dashed rgba(38,51,82,.6); }
