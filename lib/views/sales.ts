@@ -346,14 +346,13 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
 
   function closeRateTip(kk: any): string {
     if (kk.closeBase === null || kk.closeBase === undefined)
-      return 'ยังไม่มีข้อมูลคนทักจาก Meta ในช่วงที่เลือก — ตัวเลขนี้ต้องใช้ ad_daily (คอลัมน์ meta_first_replies/meta_comments)';
+      return 'ยังไม่มีข้อมูลคนทักในช่วงที่เลือก (ตาราง chat_engagement_daily)';
     const bits = ['ออเดอร์ ' + fmtNum(kk.closeOrders || 0) + ' ÷ รวมคนทัก ' + fmtNum(kk.closeBase || 0) +
-      ' (ทัก + คอมเมนต์ จาก Meta) — สูตรเดียวกับเว็บ ADS SUMMARY ของทีมแอด'];
-    if (kk.closeUnitsNoData) bits.push('ยูนิตที่ไม่มีข้อมูลแอด ' + fmtNum(kk.closeUnitsNoData) + ' ยูนิต ไม่ถูกนับในสูตรนี้');
-    if (kk.closeAdNoComment) bits.push('บางส่วนยังไม่มีคอมเมนต์ของ Meta ฐานจึงไม่รวมคอมเมนต์');
-    if (kk.closeRateChat !== null && kk.closeRateChat !== undefined) {
-      bits.push('สูตรเดิมฝั่ง Pancake (ออเดอร์จากแชท ' + fmtNum(kk.closeChatOrders || 0) +
-        ' ÷ คนทัก ' + fmtNum(kk.closeChatBase || 0) + ') = ' + pct2_(kk.closeRateChat));
+      ' (อินบ็อกซ์ใหม่ ' + fmtNum(kk.closeBaseInbox || 0) + ' + คอมเมนต์ ' + fmtNum(kk.closeBaseComment || 0) +
+      ' ของเพจ Facebook) — เท่ากับการ์ดเว็บ ADS SUMMARY ของทีมแอด'];
+    if (kk.closeUnitsNoData) bits.push('ยูนิตที่ไม่มีทั้งคนทักและค่าแอด ' + fmtNum(kk.closeUnitsNoData) + ' ยูนิต ไม่ถูกนับในสูตรนี้');
+    if (kk.closeRateMeta !== null && kk.closeRateMeta !== undefined) {
+      bits.push('ถ้าใช้ตัวเลขของ Meta (ทัก + คอมเมนต์ ' + fmtNum(kk.closeMetaBase || 0) + ') = ' + pct2_(kk.closeRateMeta));
     }
     return bits.join(' • ');
   }
@@ -444,13 +443,13 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     tileHtml('🎯 %ปิดการขาย', pct2_(k.closeRate), {
       title: '🎯 %ปิดการขาย', formula: 'ออเดอร์ ÷ รวมคนทัก (ทัก + คอมเมนต์)',
       body: closeRateTip(k),
-      src: 'Meta Ads (messaging_first_reply + comment) + ออเดอร์จาก Pancake POS' }) +
-    tileHtml('💬 คนทักจากแอด', k.closeBase === null || k.closeBase === undefined ? '—' : fmtNum(k.closeBase), {
-      title: '💬 คนทักจากแอด', formula: 'ทัก (messaging_first_reply) + คอมเมนต์',
-      body: 'ตัวหารของ %ปิดการขาย — นับเฉพาะคนที่มาจากแอด' +
-        ' • ฝั่ง Pancake นับคนทักทั้งหมดรวมคนที่ทักเองไม่ผ่านแอดได้ ' + fmtNum(k.closeChatBase || 0) +
-        ' คน (อินบ็อกซ์ใหม่ ' + fmtNum(k.closeNewInbox || 0) + ' + คอมเมนต์ ' + fmtNum(k.closeComment || 0) + ')',
-      src: 'Meta Ads insights' }) +
+      src: 'Pancake statistics/customer_engagements (เพจ Facebook) + ออเดอร์จาก Pancake POS' }) +
+    tileHtml('💬 รวมคนทัก', k.closeBase === null || k.closeBase === undefined ? '—' : fmtNum(k.closeBase), {
+      title: '💬 รวมคนทัก', formula: 'อินบ็อกซ์ใหม่ + คอมเมนต์ (เพจ Facebook)',
+      body: 'ตัวหารของ %ปิดการขายและค่าทัก = อินบ็อกซ์ใหม่ ' + fmtNum(k.closeBaseInbox || 0) +
+        ' + คอมเมนต์ ' + fmtNum(k.closeBaseComment || 0) + ' • ตัวเลขของ Meta (ทัก + คอมเมนต์ จากแอด) = ' +
+        fmtNum(k.closeMetaBase || 0) + ' • ลูกค้าที่คุยทั้งหมด ' + fmtNum(k.engTotal || 0),
+      src: 'Pancake statistics/customer_engagements' }) +
     tileHtml('📨 อินบ็อกซ์ใหม่', k.closeNewInbox === null || k.closeNewInbox === undefined ? fmtNum(k.newConvs || 0) : fmtNum(k.closeNewInbox), {
       title: '📨 อินบ็อกซ์ใหม่', formula: 'customer_engagement_new_inbox',
       body: 'ลูกค้าที่เปิดบทสนทนาอินบ็อกซ์ใหม่ในช่วงนี้', src: 'Pancake statistics/customer_engagements' }) +
@@ -585,7 +584,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         '</div>' +
         '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] +
           ' — ค่าแอดจริงจาก Meta • ค่าทัก = ค่าแอด ÷ รวมคนทัก • %ปิด = ออเดอร์ ÷ รวมคนทัก' +
-          ' (รวมคนทัก = ทัก + คอมเมนต์ จาก Meta — สูตรเดียวกับเว็บ ADS SUMMARY ของทีมแอด)' +
+          ' (รวมคนทัก = อินบ็อกซ์ใหม่ + คอมเมนต์ ของเพจ Facebook — เท่ากับการ์ดเว็บ ADS SUMMARY ของทีมแอด)' +
           ' • 👆 คลิกยูนิตเพื่อดูรายเพจ + ยอดรายสัปดาห์' +
           unitGoalNote_(d, anyTarget) + '</div>' +
         (unitTable
@@ -944,8 +943,8 @@ function pct2_(n: unknown): string {
 }
 
 const PERBILL_TIP = 'เปอร์บิล = ยอดขาย ÷ จำนวนออเดอร์ ในช่วงเวลาที่เลือก';
-const CLOSE_TIP = '%ปิด = ออเดอร์ ÷ รวมคนทัก (ทัก + คอมเมนต์ จาก Meta) — สูตรเดียวกับเว็บ ADS SUMMARY ของทีมแอด' +
-  ' • เขียว = ถึงเป้า 40%, แดง = ไม่ถึง';
+const CLOSE_TIP = '%ปิด = ออเดอร์ ÷ รวมคนทัก (อินบ็อกซ์ใหม่ + คอมเมนต์ ของเพจ Facebook จาก Pancake)' +
+  ' — เท่ากับการ์ดเว็บ ADS SUMMARY ของทีมแอด • เขียว = ถึงเป้า 40%, แดง = ไม่ถึง';
 const TARGET_TIP = 'เป้าของช่วงวันที่ที่เลือก = เป้ารายเดือนในชีท KPI แท็บ เป้ายอดขาย ÷ จำนวนวันในเดือน × จำนวนวันที่เลือก' +
   ' • %บรรลุ = ยอดขาย ÷ เป้า — แถบเขียว = ถึงเป้า, ส้ม = 50-99%, แดง = ต่ำกว่าครึ่ง';
 
@@ -957,16 +956,14 @@ function closeCls_(u: any): string {
 
 function closeTip_(u: any): string {
   if (u.closeBase === null || u.closeBase === undefined) {
-    return '%ปิด = ออเดอร์ ÷ รวมคนทัก (ทัก + คอมเมนต์ จาก Meta) • ยูนิตนี้ยังไม่มีข้อมูลแอดในช่วงที่เลือก จึงคิดไม่ได้';
+    return '%ปิด = ออเดอร์ ÷ รวมคนทัก • ยูนิตนี้ไม่มีทั้งคนทักและค่าแอดในช่วงที่เลือก จึงคิดไม่ได้';
   }
   const parts = ['ออเดอร์ ' + fmtNum(u.closeOrders || 0) + ' ÷ รวมคนทัก ' + fmtNum(u.closeBase || 0) +
-    ' = ทัก ' + fmtNum(u.closeInq || 0) +
-    (u.closeBaseNoComment ? ' (รอบนี้ยังไม่มีคอมเมนต์ของ Meta — ฐานไม่รวมคอมเมนต์ เทียบกับรอบอื่นตรงๆ ไม่ได้)'
-      : ' + คอมเมนต์ ' + fmtNum(u.closeComment || 0))];
+    ' (อินบ็อกซ์ใหม่ ' + fmtNum(u.closeInq || 0) + ' + คอมเมนต์ ' + fmtNum(u.closeComment || 0) + ' ของเพจ Facebook)'];
   if (u.closeTarget) parts.push('เป้า ' + u.closeTarget + '% ขึ้นไป');
-  if (u.closeRateChat !== null && u.closeRateChat !== undefined) {
-    parts.push('สูตรเดิมของเรา (ออเดอร์จากแชทใหม่ ' + fmtNum(Math.max(0, (u.chatOrders || 0) - (u.chatOldOrders || 0))) +
-      ' ÷ คนทักฝั่ง Pancake ' + fmtNum(u.reached || 0) + ') = ' + pct2_(u.closeRateChat));
+  if (u.closeRateMeta !== null && u.closeRateMeta !== undefined) {
+    parts.push('ถ้าใช้ตัวเลขของ Meta (ทัก ' + fmtNum(u.closeMetaInq || 0) + ' + คอมเมนต์ ' +
+      fmtNum(u.closeMetaComment || 0) + ') = ' + pct2_(u.closeRateMeta));
   }
   return parts.join(' • ');
 }
@@ -981,11 +978,11 @@ function thb2_(n: unknown): string {
 /** tooltip ค่าทัก — บอกตัวตั้ง/ตัวหาร + ค่าตามสูตรเดิมไว้เทียบ */
 function costTip_(u: any): string {
   if (u.costPerMsg === null || u.costPerMsg === undefined) {
-    return 'ค่าทัก = ค่าแอด ÷ รวมคนทัก (ทัก + คอมเมนต์ จาก Meta) • ยูนิตนี้ยังไม่มีคนทักจากแอดในช่วงที่เลือก';
+    return 'ค่าทัก = ค่าแอด ÷ รวมคนทัก • ยูนิตนี้ยังไม่มีคนทักในช่วงที่เลือก';
   }
   let s = 'ค่าแอด ' + THB(u.spend || 0) + ' ÷ รวมคนทัก ' + fmtNum(u.closeBase || 0) + ' = ' + thb2_(u.costPerMsg);
-  if (u.costPerMsgStarted !== null && u.costPerMsgStarted !== undefined) {
-    s += ' • สูตรเดิม (÷ บทสนทนาที่แอดเปิดได้ ' + fmtNum(u.msgs || 0) + ') = ' + thb2_(u.costPerMsgStarted);
+  if (u.costPerMsgMeta !== null && u.costPerMsgMeta !== undefined) {
+    s += ' • ถ้าหารด้วยตัวเลขของ Meta (ทัก + คอมเมนต์) = ' + thb2_(u.costPerMsgMeta);
   }
   return s;
 }
