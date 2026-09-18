@@ -352,7 +352,8 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       ' ' + baseScope_() + ')' + adsCardNote_()];
     if (kk.closeUnitsNoData) {
       bits.push('ในตัวตั้งมีออเดอร์ ' + fmtNum(kk.closeOrdersNoData || 0) + ' ใบ จาก ' + fmtNum(kk.closeUnitsNoData) +
-        ' ยูนิตที่วันนั้นไม่มีคนทัก (%ปิด ในตารางเป็น —) — นับด้วยตามสเปก Σ ออเดอร์ทุกยูนิต');
+        ' แถวในตารางยูนิตที่ไม่มีคนทัก ' + baseScope_() + ' ในช่วงที่เลือก (%ปิด ในตารางเป็น —)' +
+        ' — นับด้วยตามสเปก Σ ออเดอร์ทุกยูนิต');
     }
     if (kk.closeRateMeta !== null && kk.closeRateMeta !== undefined) {
       bits.push('ถ้าใช้ตัวเลขของ Meta (ทัก + คอมเมนต์ ' + fmtNum(kk.closeMetaBase || 0) + ') = ' + pct2_(kk.closeRateMeta));
@@ -449,9 +450,13 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       src: 'Pancake statistics/customer_engagements (' + baseScope_().replace('ของ', '') + ') + ออเดอร์จาก Pancake POS' }) +
     tileHtml('💬 รวมคนทัก', k.closeBase === null || k.closeBase === undefined ? '—' : fmtNum(k.closeBase), {
       title: '💬 รวมคนทัก', formula: 'อินบ็อกซ์ใหม่ + คอมเมนต์ (' + baseScope_().replace('ของ', '') + ')',
-      body: 'ตัวหารของ %ปิดการขายและค่าทัก = อินบ็อกซ์ใหม่ ' + fmtNum(k.closeBaseInbox || 0) +
-        ' + คอมเมนต์ ' + fmtNum(k.closeBaseComment || 0) + ' • ตัวเลขของ Meta (ทัก + คอมเมนต์ จากแอด) = ' +
-        fmtNum(k.closeMetaBase || 0) + ' • ลูกค้าที่คุยทั้งหมด ' + fmtNum(k.engTotal || 0),
+      body: (state.channel === 'line'
+          ? 'ตัวหารของ %ปิดการขาย (เพจ LINE ไม่มีค่าแอด จึงไม่มีค่าทัก)'
+          : 'ตัวหารของ %ปิดการขายและค่าทัก') +
+        ' = อินบ็อกซ์ใหม่ ' + fmtNum(k.closeBaseInbox || 0) + ' + คอมเมนต์ ' + fmtNum(k.closeBaseComment || 0) +
+        (state.channel === 'line' ? ''
+          : ' • ตัวเลขของ Meta (ทัก + คอมเมนต์ จากแอด) = ' + fmtNum(k.closeMetaBase || 0)) +
+        ' • ลูกค้าที่คุยทั้งหมด ' + fmtNum(k.engTotal || 0),
       src: 'Pancake statistics/customer_engagements' }) +
     tileHtml('📨 อินบ็อกซ์ใหม่', k.closeNewInbox === null || k.closeNewInbox === undefined ? fmtNum(k.newConvs || 0) : fmtNum(k.closeNewInbox), {
       title: '📨 อินบ็อกซ์ใหม่', formula: 'customer_engagement_new_inbox',
@@ -955,9 +960,17 @@ function baseScope_(): string {
   return state.channel === 'line' ? 'ของเพจ LINE' : 'ของเพจ Facebook';
 }
 
-/** การ์ด ADS SUMMARY ของทีมแอดไม่มีมุมมอง LINE — อ้างถึงเฉพาะแท็บที่เทียบกันได้ */
+/**
+ * การ์ด ADS SUMMARY ของทีมแอด = ออเดอร์ทุกช่องทาง (FB + LINE) ÷ รวมคนทักเพจ FB
+ * จึงเท่ากับแท็บ 🌐 ทั้งหมด เท่านั้น — แท็บ Facebook ตัวหารเดียวกันแต่ตัวตั้งไม่รวม LINE (U4 17 ก.ย. 41.59% vs 41.90%)
+ */
 function adsCardNote_(): string {
-  return state.channel === 'line' ? '' : ' — เท่ากับการ์ดเว็บ ADS SUMMARY ของทีมแอด';
+  if (state.channel === 'line') return '';
+  if (state.channel === 'facebook') {
+    return ' — ตัวหารเดียวกับการ์ดเว็บ ADS SUMMARY ของทีมแอด แต่การ์ดนับออเดอร์ทุกช่องทาง (รวม LINE)' +
+      ' จะเทียบกับการ์ดให้ดูแท็บ 🌐 ทั้งหมด';
+  }
+  return ' — เท่ากับการ์ดเว็บ ADS SUMMARY ของทีมแอด';
 }
 
 function closeHeadTip_(): string {
