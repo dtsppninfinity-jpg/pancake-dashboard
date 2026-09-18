@@ -46,7 +46,10 @@ async function run(req: Request): Promise<Response> {
     const ms = Date.now() - t0;
     // ลงตารางเฉพาะตอนพัง — สำเร็จทุกนาที = 1,440 แถว/วัน รกเปล่าๆ
     await logJob('orders-delta', false, e?.message || String(e), ms);
-    return Response.json({ ok: false, error: e?.message || 'internal error', ms }, { status: 500 });
+    // ตอบ 200 ทั้งที่พัง: cron-job.org ปิดงานเองเมื่อได้ 5xx ติดกันหลายครั้ง
+    // เกิดจริง 15 ก.ย. 10:52 — Pancake ตอบ 502 ไม่กี่นาที ตัวยิงถูกปิดเงียบ 76 ชม. จนบอสต้องไปเปิดเอง
+    // การแจ้งเตือนไม่หาย: แถว log ข้างบน + ป้าย "เงียบ" ในหน้าเว็บอ่าน last_delta_at (lib/api/bootstrap.ts)
+    return Response.json({ ok: false, error: e?.message || 'internal error', ms });
   } finally {
     await setState(LOCK_KEY, '');
   }
