@@ -712,7 +712,8 @@ function unitRows_(
   cost: Record<string, UnitCost>,
   baseCost: Record<string, UnitCost>,   // ถังของ "รวมคนทัก" — facebook เสมอ ยกเว้นแท็บ LINE (ดู closeRateOf_)
   unmappedKey: string,
-  goal: UnitGoalInput
+  goal: UnitGoalInput,
+  noAds = false                        // แท็บ LINE: เพจ LINE ไม่มีค่าแอด → ค่าทักเป็น null ("—") ไม่ใช่ ฿0.00
 ) {
   // ยูนิตที่ "ยิงแอดแต่ยังไม่มียอด" ต้องโผล่ด้วย ไม่งั้นค่าแอดที่จ่ายไปหายจากหน้าจอเงียบๆ
   // ยูนิตที่ "มีเป้าแต่ยังขายไม่ได้เลย" ก็เช่นกัน — คือยูนิตที่ห่างเป้าที่สุด ต้องเห็นเป็น 0%
@@ -741,11 +742,12 @@ function unitRows_(
         orders: agg.orders,
         mapped,
         spend,
+        spendExact: Math.round(c.spend * 100) / 100,   // tooltip ค่าทัก — ค่าทักคิดจากตัวนี้ ไม่ใช่ spend ที่ปัดเป็นบาท
         // ROAS = ยอดขาย POS ÷ ค่าแอดจริงจาก Meta (ไม่ใช่ ROAS ที่ Meta ตีเองจาก pixel)
         roas: c.spend > 0 ? Math.round((agg.revenue / c.spend) * 100) / 100 : null,
         // "ค่าทัก" = ค่าแอด ÷ รวมคนทัก — ฐานเดียวกับ %ปิด ตามการ์ดทีมแอด (ต้นทุนทัก = งบ ÷ รวมคนเข้า)
         // costPerMsgMeta = ถ้าหารด้วยฐานของ Meta แทน — เก็บไว้ให้ tooltip เทียบ
-        costPerMsg: cl.base && cl.base > 0 ? Math.round((c.spend / cl.base) * 100) / 100 : null,
+        costPerMsg: !noAds && cl.base && cl.base > 0 ? Math.round((c.spend / cl.base) * 100) / 100 : null,
         costPerMsgMeta: (cl.metaInq + cl.metaComment) > 0
           ? Math.round((c.spend / (cl.metaInq + cl.metaComment)) * 100) / 100 : null,
         msgs: Math.round(c.msgs),
@@ -1155,7 +1157,8 @@ export async function apiSales(params: any) {
         .slice(0, 10),
       // ยอดขายจัดกลุ่มตามยูนิต (U/สินค้า) — เจาะ U→เพจ→สินค้า ได้ (กลุ่ม "ยังไม่จัดกลุ่ม" ต่อท้ายเสมอ)
       units: unitRows_(unitAgg, unitPages, unitWeekly, unitCust, unitCost[chanKey] || {},
-        (chanKey === 'line' ? unitCost.line : unitCost.facebook) || {}, UNMAPPED, goalInput(chanKey)),
+        (chanKey === 'line' ? unitCost.line : unitCost.facebook) || {}, UNMAPPED, goalInput(chanKey),
+        chanKey === 'line'),
       pageProducts,   // เพจ→รายการสินค้าที่ขายได้
       productPages,   // สินค้า→เพจที่ขายได้
     };
@@ -1170,23 +1173,28 @@ export async function apiSales(params: any) {
   /**
    * %ปิด ระดับช่องทาง = Σ ออเดอร์ ÷ Σ รวมคนทัก ของแถวยูนิตชุดเดียวกับที่โชว์ในตาราง
    * สเปททีมแอดย้ำว่าห้ามเฉลี่ย %รายยูนิต ต้องบวกตัวตั้ง/ตัวหารแยกกันก่อนแล้วค่อยหาร
-   * ยูนิตที่ไม่มีข้อมูลแอดเลยไม่ถูกนับ (นับไว้ใน missing ให้ tooltip บอกได้ว่ากี่ยูนิต)
+   * ตัวตั้งนับออเดอร์ "ทุกยูนิต" ตามสเปก (Σ ออเดอร์ทุกยูนิต) รวมยูนิตที่ไม่มีตัวหาร (%ปิด "—")
+   * เช่นแท็บ LINE: ยูนิตมีออเดอร์ LINE แต่วันนั้นไม่มีคนทัก LINE ใหม่ — เดิมโดนทิ้งทั้งยูนิต %ปิดรวมเลยต่ำกว่าจริง
+   * missing/missingOrders = ยูนิตแบบนั้นกี่ยูนิต กี่ใบ ให้ tooltip บอกได้
    * ⚠️ ผูกการ์ดบน/กล่องช่องทางกับตารางยูนิตไว้ที่นี่จุดเดียว — บทเรียนจาก 17 ส.ค. ที่แก้สูตร
    *    เฉพาะตารางยูนิต แล้วหน้าเดียวกันโชว์ %ปิด สองค่า (35.0% กับ 27.7%) อยู่เดือนนึง
    */
   const closeFromUnits_ = (units: any[]) => {
-    let orders = 0, base = 0, missing = 0, inq = 0, comment = 0, metaBase = 0;
+    let orders = 0, base = 0, missing = 0, missingOrders = 0, inq = 0, comment = 0, metaBase = 0;
     (units || []).forEach((u) => {
-      if (u.closeBase === null || u.closeBase === undefined) { missing++; return; }
       orders += u.closeOrders || 0;
+      metaBase += (u.closeMetaInq || 0) + (u.closeMetaComment || 0);
+      if (u.closeBase === null || u.closeBase === undefined) {
+        if (u.closeOrders) { missing++; missingOrders += u.closeOrders; }
+        return;
+      }
       base += u.closeBase || 0;
       inq += u.closeInq || 0;
       comment += u.closeComment || 0;
-      metaBase += (u.closeMetaInq || 0) + (u.closeMetaComment || 0);
     });
     return {
       rate: base > 0 ? Math.round((orders / base) * 10000) / 100 : null,
-      orders, base, missing, inq, comment,
+      orders, base, missing, missingOrders, inq, comment,
       metaBase, metaRate: metaBase > 0 ? Math.round((orders / metaBase) * 10000) / 100 : null,
     };
   };
@@ -1453,7 +1461,8 @@ export async function apiSales(params: any) {
       closeOrders: closeAds.orders,                 // ออเดอร์ POS = ตัวตั้ง
       closeBaseInbox: closeAds.inq,                 // ในรวมคนทัก: อินบ็อกซ์ใหม่
       closeBaseComment: closeAds.comment,           // ในรวมคนทัก: คอมเมนต์
-      closeUnitsNoData: closeAds.missing,           // ยูนิตที่ไม่มีทั้งคนทักและค่าแอด — ไม่ถูกนับในสูตร
+      closeUnitsNoData: closeAds.missing,           // ยูนิตที่มีออเดอร์แต่ไม่มีตัวหาร (%ปิด "—") — ออเดอร์ยังนับในตัวตั้ง
+      closeOrdersNoData: closeAds.missingOrders,    // ออเดอร์ของยูนิตกลุ่มนั้นรวมกี่ใบ
       closeMetaBase: closeAds.metaBase,             // ถ้าใช้ฐาน Meta (ตามเอกสารสเปก) — ไว้เทียบ
       closeRateMeta: closeAds.metaRate,
       // สูตรเดิมฝั่ง Pancake (ออเดอร์จากแชท ÷ คนทัก) — เก็บไว้เทียบใน tooltip ไม่ใช่ตัวหลักแล้ว
