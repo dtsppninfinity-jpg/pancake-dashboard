@@ -380,7 +380,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         // "ต้องตรวจ" กดได้ → เปิดตารางรายออเดอร์ (เดิมเป็นตัวเลขเฉยๆ ไม่รู้ว่าใบไหน)
         (Number(k.needCheck) > 0
           ? ' <button type="button" class="sr-needcheck" data-needcheck="range"' +
-              ' title="คลิกดูรายออเดอร์ที่ยังไม่ยืนยัน">⚠️ ต้องตรวจ ' + fmtNum(k.needCheck) + '</button>'
+              ' title="คลิกดูรายออเดอร์ที่ยังไม่ยืนยัน / รอสินค้า (ยังไม่นับเป็นยอดขาย)">⚠️ ต้องตรวจ ' + fmtNum(k.needCheck) + '</button>'
           : ' ✓ ไม่มีค้างตรวจ') +
         trendChip(t.orders) +
       '</div>' +
@@ -499,7 +499,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       '<div class="sr-today-row"><span>⚠️ ออเดอร์ที่ต้องตรวจ</span>' +
         (Number(today.needCheck) > 0
           ? '<button type="button" class="sr-needcheck" data-needcheck="today"' +
-            ' title="คลิกดูรายออเดอร์ที่ยังไม่ยืนยัน">' + fmtNum(today.needCheck) + '</button>'
+            ' title="คลิกดูรายออเดอร์ที่ยังไม่ยืนยัน / รอสินค้า (ยังไม่นับเป็นยอดขาย)">' + fmtNum(today.needCheck) + '</button>'
           : '<b>0</b>') +
       '</div>' +
       waitingRowHtml(d) +
@@ -1348,7 +1348,7 @@ function openAllPages(chKey: string): void {
   bindDrillRows(document.getElementById('modal-root'), chKey);
 }
 
-/* ---------------- ออเดอร์ที่ต้องตรวจ (สถานะ ใหม่/รอยืนยัน) ---------------- */
+/* ---------------- ออเดอร์ที่ต้องตรวจ (สถานะ ใหม่/รอยืนยัน/รอสินค้า — ยังไม่นับเป็นยอดขาย) ---------------- */
 
 /**
  * ตารางรายออเดอร์ที่ยังไม่ยืนยัน
