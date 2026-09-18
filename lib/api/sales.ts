@@ -728,8 +728,11 @@ function unitRows_(
         spend,
         // ROAS = ยอดขาย POS ÷ ค่าแอดจริงจาก Meta (ไม่ใช่ ROAS ที่ Meta ตีเองจาก pixel)
         roas: c.spend > 0 ? Math.round((agg.revenue / c.spend) * 100) / 100 : null,
-        // "ค่าทัก" = ค่าแอดต่อ 1 บทสนทนาที่แอดเปิดได้ (messaging_conversation_started)
-        costPerMsg: c.msgs > 0 ? Math.round((c.spend / c.msgs) * 100) / 100 : null,
+        // "ค่าทัก" = ค่าแอด ÷ รวมคนทัก (ทัก + คอมเมนต์ จาก Meta) — ฐานเดียวกับ %ปิด ตามสเปกทีมแอด
+        // (เดิม ÷ messaging_conversation_started ซึ่งนับมากกว่า first_reply → ค่าทักเราต่ำกว่าเว็บทีมแอด
+        //  เช่น U4 17 ก.ย. ฿64 vs ฿71.50) — ค่าเดิมเก็บไว้ใน costPerMsgStarted ให้ tooltip เทียบ
+        costPerMsg: cl.base && cl.base > 0 ? Math.round((c.spend / cl.base) * 100) / 100 : null,
+        costPerMsgStarted: c.msgs > 0 ? Math.round((c.spend / c.msgs) * 100) / 100 : null,
         msgs: Math.round(c.msgs),
         reached: Math.round(c.reached),
         // ---- %ปิด สูตรทีมแอด (ADS SUMMARY) — ดู adCloseRate_ ----

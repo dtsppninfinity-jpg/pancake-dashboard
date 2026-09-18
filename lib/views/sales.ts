@@ -534,7 +534,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         '<td class="num">' + (u.share === null ? '—' : pctFmt(u.share)) + '</td>' +
         '<td class="num">' + (u.spend ? THB(u.spend) : '—') + '</td>' +
         '<td class="num ' + roasCls + '">' + (u.roas === null ? '—' : u.roas.toFixed(2)) + '</td>' +
-        '<td class="num">' + (u.costPerMsg === null ? '—' : THB(u.costPerMsg)) + '</td>' +
+        '<td class="num" title="' + esc(costTip_(u)) + '">' + thb2_(u.costPerMsg) + '</td>' +
         '<td class="num ' + closeCls_(u) + '" title="' + esc(closeTip_(u)) + '">' +
           pct2_(u.closeRate) + '</td>' +
         '<td class="num ' + perBillCls_(u, pb) + '" title="' + esc(perBillTip_(u)) + '">' +
@@ -584,7 +584,8 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
           '</div>' +
         '</div>' +
         '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] +
-          ' — ค่าแอดจริงจาก Meta • ค่าทัก = ค่าแอด ÷ บทสนทนาที่แอดเปิดได้ • %ปิด = ออเดอร์จากแชท ÷ คนทัก' +
+          ' — ค่าแอดจริงจาก Meta • ค่าทัก = ค่าแอด ÷ รวมคนทัก • %ปิด = ออเดอร์ ÷ รวมคนทัก' +
+          ' (รวมคนทัก = ทัก + คอมเมนต์ จาก Meta — สูตรเดียวกับเว็บ ADS SUMMARY ของทีมแอด)' +
           ' • 👆 คลิกยูนิตเพื่อดูรายเพจ + ยอดรายสัปดาห์' +
           unitGoalNote_(d, anyTarget) + '</div>' +
         (unitTable
@@ -970,6 +971,25 @@ function closeTip_(u: any): string {
   return parts.join(' • ');
 }
 
+/** บาททศนิยม 2 ตำแหน่ง — ช่องค่าทักต้องอ่านเทียบกับเว็บทีมแอด (โชว์ 71.50 ไม่ใช่ 72) */
+function thb2_(n: unknown): string {
+  const v = Number(n);
+  if (n === null || n === undefined || isNaN(v)) return '—';
+  return '฿' + v.toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** tooltip ค่าทัก — บอกตัวตั้ง/ตัวหาร + ค่าตามสูตรเดิมไว้เทียบ */
+function costTip_(u: any): string {
+  if (u.costPerMsg === null || u.costPerMsg === undefined) {
+    return 'ค่าทัก = ค่าแอด ÷ รวมคนทัก (ทัก + คอมเมนต์ จาก Meta) • ยูนิตนี้ยังไม่มีคนทักจากแอดในช่วงที่เลือก';
+  }
+  let s = 'ค่าแอด ' + THB(u.spend || 0) + ' ÷ รวมคนทัก ' + fmtNum(u.closeBase || 0) + ' = ' + thb2_(u.costPerMsg);
+  if (u.costPerMsgStarted !== null && u.costPerMsgStarted !== undefined) {
+    s += ' • สูตรเดิม (÷ บทสนทนาที่แอดเปิดได้ ' + fmtNum(u.msgs || 0) + ') = ' + thb2_(u.costPerMsgStarted);
+  }
+  return s;
+}
+
 /** สีเปอร์บิล เทียบเป้าตามราคาเซ็ตของยูนิต — ยูนิตที่ชีทยังไม่มีราคาเซ็ตไม่ระบายสี (ไม่เดาเป้าให้) */
 function perBillCls_(u: any, pb: number | null): string {
   if (!u.perBillTarget || pb === null) return '';
@@ -1224,7 +1244,7 @@ function openUnitDrill(unitKey: string, chKey: string): void {
       (unit.spend ? '<span class="chip">📣 ค่าแอด ' + THB(unit.spend) + '</span>' : '') +
       (unit.roas === null ? '' : '<span class="chip">📈 ROAS ' + unit.roas.toFixed(2) + '</span>') +
       (unit.afterAds === null ? '' : '<span class="chip">💵 หลังหักค่าแอด ' + THB(unit.afterAds) + '</span>') +
-      (unit.costPerMsg === null ? '' : '<span class="chip">💬 ค่าทัก ' + THB(unit.costPerMsg) + '</span>') +
+      (unit.costPerMsg === null ? '' : '<span class="chip">💬 ค่าทัก ' + thb2_(unit.costPerMsg) + '</span>') +
       (unit.reached ? '<span class="chip">🙋 คนทัก ' + fmtNum(unit.reached) + '</span>' : '') +
       (unit.closeRate === null ? '' : '<span class="chip">🎯 %ปิด ' + pctFmt(unit.closeRate) + '</span>') +
       (unit.customers ? '<span class="chip">👥 ' + fmtNum(unit.customers) + ' ลูกค้า</span>' : '') +
