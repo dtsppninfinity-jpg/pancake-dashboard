@@ -1112,6 +1112,10 @@ export async function syncMetaAdsRange(since: string, until: string): Promise<Jo
           // "คนทัก" จาก Meta ตรงๆ (messaging_conversation_started) — รายงานสดระหว่างวัน
           // เดิมลืมเขียนคอลัมน์นี้ ค่าเลยค้างเป็นของ Pancake ที่มาช้า → %ปิดจากแอดเพี้ยนเป็นพันเปอร์เซ็นต์
           msgs_started: it.msgs,
+          // ฐาน %ปิด แบบทีมแอด: ทัก (first_reply) + คอมเมนต์ — แยกคอลัมน์จาก first_replies
+          // ของ Pancake ไว้ เพราะคนละแหล่งคนละเวลาตัดยอด (Pancake ช้ากว่าและไม่ครบทุกบัญชี)
+          meta_first_replies: it.firstReplies,
+          meta_comments: it.comments,
           updated_at: now,
         });
         spend += it.spend;
@@ -1119,7 +1123,20 @@ export async function syncMetaAdsRange(since: string, until: string): Promise<Jo
     } catch (e: any) { errors.push(`${acc.account_id}: ${e.message}`); }
     await sleep(120);
   });
-  if (rows.length) await upsertRows('ad_daily', rows, 'date,ad_id');
+  // ยังไม่ได้รัน migration 2026-09-18-ad-daily-meta-actions.sql → ยังไม่มีคอลัมน์ meta_first_replies/
+  // meta_comments ห้ามให้ค่าแอดทั้งงานล้มเพราะเรื่องนี้ — ตัด 2 คอลัมน์ออก ลองใหม่ แล้วบอกไว้ในข้อความงาน
+  let needMigration = false;
+  if (rows.length) {
+    try {
+      await upsertRows('ad_daily', rows, 'date,ad_id');
+    } catch (e: any) {
+      const emsg = String((e && e.message) || e);
+      if (!/meta_first_replies|meta_comments/.test(emsg)) throw e;
+      rows.forEach((r) => { delete r.meta_first_replies; delete r.meta_comments; });
+      await upsertRows('ad_daily', rows, 'date,ad_id');
+      needMigration = true;
+    }
+  }
   const range = since === until ? since : `${since}..${until}`;
   // ⚠️ ตัวเฝ้าระวังเทียบ rowsWritten ข้ามรอบ (now < prev/2) และเทียบได้เฉพาะเมื่อ scope ตรงกัน
   // ถ้ารายงานผลรวม 2 วัน แถวของ "เมื่อวาน" (~4,200) เป็นพื้นคงที่กลบการหายของ "วันนี้" จนสัญญาณ
@@ -1127,7 +1144,8 @@ export async function syncMetaAdsRange(since: string, until: string): Promise<Jo
   // (ช่วงวันเดียว since===until ค่าทุกตัวเท่าของเดิมเป๊ะ = ไม่รีเซ็ต baseline)
   const perDate: Record<string, number> = {};
   rows.forEach((r) => { perDate[r.date] = (perDate[r.date] || 0) + 1; });
-  let msg = `meta ads ${range}: ${rows.length} แถว จาก ${active.length}/${accounts.length} บัญชี | spend ฿${spend.toFixed(2)}` + cacheNote;
+  let msg = `meta ads ${range}: ${rows.length} แถว จาก ${active.length}/${accounts.length} บัญชี | spend ฿${spend.toFixed(2)}` + cacheNote +
+    (needMigration ? ' | ⚠️ ยังไม่ได้รัน migration 2026-09-18-ad-daily-meta-actions.sql — ยังไม่ได้เก็บ ทัก/คอมเมนต์ ของ Meta' : '');
   if (errors.length) msg += ` | ผิดพลาด ${errors.length} บัญชี: ${errors.slice(0, 2).join('; ')}`;
   return jobResult(msg, {
     subject: 'บัญชี', unitsTotal: active.length, unitsFailed: errors.length,

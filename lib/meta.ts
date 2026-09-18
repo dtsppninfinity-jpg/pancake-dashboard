@@ -78,6 +78,7 @@ export async function metaListAdAccounts(): Promise<MetaAccount[]> {
 export interface MetaAdInsight {
   date: string; ad_id: string; ad_name: string; spend: number; impressions: number; clicks: number;
   reach: number; purchases: number; purchase_value: number; msgs: number;
+  firstReplies: number; comments: number;
 }
 
 function sumActions(arr: any[], re: RegExp): number {
@@ -89,6 +90,11 @@ function sumActions(arr: any[], re: RegExp): number {
 // omni_purchase = ยอด "ซื้อ" ที่ Meta ตัดซ้ำแล้ว (ตรงตัวเลขบนจอ) — ใช้ตัวนี้ตัวเดียว ไม่รวม pixel/onsite ซ้ำ
 const PURCHASE_RE = /^omni_purchase$/;
 const MSG_RE = /messaging_conversation_started/;
+// ฐาน "รวมคนทัก" ของทีมแอด (สเปก ADS SUMMARY): ทัก = messaging_first_reply + คอมเมนต์ = comment
+// ห้ามใช้ messaging_conversation_started หรือ total_messaging_connection แทน first_reply —
+// วัดวันเดียวกัน 17 ก.ย. 2569 ได้ 1,732 / 1,881 / 2,275 คนละเลขทั้งหมด
+const FIRST_REPLY_RE = /messaging_first_reply/;
+const COMMENT_RE = /^comment$/;
 
 /**
  * insights ระดับ "แอด" ของ 1 บัญชี ในช่วง since..until — แตกเป็นรายวัน (time_increment=1)
@@ -121,6 +127,8 @@ export async function metaAccountAdInsights(accountId: string, since: string, un
         purchases: sumActions(row.actions, PURCHASE_RE),
         purchase_value: sumActions(row.action_values, PURCHASE_RE),
         msgs: sumActions(row.actions, MSG_RE),
+        firstReplies: sumActions(row.actions, FIRST_REPLY_RE),
+        comments: sumActions(row.actions, COMMENT_RE),
       });
     });
     after = (r.paging && r.paging.next && r.paging.cursors) ? r.paging.cursors.after : undefined;

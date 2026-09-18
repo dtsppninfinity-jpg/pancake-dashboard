@@ -463,7 +463,12 @@ function bkkWeekStart_(d: Date): string {
 
 // engOldOrders = ในออเดอร์จากแชทนั้น มาจากแชทที่เปิดวันก่อนกี่ราย — ต้องตัดออกจากตัวเศษของ %ปิด
 // (นิยามเดียวกับหน้า Admin Performance ตั้งแต่ 2026-08-17 — สองหน้าต้องได้เลขเดียวกัน)
-export interface UnitCost { spend: number; msgs: number; reached: number; engOrders: number; engOldOrders: number }
+// adInq/adComment = ฐาน "รวมคนทัก" ของทีมแอด (Meta: messaging_first_reply + comment) = ตัวหารของ %ปิด
+// adInqPancake = first_replies จาก Pancake statistics/ads — ใช้ถอยเมื่อยังไม่มีค่าของ Meta (ฐานนี้ไม่มีคอมเมนต์)
+export interface UnitCost {
+  spend: number; msgs: number; reached: number; engOrders: number; engOldOrders: number;
+  adInq: number; adComment: number; adInqPancake: number;
+}
 type UnitCostByChannel = Record<string, Record<string, UnitCost>>;
 
 /**
@@ -489,24 +494,38 @@ async function loadUnitCost_(
     const ch = platformChannel_(pagePlatform[pageId] || '');
     for (const bucket of ['all', ch]) {
       if (!out[bucket]) continue;   // ch = 'other' ไม่มีถัง — นับเฉพาะ all
-      if (!out[bucket][key]) out[bucket][key] = { spend: 0, msgs: 0, reached: 0, engOrders: 0, engOldOrders: 0 };
+      if (!out[bucket][key]) out[bucket][key] = {
+        spend: 0, msgs: 0, reached: 0, engOrders: 0, engOldOrders: 0, adInq: 0, adComment: 0, adInqPancake: 0,
+      };
       const t = out[bucket][key];
       t.spend += patch.spend || 0;
       t.msgs += patch.msgs || 0;
       t.reached += patch.reached || 0;
       t.engOrders += patch.engOrders || 0;
       t.engOldOrders += patch.engOldOrders || 0;
+      t.adInq += patch.adInq || 0;
+      t.adComment += patch.adComment || 0;
+      t.adInqPancake += patch.adInqPancake || 0;
     }
   };
 
+  // คอลัมน์ meta_first_replies/meta_comments เพิ่ม 2026-09-18 (ฐาน %ปิด ของทีมแอด)
+  // ถ้ายังไม่ได้รัน migration PostgREST จะฟ้องทั้งคำขอ → ถอยไปอ่านชุดเดิม ดีกว่าทิ้งค่าแอดทั้งก้อน
+  const AD_COLS = 'ad_id,date,page_id,spend,msgs_started,first_replies';
+  const loadAds_ = (cols: string) => fetchAllDateSliced<Row>((f, t) =>
+    db.from('ad_daily').select(cols).gte('date', f).lte('date', t), from, to, { orderColumn: 'date,ad_id' });
   try {
-    const ads = await fetchAllDateSliced<Row>((f, t) =>
-      db.from('ad_daily').select('ad_id,date,page_id,spend,msgs_started')
-        .gte('date', f).lte('date', t), from, to, { orderColumn: 'date,ad_id' });
+    let ads: Row[];
+    try { ads = await loadAds_(AD_COLS + ',meta_first_replies,meta_comments'); }
+    catch { ads = await loadAds_(AD_COLS); }
     ads.forEach((a) => {
       const pid = String(a.page_id || '');
       if (!pid) return;   // แอดที่ Pancake ยังไม่ผูกเพจ — ยัดเข้ายูนิตไหนก็มั่ว ทิ้งดีกว่าเดา
-      bump(pid, { spend: toNum_(a.spend), msgs: toNum_(a.msgs_started) });
+      bump(pid, {
+        spend: toNum_(a.spend), msgs: toNum_(a.msgs_started),
+        adInq: toNum_(a.meta_first_replies), adComment: toNum_(a.meta_comments),
+        adInqPancake: toNum_(a.first_replies),
+      });
     });
   } catch { /* ยังไม่มีตาราง ad_daily — ปล่อยค่าเป็น 0 แล้วให้ฝั่ง UI โชว์ "—" */ }
 
@@ -643,6 +662,29 @@ interface UnitGoalInput {
 }
 
 /**
+ * %ปิด ตามสเปกทีมแอด (เว็บ ADS SUMMARY — พีสั่งให้ตามของเขา 2026-09-18)
+ *   %ปิด = ออเดอร์ POS (สำเร็จ) ÷ รวมคนทัก   โดย รวมคนทัก = ทัก + คอมเมนต์ จาก Meta
+ * ต่างจากสูตรเดิมของเรา 2 จุด: ตัวตั้งนับออเดอร์ทุกใบ (ไม่หักออเดอร์ลูกค้าเก่าเหมือน ee685db)
+ * และตัวหารเป็นของ Meta = เฉพาะคนที่มาจากแอด ไม่ใช่ของ Pancake ที่รวมคนทักออร์แกนิกด้วย
+ *
+ * ยังไม่มีค่าของ Meta (ยังไม่ได้รัน migration / วันเก่าที่งาน meta-ads ไม่ครอบคลุม) → ถอยไปใช้
+ * first_replies ของ Pancake แล้วติดธง noComment ให้หน้าเว็บบอกว่ารอบนั้นฐานไม่รวมคอมเมนต์
+ * ไม่มีข้อมูลแอดเลย → null เพื่อให้โชว์ "—" ไม่ใช่ 0% (สเปกข้อ "ดึงไม่ได้ ห้ามใส่ 0")
+ */
+function adCloseRate_(c: UnitCost, posOrders: number) {
+  const useMeta = c.adInq > 0 || c.adComment > 0;
+  const inq = useMeta ? c.adInq : c.adInqPancake;
+  const comment = useMeta ? c.adComment : 0;
+  const base = inq + comment;
+  if (base <= 0 && c.spend <= 0) return { rate: null, base: null, inq: null, comment: null, noComment: false };
+  return {
+    // ทศนิยม 2 ตำแหน่งตามสเปก (ปัดตอนคำนวณครั้งเดียว หน้าเว็บ format ต่อ)
+    rate: base > 0 ? Math.round((posOrders / base) * 10000) / 100 : 0,
+    base, inq, comment: useMeta ? comment : null, noComment: !useMeta,
+  };
+}
+
+/**
  * ประกอบแถว "ยูนิต" ที่ส่งให้หน้าเว็บ — ยอดขาย + ต้นทุนแอด + คนทัก + รายสัปดาห์ + เป้า
  *
  * ตัวหาร 0 คืน null ไม่ใช่ 0 ทุกจุด — หน้าเว็บจะได้แสดง "—" แทนเลขที่อ่านเหมือนวัดแล้วได้ศูนย์
@@ -668,11 +710,14 @@ function unitRows_(
       const agg = unitAgg[k] || {
         u: mapped ? k : '', product: mapped ? (goal.productOf[k] || '') : 'ยังไม่จัดกลุ่ม', revenue: 0, orders: 0,
       };
-      const c = cost[k] || { spend: 0, msgs: 0, reached: 0, engOrders: 0, engOldOrders: 0 };
+      const c = cost[k] || {
+        spend: 0, msgs: 0, reached: 0, engOrders: 0, engOldOrders: 0, adInq: 0, adComment: 0, adInqPancake: 0,
+      };
       const revenue = Math.round(agg.revenue);
       const spend = Math.round(c.spend);
       const rep = repeatStats_(unitCust[k] || {});
       const tgt = mapped && goal.withTargets && goal.target[k] > 0 ? goal.target[k] : 0;
+      const cl = adCloseRate_(c, agg.orders);
       return {
         key: k,
         u: agg.u,
@@ -687,11 +732,19 @@ function unitRows_(
         costPerMsg: c.msgs > 0 ? Math.round((c.spend / c.msgs) * 100) / 100 : null,
         msgs: Math.round(c.msgs),
         reached: Math.round(c.reached),
-        // %ปิด = ออเดอร์จาก "แชทใหม่" ÷ คนทัก — ตัดออเดอร์ที่มาจากแชทวันก่อนออกจากตัวเศษ
-        // ไม่งั้นยูนิตที่หยุดยิงแอดจะได้ %ปิดพุ่ง (ตัวหารหด แต่ยอดยังมาจากฐานลูกค้าเดิม)
-        closeRate: c.reached > 0
+        // ---- %ปิด สูตรทีมแอด (ADS SUMMARY) — ดู adCloseRate_ ----
+        closeRate: cl.rate,
+        closeOrders: agg.orders,          // ตัวตั้ง = ออเดอร์ POS ของยูนิต (ไม่หักลูกค้าเก่า)
+        closeBase: cl.base,               // ตัวหาร = ทัก + คอมเมนต์
+        closeInq: cl.inq,
+        closeComment: cl.comment,
+        closeBaseNoComment: cl.noComment, // ฐานรอบนี้ไม่มีคอมเมนต์ (ใช้ตัวเลข Pancake) — เทียบข้ามรอบตรงๆ ไม่ได้
+        // สูตรเดิมของเรา (Pancake: ออเดอร์จากแชทใหม่ ÷ คนทัก) — เก็บไว้ให้ tooltip เทียบ ไม่ได้โชว์เป็นตัวหลักแล้ว
+        closeRateChat: c.reached > 0
           ? Math.round((Math.max(0, c.engOrders - c.engOldOrders) / c.reached) * 1000) / 10
           : null,
+        chatOrders: Math.round(c.engOrders),
+        chatOldOrders: Math.round(c.engOldOrders),
         // สัดส่วนยอดของยูนิตนี้ต่อยอดรวมทั้งหมดในช่วง
         share: grand > 0 ? Math.round((agg.revenue / grand) * 1000) / 10 : null,
         // กำไรขั้นต้นแบบหยาบ: ยอดขาย - ค่าแอด (ยังไม่มีต้นทุนสินค้าในระบบ ห้ามเรียกว่า "กำไร")
@@ -1092,6 +1145,41 @@ export async function apiSales(params: any) {
     facebook: topAgg(cur.filter((o) => orderChannel_(o) === 'facebook'), 'facebook'),
     line: topAgg(cur.filter((o) => orderChannel_(o) === 'line'), 'line'),
   };
+
+  /**
+   * %ปิด ระดับช่องทาง = Σ ออเดอร์ ÷ Σ รวมคนทัก ของแถวยูนิตชุดเดียวกับที่โชว์ในตาราง
+   * สเปททีมแอดย้ำว่าห้ามเฉลี่ย %รายยูนิต ต้องบวกตัวตั้ง/ตัวหารแยกกันก่อนแล้วค่อยหาร
+   * ยูนิตที่ไม่มีข้อมูลแอดเลยไม่ถูกนับ (นับไว้ใน missing ให้ tooltip บอกได้ว่ากี่ยูนิต)
+   * ⚠️ ผูกการ์ดบน/กล่องช่องทางกับตารางยูนิตไว้ที่นี่จุดเดียว — บทเรียนจาก 17 ส.ค. ที่แก้สูตร
+   *    เฉพาะตารางยูนิต แล้วหน้าเดียวกันโชว์ %ปิด สองค่า (35.0% กับ 27.7%) อยู่เดือนนึง
+   */
+  const closeFromUnits_ = (units: any[]) => {
+    let orders = 0, base = 0, missing = 0, noComment = false;
+    (units || []).forEach((u) => {
+      if (u.closeBase === null || u.closeBase === undefined) { missing++; return; }
+      orders += u.closeOrders || 0;
+      base += u.closeBase || 0;
+      if (u.closeBaseNoComment) noComment = true;
+    });
+    return {
+      rate: base > 0 ? Math.round((orders / base) * 10000) / 100 : null,
+      orders, base, missing, noComment,
+    };
+  };
+  const closeAds = closeFromUnits_(((top as any)[channel || 'all'] || {}).units || []);
+
+  // กล่อง "แหล่งที่มา" ใช้สูตรเดียวกัน — LINE/อื่นๆ ไม่มีค่าแอดจึงเป็น null แล้วโชว์ "—"
+  // เกณฑ์ป้ายสถานะขยับตามสเกลใหม่ (เป้า 40%): ≥40 ดี · <20 ต้องปรับ
+  sources.forEach((row: any) => {
+    const t = (top as any)[row.key];
+    const c = t ? closeFromUnits_(t.units || []) : { rate: null };
+    row.closeRate = c.rate;
+    row.status = !row.orders ? { label: '—', cls: 'neutral' }
+      : c.rate === null ? { label: '👀 เฝ้าดู', cls: 'info' }
+        : c.rate >= UNIT_CLOSE_TARGET ? { label: '✅ ดี', cls: 'ai' }
+          : c.rate < UNIT_CLOSE_TARGET / 2 ? { label: '🛠 ต้องปรับ', cls: 'admin' }
+            : { label: '👀 เฝ้าดู', cls: 'info' };
+  });
   (['all', 'facebook', 'line'] as const).forEach((k) => {
     (top[k].units || []).forEach((u: any) => {
       u.note = unitNotes[u.key] || '';
@@ -1335,10 +1423,17 @@ export async function apiSales(params: any) {
       avgOrder: sCur.confirmed ? Math.round(sCur.revenue / sCur.confirmed) : 0,
       needCheck: sCur.needCheck,
       adRevenue: Math.round(sCur.adRevenue),
-      // %ปิดการขาย = ออเดอร์ที่สร้างจากแชท ÷ คนทัก (อินบ็อกซ์ใหม่ + คอมเมนต์)
-      closeRate: closeRate,
-      closeBase: engCh ? engCh.reached : null,      // คนทัก = ตัวหาร
-      closeOrders: engCh ? engCh.orders : null,     // ออเดอร์จากแชท = ตัวตั้ง
+      // %ปิดการขาย = สูตรทีมแอด (ADS SUMMARY): Σ ออเดอร์ POS ÷ Σ รวมคนทัก (ทัก + คอมเมนต์ จาก Meta)
+      closeRate: closeAds.rate,
+      closeBase: closeAds.base,                     // รวมคนทัก = ตัวหาร
+      closeOrders: closeAds.orders,                 // ออเดอร์ POS = ตัวตั้ง
+      closeInqAll: closeAds.base,
+      closeUnitsNoData: closeAds.missing,           // ยูนิตที่ไม่มีข้อมูลแอด — ไม่ถูกนับในสูตร
+      closeAdNoComment: closeAds.noComment,         // ฐานรอบนี้ไม่รวมคอมเมนต์ (ยังไม่มีค่าของ Meta)
+      // สูตรเดิมฝั่ง Pancake (ออเดอร์จากแชท ÷ คนทัก) — เก็บไว้เทียบใน tooltip ไม่ใช่ตัวหลักแล้ว
+      closeRateChat: closeRate,
+      closeChatBase: engCh ? engCh.reached : null,
+      closeChatOrders: engCh ? engCh.orders : null,
       closeNewInbox: engCh ? engCh.newInbox : null, // ในคนทัก: อินบ็อกซ์ใหม่กี่คน
       closeComment: engCh ? engCh.comment : null,   // ในคนทัก: คอมเมนต์กี่คน
       engTotal: engCh ? engCh.total : null,         // ลูกค้าคุยทั้งหมด (อ้างอิง)
