@@ -158,14 +158,12 @@ function monthOptions(cur: string): string {
 
 function render(container: HTMLElement, d: PerfData | null): void {
   if (!d) return;
-  if (d.needSalesRpc || d.needAdsRpc) {
-    const files = [
-      d.needSalesRpc ? 'db/migrations/2026-09-21-sales-daily-by-page.sql' : '',
-      d.needAdsRpc ? 'db/migrations/2026-09-21-ads-daily-by-page.sql' : '',
-    ].filter(Boolean).map((f) => '<li><b>' + esc(f) + '</b></li>').join('');
+  // ไม่มี RPC ยอดขาย = ทั้งหน้าไม่มีตัวเลขเลย ต้องหยุดและบอกวิธีรัน
+  // ส่วน RPC ค่าแอดหายไปแค่ทำให้ ROAS/ค่าทัก/ค่าแอด เป็น "—" ตัวเลขที่เหลือยังใช้ได้ จึงแค่เตือน
+  if (d.needSalesRpc) {
     container.innerHTML = '<div class="card"><h3>🎯 ผลงานราย Unit</h3>' +
-      '<div class="empty-note">ยังใช้ไม่ได้ — ต้องรันไฟล์นี้ใน Supabase (SQL Editor → วาง → Run) ก่อนหนึ่งครั้ง:' +
-      '<ul style="margin:6px 0 0 18px">' + files + '</ul></div></div>';
+      '<div class="empty-note">ยังใช้ไม่ได้ — ต้องรันไฟล์ <b>db/migrations/2026-09-21-sales-daily-by-page.sql</b>' +
+      ' ใน Supabase (SQL Editor → วาง → Run) ก่อนหนึ่งครั้ง</div></div>';
     return;
   }
   const t = d.totals;
@@ -208,6 +206,10 @@ function render(container: HTMLElement, d: PerfData | null): void {
       controls +
     '</div>' +
     summary +
+    (d.needAdsRpc
+      ? '<div class="empty-note">⚠️ ค่าแอด / ROAS / ค่าทัก ยังขึ้นเป็น “—” เพราะยังไม่ได้รันไฟล์' +
+        ' <b>db/migrations/2026-09-21-ads-daily-by-page.sql</b> ใน Supabase — ตัวเลขอื่นใช้ได้ตามปกติ</div>'
+      : '') +
     (d.goalYearMismatch ? '<div class="empty-note">⚠️ ชีท KPI ที่ sync มาเป็นของคนละปีกับเดือนที่เลือก — การ์ดจึงไม่มีเป้า</div>' : '') +
     (list.length
       ? '<div class="up-list">' + list.map((u, i) => cardHtml(u, i + 1, d)).join('') + '</div>'
