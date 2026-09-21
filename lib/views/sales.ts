@@ -1052,7 +1052,7 @@ function dailySalesCard_(d: any, rangeLabel: string): string {
       : ' • เป้าและสถานะดูได้ที่แท็บ 🌐 ทั้งหมด (เป้าในชีทเป็นยอดรวมทุกช่องทาง)');
 
   return head + '<div class="card-sub">' + sub + '</div>' +
-    '<div class="table-scroll"><table class="tbl ds-tbl"><thead><tr>' +
+    '<div class="table-scroll"><table class="tbl ds-tbl tbl-scroll-x" data-cards="off"><thead><tr>' +
       '<th class="ds-date">วันที่</th><th class="num">รวมทุกยูนิต</th>' +
       (ds.withTargets ? '<th>สถานะ</th>' : '') + unitTh +
     '</tr></thead><tbody>' + body + '</tbody><tfoot>' + foot + '</tfoot></table></div></div>';
