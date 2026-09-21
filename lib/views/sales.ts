@@ -991,6 +991,11 @@ function dailySalesCard_(d: any, rangeLabel: string): string {
   const head = '<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
     '<h3>📅 ยอดขายรายวัน (แยกตามยูนิต)</h3>' +
     '<div class="pg-controls" style="margin-bottom:0">' + rangeControlsHtml(state, 'srday') + '</div></div>';
+  if (ds.loadFailed) {
+    return head + '<div class="card-sub">ยอดขายรายวันต่อยูนิต</div>' +
+      '<div class="empty-note">ดึงยอดรายวันรอบนี้ไม่สำเร็จ (ฐานข้อมูลตอบช้าหรือพลาด) — ลองรีเฟรชอีกครั้ง' +
+      ' ตัวเลขในตารางอื่นบนหน้านี้ยังใช้ได้ตามปกติ</div></div>';
+  }
   if (ds.needMigration) {
     return head + '<div class="card-sub">ยอดขายรายวันต่อยูนิต</div>' +
       '<div class="empty-note">ยังใช้ไม่ได้ — ต้องรันไฟล์ <b>db/migrations/2026-09-21-sales-daily-by-page.sql</b>' +

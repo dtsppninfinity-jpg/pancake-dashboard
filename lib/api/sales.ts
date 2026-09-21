@@ -702,10 +702,18 @@ function dailyTargetOf_(goals: UnitGoals | null, ymd: string, u: string): number
 }
 
 interface DailyRaw {
-  rows: any[] | null;      // null = RPC ยังไม่ถูกสร้าง (ยังไม่ได้รัน migration)
+  rows: any[] | null;                        // null = โหลดไม่ได้ (ดู failed ว่าเพราะอะไร)
+  failed: 'migration' | 'error' | null;      // migration = ยังไม่ได้รัน SQL · error = ฐานข้อมูลพลาด/ช้า
   startYmd: string;        // วันแรกที่โชว์
   endYmd: string;          // วันสุดท้ายที่โชว์
   widened: boolean;        // true = ช่วงที่เลือกสั้นกว่า DAILY_MIN_DAYS จึงย้อนให้ครบเอง
+}
+
+/** ยังไม่ได้รัน migration (ไม่มีฟังก์ชันในฐานข้อมูล) ≠ ฟังก์ชันมีแต่รอบนี้ล้ม — คนละข้อความบนจอ */
+function isMissingFunction_(err: any): boolean {
+  const code = String((err && err.code) || '');
+  const msg = String((err && err.message) || err || '');
+  return code === 'PGRST202' || /schema cache|does not exist|could not find the function/i.test(msg);
 }
 
 /**
@@ -723,17 +731,35 @@ async function loadDailyByPage_(r: Range): Promise<DailyRaw> {
   const minStart = ymdShift_(endYmd, -(DAILY_MIN_DAYS - 1));
   const startYmd = selStart < minStart ? selStart : minStart;
   const widened = startYmd < selStart;
+  // ⚠️ PostgREST ตัดผลลัพธ์ทุกคิวรีที่ 1,000 แถว รวม RPC ด้วย — ต้องแบ่งหน้าเอง
+  // (เจอจริง 21 ก.ย.: ช่วง 30 วัน = 2,074 แถว ได้มา 1,000 → ตารางโชว์ยอดหายไป 53% แบบเงียบๆ
+  //  ตัวเลขยังดู "สมเหตุสมผล" เพราะหายกระจายทุกวัน ไม่ใช่หายทั้งวัน)
+  // ต้องสั่ง order ครบทุกคอลัมน์ที่ group by ด้วย ไม่งั้นแบ่งหน้าแล้วแถวข้าม/ซ้ำ (group by ไม่การันตีลำดับ)
+  const PAGE = 1000;
+  const rows: any[] = [];
   try {
-    const { data, error } = await db.rpc('sales_daily_by_page', {
-      p_from: bkkDayIso_(ymdShift_(startYmd, -1)),
-      p_to: bkkDayIso_(ymdShift_(endYmd, 1)),
-      p_excluded: EXCLUDED_STATUSES,
-      p_needcheck: NEED_CHECK_STATUSES,
-    }).abortSignal(AbortSignal.timeout(20_000));
-    if (error) return { rows: null, startYmd, endYmd, widened };
-    return { rows: (data || []) as any[], startYmd, endYmd, widened };
+    for (let off = 0; off <= 60000; off += PAGE) {
+      const { data, error } = await db.rpc('sales_daily_by_page', {
+        p_from: bkkDayIso_(ymdShift_(startYmd, -1)),
+        p_to: bkkDayIso_(ymdShift_(endYmd, 1)),
+        p_excluded: EXCLUDED_STATUSES,
+        p_needcheck: NEED_CHECK_STATUSES,
+      })
+        .order('d', { ascending: true })
+        .order('page_id', { ascending: true })
+        .order('channel', { ascending: true })
+        .range(off, off + PAGE - 1)
+        .abortSignal(AbortSignal.timeout(20_000));
+      if (error) {
+        return { rows: null, failed: isMissingFunction_(error) ? 'migration' : 'error', startYmd, endYmd, widened };
+      }
+      const got = (data || []) as any[];
+      rows.push(...got);
+      if (got.length < PAGE) break;
+    }
+    return { rows, failed: null, startYmd, endYmd, widened };
   } catch {
-    return { rows: null, startYmd, endYmd, widened };
+    return { rows: null, failed: 'error', startYmd, endYmd, widened };
   }
 }
 
@@ -751,12 +777,18 @@ function buildDailySales_(
 ) {
   const withTargets = !channel;
   if (!raw.rows) {
-    return { needMigration: true, withTargets, widened: raw.widened, days: 0, units: [], rows: [], totals: null, minDays: DAILY_MIN_DAYS };
+    return {
+      needMigration: raw.failed === 'migration',
+      loadFailed: raw.failed === 'error',
+      withTargets, widened: raw.widened, days: 0, units: [], rows: [], totals: null, minDays: DAILY_MIN_DAYS,
+    };
   }
-  // ทุกวันในหน้าต่าง (รวมวันที่ยอด 0) เรียงเก่า → ใหม่ ไว้คิด % ก่อน แล้วค่อยกลับด้านตอนส่งออก
+  // ทุกวันในหน้าต่าง (รวมวันที่ยอด 0) เรียงเก่า → ใหม่
+  // เพดาน 400 แถวกันตารางบวม/ลูปไม่จบถ้าวันที่เพี้ยน — ตัด "วันเก่า" ทิ้ง วันใหม่ต้องอยู่เสมอ
   const days: string[] = [];
-  for (let dd = raw.startYmd; dd <= raw.endYmd && days.length < 400; dd = ymdShift_(dd, 1)) days.push(dd);
-  const prevOfFirst = ymdShift_(raw.startYmd, -1);
+  for (let dd = raw.startYmd; dd <= raw.endYmd && days.length < 4000; dd = ymdShift_(dd, 1)) days.push(dd);
+  if (days.length > 400) days.splice(0, days.length - 400);
+  const prevOfFirst = ymdShift_(days[0] || raw.startYmd, -1);
 
   const rev: Record<string, Record<string, number>> = {};   // ymd → unitKey → ยอดขาย (บาท)
   const ord: Record<string, Record<string, number>> = {};   // ymd → unitKey → จำนวนออเดอร์
@@ -796,6 +828,13 @@ function buildDailySales_(
     orders: ordOf[k] || 0,
   }));
 
+  // เป้ารวมของแถวต้องนับ "ทุกยูนิตที่มีเป้าในชีท" ไม่ใช่เฉพาะยูนิตที่มีคอลัมน์
+  // (ยูนิตมีเป้าแต่ขายไม่ได้เลยทั้งช่วงจะไม่มีคอลัมน์ — ถ้าตัดเป้าเขาทิ้งด้วย ป้ายสถานะจะหลวมเกินจริง
+  //  กติกาเดียวกับตารางยูนิต 🧩 ที่โชว์ยูนิตมีเป้าแม้ยอด 0)
+  const targetKeys = withTargets && goals
+    ? Object.keys(goals.targets).filter((u) => (goals.targets[u] || []).some((m) => Number(m) > 0))
+    : [];
+
   const pct_ = (v: number, prev: number): number | null =>
     prev > 0 ? Math.round(((v - prev) / prev) * 1000) / 10 : null;
 
@@ -806,14 +845,14 @@ function buildDailySales_(
     const prevKnown = prevYmd >= prevOfFirst;
     const cur = rev[ymd] || {};
     const prv = rev[prevYmd] || {};
-    let total = 0, prevTotal = 0, target = 0;
+    let total = 0, prevTotal = 0;
+    const target = targetKeys.reduce((a, u) => a + dailyTargetOf_(goals, ymd, u), 0);
     const cells = keys.map((k) => {
       const v = cur[k] || 0;
       const p = prv[k] || 0;
       total += v;
       prevTotal += p;
       const t = withTargets ? dailyTargetOf_(goals, ymd, k) : 0;
-      if (t > 0) target += t;
       return {
         v: Math.round(v),
         orders: (ord[ymd] || {})[k] || 0,
@@ -838,6 +877,7 @@ function buildDailySales_(
 
   return {
     needMigration: false,
+    loadFailed: false,
     withTargets,
     widened: raw.widened,
     minDays: DAILY_MIN_DAYS,
