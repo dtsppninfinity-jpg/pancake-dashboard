@@ -521,6 +521,66 @@ table.tbl th {
 table.tbl td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid rgba(38,51,82,.5); }
 table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 
+/* ---------- 🎯 ผลงานราย Unit (up-*) — การ์ดใบละยูนิต ----------
+   มือถือ = ทุกอย่างเรียงลงมาเป็นแถวเดียว · จอกว้างค่อยแยกเป็น เงิน | วงแหวน | ตัวเลข | สัญญาณ */
+.up-controls { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
+.up-controls .input { min-width: 0; }
+.up-search { flex: 1 1 180px; }
+.up-list { display: flex; flex-direction: column; gap: var(--sp-3); }
+.up-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: var(--sp-4); border-left: 4px solid var(--border);
+}
+.up-card.lv-urgent { border-left-color: var(--red); }
+.up-card.lv-watch { border-left-color: var(--amber); }
+.up-card.lv-ok { border-left-color: var(--green); }
+.up-head { display: flex; align-items: flex-start; gap: var(--sp-3); }
+.up-rank {
+  width: 34px; height: 34px; flex: none; border-radius: 50%;
+  background: var(--surface-2); color: var(--text-2);
+  display: flex; align-items: center; justify-content: center; font-weight: 800;
+}
+.up-name { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.up-u { font-size: var(--fs-5); font-weight: 800; }
+.up-sub { font-size: var(--fs-2); color: var(--text-3); width: 100%; }
+.up-body { display: grid; gap: var(--sp-3); margin-top: var(--sp-3); }
+.up-money-label, .up-money-sub { font-size: var(--fs-1); color: var(--text-3); }
+.up-money-big { font-size: var(--fs-6); font-weight: 800; margin: 2px 0; font-variant-numeric: tabular-nums; }
+.up-money-big span { font-size: var(--fs-3); font-weight: 600; color: var(--text-3); }
+.up-ring-wrap { display: flex; align-items: center; gap: var(--sp-3); }
+.up-ring {
+  width: 74px; height: 74px; flex: none; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+}
+.up-ring > span {
+  width: 58px; height: 58px; border-radius: 50%; background: var(--surface);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1;
+}
+.up-ring > span b { font-size: var(--fs-3); font-weight: 800; }
+.up-ring > span small { font-size: 9px; color: var(--text-3); }
+.up-ring-none { background: var(--surface-2); color: var(--text-3); }
+.up-ring-cap { font-size: var(--fs-1); color: var(--text-3); }
+.up-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: var(--sp-2); }
+.up-stat { background: var(--surface-2); border-radius: 10px; padding: var(--sp-2); }
+.up-stat span { display: block; font-size: var(--fs-1); color: var(--text-3); }
+.up-stat b { font-size: var(--fs-3); font-variant-numeric: tabular-nums; }
+.up-stat.good b { color: var(--green); }
+.up-stat.bad b { color: var(--red); }
+.up-signals { background: var(--surface-2); border-radius: 10px; padding: var(--sp-3); }
+.up-sig-title { font-size: var(--fs-1); color: var(--text-3); margin-bottom: var(--sp-1); }
+.up-sig { font-size: var(--fs-2); padding: 2px 0; }
+.up-sig.urgent { color: var(--red); font-weight: 600; }
+.up-sig.watch { color: var(--amber); }
+.up-sig.ok { color: var(--text-3); }
+.up-daily {
+  margin-top: var(--sp-2); background: none; border: none; padding: 0;
+  color: var(--primary); font-size: var(--fs-2); font-weight: 600; cursor: pointer;
+}
+@media (min-width: 900px) {
+  .up-body { grid-template-columns: minmax(200px, 1.2fr) auto minmax(260px, 1.4fr) minmax(220px, 1.3fr); align-items: start; }
+  .up-ring-wrap { flex-direction: column; text-align: center; gap: var(--sp-1); }
+}
+
 /* ---------- 📅 ตารางยอดขายรายวัน (ds-*) — แถว = วัน, คอลัมน์ = ยูนิต ----------
    คอลัมน์ "วันที่" ตรึงไว้ซ้ายมือเสมอ เพราะตารางกว้างเกินจอทุกขนาด (20+ ยูนิต)
    ต้องมีพื้นหลังทึบ ไม่งั้นตัวเลขที่เลื่อนผ่านจะทะลุออกมาซ้อนกัน */

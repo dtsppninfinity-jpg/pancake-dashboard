@@ -25,6 +25,9 @@ export const EXCLUDED_STATUSES = [4, 5, 6, 7, 15];
  */
 export const NEED_CHECK_STATUSES = [0, 17, 11];
 
+/** เป้า %ปิดการขายรายยูนิต (%) — เกณฑ์เดียวกันทั้งตาราง Sales, สีเขียว/แดง และสัญญาณเตือนหน้า ผลงานราย Unit */
+export const UNIT_CLOSE_TARGET = 40;
+
 /**
  * "ออเดอร์เปล่า" ที่ Pancake สร้างอัตโนมัติให้ทุกบทสนทนาที่มาจากแอด
  * — ไม่มีสินค้า ไม่มีราคา ไม่มีเลขที่ออเดอร์ (แค่ customer_id + ad_id)

@@ -16,6 +16,7 @@ import {
   fmtDateBkk,
   startOfDayBkk,
   daysAgo,
+  UNIT_CLOSE_TARGET,
 } from '@/lib/config';
 
 type Row = Record<string, any>;
@@ -584,7 +585,7 @@ function repeatStats_(byCustomer: Record<string, number[]>) {
  * เป้า %ปิดรายยูนิต — ชีท KPI แท็บ "ตัวชี้วัด" เขียนว่า %ปิด ขั้นต่ำ 40% (ทั้งแอดมินและค่าเฉลี่ยยูนิตของรอง)
  * ค่าเดียวกับค่าเริ่มต้นหน้า Admin Performance (lib/scoring.ts DEFAULT_KPI_TARGETS.closeRate)
  */
-const UNIT_CLOSE_TARGET = 40;
+// เป้า %ปิด ย้ายไปอยู่ lib/config.ts แล้ว (หน้า ผลงานราย Unit ใช้ค่าเดียวกัน)
 
 /** เป้าจากชีท KPI ที่งาน kpi-sheet เก็บไว้ใน sync_state 'unit_goals' (scripts/sync/jobs.ts syncKpiSheet) */
 interface UnitGoals {

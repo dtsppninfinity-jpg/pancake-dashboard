@@ -107,8 +107,8 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 /** หน้าที่แต่ละ role เปิดได้ — 'me' = หน้าผลงานของฉัน (เฉพาะ role=admin) */
 export const ROLE_VIEWS: Record<Role, string[]> = {
-  superadmin: ['dashboard', 'sales', 'contentads', 'profit', 'report', 'admins', 'adminperf', 'kpi', 'umap', 'users'],
-  exec: ['dashboard', 'sales', 'contentads', 'profit', 'report', 'admins', 'adminperf', 'kpi', 'umap'],
+  superadmin: ['dashboard', 'sales', 'contentads', 'profit', 'unitperf', 'report', 'admins', 'adminperf', 'kpi', 'umap', 'users'],
+  exec: ['dashboard', 'sales', 'contentads', 'profit', 'unitperf', 'report', 'admins', 'adminperf', 'kpi', 'umap'],
   admin: ['me'],
 };
 
@@ -123,7 +123,7 @@ const API_BY_ROLE: Record<Role, string[]> = {
   exec: [
     'apiBootstrap', 'apiDashboard', 'apiSales', 'apiContentAds', 'apiAdmins', 'apiAdminPerf',
     'apiAdminSettings', 'apiAppSettings', 'apiScoreConfig', 'apiUMap', 'apiMe', 'apiKpi', 'apiAdminCom', 'apiProfit',
-    'apiReport', 'apiPageMedia', 'apiNavBadges',
+    'apiReport', 'apiPageMedia', 'apiNavBadges', 'apiUnitPerf',
   ],
   // แอดมินเห็นเฉพาะของตัวเอง — apiMe คืนข้อมูลที่ scope ด้วย admin_user_id จาก session แล้ว
   admin: ['apiBootstrap', 'apiMe'],
