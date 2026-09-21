@@ -655,6 +655,185 @@ function rangeTargets_(goals: UnitGoals, fromYmd: string, toYmd: string) {
   return { target, days, totalDays };
 }
 
+/* ---------------- ตาราง "ยอดขายรายวัน" (แถว = วัน, คอลัมน์ = ยูนิต) ---------------- */
+
+/** อย่างน้อย 7 วันเสมอ — เลือก "วันนี้" แล้วเห็นแถวเดียวจะเทียบวันต่อวันไม่ได้ (พีเคาะ 21 ก.ย.) */
+const DAILY_MIN_DAYS = 7;
+
+/** เลื่อนวัน 'YYYY-MM-DD' บนปฏิทินล้วน (UTC) ไม่ผ่านโซนเวลา กันวันเลื่อน */
+function ymdShift_(ymd: string, n: number): string {
+  const d = new Date(ymd + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** ต้นวันตามเวลาไทยของ 'YYYY-MM-DD' เป็น ISO (ขอบให้ RPC) */
+function bkkDayIso_(ymd: string): string {
+  return new Date(ymd + 'T00:00:00+07:00').toISOString();
+}
+
+/** เป้ารายวันของยูนิต = เป้าเดือนในชีท KPI ÷ จำนวนวันของเดือนนั้น (กติกาเดียวกับ rangeTargets_) */
+function dailyTargetOf_(goals: UnitGoals | null, ymd: string, u: string): number {
+  if (!goals) return 0;
+  const y = Number(ymd.slice(0, 4));
+  if (y !== goals.year) return 0;
+  const m = Number(ymd.slice(5, 7));
+  const monthly = Number((goals.targets[u] || [])[m - 1]) || 0;
+  if (monthly <= 0) return 0;
+  return monthly / new Date(Date.UTC(y, m, 0)).getUTCDate();
+}
+
+interface DailyRaw {
+  rows: any[] | null;      // null = RPC ยังไม่ถูกสร้าง (ยังไม่ได้รัน migration)
+  startYmd: string;        // วันแรกที่โชว์
+  endYmd: string;          // วันสุดท้ายที่โชว์
+  widened: boolean;        // true = ช่วงที่เลือกสั้นกว่า DAILY_MIN_DAYS จึงย้อนให้ครบเอง
+}
+
+/**
+ * ยอดขายรายวันต่อเพจ — รวมให้เสร็จฝั่ง Postgres (db/migrations/2026-09-21-sales-daily-by-page.sql)
+ *
+ * ทำไมไม่รวมจากออเดอร์ที่โหลดอยู่แล้ว: ตารางนี้ต้องมีอย่างน้อย 7 วันเสมอ แต่พรีเซ็ตที่คนเปิดค้างไว้
+ * ทั้งวันคือ "วันนี้" ซึ่งโหลดแค่ 1-2 วัน การลากออเดอร์เพิ่มอีก 6 วันทุกรอบรีเฟรช (75 วิ) = เผา egress
+ * RPC คืนแค่ วัน × เพจ × ช่องทาง (หลักร้อยแถว) แล้วมาจับเข้ายูนิตด้วย u_map ฝั่งนี้ที่เดียวเหมือนเดิม
+ *
+ * ดึงเกินไป 1 วันก่อนวันแรก — ใช้เป็นตัวหารของ % เทียบวันก่อนหน้าของแถวบนสุดเท่านั้น ไม่โชว์เป็นแถว
+ */
+async function loadDailyByPage_(r: Range): Promise<DailyRaw> {
+  const endYmd = fmtDateBkk(r.end);
+  const selStart = fmtDateBkk(r.start);
+  const minStart = ymdShift_(endYmd, -(DAILY_MIN_DAYS - 1));
+  const startYmd = selStart < minStart ? selStart : minStart;
+  const widened = startYmd < selStart;
+  try {
+    const { data, error } = await db.rpc('sales_daily_by_page', {
+      p_from: bkkDayIso_(ymdShift_(startYmd, -1)),
+      p_to: bkkDayIso_(ymdShift_(endYmd, 1)),
+      p_excluded: EXCLUDED_STATUSES,
+      p_needcheck: NEED_CHECK_STATUSES,
+    }).abortSignal(AbortSignal.timeout(20_000));
+    if (error) return { rows: null, startYmd, endYmd, widened };
+    return { rows: (data || []) as any[], startYmd, endYmd, widened };
+  } catch {
+    return { rows: null, startYmd, endYmd, widened };
+  }
+}
+
+/**
+ * ประกอบตารางรายวัน: แถว = วัน (ใหม่ → เก่า) · คอลัมน์ = ยูนิตที่มียอดในหน้าต่างนี้ (มาก → น้อย)
+ * % ใต้ตัวเลข = เทียบ "วันก่อนหน้า" ของช่องเดียวกัน · เป้า/สถานะมีเฉพาะแท็บ 🌐 ทั้งหมด (เป้าในชีทเป็นยอดรวมทุกช่องทาง)
+ */
+function buildDailySales_(
+  raw: DailyRaw,
+  pageUnit: Record<string, { u: string; product: string }>,
+  channel: string,
+  goals: UnitGoals | null,
+  productOf: Record<string, string>,
+  unmappedKey: string
+) {
+  const withTargets = !channel;
+  if (!raw.rows) {
+    return { needMigration: true, withTargets, widened: raw.widened, days: 0, units: [], rows: [], totals: null, minDays: DAILY_MIN_DAYS };
+  }
+  // ทุกวันในหน้าต่าง (รวมวันที่ยอด 0) เรียงเก่า → ใหม่ ไว้คิด % ก่อน แล้วค่อยกลับด้านตอนส่งออก
+  const days: string[] = [];
+  for (let dd = raw.startYmd; dd <= raw.endYmd && days.length < 400; dd = ymdShift_(dd, 1)) days.push(dd);
+  const prevOfFirst = ymdShift_(raw.startYmd, -1);
+
+  const rev: Record<string, Record<string, number>> = {};   // ymd → unitKey → ยอดขาย (บาท)
+  const ord: Record<string, Record<string, number>> = {};   // ymd → unitKey → จำนวนออเดอร์
+  raw.rows.forEach((row) => {
+    const ch = String(row.channel || 'facebook');
+    if (channel && ch !== channel) return;
+    const ymd = String(row.d || '').slice(0, 10);
+    if (!ymd) return;
+    const um = pageUnit[String(row.page_id || '')];
+    const key = um ? um.u : unmappedKey;
+    (rev[ymd] = rev[ymd] || {})[key] = (rev[ymd][key] || 0) + money_(row.revenue);
+    (ord[ymd] = ord[ymd] || {})[key] = (ord[ymd][key] || 0) + toNum_(row.orders);
+  });
+
+  // คอลัมน์ = ยูนิตที่มียอดในหน้าต่างนี้ เรียงยอดรวมมาก → น้อย (แถว "ยังไม่จัดกลุ่ม" ท้ายสุดเสมอ)
+  const sumOf: Record<string, number> = {};
+  const ordOf: Record<string, number> = {};
+  days.forEach((ymd) => {
+    Object.keys(rev[ymd] || {}).forEach((k) => {
+      sumOf[k] = (sumOf[k] || 0) + rev[ymd][k];
+      ordOf[k] = (ordOf[k] || 0) + ((ord[ymd] || {})[k] || 0);
+    });
+  });
+  const keys = Object.keys(sumOf)
+    .filter((k) => sumOf[k] > 0)
+    .sort((a, b) => {
+      if (a === unmappedKey) return 1;
+      if (b === unmappedKey) return -1;
+      return sumOf[b] - sumOf[a];
+    });
+  const units = keys.map((k) => ({
+    key: k,
+    u: k === unmappedKey ? '' : k,
+    product: k === unmappedKey ? 'ยังไม่จัดกลุ่ม' : (productOf[k] || ''),
+    mapped: k !== unmappedKey,
+    revenue: Math.round(sumOf[k]),
+    orders: ordOf[k] || 0,
+  }));
+
+  const pct_ = (v: number, prev: number): number | null =>
+    prev > 0 ? Math.round(((v - prev) / prev) * 1000) / 10 : null;
+
+  const rows = days.slice().reverse().map((ymd) => {
+    const prevYmd = ymdShift_(ymd, -1);
+    // วันก่อนหน้าของแถวล่างสุดคือวันที่ดึงเกินมา 1 วัน — ถ้าไม่มีในชุดข้อมูลเลยถือว่าไม่รู้ ไม่ใช่ 0
+    const prevKnown = prevYmd >= prevOfFirst;
+    const cur = rev[ymd] || {};
+    const prv = rev[prevYmd] || {};
+    let total = 0, prevTotal = 0, target = 0;
+    const cells = keys.map((k) => {
+      const v = cur[k] || 0;
+      const p = prv[k] || 0;
+      total += v;
+      prevTotal += p;
+      const t = withTargets ? dailyTargetOf_(goals, ymd, k) : 0;
+      if (t > 0) target += t;
+      return {
+        v: Math.round(v),
+        orders: (ord[ymd] || {})[k] || 0,
+        pct: prevKnown ? pct_(v, p) : null,
+        target: t > 0 ? Math.round(t) : null,
+      };
+    });
+    const attain = target > 0 ? total / target : null;
+    return {
+      date: ymd,
+      total: Math.round(total),
+      pct: prevKnown ? pct_(total, prevTotal) : null,
+      target: target > 0 ? Math.round(target) : null,
+      // เกณฑ์เดียวกับรูปที่ทีมใช้: ถึงเป้า / ใกล้เป้า 80-99% / ต่ำกว่าเป้า
+      status: attain === null ? null
+        : attain >= 1 ? { label: 'ถึงเป้า', cls: 'ai' }
+          : attain >= 0.8 ? { label: 'ใกล้เป้า', cls: 'info' }
+            : { label: 'ต่ำกว่าเป้า', cls: 'urgent' },
+      cells,
+    };
+  });
+
+  return {
+    needMigration: false,
+    withTargets,
+    widened: raw.widened,
+    minDays: DAILY_MIN_DAYS,
+    from: raw.startYmd,
+    to: raw.endYmd,
+    days: days.length,
+    units,
+    rows,
+    totals: {
+      total: Math.round(keys.reduce((a, k) => a + sumOf[k], 0)),
+      cells: keys.map((k) => ({ v: Math.round(sumOf[k]), orders: ordOf[k] || 0 })),
+    },
+  };
+}
+
 /** เป้าที่ส่งเข้า unitRows_ — คำนวณครั้งเดียวใช้ร่วมทั้ง 3 แท็บช่องทาง */
 interface UnitGoalInput {
   withTargets: boolean;                        // เป้ายอดโชว์เฉพาะแท็บ "ทั้งหมด" (เป้าในชีทเป็นยอดรวมทุกช่องทาง)
@@ -825,6 +1004,8 @@ export async function apiSales(params: any) {
   const engP = loadEngagement_(r).then((v) => { mark_('eng'); return v; });
   const returnsP = loadReturns_(r).catch(() => null).then((v) => { mark_('returns'); return v; });
   const adCostP = loadAdCost_(r, compare).then((v) => { mark_('adCost'); return v; });
+  // ตารางรายวัน — รวมยอดฝั่ง Postgres (ดู loadDailyByPage_) ยิงคู่ขนานไปเลย ไม่ต้องรอออเดอร์
+  const dailyRawP = loadDailyByPage_(r).then((v) => { mark_('dailyRaw' + (v.rows ? '' : '-missing')); return v; });
 
   // orders ทั้งหมดที่อาจใช้ → กรองที่ query แยก 3 ก้อนกัน payload บวม:
   //   [prevStart, start)   คอลัมน์เบา (ช่วงเปรียบเทียบ)
@@ -1057,6 +1238,9 @@ export async function apiSales(params: any) {
     const x = pageUnit[pid];
     if (x.product && !productOf[x.u]) productOf[x.u] = x.product;
   });
+  // ตารางยอดขายรายวันแยกยูนิต (แถว = วัน) — จับเพจเข้ายูนิตด้วย u_map ชุดเดียวกับตารางยูนิตด้านบน
+  const dailySales = buildDailySales_(await dailyRawP, pageUnit, channel, unitGoals, productOf, UNMAPPED);
+
   const goalInput = (chanKey: 'all' | 'facebook' | 'line'): UnitGoalInput => ({
     withTargets: chanKey === 'all',
     target: rangeGoal.target,
@@ -1436,6 +1620,8 @@ export async function apiSales(params: any) {
     returns: returns,
     // ยูนิตที่ขาดทุนติดต่อกัน (คำนวณโดยงาน sync รายชั่วโมง) — ไม่ขึ้นกับฟิลเตอร์ช่วงวันที่
     unitAlerts: unitAlerts,
+    // ตาราง "ยอดขายรายวัน" (แถว = วัน, คอลัมน์ = ยูนิต) — needMigration = ยังไม่ได้รัน RPC sales_daily_by_page
+    dailySales,
     // ที่มาของเป้าในตารางยูนิต — หน้าเว็บทำลิงก์ "แก้เป้าในชีท KPI" + คำอธิบายสี (null = งาน kpi-sheet ยังไม่เขียนเป้า)
     unitGoal: unitGoals
       ? {

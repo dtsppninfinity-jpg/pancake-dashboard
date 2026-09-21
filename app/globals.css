@@ -521,6 +521,32 @@ table.tbl th {
 table.tbl td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid rgba(38,51,82,.5); }
 table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 
+/* ---------- 📅 ตารางยอดขายรายวัน (ds-*) — แถว = วัน, คอลัมน์ = ยูนิต ----------
+   คอลัมน์ "วันที่" ตรึงไว้ซ้ายมือเสมอ เพราะตารางกว้างเกินจอทุกขนาด (20+ ยูนิต)
+   ต้องมีพื้นหลังทึบ ไม่งั้นตัวเลขที่เลื่อนผ่านจะทะลุออกมาซ้อนกัน */
+.ds-tbl { min-width: max-content; }
+.ds-tbl .ds-date {
+  position: sticky; left: 0; z-index: 2; background: var(--surface);
+  white-space: nowrap; font-weight: 700;
+}
+.ds-tbl thead .ds-date { z-index: 3; }
+.ds-tbl tr:hover .ds-date { background: var(--surface-2); }
+.ds-tbl th.ds-uth { text-align: right; }
+.ds-u { font-weight: 800; color: var(--text-2); }
+.ds-uname { font-weight: 500; font-size: var(--fs-1); color: var(--text-3);
+  max-width: 108px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: auto; }
+.ds-v { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ds-total .ds-v { font-size: var(--fs-4); }
+.ds-d { font-size: var(--fs-1); font-weight: 600; white-space: nowrap; margin-top: 1px; }
+.ds-d.up { color: var(--green); }
+.ds-d.down { color: var(--red); }
+.ds-d.flat, .ds-d.ds-none { color: var(--text-3); font-weight: 500; }
+.ds-zero { color: var(--text-3); }
+.ds-tbl .ds-st { white-space: nowrap; }
+.ds-tbl tfoot .ds-foot td { border-bottom: none; border-top: 1px solid var(--border);
+  background: var(--surface-2); font-weight: 700; }
+.ds-tbl tfoot .ds-foot .ds-date { background: var(--surface-2); }
+
 /* ---------- sales dashboard (sr-*) ---------- */
 .sr-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--sp-3); align-items: center; margin-bottom: var(--sp-4); }
 .sr-title { font-size: var(--fs-5); font-weight: 800; }

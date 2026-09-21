@@ -21,6 +21,7 @@ import {
   downloadXLS,
   openModal,
   closeModal,
+  thaiDateShort,
 } from '@/lib/ui/helpers';
 import { svgHourlyLine, miniBars, hbarRows, bindChartTips, hideChartTip } from '@/lib/ui/charts';
 import { salesSkel } from '@/lib/ui/skeletons';
@@ -611,6 +612,9 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     '</div>';
   }
 
+  /* --- 5.6 ยอดขายรายวัน (แถว = วัน, คอลัมน์ = ยูนิต) --- */
+  html += dailySalesCard_(d, rangeLabel);
+
   /* --- 6. bottom: แหล่งที่มา + แจ้งเตือน --- */
   const srcRows = sources.map(function (s: any) {
     const st = s.status || {};
@@ -946,6 +950,111 @@ function perBill_(revenue: unknown, orders: unknown): number | null {
   const rev = Number(revenue) || 0;
   const n = Number(orders) || 0;
   return n > 0 ? Math.round(rev / n) : null;
+}
+
+/* ---------------- 📅 ยอดขายรายวัน (แถว = วัน · คอลัมน์ = ยูนิต) ----------------
+ * หน้าตาแบบตารางรายวันของทีม: ยอดตัวใหญ่ + % เล็กใต้ยอด (เทียบวันก่อนหน้าของช่องเดียวกัน)
+ * ตัวเลขทั้งหมดมาจาก dailySales (lib/api/sales.ts) ซึ่งรวมยอดฝั่ง Postgres แล้วจับเข้ายูนิตด้วย u_map
+ */
+
+/** % เทียบวันก่อนหน้า — ขึ้นเขียว ลงแดง ไม่มีวันก่อนหน้า/วันก่อนเป็น 0 = ไม่โชว์ */
+function dsDelta_(pct: number | null | undefined): string {
+  if (pct === null || pct === undefined || isNaN(Number(pct))) return '<div class="ds-d ds-none">—</div>';
+  const v = Number(pct);
+  const cls = v > 0 ? 'up' : (v < 0 ? 'down' : 'flat');
+  const arrow = v > 0 ? '▲' : (v < 0 ? '▼' : '•');
+  return '<div class="ds-d ' + cls + '">' + arrow + ' ' + (v > 0 ? '+' : '') + v.toFixed(1) + '%</div>';
+}
+
+/** ช่องยอดขาย 1 ช่อง: ยอด + % ใต้ยอด + สีเทียบเป้ารายวัน (เป้ามีเฉพาะแท็บ 🌐 ทั้งหมด) */
+function dsCell_(c: any, unitName: string, ymd: string): string {
+  const v = Number(c && c.v) || 0;
+  const target = c && c.target ? Number(c.target) : 0;
+  const cls = target > 0 ? (v >= target ? 'txt-good' : 'txt-bad') : '';
+  const tip = unitName + ' • ' + thaiDateShort(ymd) + ' • ยอดขาย ' + THB(v) +
+    ' • ออเดอร์ ' + fmtNum((c && c.orders) || 0) +
+    (target > 0 ? ' • เป้าวันนี้ ' + THB(target) : '') +
+    (c && c.pct !== null && c.pct !== undefined ? ' • เทียบวันก่อนหน้า ' + (c.pct > 0 ? '+' : '') + Number(c.pct).toFixed(1) + '%' : '');
+  return '<td class="num ds-cell" title="' + esc(tip) + '">' +
+    '<div class="ds-v ' + cls + '">' + (v > 0 ? THB(v) : '<span class="ds-zero">—</span>') + '</div>' +
+    dsDelta_(c && c.pct) + '</td>';
+}
+
+function dailySalesCard_(d: any, rangeLabel: string): string {
+  const ds = d && d.dailySales;
+  if (!ds) return '';
+  const head = '<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+    '<h3>📅 ยอดขายรายวัน (แยกตามยูนิต)</h3></div>';
+  if (ds.needMigration) {
+    return head + '<div class="card-sub">ยอดขายรายวันต่อยูนิต</div>' +
+      '<div class="empty-note">ยังใช้ไม่ได้ — ต้องรันไฟล์ <b>db/migrations/2026-09-21-sales-daily-by-page.sql</b>' +
+      ' ใน Supabase (SQL Editor → วาง → Run) ก่อนหนึ่งครั้ง แล้วตารางนี้จะขึ้นเอง</div></div>';
+  }
+  const units = ds.units || [];
+  const rows = ds.rows || [];
+  if (!units.length || !rows.length) {
+    return head + '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] + '</div>' +
+      '<div class="empty-note">ยังไม่มีออเดอร์ในช่วงนี้</div></div>';
+  }
+  const todayYmd = ymdBkk_();
+
+  const unitTh = units.map(function (u: any) {
+    const name = u.mapped ? (u.product || u.u) : 'ยังไม่จัดกลุ่ม';
+    return '<th class="num ds-uth" title="' + esc(name + (u.u ? ' (' + u.u + ')' : '') +
+      ' • ยอดรวมช่วงนี้ ' + THB(u.revenue) + ' • ออเดอร์ ' + fmtNum(u.orders)) + '">' +
+      '<div class="ds-u">' + esc(u.u || '⚠️') + '</div>' +
+      '<div class="ds-uname">' + esc(name) + '</div></th>';
+  }).join('');
+
+  const body = rows.map(function (row: any) {
+    const isToday = row.date === todayYmd;
+    const st = row.status;
+    return '<tr>' +
+      '<td class="ds-date"' + (isToday ? ' title="วันนี้ยังไม่จบวัน ตัวเลขยังขยับได้"' : '') + '>' +
+        esc(thaiDateShort(row.date)) + (isToday ? ' <span class="chip">วันนี้</span>' : '') + '</td>' +
+      '<td class="num ds-cell ds-total" title="' + esc('ยอดรวมทุกยูนิต ' + THB(row.total) +
+        (row.target ? ' • เป้ารวมของวันนี้ ' + THB(row.target) : '')) + '">' +
+        '<div class="ds-v">' + THB(row.total) + '</div>' + dsDelta_(row.pct) + '</td>' +
+      (ds.withTargets
+        ? '<td class="ds-st">' + (st
+          ? '<span class="badge ' + esc(st.cls) + '" title="' + esc('ยอด ' + THB(row.total) +
+              ' • เป้ารายวัน ' + THB(row.target || 0)) + '">' + esc(st.label) + '</span>'
+          : '<span class="ds-zero">—</span>') + '</td>'
+        : '') +
+      units.map(function (u: any, i: number) {
+        return dsCell_(row.cells[i], u.mapped ? (u.product || u.u) : 'ยังไม่จัดกลุ่ม', row.date);
+      }).join('') +
+      '</tr>';
+  }).join('');
+
+  const foot = '<tr class="ds-foot"><td class="ds-date">รวมช่วงนี้</td>' +
+    '<td class="num"><div class="ds-v">' + THB(ds.totals.total) + '</div></td>' +
+    (ds.withTargets ? '<td></td>' : '') +
+    units.map(function (u: any, i: number) {
+      const c = ds.totals.cells[i] || { v: 0, orders: 0 };
+      return '<td class="num" title="' + esc('ออเดอร์ ' + fmtNum(c.orders)) + '">' +
+        '<div class="ds-v">' + THB(c.v) + '</div></td>';
+    }).join('') + '</tr>';
+
+  const widened = !!ds.widened;
+  const sub = esc(thaiDateShort(ds.from)) + ' – ' + esc(thaiDateShort(ds.to)) + ' • ' + CH_LABELS[state.channel] +
+    ' — แถวละ 1 วัน (ใหม่สุดอยู่บน) • ตัวเลขเล็กใต้ยอด = เทียบกับวันก่อนหน้า' +
+    ' • คอลัมน์เรียงจากยูนิตที่ขายได้มากไปน้อย ➡️ เลื่อนตารางไปทางขวาเพื่อดูยูนิตที่เหลือ' +
+    (widened ? ' • ช่วงที่เลือกสั้นกว่า ' + ds.minDays + ' วัน จึงย้อนให้ครบ ' + ds.minDays + ' วันเพื่อให้เทียบวันต่อวันได้' : '') +
+    (ds.withTargets
+      ? ' • สี = เทียบเป้ารายวันของยูนิตนั้น (เป้าเดือนในชีท KPI ÷ จำนวนวันในเดือน) — เขียว = ถึง, แดง = ไม่ถึง'
+      : ' • เป้าและสถานะดูได้ที่แท็บ 🌐 ทั้งหมด (เป้าในชีทเป็นยอดรวมทุกช่องทาง)');
+
+  return head + '<div class="card-sub">' + sub + '</div>' +
+    '<div class="table-scroll"><table class="tbl ds-tbl"><thead><tr>' +
+      '<th class="ds-date">วันที่</th><th class="num">รวมทุกยูนิต</th>' +
+      (ds.withTargets ? '<th>สถานะ</th>' : '') + unitTh +
+    '</tr></thead><tbody>' + body + '</tbody><tfoot>' + foot + '</tfoot></table></div></div>';
+}
+
+/** 'YYYY-MM-DD' ของวันนี้ตามเวลาไทย — ใช้ติดป้าย "วันนี้" ในตารางรายวัน */
+function ymdBkk_(): string {
+  return new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10);
 }
 
 /** % ทศนิยม 2 ตำแหน่งเสมอ — สเปกทีมแอดกำหนดไว้ ("12.90%" ไม่ใช่ "12.9%") เพื่อให้เทียบกันได้ตรงๆ */
