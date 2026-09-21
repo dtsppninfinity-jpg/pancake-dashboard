@@ -1,9 +1,10 @@
 // lib/views/unitperf.ts — หน้า "🎯 ผลงานราย Unit" (พีสั่ง 21 ก.ย. 2569)
-// การ์ดใบละยูนิต: ยอดเดือนนี้ vs เป้า + คาดการณ์สิ้นเดือน + สัญญาณเตือนที่ระบบตรวจเจอ เรียงตามความเสี่ยง
+// ยอดเดือนนี้ vs เป้า + คาดการณ์สิ้นเดือน + สัญญาณเตือนที่ระบบตรวจเจอ เรียงตามความเสี่ยง
 // ตัวเลขทุกตัวมาจาก apiUnitPerf (lib/api/unitperf.ts) — กติกาเดียวกับหน้า Sales ทุกช่อง
 //
-// โครงการ์ด = แถบนอน 4 ชั้น (หัว / เป้า / ตัวเลข / สัญญาณ) — รื้อจากแบบ 4 คอลัมน์ 21 ก.ย.
-// เพราะแบบคอลัมน์ ความสูงถูกดันด้วยคอลัมน์สัญญาณคอลัมน์เดียว อีก 3 คอลัมน์ว่างราว 40% ของการ์ด
+// หน้าตา = "ตารางจัดอันดับ" ทีมเลือกเองจาก 3 แบบที่เสนอ (21 ก.ย. 69) เหตุผลที่ให้มาคือ "ดูง่าย"
+// ทุกยูนิตอยู่ในตารางเดียว เรียงได้ทุกคอลัมน์ กดปุ่มท้ายแถวเพื่อกางสัญญาณเต็ม + ตัวเลขรอง
+// (ของเดิมเป็นการ์ดใบละยูนิต — เลิกใช้เพราะทีมอ่านเทียบยูนิตต่อยูนิตยาก)
 
 import { serverCall, esc, THB, fmtNum, showError } from '@/lib/ui/helpers';
 
@@ -36,16 +37,21 @@ interface PerfData {
 
 let lastData: PerfData | null = null;
 let reqSeq = 0;
-// ตัวกรองจำข้ามการ re-render (ผู้ใช้เลื่อนดูแล้วรีเฟรชอัตโนมัติ ตัวกรองต้องไม่รีเซ็ตเอง)
-const state = { month: '', q: '', level: 'all' as 'all' | 'urgent' | 'watch' | 'ok', sort: 'risk' as 'risk' | 'attain' | 'revenue' | 'profit' };
+// ตัวกรอง/การเรียงจำข้ามการ re-render (หน้านี้รีเฟรชเองหลังโหลด ตัวกรองต้องไม่รีเซ็ต)
+const state = {
+  month: '', q: '',
+  level: 'all' as 'all' | 'urgent' | 'watch' | 'ok',
+  sortKey: '',                       // '' = ลำดับความเสี่ยงที่ API เรียงมาให้
+  sortDir: 'desc' as 'asc' | 'desc',
+  open: '',                          // key ของแถวที่กางอยู่ ('' = ไม่มีแถวไหนกาง)
+  // ⚠️ ต้องใช้ key ไม่ใช่ u — กองที่ยังไม่จัดกลุ่มมี u = '' ซึ่งชนกับค่าว่างนี้พอดี แถวนั้นจะกางค้างทันทีที่เปิดหน้า
+};
 
 const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 const monthLabel = (m: string) => (TH_MONTHS[Number(m.slice(5, 7)) - 1] || m) + ' ' + ((Number(m.slice(0, 4)) + 543) % 100);
-
 const LEVEL_LABEL: Record<string, string> = { urgent: 'ต้องแก้ทันที', watch: 'เฝ้าระวัง', ok: 'ปกติ' };
-const LEVEL_CLS: Record<string, string> = { urgent: 'urgent', watch: 'info', ok: 'ai' };
 
-/** เงินแบบย่อให้การ์ดอ่านรวดเดียว (฿2.6M / ฿91.3K) — ตัวเต็มอยู่ใน tooltip เสมอ
+/** เงินแบบย่อให้ตารางอ่านรวดเดียว (฿2.6M / ฿91.3K) — ตัวเต็มอยู่ใน tooltip เสมอ
  *  ติดลบขึ้นเครื่องหมายหน้าสกุลเงิน (-฿34.8K) ไม่ใช่ ฿-34.8K ที่อ่านสะดุด */
 function thbShort(n: number | null | undefined): string {
   if (n === null || n === undefined || isNaN(Number(n))) return '—';
@@ -56,8 +62,7 @@ function thbShort(n: number | null | undefined): string {
   if (a >= 1e4) return sign + '฿' + (a / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
   return sign + '฿' + fmtNum(Math.round(a));
 }
-
-/** เงินเต็มจำนวนสำหรับ tooltip — ติดลบต้องเป็น -฿34,810 ให้ตรงกับตัวเลขบนการ์ด (THB() กลางของเว็บให้ ฿-34,810) */
+/** เงินเต็มจำนวนสำหรับ tooltip — ติดลบเป็น -฿34,810 ให้ตรงกับตัวเลขในตาราง */
 function THBs(n: number): string {
   return n < 0 ? '-' + THB(Math.abs(n)) : THB(n);
 }
@@ -67,113 +72,184 @@ function pctClass(pct: number | null): string {
   if (pct === null || pct === undefined) return '';
   return pct >= 100 ? 'good' : pct >= 80 ? 'warn' : 'bad';
 }
-
 const clampPct = (v: number) => Math.max(0, Math.min(100, v));
+/** ตัวเลขที่ใช้ตัดสินสี = คาดการณ์ในเดือนที่ยังไม่จบ / ยอดจริงในเดือนที่จบแล้ว */
+const headPct = (u: UnitRow, d: PerfData) => (d.isCurrentMonth && u.projected !== null ? u.projAttain : u.attain);
 
 /**
  * แถบความคืบหน้า: เต็มแถบ = เป้าเดือน
- *   ทึบ  = ยอดจริงถึงตอนนี้
- *   จาง  = ส่วนที่คาดว่าจะได้เพิ่มจนสิ้นเดือน
- *   ขีด  = ผ่านไปแล้วกี่ % ของเดือน (ถ้าขายสม่ำเสมอ ยอดควรถึงขีดนี้)
+ *   ทึบ = ยอดจริงถึงตอนนี้ · จาง = ส่วนที่คาดว่าจะได้เพิ่มจนสิ้นเดือน
+ *   ขีด = ผ่านไปแล้วกี่ % ของเดือน (ถ้าขายสม่ำเสมอ ยอดควรถึงขีดนี้)
  * เดือนที่จบแล้วไม่มีทั้งส่วนจางและขีด
  */
 function barHtml(u: UnitRow, d: PerfData, cls: string): string {
-  if (u.target === null || !u.target) return '';
+  if (!u.target) return '';
   const now = clampPct(u.attain === null ? 0 : u.attain);
   const projRaw = d.isCurrentMonth && u.projAttain !== null ? clampPct(u.projAttain) : now;
   const projW = Math.max(0, projRaw - now);
   const pace = d.isCurrentMonth ? clampPct((d.daysElapsed / d.daysInMonth) * 100) : null;
-  const tip = 'เต็มแถบ = เป้าเดือน ' + THB(u.target) +
-    ' • ส่วนทึบ = ยอดจริง ' + (u.attain === null ? '0' : u.attain) + '%' +
-    (projW > 0 ? ' • ส่วนจาง = คาดการณ์ถึงสิ้นเดือน ' + u.projAttain + '%' : '') +
-    (pace !== null ? ' • ขีด = ผ่านไปแล้ว ' + d.daysElapsed + ' จาก ' + d.daysInMonth + ' วัน (' + Math.round(pace) + '%)' : '');
-  return '<div class="up-bar" title="' + esc(tip) + '">' +
+  return '<div class="up-bar">' +
     '<i class="fill ' + cls + '" style="width:' + now.toFixed(2) + '%"></i>' +
     (projW > 0 ? '<i class="proj ' + cls + '" style="left:' + now.toFixed(2) + '%;width:' + projW.toFixed(2) + '%"></i>' : '') +
     (pace !== null ? '<i class="pace" style="left:calc(' + pace.toFixed(2) + '% - 1px)"></i>' : '') +
   '</div>';
 }
 
-function statTile(label: string, value: string, ref: string, tip: string, cls?: string): string {
-  return '<div class="up-stat' + (cls ? ' ' + cls : '') + '" title="' + esc(tip) + '">' +
-    '<span>' + esc(label) + '</span><b>' + value + '</b><em>' + esc(ref) + '</em></div>';
+/* ---------------- คอลัมน์ของตาราง ----------------
+   คอลัมน์ที่มี val = เรียงได้ · ค่าที่ไม่มี (—) ถูกดันไปท้ายเสมอ ไม่ว่าจะเรียงขึ้นหรือลง */
+interface Col {
+  key: string; label: string; r?: boolean; tip?: string;
+  val?: (u: UnitRow, d: PerfData) => number | string | null;
+  dir?: 'asc' | 'desc';            // ทิศที่ "มีประโยชน์" ตอนกดครั้งแรก
+}
+const COLS: Col[] = [
+  { key: 'u', label: 'ยูนิต', val: (u) => u.u || 'zzz', dir: 'asc', tip: 'รหัสยูนิต + สินค้าหลัก • จุดสี = ระดับความเสี่ยง' },
+  { key: 'revenue', label: 'ยอดขาย', r: true, val: (u) => u.revenue, dir: 'desc', tip: 'ยอดขายสะสมเดือนนี้ (กติกาเดียวกับหน้า Sales)' },
+  { key: 'attain', label: 'เทียบเป้าเดือน', val: (u) => u.attain, dir: 'asc', tip: 'แถบ: ทึบ = ยอดจริง • จาง = ส่วนที่คาดว่าจะได้เพิ่ม • ขีด = ผ่านไปกี่ % ของเดือน' },
+  { key: 'proj', label: 'คาดสิ้นเดือน', r: true, val: (u, d) => headPct(u, d), dir: 'asc', tip: 'ยอดเฉลี่ยของวันที่จบแล้ว × จำนวนวันทั้งเดือน (ไม่รวมวันนี้ที่ยังไม่จบ)' },
+  { key: 'close', label: '%ปิด', r: true, val: (u) => u.closeRate, dir: 'asc', tip: 'ออเดอร์ ÷ รวมคนทัก (อินบ็อกซ์ใหม่ + คอมเมนต์ ของเพจ Facebook)' },
+  { key: 'roas', label: 'ROAS', r: true, val: (u) => u.roas, dir: 'asc', tip: 'ยอดขาย ÷ ค่าแอด • สีขึ้นเฉพาะยูนิตที่ตั้งจุดคุ้มทุนไว้แล้ว' },
+  { key: 'spend', label: 'ค่าแอด', r: true, val: (u) => u.spend, dir: 'desc', tip: 'ค่าแอดจริงจาก Meta ทั้งเดือน' },
+  { key: 'profit', label: 'กำไร', r: true, val: (u) => u.profit, dir: 'asc', tip: 'กำไรสุทธิสะสมเดือนนี้ จากชีทสรุปรายสินค้า' },
+  { key: 'sig', label: 'สัญญาณ', val: (u) => u.signals.length, dir: 'desc', tip: 'จำนวนเรื่องที่ระบบตรวจพบ — กด "ดู" เพื่ออ่านเต็ม' },
+  { key: 'act', label: '', r: true },
+];
+
+function headHtml(): string {
+  return COLS.map((c) => {
+    const sorted = state.sortKey === c.key;
+    const arrow = !c.val ? '' : sorted ? (state.sortDir === 'asc' ? '↑' : '↓') : '↕';
+    const inner = c.val
+      ? '<button type="button" class="up-sort" data-sort="' + c.key + '"' +
+        ' aria-sort="' + (sorted ? state.sortDir : 'none') + '">' +
+        esc(c.label) + '<i>' + arrow + '</i></button>'
+      : esc(c.label);
+    return '<th class="' + (c.r ? 'r' : '') + '"' + (c.tip ? ' title="' + esc(c.tip) + '"' : '') + '>' + inner + '</th>';
+  }).join('');
 }
 
-function cardHtml(u: UnitRow, rank: number, d: PerfData): string {
+function rowHtml(u: UnitRow, rank: number, d: PerfData): string {
+  const p = headPct(u, d);
+  const cls = pctClass(p);
   const name = u.mapped ? (u.u || '') : '⚠️ ยังไม่จัดกลุ่ม';
-  // ตัวเลขที่ใช้ตัดสินสี = คาดการณ์ในเดือนที่ยังไม่จบ / ยอดจริงในเดือนที่จบแล้ว (กติกาเดิมของวงแหวน)
-  const headPct = d.isCurrentMonth && u.projected !== null ? u.projAttain : u.attain;
-  const cls = pctClass(headPct);
-  const projTip = d.isCurrentMonth && u.projected !== null
-    ? 'คาดการณ์สิ้นเดือน ' + THB(u.projected) +
-      (u.projAttain === null ? ' (ยังไม่มีเป้าเดือนนี้ในชีท KPI จึงเทียบ %บรรลุไม่ได้)' : ' = ' + u.projAttain + '% ของเป้า') +
-      ' (ยอดเฉลี่ยของ ' + d.daysDone + ' วันที่จบแล้ว × ' + d.daysInMonth + ' วัน — ไม่รวมวันนี้ที่ยังไม่จบ)'
-    : d.isCurrentMonth ? 'วันแรกของเดือน ยังไม่มีวันที่จบแล้วให้คาดการณ์ — ตัวเลขนี้คือ %บรรลุจริงถึงตอนนี้'
-      : 'ยอดจริงทั้งเดือนเทียบเป้า';
-  const projSub = u.target === null ? 'ยังไม่มีเป้าในชีท KPI'
+  const projSub = !u.target ? 'ไม่มีเป้าในชีท'
     : !d.isCurrentMonth ? 'ยอดจริงทั้งเดือน'
-      : u.projected === null ? 'ยังคาดไม่ได้ (วันแรกของเดือน)' : 'คาดสิ้นเดือน ' + thbShort(u.projected);
+      : u.projected === null ? 'ยังคาดไม่ได้' : thbShort(u.projected);
+  const roasCls = u.roas === null || !u.breakEvenSet ? '' : (u.roas >= u.breakEven ? 'good' : 'bad');
 
-  const signals = u.signals.length
-    ? u.signals.map((s) => '<span class="up-sig ' + (s.level === 'urgent' ? 'urgent' : 'watch') + '">' + esc(s.text) + '</span>').join('')
+  const rowId = u.key || u.u || 'none';
+  return '<tr data-u="' + esc(u.u) + '"' + (state.open === rowId ? ' class="up-open"' : '') + '>' +
+    '<td title="' + esc((u.product || 'ยังไม่จัดกลุ่ม') + ' • ' + LEVEL_LABEL[u.level] +
+      (u.mapped ? ' • ' + fmtNum(u.pages) + ' เพจ • ' + fmtNum(u.admins) + ' แอดมิน' : '') +
+      (u.note ? ' • 📌 ' + u.note : '')) + '">' +
+      '<div class="up-unit">' +
+        '<span class="up-rank">' + rank + '</span>' +
+        '<span class="up-dot ' + u.level + '"></span>' +
+        '<span class="up-code">' + esc(name) + '</span>' +
+        '<span class="up-prod">' + esc(u.product || '') + '</span>' +
+      '</div></td>' +
+
+    '<td class="r num" title="' + esc('ยอดจริง ' + THB(u.revenue) + ' • ออเดอร์ ' + fmtNum(u.orders) +
+      (u.perBill ? ' • เปอร์บิล ' + THB(u.perBill) : '')) + '">' +
+      '<div class="up-big">' + thbShort(u.revenue) + '</div>' +
+      '<div class="up-sub">' + fmtNum(u.orders) + ' ออเดอร์</div></td>' +
+
+    '<td class="up-goal" title="' + esc(u.target
+      ? 'เป้าเดือน ' + THB(u.target) + ' • ทำได้ ' + (u.attain === null ? 0 : u.attain) + '%' +
+        (u.gap ? ' • ขาดอีก ' + THB(u.gap) : ' • ถึงเป้าแล้ว') +
+        (d.isCurrentMonth ? ' • ผ่านไปแล้ว ' + d.daysElapsed + ' จาก ' + d.daysInMonth + ' วัน' : '')
+      : 'ยังไม่มีเป้าเดือนนี้ในชีท KPI') + '">' +
+      (u.target
+        ? '<div class="up-goal-top"><span class="num">' + thbShort(u.target) + '</span>' +
+            '<span class="num ' + pctClass(u.attain) + '">' + (u.attain === null ? '—' : u.attain + '%') + '</span></div>' +
+          barHtml(u, d, cls) +
+          '<div class="up-sub">' + (u.gap ? 'ขาดอีก ' + thbShort(u.gap) : 'ถึงเป้าแล้ว') + '</div>'
+        : '<span class="up-sub">ยังไม่มีเป้าในชีท KPI</span>') +
+    '</td>' +
+
+    '<td class="r num ' + cls + '" title="' + esc(d.isCurrentMonth && u.projected !== null
+      ? 'คาดการณ์สิ้นเดือน ' + THB(u.projected) +
+        (u.projAttain === null ? ' (ยังไม่มีเป้าในชีท KPI)' : ' = ' + u.projAttain + '% ของเป้า') +
+        ' (ยอดเฉลี่ยของ ' + d.daysDone + ' วันที่จบแล้ว × ' + d.daysInMonth + ' วัน)'
+      : d.isCurrentMonth ? 'วันแรกของเดือน ยังไม่มีวันที่จบแล้วให้คาดการณ์'
+        : 'ยอดจริงทั้งเดือนเทียบเป้า') + '">' +
+      '<div class="up-big">' + (p === null ? '—' : Math.round(p) + '%') + '</div>' +
+      '<div class="up-sub">' + esc(projSub) + '</div></td>' +
+
+    '<td class="r num ' + (u.closeRate === null ? '' : (u.closeRate >= d.closeTarget ? 'good' : 'bad')) +
+      '" title="' + esc('ออเดอร์ ' + fmtNum(u.orders) + ' ÷ รวมคนทัก ' + fmtNum(u.base) +
+        ' • เป้า ' + d.closeTarget + '% ขึ้นไป') + '">' +
+      (u.closeRate === null ? '—' : u.closeRate.toFixed(2) + '%') + '</td>' +
+
+    '<td class="r num ' + roasCls + '" title="' + esc('ยอดขาย ÷ ค่าแอด ' + THB(u.spend) +
+      (u.breakEvenSet ? ' • จุดคุ้มทุนของยูนิตนี้ ' + u.breakEven + 'x'
+        : ' • ยังไม่ได้ตั้งจุดคุ้มทุน (ใช้ค่าเริ่มต้น 1x จึงไม่ทาสี)')) + '">' +
+      (u.roas === null ? '—' : u.roas.toFixed(2) + 'x') + '</td>' +
+
+    '<td class="r num" title="' + esc('ค่าแอดจริงจาก Meta ทั้งเดือน ' + THB(u.spend) +
+      (u.costPerMsg === null ? '' : ' • ค่าทัก ฿' + u.costPerMsg.toFixed(2) + ' ต่อคน')) + '">' +
+      thbShort(u.spend) + '</td>' +
+
+    '<td class="r num ' + (u.profit === null ? '' : (u.profit >= 0 ? 'good' : 'bad')) + '" title="' +
+      esc(u.profit === null ? 'ยังไม่มีข้อมูลกำไรของยูนิตนี้ในชีทสรุปรายสินค้า'
+        : 'กำไรสุทธิสะสมเดือนนี้จากชีท ' + THBs(u.profit)) + '">' +
+      (u.profit === null ? '—' : thbShort(u.profit)) + '</td>' +
+
+    '<td>' + (u.signals.length
+      ? '<span class="up-sig ' + u.signals[0].level + '">' + u.signals.length + ' เรื่อง</span>'
+      : '<span class="up-sig ok">ไม่มี</span>') + '</td>' +
+
+    '<td class="r"><button type="button" class="up-more" data-more="' + esc(rowId) + '"' +
+      ' aria-expanded="' + (state.open === rowId ? 'true' : 'false') + '">' +
+      (state.open === rowId ? 'ปิด' : 'ดู') + '</button></td>' +
+  '</tr>' +
+  (state.open === rowId ? detailHtml(u) : '');
+}
+
+function detailHtml(u: UnitRow): string {
+  const sigs = u.signals.length
+    ? u.signals.map((s) => '<span class="up-sig ' + s.level + '">' + esc(s.text) + '</span>').join('')
     : '<span class="up-sig ok">ไม่พบสัญญาณผิดปกติ</span>';
-
-  return '<article class="up-card lv-' + u.level + '">' +
-    '<div class="up-head">' +
-      '<span class="up-rank" title="ลำดับตามการเรียงที่เลือกอยู่">' + rank + '</span>' +
-      '<div class="up-id">' +
-        '<span class="up-u">' + esc(name) + '</span>' +
-        (u.product ? '<span class="up-prod">' + esc(u.product) + '</span>' : '') +
-        (u.mapped ? '<span class="up-meta">' + fmtNum(u.pages) + ' เพจ • ' + fmtNum(u.admins) + ' แอดมิน</span>' : '') +
-      '</div>' +
-      (u.note ? '<span class="chip" title="หมายเหตุยูนิต (แก้ที่หน้า Sales → ตั้งค่ายูนิต)">📌 ' + esc(u.note) + '</span>' : '') +
-      '<span class="badge ' + LEVEL_CLS[u.level] + '">' + esc(LEVEL_LABEL[u.level]) + '</span>' +
+  return '<tr class="up-detail"><td colspan="' + COLS.length + '">' +
+    '<div class="up-sigs">' + sigs + '</div>' +
+    '<div class="up-facts">' +
+      '<span>คนทัก <b>' + fmtNum(u.base) + '</b></span>' +
+      '<span>ออเดอร์ <b>' + fmtNum(u.orders) + '</b></span>' +
+      '<span>เปอร์บิล <b>' + (u.perBill ? THB(u.perBill) : '—') + '</b></span>' +
+      '<span>ค่าทัก <b>' + (u.costPerMsg === null ? '—' : '฿' + u.costPerMsg.toFixed(2)) + '</b></span>' +
+      '<span>ขาดอีก <b>' + (u.gap ? THB(u.gap) : '—') + '</b></span>' +
+      '<span>จุดคุ้มทุน <b>' + (u.breakEvenSet ? u.breakEven + 'x' : 'ยังไม่ตั้ง') + '</b></span>' +
+      (u.mapped ? '<span>เพจ/แอดมิน <b>' + fmtNum(u.pages) + ' / ' + fmtNum(u.admins) + '</b></span>' : '') +
+      (u.note ? '<span>📌 ' + esc(u.note) + '</span>' : '') +
     '</div>' +
+    (u.mapped ? '<button type="button" class="up-daily" data-u="' + esc(u.u) + '">ดูยอดรายวันของ ' + esc(u.u) + ' ›</button>' : '') +
+  '</td></tr>';
+}
 
-    '<div class="up-goal">' +
-      '<div class="up-goal-top">' +
-        '<div>' +
-          '<span class="up-amount-lb">ยอดเดือนนี้ / เป้าเดือน</span>' +
-          '<div class="up-amount" title="' + esc('ยอดจริง ' + THB(u.revenue) + (u.target ? ' • เป้าเดือน ' + THB(u.target) : ' • ยังไม่มีเป้าในชีท KPI')) + '">' +
-            thbShort(u.revenue) + (u.target ? '<small>/ ' + thbShort(u.target) + '</small>' : '') +
-          '</div>' +
-        '</div>' +
-        '<div class="up-proj ' + cls + '" title="' + esc(projTip) + '">' +
-          '<b>' + (headPct === null ? '—' : Math.round(headPct) + '%') + '</b>' +
-          '<span>' + esc(projSub) + '</span>' +
-        '</div>' +
-      '</div>' +
-      barHtml(u, d, cls) +
-      '<div class="up-goal-sub">' +
-        '<span>' + (u.attain === null ? 'ยังไม่มีเป้าเดือนนี้ในชีท KPI'
-          : 'ทำได้ ' + u.attain + '% ของเป้า' + (u.gap ? ' • ขาดอีก ' + thbShort(u.gap) : ' • ถึงเป้าแล้ว')) + '</span>' +
-        '<span>ออเดอร์ ' + fmtNum(u.orders) + (u.perBill ? ' • เปอร์บิล ' + THB(u.perBill) : '') + '</span>' +
-      '</div>' +
-    '</div>' +
-
-    '<div class="up-stats">' +
-      statTile('ทัก', fmtNum(u.base), 'คนทักรวม',
-        'รวมคนทัก (อินบ็อกซ์ใหม่ + คอมเมนต์ ของเพจ Facebook) ทั้งเดือน — ตัวหารของ %ปิดและค่าทัก') +
-      statTile('%ปิด', u.closeRate === null ? '—' : u.closeRate.toFixed(2) + '%', 'เป้า ' + d.closeTarget + '%',
-        'ออเดอร์ ' + fmtNum(u.orders) + ' ÷ รวมคนทัก ' + fmtNum(u.base) + ' • เป้า ' + d.closeTarget + '% ขึ้นไป',
-        u.closeRate === null ? '' : (u.closeRate >= d.closeTarget ? 'good' : 'bad')) +
-      statTile('ROAS', u.roas === null ? '—' : u.roas.toFixed(2) + 'x',
-        u.breakEvenSet ? 'คุ้มทุน ' + u.breakEven + 'x' : 'ยังไม่ตั้งคุ้มทุน (ใช้ 1x)',
-        'ยอดขาย ÷ ค่าแอด ' + THB(u.spend) + ' • จุดคุ้มทุนของยูนิตนี้ ' + u.breakEven + 'x' +
-          (u.breakEvenSet ? '' : ' (ค่าเริ่มต้น เพราะยังไม่ได้ตั้งในหน้า Sales → ตั้งค่ายูนิต)'),
-        u.roas === null || !u.breakEvenSet ? '' : (u.roas >= u.breakEven ? 'good' : 'bad')) +
-      statTile('ค่าทัก', u.costPerMsg === null ? '—' : '฿' + u.costPerMsg.toFixed(2), 'ต่อคนทัก 1 คน', 'ค่าแอด ÷ รวมคนทัก') +
-      statTile('ค่าแอด', thbShort(u.spend), 'จ่ายจริงเดือนนี้', 'ค่าแอดจริงจาก Meta ทั้งเดือน ' + THB(u.spend)) +
-      statTile('กำไร', u.profit === null ? '—' : thbShort(u.profit), 'จากชีทสินค้า',
-        u.profit === null ? 'ยังไม่มีข้อมูลกำไรของยูนิตนี้ในชีทสรุปรายสินค้า' : 'กำไรสุทธิสะสมเดือนนี้จากชีท ' + THBs(u.profit),
-        u.profit === null ? '' : (u.profit >= 0 ? 'good' : 'bad')) +
-    '</div>' +
-
-    '<div class="up-sigs">' +
-      '<span class="up-sigs-lb">ระบบตรวจพบ</span>' + signals +
-      (u.mapped ? '<button type="button" class="up-daily" data-u="' + esc(u.u) + '">ดูรายวันของ ' + esc(u.u) + ' ›</button>' : '') +
-    '</div>' +
-  '</article>';
+/** แถวรวมท้ายตาราง — รวมเฉพาะยูนิตที่ตัวกรองเหลือไว้ ไม่ใช่ยอดรวมทั้งหมดเสมอ */
+function footHtml(list: UnitRow[]): string {
+  const sum = list.reduce((a, u) => ({
+    revenue: a.revenue + u.revenue,
+    target: a.target + (u.target || 0),
+    spend: a.spend + u.spend,
+    orders: a.orders + u.orders,
+    projected: a.projected + (u.projected === null ? u.revenue : u.projected),
+    profit: a.profit + (u.profit || 0),
+  }), { revenue: 0, target: 0, spend: 0, orders: 0, projected: 0, profit: 0 });
+  const attain = sum.target > 0 ? Math.round((sum.revenue / sum.target) * 1000) / 10 : null;
+  const projAttain = sum.target > 0 ? Math.round((sum.projected / sum.target) * 100) : null;
+  return '<tr>' +
+    '<td><b>รวม ' + fmtNum(list.length) + ' ยูนิต</b></td>' +
+    '<td class="r num"><div class="up-big">' + thbShort(sum.revenue) + '</div>' +
+      '<div class="up-sub">' + fmtNum(sum.orders) + ' ออเดอร์</div></td>' +
+    '<td class="r num ' + pctClass(attain) + '">' + (attain === null ? '—' : attain + '% ของ ' + thbShort(sum.target)) + '</td>' +
+    '<td class="r num ' + pctClass(projAttain) + '"><div class="up-big">' + (projAttain === null ? '—' : projAttain + '%') + '</div>' +
+      '<div class="up-sub">' + thbShort(sum.projected) + '</div></td>' +
+    '<td></td><td></td>' +
+    '<td class="r num">' + thbShort(sum.spend) + '</td>' +
+    '<td class="r num ' + (sum.profit >= 0 ? 'good' : 'bad') + '">' + thbShort(sum.profit) + '</td>' +
+    '<td></td><td></td>' +
+  '</tr>';
 }
 
 /** ค้นหาอย่างเดียว (ยังไม่กรองระดับ) — ใช้เป็นฐานนับจำนวนบนชิปกรอง ให้ตัวเลขตรงกับสิ่งที่จะได้เห็นจริง */
@@ -183,16 +259,20 @@ function searchOnly(units: UnitRow[]): UnitRow[] {
   return units.filter((u) => (u.u || '').toLowerCase().indexOf(q) >= 0 || (u.product || '').toLowerCase().indexOf(q) >= 0);
 }
 
-function filterSort(units: UnitRow[]): UnitRow[] {
-  let list = searchOnly(units).filter((u) => state.level === 'all' || u.level === state.level);
-  if (state.sort === 'attain') {
-    list = list.slice().sort((a, b) => (a.attain === null ? 9999 : a.attain) - (b.attain === null ? 9999 : b.attain));
-  } else if (state.sort === 'revenue') {
-    list = list.slice().sort((a, b) => b.revenue - a.revenue);
-  } else if (state.sort === 'profit') {
-    list = list.slice().sort((a, b) => (a.profit === null ? 1e15 : a.profit) - (b.profit === null ? 1e15 : b.profit));
-  }
-  return list;   // 'risk' = ลำดับที่ API เรียงมาให้แล้ว
+function filterSort(units: UnitRow[], d: PerfData): UnitRow[] {
+  const list = searchOnly(units).filter((u) => state.level === 'all' || u.level === state.level);
+  const col = COLS.filter((c) => c.key === state.sortKey)[0];
+  const val = col && col.val;
+  if (!val) return list;               // '' = ลำดับความเสี่ยงที่ API เรียงมาให้แล้ว
+  const dir = state.sortDir === 'asc' ? 1 : -1;
+  return list.slice().sort((a, b) => {
+    const va = val(a, d), vb = val(b, d);
+    if (va === null && vb === null) return 0;
+    if (va === null) return 1;          // ค่าที่ไม่มี อยู่ท้ายเสมอ
+    if (vb === null) return -1;
+    if (typeof va === 'string' || typeof vb === 'string') return String(va).localeCompare(String(vb)) * dir;
+    return (va - vb) * dir;
+  });
 }
 
 /**
@@ -205,8 +285,8 @@ function monthOptions(cur: string, dataStart: string): string {
   const floor = (dataStart || '2026-05-23').slice(0, 7);
   const keys: string[] = [];
   for (let i = 0; i < 6; i++) {
-    const d = new Date(Date.UTC(y, m - 1 - i, 1));
-    const key = d.toISOString().slice(0, 7);
+    const dt = new Date(Date.UTC(y, m - 1 - i, 1));
+    const key = dt.toISOString().slice(0, 7);
     if (key < floor) break;
     keys.push(key);
   }
@@ -244,7 +324,7 @@ function render(container: HTMLElement, d: PerfData | null): void {
     return;
   }
   const t = d.totals;
-  const list = filterSort(d.units || []);
+  const list = filterSort(d.units || [], d);
   const dayNote = d.isCurrentMonth
     ? 'ข้อมูลถึงวันนี้ (' + d.daysElapsed + ' จาก ' + d.daysInMonth + ' วัน) • คาดการณ์คิดจากยอดเฉลี่ยของ ' +
       d.daysDone + ' วันที่จบแล้ว (ไม่รวมวันนี้)'
@@ -263,12 +343,6 @@ function render(container: HTMLElement, d: PerfData | null): void {
     '<div class="up-controls">' +
       '<input class="input up-search" id="up-q" placeholder="🔍 ค้นหารหัส U หรือชื่อสินค้า" value="' + esc(state.q) + '">' +
       '<select class="input" id="up-month" aria-label="เลือกเดือน">' + monthOptions(d.month, d.dataStart) + '</select>' +
-      '<select class="input" id="up-sort" aria-label="เรียงลำดับ">' +
-        '<option value="risk"' + (state.sort === 'risk' ? ' selected' : '') + '>เรียง: ความเสี่ยงสูงสุด</option>' +
-        '<option value="attain"' + (state.sort === 'attain' ? ' selected' : '') + '>เรียง: %บรรลุต่ำสุด</option>' +
-        '<option value="revenue"' + (state.sort === 'revenue' ? ' selected' : '') + '>เรียง: ยอดขายมากสุด</option>' +
-        '<option value="profit"' + (state.sort === 'profit' ? ' selected' : '') + '>เรียง: กำไรน้อยสุด</option>' +
-      '</select>' +
     '</div>' +
     levelChips(d.units || []) +
   '</div>';
@@ -277,7 +351,8 @@ function render(container: HTMLElement, d: PerfData | null): void {
     '<div class="sr-head">' +
       '<div>' +
         '<div class="sr-title">🎯 ภาพรวมผลงานราย Unit — ' + esc(monthLabel(d.month)) + '</div>' +
-        '<div class="sr-title-sub" aria-live="polite">แสดง ' + fmtNum(list.length) + ' จาก ' + fmtNum((d.units || []).length) + ' ยูนิต • ' + esc(dayNote) + '</div>' +
+        '<div class="sr-title-sub" aria-live="polite">แสดง ' + fmtNum(list.length) + ' จาก ' + fmtNum((d.units || []).length) +
+          ' ยูนิต • ' + esc(dayNote) + '</div>' +
       '</div>' +
     '</div>' +
     toolbar +
@@ -290,17 +365,36 @@ function render(container: HTMLElement, d: PerfData | null): void {
         : '') +
     (d.beforeData
       ? '<div class="empty-note">⚠️ เดือนนี้อยู่ก่อนวันที่ระบบเริ่มเก็บออเดอร์จริง (' + esc(d.dataStart) + ')' +
-        ' — ยอด ฿0 บนการ์ดแปลว่า “ไม่มีข้อมูล” ไม่ใช่ขายไม่ได้</div>'
+        ' — ยอด ฿0 แปลว่า “ไม่มีข้อมูล” ไม่ใช่ขายไม่ได้</div>'
       : '') +
-    (d.goalYearMismatch ? '<div class="empty-note">⚠️ ชีท KPI ที่ sync มาเป็นของคนละปีกับเดือนที่เลือก — การ์ดจึงไม่มีเป้า</div>' : '') +
+    (d.goalYearMismatch ? '<div class="empty-note">⚠️ ชีท KPI ที่ sync มาเป็นของคนละปีกับเดือนที่เลือก — ตารางจึงไม่มีเป้า</div>' : '') +
     (list.length
-      ? '<div class="up-list">' + list.map((u, i) => cardHtml(u, i + 1, d)).join('') + '</div>'
+      ? '<div class="card" style="padding:0;overflow:hidden">' +
+          '<div class="table-scroll">' +
+            '<table class="tbl up-tbl tbl-scroll-x" data-cards="off">' +
+              '<thead><tr>' + headHtml() + '</tr></thead>' +
+              '<tbody>' + list.map((u, i) => rowHtml(u, i + 1, d)).join('') + '</tbody>' +
+              '<tfoot>' + footHtml(list) + '</tfoot>' +
+            '</table>' +
+          '</div>' +
+        '</div>'
       : '<div class="empty-note">ไม่มียูนิตที่ตรงกับตัวกรองนี้</div>') +
     '<div class="card-sub" style="margin-top:10px">' +
+      'กดหัวคอลัมน์เพื่อเรียง • กดปุ่ม “ดู” ท้ายแถวเพื่ออ่านสัญญาณเต็มและตัวเลขรอง • ' +
       'ยอดขาย/ออเดอร์/คนทัก/ค่าแอด = กติกาเดียวกับหน้า Sales (ไม่นับออเดอร์ยกเลิก ตีกลับ รอสินค้า และออเดอร์เปล่า) • ' +
-      'กำไรมาจากชีทสรุปรายสินค้า • ROAS ต่ำกว่าจุดคุ้มทุนนับวันติดต่อกันถึง' +
+      'กำไรมาจากชีทสรุปรายสินค้า • สัญญาณ “ขาดทุน/ROAS ต่ำกว่าคุ้มทุน” นับวันติดต่อกันถึง' +
       (d.lossThroughDate ? ' ' + esc(d.lossThroughDate) : 'เมื่อวาน') + ' (วันนี้ยังไม่จบ จึงยังไม่ตัดสิน)' +
     '</div>';
+}
+
+/** วาดใหม่แล้วคืนโฟกัสให้ปุ่ม/ช่องที่เพิ่งใช้ — ไม่งั้นโฟกัสตกไปที่ body และหน้าเด้งขึ้นบนสุด */
+function rerender(container: HTMLElement, focusSel: string, caret?: number): void {
+  render(container, lastData);
+  bind(container);
+  const el = container.querySelector(focusSel) as HTMLInputElement | null;
+  if (!el) return;
+  el.focus({ preventScroll: true });
+  if (caret !== undefined && el.setSelectionRange) el.setSelectionRange(caret, caret);
 }
 
 function bind(container: HTMLElement): void {
@@ -308,49 +402,50 @@ function bind(container: HTMLElement): void {
   if (q) q.addEventListener('input', function () {
     const pos = q.selectionStart === null ? q.value.length : q.selectionStart;
     state.q = q.value;
-    render(container, lastData);
-    const again = container.querySelector('#up-q') as HTMLInputElement | null;
-    // preventScroll: ไม่งั้นหน้าเด้งขึ้นบนสุดทุกครั้งที่พิมพ์ 1 ตัว · คืนเคอร์เซอร์ตำแหน่งเดิม ไม่ดีดไปท้ายช่อง
-    if (again) { again.focus({ preventScroll: true }); again.setSelectionRange(pos, pos); }
-    bind(container);
+    rerender(container, '#up-q', pos);
   });
   container.querySelectorAll('.up-chip').forEach(function (c) {
     c.addEventListener('click', function () {
       state.level = ((c as HTMLElement).dataset.lv || 'all') as any;
-      render(container, lastData);
-      bind(container);
-      // render ใหม่ทั้งก้อน = ปุ่มที่เพิ่งกดถูกทิ้ง โฟกัสจะตกไปที่ body แล้วต้อง Tab ใหม่ตั้งแต่ต้น
-      const again = container.querySelector('.up-chip[data-lv="' + state.level + '"]') as HTMLElement | null;
-      if (again) again.focus({ preventScroll: true });
+      rerender(container, '.up-chip[data-lv="' + state.level + '"]');
     });
   });
-  const sort = container.querySelector('#up-sort') as HTMLSelectElement | null;
-  if (sort) sort.addEventListener('change', function () {
-    state.sort = sort.value as any;
-    render(container, lastData);
-    bind(container);
-    const again = container.querySelector('#up-sort') as HTMLElement | null;
-    if (again) again.focus({ preventScroll: true });
+  container.querySelectorAll('.up-sort').forEach(function (b) {
+    b.addEventListener('click', function () {
+      const key = (b as HTMLElement).dataset.sort || '';
+      const col = COLS.filter((c) => c.key === key)[0];
+      if (state.sortKey === key) state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+      else { state.sortKey = key; state.sortDir = (col && col.dir) || 'desc'; }
+      rerender(container, '.up-sort[data-sort="' + key + '"]');
+    });
   });
-  const mo = container.querySelector('#up-month') as HTMLSelectElement | null;
-  if (mo) mo.addEventListener('change', function () {
-    state.month = mo.value;
-    container.innerHTML = '<div class="loading"><div class="spinner"></div>กำลังโหลดข้อมูล...</div>';
-    fetchData(container);
+  container.querySelectorAll('.up-more').forEach(function (b) {
+    b.addEventListener('click', function () {
+      const u = (b as HTMLElement).dataset.more || '';
+      state.open = state.open === u ? '' : u;
+      rerender(container, '.up-more[data-more="' + u + '"]');
+    });
   });
   container.querySelectorAll('.up-daily').forEach(function (b) {
     b.addEventListener('click', function () { openDaily((b as HTMLElement).dataset.u || ''); });
   });
+  const mo = container.querySelector('#up-month') as HTMLSelectElement | null;
+  if (mo) mo.addEventListener('change', function () {
+    state.month = mo.value;
+    state.open = '';
+    container.innerHTML = '<div class="loading"><div class="spinner"></div>กำลังโหลดข้อมูล...</div>';
+    fetchData(container);
+  });
 }
 
 /**
- * "ดูรายวันของ Uxx" — สลับไปหน้า Sales แล้วพาไปที่ตาราง 📅 ยอดขายรายวัน พร้อมไฮไลต์คอลัมน์ของยูนิตนั้น
- * หน้า Sales โหลดข้อมูลเอง กว่าตารางจะขึ้นใช้เวลา จึงต้องเฝ้ารอ (ไม่ใช่เลื่อนทันทีแล้วพลาด)
+ * "ดูยอดรายวันของ Uxx" — สลับไปหน้า Sales แล้วพาไปที่ตาราง 📅 ยอดขายรายวัน พร้อมไฮไลต์คอลัมน์ของยูนิตนั้น
+ * หน้า Sales ยังทยอยวาดการ์ดด้านบนหลังสลับหน้า ตารางจึงถูกดันลงเรื่อยๆ ต้องเลื่อนตามจนตำแหน่งนิ่ง
+ * (วัดบน prod: เลื่อนครั้งเดียวแล้วจบ ตารางอยู่ต่ำกว่าขอบจอ 4,429px) และหยุดทันทีถ้าผู้ใช้เลื่อนเอง
  */
 function openDaily(u: string): void {
   App.switchView('sales');
   const t0 = Date.now();
-  // ผู้ใช้เลื่อนเองเมื่อไหร่ = หยุดตามทันที (ห้ามแย่งหน้าจอกับคน)
   let stop = false;
   const cancel = function () { stop = true; };
   ['wheel', 'touchstart', 'keydown'].forEach(function (e) { window.addEventListener(e, cancel, { once: true, passive: true }); });
@@ -365,8 +460,6 @@ function openDaily(u: string): void {
           el.classList.toggle('ds-hl', (el as HTMLElement).dataset.u === u);
         });
       }
-      // หน้า Sales ยังทยอยวาดการ์ดด้านบนอยู่ ตารางจึงถูกดันลงเรื่อยๆ ต้องตามจนตำแหน่งนิ่ง
-      // (วัดบน prod: เลื่อนครั้งเดียวแล้วจบ ตารางอยู่ต่ำกว่าขอบจอ 4,429px)
       let last = -1e9;
       const follow = function (left: number) {
         if (stop) { clear(); return; }
