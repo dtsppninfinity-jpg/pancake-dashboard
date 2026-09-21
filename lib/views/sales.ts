@@ -971,7 +971,7 @@ function dsDelta_(pct: number | null | undefined): string {
 }
 
 /** ช่องยอดขาย 1 ช่อง: ยอด + % ใต้ยอด + สีเทียบเป้ารายวัน (เป้ามีเฉพาะแท็บ 🌐 ทั้งหมด) */
-function dsCell_(c: any, unitName: string, ymd: string): string {
+function dsCell_(c: any, unitName: string, ymd: string, uCode?: string): string {
   const v = Number(c && c.v) || 0;
   const target = c && c.target ? Number(c.target) : 0;
   const cls = target > 0 ? (v >= target ? 'txt-good' : 'txt-bad') : '';
@@ -979,7 +979,7 @@ function dsCell_(c: any, unitName: string, ymd: string): string {
     ' • ออเดอร์ ' + fmtNum((c && c.orders) || 0) +
     (target > 0 ? ' • เป้าวันนี้ ' + THB(target) : '') +
     (c && c.pct !== null && c.pct !== undefined ? ' • เทียบวันก่อนหน้า ' + (c.pct > 0 ? '+' : '') + Number(c.pct).toFixed(1) + '%' : '');
-  return '<td class="num ds-cell" title="' + esc(tip) + '">' +
+  return '<td class="num ds-cell"' + (uCode ? ' data-u="' + esc(uCode) + '"' : '') + ' title="' + esc(tip) + '">' +
     '<div class="ds-v ' + cls + '">' + (v > 0 ? THB(v) : '<span class="ds-zero">—</span>') + '</div>' +
     dsDelta_(c && c.pct) + '</td>';
 }
@@ -988,7 +988,8 @@ function dailySalesCard_(d: any, rangeLabel: string): string {
   const ds = d && d.dailySales;
   if (!ds) return '';
   // ปุ่มช่วงวันชุดเดียวกับหัวหน้าเพจ (state เดียวกัน) — การ์ดนี้อยู่ล่างสุด ปุ่มบนสุดไกลเกินไป
-  const head = '<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+  // id = จุดหมายของปุ่ม "ดูรายวันของ Uxx" บนหน้า 🎯 ผลงานราย Unit (เลื่อนมาที่นี่ + ไฮไลต์คอลัมน์)
+  const head = '<div class="card" id="sr-daily"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
     '<h3>📅 ยอดขายรายวัน (แยกตามยูนิต)</h3>' +
     '<div class="pg-controls" style="margin-bottom:0">' + rangeControlsHtml(state, 'srday') + '</div></div>';
   if (ds.loadFailed) {
@@ -1011,7 +1012,7 @@ function dailySalesCard_(d: any, rangeLabel: string): string {
 
   const unitTh = units.map(function (u: any) {
     const name = u.mapped ? (u.product || u.u) : 'ยังไม่จัดกลุ่ม';
-    return '<th class="num ds-uth" title="' + esc(name + (u.u ? ' (' + u.u + ')' : '') +
+    return '<th class="num ds-uth"' + (u.u ? ' data-u="' + esc(u.u) + '"' : '') + ' title="' + esc(name + (u.u ? ' (' + u.u + ')' : '') +
       ' • ยอดรวมช่วงนี้ ' + THB(u.revenue) + ' • ออเดอร์ ' + fmtNum(u.orders)) + '">' +
       '<div class="ds-u">' + esc(u.u || '⚠️') + '</div>' +
       '<div class="ds-uname">' + esc(name) + '</div></th>';
@@ -1033,7 +1034,7 @@ function dailySalesCard_(d: any, rangeLabel: string): string {
           : '<span class="ds-zero">—</span>') + '</td>'
         : '') +
       units.map(function (u: any, i: number) {
-        return dsCell_(row.cells[i], u.mapped ? (u.product || u.u) : 'ยังไม่จัดกลุ่ม', row.date);
+        return dsCell_(row.cells[i], u.mapped ? (u.product || u.u) : 'ยังไม่จัดกลุ่ม', row.date, u.u || '');
       }).join('') +
       '</tr>';
   }).join('');

@@ -111,7 +111,7 @@ export async function apiUnitPerf(params: any) {
       pages: (u.pages || []).length,
       admins: (u.admins || []).length,
       // 0 = ทีมยังไม่ได้ตั้งจุดคุ้มทุนของยูนิตนี้ — ใช้ 1x เป็นค่าเริ่มต้นแต่ต้องบอกบนจอว่าเป็นค่าเริ่มต้น
-      breakEven: num_(u.breakEven) || 1,
+      breakEven: Math.max(0, num_(u.breakEven)) || 1,   // กันค่าติดลบจากชีทมาพลิกเกณฑ์สี
       breakEvenSet: num_(u.breakEven) > 0,
       note: String(u.note || ''),
     };
@@ -302,6 +302,7 @@ export async function apiUnitPerf(params: any) {
       costPerMsg,
       perBill,
       breakEven: m.breakEven,
+      breakEvenSet: m.breakEvenSet,   // ไม่ได้ตั้ง = การ์ดต้องบอกว่า "ยังไม่ตั้ง" ไม่ใช่โชว์ 1x เหมือนเป็นค่าที่ทีมตั้งเอง
       lossStreak,
       closeStreak,
       signals,
