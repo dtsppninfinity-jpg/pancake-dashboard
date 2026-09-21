@@ -350,18 +350,39 @@ function bind(container: HTMLElement): void {
 function openDaily(u: string): void {
   App.switchView('sales');
   const t0 = Date.now();
+  // ผู้ใช้เลื่อนเองเมื่อไหร่ = หยุดตามทันที (ห้ามแย่งหน้าจอกับคน)
+  let stop = false;
+  const cancel = function () { stop = true; };
+  ['wheel', 'touchstart', 'keydown'].forEach(function (e) { window.addEventListener(e, cancel, { once: true, passive: true }); });
+  const clear = function () { ['wheel', 'touchstart', 'keydown'].forEach(function (e) { window.removeEventListener(e, cancel); }); };
+
   const tick = function () {
+    if (stop) { clear(); return; }
     const card = document.getElementById('sr-daily');
     if (card) {
-      card.scrollIntoView({ block: 'start', behavior: 'smooth' });
       if (u) {
         card.querySelectorAll('[data-u]').forEach(function (el) {
           el.classList.toggle('ds-hl', (el as HTMLElement).dataset.u === u);
         });
       }
+      // หน้า Sales ยังทยอยวาดการ์ดด้านบนอยู่ ตารางจึงถูกดันลงเรื่อยๆ ต้องตามจนตำแหน่งนิ่ง
+      // (วัดบน prod: เลื่อนครั้งเดียวแล้วจบ ตารางอยู่ต่ำกว่าขอบจอ 4,429px)
+      let last = -1e9;
+      const follow = function (left: number) {
+        if (stop) { clear(); return; }
+        const top = Math.round(card.getBoundingClientRect().top);
+        if (Math.abs(top - last) > 4 || Math.abs(top) > 8) {
+          last = top;
+          card.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        } else { clear(); return; }
+        if (left > 0) setTimeout(function () { follow(left - 1); }, 600);
+        else clear();
+      };
+      follow(10);
       return;
     }
     if (Date.now() - t0 < 30000) setTimeout(tick, 400);
+    else clear();
   };
   setTimeout(tick, 300);
 }
