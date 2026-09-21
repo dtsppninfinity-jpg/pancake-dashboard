@@ -41,7 +41,8 @@ let reqSeq = 0;
 const state = {
   month: '', q: '',
   level: 'all' as 'all' | 'urgent' | 'watch' | 'ok',
-  sortKey: '',                       // '' = ลำดับความเสี่ยงที่ API เรียงมาให้
+  // ค่าเริ่มต้น = %บรรลุเป้าสูงสุดลงมาต่ำสุด (ทีมสั่ง 21 ก.ย. 69) — ยูนิตที่ไม่มีเป้าอยู่ท้ายเสมอ
+  sortKey: 'attain',
   sortDir: 'desc' as 'asc' | 'desc',
   open: '',                          // key ของแถวที่กางอยู่ ('' = ไม่มีแถวไหนกาง)
   // ⚠️ ต้องใช้ key ไม่ใช่ u — กองที่ยังไม่จัดกลุ่มมี u = '' ซึ่งชนกับค่าว่างนี้พอดี แถวนั้นจะกางค้างทันทีที่เปิดหน้า
@@ -103,9 +104,10 @@ interface Col {
   dir?: 'asc' | 'desc';            // ทิศที่ "มีประโยชน์" ตอนกดครั้งแรก
 }
 const COLS: Col[] = [
-  { key: 'u', label: 'ยูนิต', val: (u) => u.u || 'zzz', dir: 'asc', tip: 'รหัสยูนิต + สินค้าหลัก • จุดสี = ระดับความเสี่ยง' },
-  { key: 'revenue', label: 'ยอดขาย', r: true, val: (u) => u.revenue, dir: 'desc', tip: 'ยอดขายสะสมเดือนนี้ (กติกาเดียวกับหน้า Sales)' },
-  { key: 'attain', label: 'เทียบเป้าเดือน', val: (u) => u.attain, dir: 'asc', tip: 'แถบ: ทึบ = ยอดจริง • จาง = ส่วนที่คาดว่าจะได้เพิ่ม • ขีด = ผ่านไปกี่ % ของเดือน' },
+  { key: 'rank', label: '#', tip: 'ลำดับตามการเรียงที่เลือกอยู่ • จุดสี = ระดับความเสี่ยง' },
+  { key: 'u', label: 'ยูนิต', val: (u) => u.u || 'zzz', dir: 'asc', tip: 'รหัสยูนิต + สินค้าหลัก' },
+  { key: 'attain', label: 'ยอด vs เป้าเดือน', val: (u) => u.attain, dir: 'desc',
+    tip: 'ยอดจริง / เป้าเดือน • แถบ: ทึบ = ยอดจริง • จาง = ส่วนที่คาดว่าจะได้เพิ่ม • ขีด = ผ่านไปกี่ % ของเดือน' },
   { key: 'proj', label: 'คาดสิ้นเดือน', r: true, val: (u, d) => headPct(u, d), dir: 'asc', tip: 'ยอดเฉลี่ยของวันที่จบแล้ว × จำนวนวันทั้งเดือน (ไม่รวมวันนี้ที่ยังไม่จบ)' },
   { key: 'close', label: '%ปิด', r: true, val: (u) => u.closeRate, dir: 'asc', tip: 'ออเดอร์ ÷ รวมคนทัก (อินบ็อกซ์ใหม่ + คอมเมนต์ ของเพจ Facebook)' },
   { key: 'roas', label: 'ROAS', r: true, val: (u) => u.roas, dir: 'asc', tip: 'ยอดขาย ÷ ค่าแอด • สีขึ้นเฉพาะยูนิตที่ตั้งจุดคุ้มทุนไว้แล้ว' },
@@ -139,32 +141,28 @@ function rowHtml(u: UnitRow, rank: number, d: PerfData): string {
 
   const rowId = u.key || u.u || 'none';
   return '<tr data-u="' + esc(u.u) + '"' + (state.open === rowId ? ' class="up-open"' : '') + '>' +
-    '<td title="' + esc((u.product || 'ยังไม่จัดกลุ่ม') + ' • ' + LEVEL_LABEL[u.level] +
+    '<td class="up-rankcell" title="' + esc(LEVEL_LABEL[u.level]) + '">' +
+      '<span class="up-dot ' + u.level + '"></span><span class="up-rank">' + rank + '</span></td>' +
+
+    '<td title="' + esc((u.product || 'ยังไม่จัดกลุ่ม') +
       (u.mapped ? ' • ' + fmtNum(u.pages) + ' เพจ • ' + fmtNum(u.admins) + ' แอดมิน' : '') +
       (u.note ? ' • 📌 ' + u.note : '')) + '">' +
       '<div class="up-unit">' +
-        '<span class="up-rank">' + rank + '</span>' +
-        '<span class="up-dot ' + u.level + '"></span>' +
         '<span class="up-code">' + esc(name) + '</span>' +
         '<span class="up-prod">' + esc(u.product || '') + '</span>' +
       '</div></td>' +
 
-    '<td class="r num" title="' + esc('ยอดจริง ' + THB(u.revenue) + ' • ออเดอร์ ' + fmtNum(u.orders) +
-      (u.perBill ? ' • เปอร์บิล ' + THB(u.perBill) : '')) + '">' +
-      '<div class="up-big">' + thbShort(u.revenue) + '</div>' +
-      '<div class="up-sub">' + fmtNum(u.orders) + ' ออเดอร์</div></td>' +
-
-    '<td class="up-goal" title="' + esc(u.target
-      ? 'เป้าเดือน ' + THB(u.target) + ' • ทำได้ ' + (u.attain === null ? 0 : u.attain) + '%' +
-        (u.gap ? ' • ขาดอีก ' + THB(u.gap) : ' • ถึงเป้าแล้ว') +
-        (d.isCurrentMonth ? ' • ผ่านไปแล้ว ' + d.daysElapsed + ' จาก ' + d.daysInMonth + ' วัน' : '')
-      : 'ยังไม่มีเป้าเดือนนี้ในชีท KPI') + '">' +
+    '<td class="up-goal" title="' + esc('ยอดจริง ' + THB(u.revenue) + ' • ออเดอร์ ' + fmtNum(u.orders) +
       (u.target
-        ? '<div class="up-goal-top"><span class="num">' + thbShort(u.target) + '</span>' +
-            '<span class="num ' + pctClass(u.attain) + '">' + (u.attain === null ? '—' : u.attain + '%') + '</span></div>' +
-          barHtml(u, d, cls) +
-          '<div class="up-sub">' + (u.gap ? 'ขาดอีก ' + thbShort(u.gap) : 'ถึงเป้าแล้ว') + '</div>'
-        : '<span class="up-sub">ยังไม่มีเป้าในชีท KPI</span>') +
+        ? ' • เป้าเดือน ' + THB(u.target) + ' • ทำได้ ' + (u.attain === null ? 0 : u.attain) + '%' +
+          (u.gap ? ' • ขาดอีก ' + THB(u.gap) : ' • ถึงเป้าแล้ว') +
+          (d.isCurrentMonth ? ' • ผ่านไปแล้ว ' + d.daysElapsed + ' จาก ' + d.daysInMonth + ' วัน' : '')
+        : ' • ยังไม่มีเป้าเดือนนี้ในชีท KPI')) + '">' +
+      '<div class="up-goal-top">' +
+        '<span class="up-money num"><b>' + thbShort(u.revenue) + '</b>' +
+          (u.target ? '<span> / ' + thbShort(u.target) + '</span>' : '') + '</span>' +
+        '<span class="num ' + pctClass(u.attain) + '">' + (u.attain === null ? 'ไม่มีเป้า' : u.attain + '%') + '</span>' +
+      '</div>' + barHtml(u, d, cls) +
     '</td>' +
 
     '<td class="r num ' + cls + '" title="' + esc(d.isCurrentMonth && u.projected !== null
@@ -213,6 +211,7 @@ function detailHtml(u: UnitRow): string {
   return '<tr class="up-detail"><td colspan="' + COLS.length + '">' +
     '<div class="up-sigs">' + sigs + '</div>' +
     '<div class="up-facts">' +
+      '<span>ยอดขาย <b>' + THB(u.revenue) + '</b></span>' +
       '<span>คนทัก <b>' + fmtNum(u.base) + '</b></span>' +
       '<span>ออเดอร์ <b>' + fmtNum(u.orders) + '</b></span>' +
       '<span>เปอร์บิล <b>' + (u.perBill ? THB(u.perBill) : '—') + '</b></span>' +
@@ -239,10 +238,12 @@ function footHtml(list: UnitRow[]): string {
   const attain = sum.target > 0 ? Math.round((sum.revenue / sum.target) * 1000) / 10 : null;
   const projAttain = sum.target > 0 ? Math.round((sum.projected / sum.target) * 100) : null;
   return '<tr>' +
+    '<td></td>' +
     '<td><b>รวม ' + fmtNum(list.length) + ' ยูนิต</b></td>' +
-    '<td class="r num"><div class="up-big">' + thbShort(sum.revenue) + '</div>' +
+    '<td class="up-goal"><div class="up-goal-top">' +
+      '<span class="up-money num"><b>' + thbShort(sum.revenue) + '</b><span> / ' + thbShort(sum.target) + '</span></span>' +
+      '<span class="num ' + pctClass(attain) + '">' + (attain === null ? '—' : attain + '%') + '</span></div>' +
       '<div class="up-sub">' + fmtNum(sum.orders) + ' ออเดอร์</div></td>' +
-    '<td class="r num ' + pctClass(attain) + '">' + (attain === null ? '—' : attain + '% ของ ' + thbShort(sum.target)) + '</td>' +
     '<td class="r num ' + pctClass(projAttain) + '"><div class="up-big">' + (projAttain === null ? '—' : projAttain + '%') + '</div>' +
       '<div class="up-sub">' + thbShort(sum.projected) + '</div></td>' +
     '<td></td><td></td>' +

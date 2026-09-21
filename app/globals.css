@@ -564,13 +564,24 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
       ไม่ใช่ลำดับบรรทัด — คอลัมน์ "ยูนิต" ต้องตรึงทุกขนาดจอ ไม่งั้นเลื่อนขวาแล้วไม่รู้ว่าแถวไหนของใคร */
 table.tbl.up-tbl.tbl-scroll-x { min-width: max-content; }
 table.tbl.up-tbl.tbl-scroll-x th:first-child,
-table.tbl.up-tbl.tbl-scroll-x td:first-child {
-  position: sticky; left: 0; z-index: 1; background: var(--surface);
-  box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px rgba(0, 0, 0, .28);
+table.tbl.up-tbl.tbl-scroll-x td:first-child { left: 0; width: 46px; }
+table.tbl.up-tbl.tbl-scroll-x th:nth-child(2),
+table.tbl.up-tbl.tbl-scroll-x td:nth-child(2) {
+  left: 46px; box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px rgba(0, 0, 0, .28);
 }
-table.tbl.up-tbl.tbl-scroll-x thead th:first-child { z-index: 2; }
+table.tbl.up-tbl.tbl-scroll-x th:first-child,
+table.tbl.up-tbl.tbl-scroll-x td:first-child,
+table.tbl.up-tbl.tbl-scroll-x th:nth-child(2),
+table.tbl.up-tbl.tbl-scroll-x td:nth-child(2) {
+  position: sticky; z-index: 1; background: var(--surface);
+}
+table.tbl.up-tbl.tbl-scroll-x thead th:first-child,
+table.tbl.up-tbl.tbl-scroll-x thead th:nth-child(2) { z-index: 2; }
+/* แถว hover มีพื้นโปร่ง — ช่องที่ตรึงต้องทา 2 ชั้นให้ได้สีผสมเดียวกับแถว ไม่งั้นคอลัมน์ที่ตรึงสีเพี้ยน */
 table.tbl.up-tbl.tbl-scroll-x tr:hover td:first-child,
-table.tbl.up-tbl.tbl-scroll-x tr.up-open td:first-child {
+table.tbl.up-tbl.tbl-scroll-x tr:hover td:nth-child(2),
+table.tbl.up-tbl.tbl-scroll-x tr.up-open td:first-child,
+table.tbl.up-tbl.tbl-scroll-x tr.up-open td:nth-child(2) {
   background-color: var(--surface);
   background-image: linear-gradient(rgba(108,92,231,.05), rgba(108,92,231,.05));
 }
@@ -591,16 +602,19 @@ table.tbl.up-tbl tr.up-open td { background-color: rgba(108,92,231,.05); }
 .up-sort[aria-sort="asc"] i, .up-sort[aria-sort="desc"] i { opacity: 1; }
 
 /* ช่อง "ยูนิต" (ตรึงซ้าย) = จุดสีระดับ + ลำดับ + รหัส + ชื่อสินค้า */
-.up-unit { display: flex; align-items: center; gap: var(--sp-2); }
-.up-rank { color: var(--text-3); font-size: var(--fs-1); font-variant-numeric: tabular-nums; min-width: 14px; text-align: right; }
-.up-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.up-rankcell { white-space: nowrap; }
+.up-unit { display: flex; align-items: baseline; gap: var(--sp-2); }
+.up-rank { color: var(--text-3); font-size: var(--fs-2); font-variant-numeric: tabular-nums; margin-left: 6px; }
+.up-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; vertical-align: middle; }
 .up-dot.urgent { background: var(--red); }
 .up-dot.watch { background: var(--amber); }
 .up-dot.ok { background: var(--green); }
 .up-code { font-weight: 800; }
 .up-prod { color: var(--text-3); font-size: var(--fs-2); max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.up-goal { min-width: 148px; }
-.up-goal-top { display: flex; justify-content: space-between; gap: var(--sp-2); font-size: var(--fs-2); }
+.up-goal { min-width: 190px; }
+.up-goal-top { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-3); font-size: var(--fs-3); }
+.up-money b { font-weight: 800; }
+.up-money span { color: var(--text-3); font-weight: 600; }
 .up-sub { color: var(--text-3); font-size: var(--fs-1); white-space: nowrap; }
 .up-big { font-weight: 800; }
 .up-tbl .good { color: var(--green); }
