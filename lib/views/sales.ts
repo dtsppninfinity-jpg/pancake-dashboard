@@ -690,6 +690,10 @@ function bindEvents(container: HTMLElement): void {
   bindRangeControls(container, state, 'sr', function () {
     refetch(container);
   });
+  // ชุดที่สองบนการ์ด "ยอดขายรายวัน" — state ก้อนเดียวกัน กดที่ไหนก็เปลี่ยนทั้งหน้า
+  bindRangeControls(container, state, 'srday', function () {
+    refetch(container);
+  });
 
   const cmp = container.querySelector('#sr-compare') as HTMLSelectElement | null;
   if (cmp) cmp.addEventListener('change', function () {
@@ -983,8 +987,10 @@ function dsCell_(c: any, unitName: string, ymd: string): string {
 function dailySalesCard_(d: any, rangeLabel: string): string {
   const ds = d && d.dailySales;
   if (!ds) return '';
+  // ปุ่มช่วงวันชุดเดียวกับหัวหน้าเพจ (state เดียวกัน) — การ์ดนี้อยู่ล่างสุด ปุ่มบนสุดไกลเกินไป
   const head = '<div class="card"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
-    '<h3>📅 ยอดขายรายวัน (แยกตามยูนิต)</h3></div>';
+    '<h3>📅 ยอดขายรายวัน (แยกตามยูนิต)</h3>' +
+    '<div class="pg-controls" style="margin-bottom:0">' + rangeControlsHtml(state, 'srday') + '</div></div>';
   if (ds.needMigration) {
     return head + '<div class="card-sub">ยอดขายรายวันต่อยูนิต</div>' +
       '<div class="empty-note">ยังใช้ไม่ได้ — ต้องรันไฟล์ <b>db/migrations/2026-09-21-sales-daily-by-page.sql</b>' +
@@ -1038,8 +1044,8 @@ function dailySalesCard_(d: any, rangeLabel: string): string {
 
   const widened = !!ds.widened;
   const sub = esc(thaiDateShort(ds.from)) + ' – ' + esc(thaiDateShort(ds.to)) + ' • ' + CH_LABELS[state.channel] +
-    ' — แถวละ 1 วัน (ใหม่สุดอยู่บน) • ตัวเลขเล็กใต้ยอด = เทียบกับวันก่อนหน้า' +
-    ' • คอลัมน์เรียงจากยูนิตที่ขายได้มากไปน้อย ➡️ เลื่อนตารางไปทางขวาเพื่อดูยูนิตที่เหลือ' +
+    ' — แถวละ 1 วัน (เก่าสุดอยู่บน) • ตัวเลขเล็กใต้ยอด = เทียบกับวันก่อนหน้า' +
+    ' • คอลัมน์เรียงตามรหัสยูนิต U1→U99 แล้ว UN1→UN99 ➡️ เลื่อนตารางไปทางขวาเพื่อดูยูนิตที่เหลือ (วันที่ตรึงไว้ให้)' +
     (widened ? ' • ช่วงที่เลือกสั้นกว่า ' + ds.minDays + ' วัน จึงย้อนให้ครบ ' + ds.minDays + ' วันเพื่อให้เทียบวันต่อวันได้' : '') +
     (ds.withTargets
       ? ' • สี = เทียบเป้ารายวันของยูนิตนั้น (เป้าเดือนในชีท KPI ÷ จำนวนวันในเดือน) — เขียว = ถึง, แดง = ไม่ถึง'

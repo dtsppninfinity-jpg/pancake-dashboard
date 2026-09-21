@@ -672,6 +672,24 @@ function bkkDayIso_(ymd: string): string {
   return new Date(ymd + 'T00:00:00+07:00').toISOString();
 }
 
+/**
+ * เรียงรหัสยูนิตแบบที่ทีมอ่าน: U1 → U99 แล้วค่อย UN1 → UN99 (พีสั่ง 21 ก.ย.)
+ * ไม่ใช่เรียงตัวอักษรล้วน ไม่งั้นได้ U10 ก่อน U4 — และ U4CG ต้องอยู่ติดหลัง U4
+ */
+function unitCodeOrder_(a: string, b: string): number {
+  const parse = (k: string) => {
+    const m = /^([A-Za-z]*)(\d+)(.*)$/.exec(k.trim());
+    if (!m) return { pre: 'zzz', num: Number.MAX_SAFE_INTEGER, suf: k };
+    return { pre: m[1].toUpperCase(), num: Number(m[2]), suf: (m[3] || '').toUpperCase() };
+  };
+  const rank = (pre: string) => (pre === 'U' ? 0 : pre === 'UN' ? 1 : 2);
+  const x = parse(a), y = parse(b);
+  if (rank(x.pre) !== rank(y.pre)) return rank(x.pre) - rank(y.pre);
+  if (rank(x.pre) === 2 && x.pre !== y.pre) return x.pre.localeCompare(y.pre);
+  if (x.num !== y.num) return x.num - y.num;
+  return x.suf.localeCompare(y.suf);
+}
+
 /** เป้ารายวันของยูนิต = เป้าเดือนในชีท KPI ÷ จำนวนวันของเดือนนั้น (กติกาเดียวกับ rangeTargets_) */
 function dailyTargetOf_(goals: UnitGoals | null, ymd: string, u: string): number {
   if (!goals) return 0;
@@ -767,7 +785,7 @@ function buildDailySales_(
     .sort((a, b) => {
       if (a === unmappedKey) return 1;
       if (b === unmappedKey) return -1;
-      return sumOf[b] - sumOf[a];
+      return unitCodeOrder_(a, b);
     });
   const units = keys.map((k) => ({
     key: k,
@@ -781,7 +799,8 @@ function buildDailySales_(
   const pct_ = (v: number, prev: number): number | null =>
     prev > 0 ? Math.round(((v - prev) / prev) * 1000) / 10 : null;
 
-  const rows = days.slice().reverse().map((ymd) => {
+  // เรียงเก่า → ใหม่ (พีสั่ง 21 ก.ย.) — แถวถัดลงมาคือวันถัดไป % จึงอ่านคู่กับแถวบนได้ตรงๆ
+  const rows = days.map((ymd) => {
     const prevYmd = ymdShift_(ymd, -1);
     // วันก่อนหน้าของแถวล่างสุดคือวันที่ดึงเกินมา 1 วัน — ถ้าไม่มีในชุดข้อมูลเลยถือว่าไม่รู้ ไม่ใช่ 0
     const prevKnown = prevYmd >= prevOfFirst;

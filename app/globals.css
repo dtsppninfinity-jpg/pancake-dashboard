@@ -524,13 +524,25 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 /* ---------- 📅 ตารางยอดขายรายวัน (ds-*) — แถว = วัน, คอลัมน์ = ยูนิต ----------
    คอลัมน์ "วันที่" ตรึงไว้ซ้ายมือเสมอ เพราะตารางกว้างเกินจอทุกขนาด (20+ ยูนิต)
    ต้องมีพื้นหลังทึบ ไม่งั้นตัวเลขที่เลื่อนผ่านจะทะลุออกมาซ้อนกัน */
-.ds-tbl { min-width: max-content; }
+/* border-collapse: separate — ช่องที่ position: sticky ใน border-collapse: collapse เส้นขอบจะไม่เลื่อนตาม
+   (บางเบราว์เซอร์หลุดทั้งช่อง) จึงคุมเส้นด้วย box-shadow แทน border ของตารางหลัก */
+.ds-tbl { min-width: max-content; border-collapse: separate; border-spacing: 0; }
+.ds-tbl th, .ds-tbl td { border-bottom: none; box-shadow: inset 0 -1px 0 rgba(38,51,82,.5); }
+.ds-tbl thead th { box-shadow: inset 0 -1px 0 var(--border); }
 .ds-tbl .ds-date {
   position: sticky; left: 0; z-index: 2; background: var(--surface);
   white-space: nowrap; font-weight: 700;
+  /* เส้นคั่นขวา = ขอบของคอลัมน์ที่ตรึงไว้ ให้เห็นว่าอันขวาเลื่อนผ่านอยู่ข้างหลัง */
+  box-shadow: inset 0 -1px 0 rgba(38,51,82,.5), 6px 0 8px -6px rgba(0,0,0,.35);
 }
-.ds-tbl thead .ds-date { z-index: 3; }
+.ds-tbl thead .ds-date { z-index: 3; box-shadow: inset 0 -1px 0 var(--border), 6px 0 8px -6px rgba(0,0,0,.35); }
 .ds-tbl tr:hover .ds-date { background: var(--surface-2); }
+:root[data-theme="light"] .ds-tbl th,
+:root[data-theme="light"] .ds-tbl td { box-shadow: inset 0 -1px 0 var(--border); }
+:root[data-theme="light"] .ds-tbl .ds-date,
+:root[data-theme="light"] .ds-tbl thead .ds-date {
+  box-shadow: inset 0 -1px 0 var(--border), 6px 0 8px -6px rgba(15,23,42,.18);
+}
 .ds-tbl th.ds-uth { text-align: right; }
 .ds-u { font-weight: 800; color: var(--text-2); }
 .ds-uname { font-weight: 500; font-size: var(--fs-1); color: var(--text-3);
