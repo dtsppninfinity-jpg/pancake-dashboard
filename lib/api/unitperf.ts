@@ -11,7 +11,7 @@
 //   เป้าเดือน        sync_state 'unit_goals' (ชีท KPI แท็บ เป้ายอดขาย)
 import { db, fetchAll } from '@/lib/db';
 import { getUMapDoc, getPageUnitMap } from '@/lib/api/umap';
-import { EXCLUDED_STATUSES, NEED_CHECK_STATUSES, money_, UNIT_CLOSE_TARGET } from '@/lib/config';
+import { EXCLUDED_STATUSES, NEED_CHECK_STATUSES, money_, UNIT_CLOSE_TARGET, DATA_START_YMD } from '@/lib/config';
 
 const num_ = (v: unknown): number => {
   const n = Number(v);
@@ -27,20 +27,42 @@ const ymdShift_ = (ymd: string, n: number): string => {
 };
 const bkkDayIso_ = (ymd: string): string => new Date(ymd + 'T00:00:00+07:00').toISOString();
 
-/** PostgREST ตัดผลลัพธ์ทุกคิวรีที่ 1,000 แถว รวม RPC — ต้องแบ่งหน้าเองพร้อม order ที่ไม่กำกวม */
-async function rpcAll_(fn: string, args: any, orderCols: string[]): Promise<any[] | null> {
+/** ไม่มีฟังก์ชันในฐานข้อมูล (ยังไม่ได้รัน migration) ≠ มีแต่รอบนี้ล้ม — คนละข้อความบนจอ */
+function isMissingFunction_(err: any): boolean {
+  const code = String((err && err.code) || '');
+  const msg = String((err && err.message) || err || '');
+  return code === 'PGRST202' || /schema cache|does not exist|could not find the function/i.test(msg);
+}
+
+interface RpcResult { rows: any[] | null; failed: 'migration' | 'error' | null }
+
+/**
+ * PostgREST ตัดผลลัพธ์ทุกคิวรีที่ 1,000 แถว รวม RPC — ต้องแบ่งหน้าเองพร้อม order ที่ไม่กำกวม
+ * (ไม่งั้นได้ข้อมูลครึ่งเดียวแบบเงียบๆ — เคยเกิดจริงกับตารางรายวัน 21 ก.ย.)
+ * พลาดชั่วคราว (ตอบช้า/เน็ตสะดุด) ลองซ้ำอีกครั้งก่อนยอมแพ้ ไม่งั้นทั้งหน้าหายเพราะสะดุดรอบเดียว
+ */
+async function rpcAll_(fn: string, args: any, orderCols: string[]): Promise<RpcResult> {
   const PAGE = 1000;
   const out: any[] = [];
   for (let off = 0; off <= 100000; off += PAGE) {
-    let q: any = db.rpc(fn, args);
-    orderCols.forEach((c) => { q = q.order(c, { ascending: true }); });
-    const { data, error } = await q.range(off, off + PAGE - 1).abortSignal(AbortSignal.timeout(30_000));
-    if (error) return null;
-    const got = (data || []) as any[];
+    let lastErr: any = null;
+    let got: any[] | null = null;
+    for (let attempt = 0; attempt < 2 && got === null; attempt++) {
+      let q: any = db.rpc(fn, args);
+      orderCols.forEach((c) => { q = q.order(c, { ascending: true }); });
+      const { data, error } = await q.range(off, off + PAGE - 1).abortSignal(AbortSignal.timeout(30_000));
+      if (error) {
+        lastErr = error;
+        if (isMissingFunction_(error)) return { rows: null, failed: 'migration' };
+        continue;
+      }
+      got = (data || []) as any[];
+    }
+    if (got === null) return { rows: null, failed: isMissingFunction_(lastErr) ? 'migration' : 'error' };
     out.push(...got);
     if (got.length < PAGE) break;
   }
-  return out;
+  return { rows: out, failed: null };
 }
 
 interface Daily { rev: number; orders: number; spend: number; base: number; profit: number | null }
@@ -60,6 +82,13 @@ export async function apiUnitPerf(params: any) {
   // เดือนปัจจุบันตัดที่ "วันนี้" — วันในอนาคตไม่มีข้อมูล และต้องไม่ถูกนับเป็นวันที่ผ่านไปแล้ว
   const lastYmd = isCurrentMonth ? todayYmd : monthEnd;
   const daysElapsed = Number(lastYmd.slice(8, 10));
+  // วันนี้ยังเดินอยู่ ห้ามนับเป็นวันเต็มในตัวหารของคาดการณ์ (ไม่งั้นคาดการณ์ต่ำกว่าจริงทั้งวัน
+  // และเพี้ยนสุดตอนเช้า) — เดือนที่จบแล้วนับครบทุกวัน
+  const daysDone = isCurrentMonth ? daysElapsed - 1 : daysInMonth;
+  // วันสุดท้ายที่ "จบแล้ว" ของเดือนที่เลือก — ใช้เป็นจุดตั้งต้นของสตรีคทุกตัว
+  const lastDoneYmd = isCurrentMonth ? ymdShift_(todayYmd, -1) : monthEnd;
+  // ออเดอร์จริงเริ่ม 23 พ.ค. 69 — เดือนก่อนหน้านั้นไม่ใช่ "ขายไม่ได้" แต่คือไม่มีข้อมูล
+  const beforeData = monthEnd < DATA_START_YMD;
 
   /* ---- แผนที่เพจ → ยูนิต + จำนวนเพจ/แอดมินต่อยูนิต ---- */
   const [pageUnit, doc, pagesRows] = await Promise.all([
@@ -75,27 +104,31 @@ export async function apiUnitPerf(params: any) {
     return um ? um.u : UNMAPPED;
   };
 
-  const meta: Record<string, { product: string; pages: number; admins: number; breakEven: number; note: string }> = {};
+  const meta: Record<string, { product: string; pages: number; admins: number; breakEven: number; breakEvenSet: boolean; note: string }> = {};
   (doc.units || []).forEach((u: any) => {
     meta[u.u] = {
       product: String(u.product || ''),
       pages: (u.pages || []).length,
       admins: (u.admins || []).length,
+      // 0 = ทีมยังไม่ได้ตั้งจุดคุ้มทุนของยูนิตนี้ — ใช้ 1x เป็นค่าเริ่มต้นแต่ต้องบอกบนจอว่าเป็นค่าเริ่มต้น
       breakEven: num_(u.breakEven) || 1,
+      breakEvenSet: num_(u.breakEven) > 0,
       note: String(u.note || ''),
     };
   });
 
   /* ---- ยอดขาย/ออเดอร์ รายวันต่อเพจ (กติกาเดียวกับหน้า Sales) ---- */
-  const salesRows = await rpcAll_('sales_daily_by_page', {
+  const salesRes = await rpcAll_('sales_daily_by_page', {
     p_from: bkkDayIso_(monthStart),
     p_to: bkkDayIso_(ymdShift_(lastYmd, 1)),
     p_excluded: EXCLUDED_STATUSES,
     p_needcheck: NEED_CHECK_STATUSES,
   }, ['d', 'page_id', 'channel']);
+  const salesRows = salesRes.rows;
 
   /* ---- ค่าแอดรายวันต่อเพจ ---- */
-  const adsRows = await rpcAll_('ads_daily_by_page', { p_from: monthStart, p_to: lastYmd }, ['d', 'page_id']);
+  const adsRes = await rpcAll_('ads_daily_by_page', { p_from: monthStart, p_to: lastYmd }, ['d', 'page_id']);
+  const adsRows = adsRes.rows;
 
   /* ---- คนทักรายวันต่อเพจ (เฉพาะเพจ Facebook — ตัวหารเดียวกับ %ปิด หน้า Sales) ---- */
   const engRows = await fetchAll<any>(
@@ -170,7 +203,8 @@ export async function apiUnitPerf(params: any) {
   });
 
   /* ---- สรุปต่อยูนิต + ไล่นับ streak ---- */
-  const yesterdayYmd = ymdShift_(todayYmd, -1);
+  // สแนปช็อตสตรีคขาดทุนจากงาน sync เป็นของ "ช่วงล่าสุด" เสมอ — เดือนอื่นห้ามเอามาแปะ
+  const lossUsable = !!lossAlerts && !!lossAlerts.throughDate && lossAlerts.throughDate.slice(0, 7) === month;
   const keys = Array.from(new Set(
     Object.keys(byUnit).concat(Object.keys(meta)).concat(goals && goals.year === year ? Object.keys(goals.targets) : []),
   ));
@@ -178,23 +212,26 @@ export async function apiUnitPerf(params: any) {
   const units = keys.map((k) => {
     const days = byUnit[k] || {};
     const mapped = k !== UNMAPPED;
-    const m = meta[k] || { product: '', pages: 0, admins: 0, breakEven: 1, note: '' };
-    let rev = 0, orders = 0, spend = 0, base = 0, profit = 0, hasProfit = false;
+    const m = meta[k] || { product: '', pages: 0, admins: 0, breakEven: 1, breakEvenSet: false, note: '' };
+    let rev = 0, orders = 0, spend = 0, base = 0, profit = 0, hasProfit = false, revDone = 0;
     Object.keys(days).forEach((ymd) => {
       const c = days[ymd];
       rev += c.rev; orders += c.orders; spend += c.spend; base += c.base;
+      if (ymd <= lastDoneYmd) revDone += c.rev;          // คาดการณ์ใช้เฉพาะวันที่จบแล้ว
       if (c.profit !== null) { profit += c.profit; hasProfit = true; }
     });
     const target = mapped ? monthTargetOf(k) : 0;
     const attain = target > 0 ? Math.round((rev / target) * 1000) / 10 : null;
-    // คาดการณ์สิ้นเดือน = ยอดเฉลี่ยต่อวันของวันที่ผ่านมาแล้ว × จำนวนวันทั้งเดือน
-    // (เดือนที่จบแล้ว = ยอดจริง ไม่ต้องคาด)
-    const projected = isCurrentMonth && daysElapsed > 0 ? Math.round((rev / daysElapsed) * daysInMonth) : Math.round(rev);
-    const projAttain = target > 0 ? Math.round((projected / target) * 1000) / 10 : null;
+    // คาดการณ์สิ้นเดือน = ยอดเฉลี่ยต่อวันของ "วันที่จบแล้ว" × จำนวนวันทั้งเดือน
+    // วันที่ 1 ของเดือน (ยังไม่มีวันจบเลย) คาดไม่ได้ → null ให้หน้าเว็บโชว์ "—" ไม่ใช่เลขตกใจ
+    // เดือนที่จบแล้ว = ยอดจริง ไม่ต้องคาด
+    const projected = !isCurrentMonth ? Math.round(rev)
+      : daysDone > 0 ? Math.round((revDone / daysDone) * daysInMonth) : null;
+    const projAttain = target > 0 && projected !== null ? Math.round((projected / target) * 1000) / 10 : null;
 
     // ---- %ปิด ต่ำกว่าเป้าติดต่อกันกี่วัน (ไล่ย้อนจากเมื่อวาน — วันนี้ยังไม่จบ ตัดสินไม่ได้) ----
     let closeStreak = 0;
-    for (let d = yesterdayYmd; d >= monthStart; d = ymdShift_(d, -1)) {
+    for (let d = lastDoneYmd; d >= monthStart; d = ymdShift_(d, -1)) {
       const c = days[d];
       if (!c || c.base <= 0) break;                    // ไม่มีคนทัก = ตัดสินไม่ได้ streak ขาด
       const rate = (c.orders / c.base) * 100;
@@ -202,8 +239,10 @@ export async function apiUnitPerf(params: any) {
       closeStreak++;
     }
     // ---- ROAS ต่ำกว่าจุดคุ้มทุนติดต่อกันกี่วัน (กติกาเดียวกับการ์ด 🚨 — งาน sync คำนวณไว้) ----
-    const la = lossAlerts ? lossAlerts.byU[k] : null;
+    const la = lossUsable && lossAlerts ? lossAlerts.byU[k] : null;
     const lossStreak = la ? num_(la.days || la.streak) : 0;
+    // basis บอกว่าวันขาดทุนตัดสินด้วยอะไร: 'profit' = กำไรจริงจากชีท · 'roas' = ยอดขายต่ำกว่าค่าแอด × จุดคุ้มทุน
+    const lossBasis = la ? String(la.basis || 'roas') : '';
 
     const closeRate = base > 0 ? Math.round((orders / base) * 10000) / 100 : null;
     const roas = spend > 0 ? Math.round((rev / spend) * 100) / 100 : null;
@@ -213,8 +252,14 @@ export async function apiUnitPerf(params: any) {
     /* ---- สัญญาณเตือน + ระดับความเสี่ยง ---- */
     const signals: Array<{ text: string; level: 'urgent' | 'watch' }> = [];
     if (lossStreak >= 1) {
+      // ข้อความต้องตรงกับฐานที่ใช้ตัดสินจริง ไม่งั้นการ์ดจะโชว์ ROAS เขียวคู่กับบรรทัดแดงที่บอกว่า ROAS ตก
+      const how = lossBasis === 'profit' ? 'ขาดทุนจริงจากชีท '
+        : lossBasis === 'mixed' ? 'ขาดทุน (กำไรชีท + ROAS ต่ำกว่าจุดคุ้มทุน) '
+          : 'ROAS ต่ำกว่าจุดคุ้มทุน ';
+      const beNote = lossBasis === 'profit' ? ''
+        : m.breakEvenSet ? ' (จุดคุ้มทุน ' + m.breakEven + 'x)' : ' (ยังไม่ได้ตั้งจุดคุ้มทุน ใช้ค่าเริ่มต้น 1x)';
       signals.push({
-        text: 'ROAS ต่ำกว่าจุดคุ้มทุน ' + lossStreak + ' วันติด' + (m.breakEven ? ' (จุดคุ้มทุน ' + m.breakEven + 'x)' : ''),
+        text: how + lossStreak + ' วันติด' + beNote,
         level: lossStreak >= 2 ? 'urgent' : 'watch',
       });
     }
@@ -224,7 +269,7 @@ export async function apiUnitPerf(params: any) {
         level: closeStreak >= 7 ? 'urgent' : 'watch',
       });
     }
-    if (target > 0 && projAttain !== null && isCurrentMonth) {
+    if (target > 0 && projAttain !== null && isCurrentMonth && projected !== null) {
       if (projAttain < 80) signals.push({ text: 'คาดว่าจะไม่ถึงเป้าเดือนนี้ (คาด ' + projAttain + '% ของเป้า)', level: 'urgent' });
       else if (projAttain < 100) signals.push({ text: 'คาดว่าจะเฉียดเป้า (คาด ' + projAttain + '% ของเป้า)', level: 'watch' });
     }
@@ -280,7 +325,7 @@ export async function apiUnitPerf(params: any) {
     revenue: t.revenue + u.revenue,
     target: t.target + (u.target || 0),
     spend: t.spend + u.spend,
-    projected: t.projected + u.projected,
+    projected: t.projected + (u.projected === null ? u.revenue : u.projected),
     profit: t.profit + (u.profit || 0),
     urgent: t.urgent + (u.level === 'urgent' ? 1 : 0),
     watch: t.watch + (u.level === 'watch' ? 1 : 0),
@@ -296,8 +341,15 @@ export async function apiUnitPerf(params: any) {
     isCurrentMonth,
     closeTarget: UNIT_CLOSE_TARGET,
     // null = ยังไม่ได้รัน migration ของ RPC นั้น (หน้าเว็บบอกวิธีรัน ไม่ใช่โชว์ 0)
-    needSalesRpc: salesRows === null,
-    needAdsRpc: adsRows === null,
+    needSalesRpc: salesRes.failed === 'migration',
+    needAdsRpc: adsRes.failed === 'migration',
+    salesFailed: salesRes.failed === 'error',
+    adsFailed: adsRes.failed === 'error',
+    beforeData,
+    dataStart: DATA_START_YMD,
+    daysDone,
+    lastDoneYmd,
+    lossUsable,
     lossThroughDate: lossAlerts ? lossAlerts.throughDate : '',
     goalSheetId: goals ? goals.sheetId : '',
     goalYearMismatch: !!goals && goals.year !== year,

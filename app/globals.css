@@ -577,7 +577,9 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
   color: var(--primary); font-size: var(--fs-2); font-weight: 600; cursor: pointer;
 }
 @media (min-width: 900px) {
-  .up-body { grid-template-columns: minmax(200px, 1.2fr) auto minmax(260px, 1.4fr) minmax(220px, 1.3fr); align-items: start; }
+  /* ห้ามใส่พื้นความกว้างขั้นต่ำให้คอลัมน์ (กติกาข้อ 2 ของไฟล์นี้) — รวมกันแล้วเกินพื้นที่ตอนกางแถบเมนู
+     ที่จอ 1024-1280px การ์ดจะล้นออกนอกกรอบ */
+  .up-body { grid-template-columns: minmax(0, 1.2fr) auto minmax(0, 1.4fr) minmax(0, 1.3fr); align-items: start; }
   .up-ring-wrap { flex-direction: column; text-align: center; gap: var(--sp-1); }
 }
 
