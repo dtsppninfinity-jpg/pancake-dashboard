@@ -693,6 +693,35 @@ table.tbl.ds-tbl.tbl-scroll-x tfoot .ds-foot td:first-child { background-color: 
 .ds-d.down { color: var(--red); }
 .ds-d.flat, .ds-d.ds-none { color: var(--text-3); font-weight: 500; }
 .ds-zero { color: var(--text-3); }
+
+/* ---- เส้นขีดแนวตั้งระหว่างคอลัมน์ (พีสั่ง 23 ก.ย. 69) ----
+   ตาราง 20+ คอลัมน์ ถ้าไม่มีเส้น ตาจะไหลข้ามช่องตอนกวาดแนวนอน
+   คอลัมน์ "วันที่" ไม่ต้องใส่ เพราะเงาของช่องที่ตรึงทำหน้าที่เส้นอยู่แล้ว (ไม่งั้นเป็นเส้นคู่) */
+table.tbl.ds-tbl th + th,
+table.tbl.ds-tbl td + td { border-left: 1px solid var(--border); }
+table.tbl.ds-tbl th:nth-child(2),
+table.tbl.ds-tbl td:nth-child(2) { border-left: 0; }
+
+/* ---- พื้นหลังช่องตาม %เทียบวันก่อนหน้า ----
+   เจตนา: กวาดตาเห็น "วันไหนทั้งแถวเขียว/แดง" โดยตัว % ยังอ่านออก
+   จึงคุมความทึบไว้ต่ำ (สูงสุด .15 ในโหมดมืด / .13 ในโหมดสว่าง) และวัดคอนทราสต์ตัวอักษรแล้วทุกระดับ
+   ⚠️ ต้องเจาะจงกว่ากฎ hover ของ .tbl (table.tbl tr:hover td) ไม่งั้นสีหายตอนเอาเมาส์ชี้ */
+table.tbl.ds-tbl tbody td.ds-tu1 { background-color: rgba(45, 212, 160, .06); }
+table.tbl.ds-tbl tbody td.ds-tu2 { background-color: rgba(45, 212, 160, .10); }
+table.tbl.ds-tbl tbody td.ds-tu3 { background-color: rgba(45, 212, 160, .15); }
+table.tbl.ds-tbl tbody td.ds-td1 { background-color: rgba(255, 93, 122, .06); }
+table.tbl.ds-tbl tbody td.ds-td2 { background-color: rgba(255, 93, 122, .10); }
+table.tbl.ds-tbl tbody td.ds-td3 { background-color: rgba(255, 93, 122, .15); }
+:root[data-theme="light"] table.tbl.ds-tbl tbody td.ds-tu1 { background-color: rgba(4, 120, 87, .05); }
+:root[data-theme="light"] table.tbl.ds-tbl tbody td.ds-tu2 { background-color: rgba(4, 120, 87, .09); }
+:root[data-theme="light"] table.tbl.ds-tbl tbody td.ds-tu3 { background-color: rgba(4, 120, 87, .13); }
+:root[data-theme="light"] table.tbl.ds-tbl tbody td.ds-td1 { background-color: rgba(194, 24, 62, .05); }
+:root[data-theme="light"] table.tbl.ds-tbl tbody td.ds-td2 { background-color: rgba(194, 24, 62, .09); }
+:root[data-theme="light"] table.tbl.ds-tbl tbody td.ds-td3 { background-color: rgba(194, 24, 62, .13); }
+/* hover ต้องทาทับเป็นอีกชั้น (background-image) ไม่ใช่เขียนทับ background-color ของสีพื้น */
+table.tbl.ds-tbl tbody tr:hover td {
+  background-image: linear-gradient(rgba(108, 92, 231, .05), rgba(108, 92, 231, .05));
+}
 .ds-tbl .ds-st { white-space: nowrap; }
 .ds-tbl tfoot .ds-foot td { border-bottom: none; border-top: 1px solid var(--border);
   background: var(--surface-2); font-weight: 700; }

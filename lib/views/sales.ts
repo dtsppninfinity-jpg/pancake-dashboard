@@ -962,6 +962,20 @@ function perBill_(revenue: unknown, orders: unknown): number | null {
  */
 
 /** % เทียบวันก่อนหน้า — ขึ้นเขียว ลงแดง ไม่มีวันก่อนหน้า/วันก่อนเป็น 0 = ไม่โชว์ */
+/**
+ * ระดับสีพื้นหลังของช่อง = ขนาดของ %เทียบวันก่อนหน้า (พีสั่ง 23 ก.ย. 69)
+ * ต้องอ่อนพอให้ตัว % ข้างในยังอ่านออก จึงไล่แค่ 3 ระดับ และความเข้มสูงสุดอยู่ที่ 15%
+ *   <10% = แทบไม่เห็น · 10-30% = เห็นชัดขึ้น · >30% = เข้มสุด (ยังอ่อนกว่าป้ายสถานะ)
+ */
+function dsTint_(pct: number | null | undefined): string {
+  if (pct === null || pct === undefined || isNaN(Number(pct))) return '';
+  const v = Number(pct);
+  if (v === 0) return '';
+  const a = Math.abs(v);
+  const lv = a >= 30 ? 3 : a >= 10 ? 2 : 1;
+  return ' ds-t' + (v > 0 ? 'u' : 'd') + lv;
+}
+
 function dsDelta_(pct: number | null | undefined): string {
   if (pct === null || pct === undefined || isNaN(Number(pct))) return '<div class="ds-d ds-none">—</div>';
   const v = Number(pct);
@@ -979,7 +993,7 @@ function dsCell_(c: any, unitName: string, ymd: string, uCode?: string): string 
     ' • ออเดอร์ ' + fmtNum((c && c.orders) || 0) +
     (target > 0 ? ' • เป้าวันนี้ ' + THB(target) : '') +
     (c && c.pct !== null && c.pct !== undefined ? ' • เทียบวันก่อนหน้า ' + (c.pct > 0 ? '+' : '') + Number(c.pct).toFixed(1) + '%' : '');
-  return '<td class="num ds-cell"' + (uCode ? ' data-u="' + esc(uCode) + '"' : '') + ' title="' + esc(tip) + '">' +
+  return '<td class="num ds-cell' + dsTint_(c && c.pct) + '"' + (uCode ? ' data-u="' + esc(uCode) + '"' : '') + ' title="' + esc(tip) + '">' +
     '<div class="ds-v ' + cls + '">' + (v > 0 ? THB(v) : '<span class="ds-zero">—</span>') + '</div>' +
     dsDelta_(c && c.pct) + '</td>';
 }
@@ -1024,7 +1038,7 @@ function dailySalesCard_(d: any, rangeLabel: string): string {
     return '<tr>' +
       '<td class="ds-date"' + (isToday ? ' title="วันนี้ยังไม่จบวัน ตัวเลขยังขยับได้"' : '') + '>' +
         esc(thaiDateShort(row.date)) + (isToday ? ' <span class="chip">วันนี้</span>' : '') + '</td>' +
-      '<td class="num ds-cell ds-total" title="' + esc('ยอดรวมทุกยูนิต ' + THB(row.total) +
+      '<td class="num ds-cell ds-total' + dsTint_(row.pct) + '" title="' + esc('ยอดรวมทุกยูนิต ' + THB(row.total) +
         (row.target ? ' • เป้ารวมของวันนี้ ' + THB(row.target) : '')) + '">' +
         '<div class="ds-v">' + THB(row.total) + '</div>' + dsDelta_(row.pct) + '</td>' +
       (ds.withTargets
