@@ -323,7 +323,7 @@ function hierarchyHtml_(d: KpiData): string {
     const attain = h.target > 0 ? Math.round((h.sales / h.target) * 1000) / 10 : null;
     rows.push('<tr class="kpi-head-row">' +
       // ป้ายตำแหน่งสีหลักแทน 👑 — คำ "หัวหน้าฝ่าย" ย้ายเข้าป้าย (ไม่เขียนซ้ำเป็นตัวจางข้างหลังอีก)
-      '<td><b>' + esc(h.nick || h.name) + '</b> ' + statusPill('brand', 'หัวหน้าฝ่าย') + '</td>' +
+      '<td><b>' + esc(h.nick || h.name) + '</b> <span class="rank-fullname">หัวหน้าฝ่าย</span></td>' +
       '<td><span class="chip">ทุกยูนิต</span></td>' +
       '<td class="num"><b>' + (attain === null ? '—' : pctFmt(attain)) + '</b>' +
         '<div class="kpi-subnum" title="' + esc(THB(h.sales) + ' / เป้า ' + THB(h.target)) + '">' + kFmt(h.sales) + ' / ' + kFmt(h.target) + '</div></td>' +
@@ -356,7 +356,7 @@ function hierarchyHtml_(d: KpiData): string {
       '<td>' + gradeChip(pts(score)) + '</td>' +
       '<td class="num">' + trendHtml(score, prev) + '</td>' +
       '<td>' + statusBadge(score, prev) + '</td>' +
-      '<td style="white-space:nowrap">' +
+      '<td>' +
         (team.length ? '<button class="btn-mini" data-subtoggle="' + si + '">ดูทีม ▾</button> ' : '') +
         '<button class="btn-mini" data-coach="sub:' + esc(s.id) + '" title="เจาะทีม & Coaching">' +
           icon(ICON_FOR.target, { size: 14 }) + 'โค้ช</button></td></tr>');

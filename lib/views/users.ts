@@ -5,7 +5,7 @@
    ============================================================ */
 
 import {
-  serverCall, esc, fmtNum, relTime, showError, toast, openModal, closeModal, downloadCSV,
+  serverCall, esc, fmtNum, relTime, showError, toast, openModal, closeModal, downloadCSV, modalCloseBtn,
 } from '@/lib/ui/helpers';
 import { icon, ICON_FOR } from '@/lib/ui/icons';
 
@@ -116,7 +116,7 @@ function bodyHtml(d: UsersData): string {
 /* ---------------- modal ---------------- */
 
 /** ปุ่มกากบาทมุมบนของ modal — มีแต่ไอคอน จึงต้องมี aria-label + title ให้โปรแกรมอ่านหน้าจอ/คนชี้เมาส์รู้ว่าคือ "ปิด" */
-const CLOSE_BTN = '<button class="btn btn-icon modal-close" aria-label="ปิด" title="ปิด">' + icon(ICON_FOR.close) + '</button>';
+const CLOSE_BTN = modalCloseBtn();
 
 /** โชว์รหัสผ่านครั้งเดียว — ย้ำให้คัดลอกเก็บ เพราะดูย้อนหลังไม่ได้ */
 function showPassword(title: string, username: string, password: string): void {
@@ -138,8 +138,8 @@ function showPassword(title: string, username: string, password: string): void {
   if (copy) {
     copy.addEventListener('click', () => {
       navigator.clipboard.writeText(username + ' / ' + password)
-        .then(() => toast('คัดลอกแล้ว'))
-        .catch(() => toast('คัดลอกไม่สำเร็จ — เลือกข้อความเอง'));
+        .then(() => toast('คัดลอกแล้ว', 'ok'))
+        .catch(() => toast('คัดลอกไม่สำเร็จ — เลือกข้อความเอง', 'error'));
     });
   }
 }
@@ -196,11 +196,11 @@ function openEditor(container: HTMLElement, d: UsersData, user: UserRow | null):
       const r: any = await serverCall('apiUsers', params);
       closeModal();
       if (isNew && r.password) showPassword('สร้างบัญชีแล้ว', r.username, r.password);
-      else toast('บันทึกแล้ว');
+      else toast('บันทึกแล้ว', 'ok');
       lastData = null;
       users.load(container, true);
     } catch (e: any) {
-      toast((e && e.message) || 'บันทึกไม่สำเร็จ');
+      toast((e && e.message) || 'บันทึกไม่สำเร็จ', 'error');
     }
     busy = false;
   });
@@ -209,7 +209,7 @@ function openEditor(container: HTMLElement, d: UsersData, user: UserRow | null):
 function openBulk(container: HTMLElement, d: UsersData): void {
   const pool = (d.admins || []).filter((a) => !a.hasAccount);
   if (!pool.length) {
-    toast('แอดมินทุกคนมีบัญชีแล้ว');
+    toast('แอดมินทุกคนมีบัญชีแล้ว', 'info');
     return;
   }
   openModal(
@@ -237,26 +237,26 @@ function openBulk(container: HTMLElement, d: UsersData): void {
   document.getElementById('us-b-go')!.addEventListener('click', async () => {
     if (busy) return;
     const ids = chks().filter((c) => c.checked).map((c) => c.value);
-    if (!ids.length) { toast('ยังไม่ได้เลือกใคร'); return; }
+    if (!ids.length) { toast('ยังไม่ได้เลือกใคร', 'warn'); return; }
     busy = true;
-    toast('กำลังสร้าง ' + ids.length + ' บัญชี...');
+    toast('กำลังสร้าง ' + ids.length + ' บัญชี...', 'busy');
     try {
       const r: any = await serverCall('apiUsers', { action: 'createBulk', adminUserIds: ids });
       closeModal();
       const made: any[] = r.created || [];
-      toast('สร้างแล้ว ' + made.length + ' บัญชี');
+      toast('สร้างแล้ว ' + made.length + ' บัญชี', 'ok');
       if (made.length) {
         // ดาวน์โหลดทันที — รหัสดูย้อนหลังไม่ได้ ถ้าไม่โหลดตอนนี้คือต้องรีเซ็ตใหม่ทุกคน
         downloadCSV(
           [['ชื่อ', 'ชื่อผู้ใช้', 'รหัสผ่าน'], ...made.map((m) => [m.name, m.username, m.password])],
           'pn-users-' + new Date().toISOString().slice(0, 10) + '.csv'
         );
-        toast('ดาวน์โหลดไฟล์รหัสผ่านแล้ว — แจกเสร็จให้ลบไฟล์ทิ้ง');
+        toast('ดาวน์โหลดไฟล์รหัสผ่านแล้ว — แจกเสร็จให้ลบไฟล์ทิ้ง', 'ok');
       }
       lastData = null;
       users.load(container, true);
     } catch (e: any) {
-      toast((e && e.message) || 'สร้างไม่สำเร็จ');
+      toast((e && e.message) || 'สร้างไม่สำเร็จ', 'error');
     }
     busy = false;
   });
@@ -322,7 +322,7 @@ function bindRowActions(container: HTMLElement): void {
         lastData = null;
         users.load(container, true);
       } catch (e: any) {
-        toast((e && e.message) || 'รีเซ็ตไม่สำเร็จ');
+        toast((e && e.message) || 'รีเซ็ตไม่สำเร็จ', 'error');
       }
       busy = false;
     });
@@ -335,11 +335,11 @@ function bindRowActions(container: HTMLElement): void {
       busy = true;
       try {
         await serverCall('apiUsers', { action: 'update', id: u.id, enabled: !u.enabled });
-        toast(u.enabled ? 'ปิดใช้งานแล้ว' : 'เปิดใช้งานแล้ว');
+        toast(u.enabled ? 'ปิดใช้งานแล้ว' : 'เปิดใช้งานแล้ว', 'ok');
         lastData = null;
         users.load(container, true);
       } catch (e: any) {
-        toast((e && e.message) || 'ทำรายการไม่สำเร็จ');
+        toast((e && e.message) || 'ทำรายการไม่สำเร็จ', 'error');
       }
       busy = false;
     });
@@ -353,11 +353,11 @@ function bindRowActions(container: HTMLElement): void {
       busy = true;
       try {
         await serverCall('apiUsers', { action: 'delete', id: u.id });
-        toast('ลบแล้ว');
+        toast('ลบแล้ว', 'ok');
         lastData = null;
         users.load(container, true);
       } catch (e: any) {
-        toast((e && e.message) || 'ลบไม่สำเร็จ');
+        toast((e && e.message) || 'ลบไม่สำเร็จ', 'error');
       }
       busy = false;
     });
@@ -385,7 +385,7 @@ function fetchAndRender(container: HTMLElement): void {
     })
     .catch((err) => {
       if (seq !== reqSeq) return;
-      if (lastData) toast('โหลดข้อมูลใหม่ไม่สำเร็จ');
+      if (lastData) toast('โหลดข้อมูลใหม่ไม่สำเร็จ', 'error');
       else showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', () => users.load(container, true));
     });
 }

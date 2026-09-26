@@ -254,10 +254,18 @@ function pgsItem(val: string | number, label: string, cls: string, title?: strin
     '<b>' + val + '</b><span>' + esc(label) + '</span></div>';
 }
 
-function cellHtml(val: string | number, label: string, cls: string, title?: string): string {
+/** subHtml = บรรทัดย่อยใต้ป้าย (HTML ที่ escape แล้ว) — ใช้แยกตัวเลขย่อยด้วยไอคอนแทนคำยาวที่ตัดบรรทัด */
+function cellHtml(val: string | number, label: string, cls: string, title?: string, subHtml?: string): string {
   return '<div class="cell' + (cls ? ' ' + cls : '') + '"' +
     (title ? ' title="' + esc(title) + '"' : '') + '>' +
-    '<b>' + val + '</b><span>' + esc(label) + '</span></div>';
+    '<b>' + val + '</b><span>' + esc(label) + '</span>' +
+    (subHtml ? '<span class="cell-sub">' + subHtml + '</span>' : '') + '</div>';
+}
+
+/** "อินบ็อกซ์ 6 · คอมเมนต์ 21" แบบสั้น: ไอคอน + ตัวเลข อยู่บรรทัดเดียวเสมอ */
+function waitSplitHtml_(inbox: number, cmt: number): string {
+  return '<span style="white-space:nowrap">' + icon(ICON_FOR.inbox, { size: 12, label: 'อินบ็อกซ์' }) + ' ' + fmtNum(inbox) +
+    ' · ' + icon(ICON_FOR.comment, { size: 12, label: 'คอมเมนต์' }) + ' ' + fmtNum(cmt) + '</span>';
 }
 
 function detailRow(label: string, valueHtml: string): string {
@@ -315,26 +323,26 @@ function saveAdmin(
     revert();
     recomputeLocal(a); // ห้ามลืม — ไม่งั้น status/capacity ที่คำนวณจากค่าใหม่ค้างอยู่ทั้งที่ revert แล้ว
     renderBody(container);
-    toast('กำลังบันทึกรายการก่อนหน้า — ลองอีกครั้ง');
+    toast('กำลังบันทึกรายการก่อนหน้า — ลองอีกครั้ง', 'warn');
     return;
   }
   saving = true;
   dataSeq++; // มีการแก้ state — refetch เบื้องหลังที่เริ่มก่อนหน้านี้ห้ามเอาข้อมูลมาทับ
   serverCall<any>('apiAdminSettings', { admin: { user_id: String(a.id), ...changed } }).then(function (res) {
     saving = false;
-    if (res && res.ok) { toast(res.warning ? 'คำเตือน: ' + res.warning : okMsg); return; }
+    if (res && res.ok) { toast(res.warning ? 'คำเตือน: ' + res.warning : okMsg, res.warning ? 'warn' : 'ok'); return; }
     revert();
     recomputeLocal(a);
     renderBody(container);
     toast(res && res.needSetup
       ? 'ยังบันทึกไม่ได้ — ตารางตั้งค่ายังไม่ถูกสร้างใน Supabase'
-      : 'บันทึกไม่สำเร็จ: ' + ((res && res.error) || 'ไม่ทราบสาเหตุ'));
+      : 'บันทึกไม่สำเร็จ: ' + ((res && res.error) || 'ไม่ทราบสาเหตุ'), 'error');
   }).catch(function (err) {
     saving = false;
     revert();
     recomputeLocal(a);
     renderBody(container);
-    toast('บันทึกไม่สำเร็จ: ' + ((err && err.message) || 'เครือข่ายมีปัญหา'));
+    toast('บันทึกไม่สำเร็จ: ' + ((err && err.message) || 'เครือข่ายมีปัญหา'), 'error');
   });
 }
 
@@ -426,10 +434,11 @@ function cardHtml(a: Admin): string {
     cellHtml(fmtNum(active) + '/' + fmtNum(maxActive), 'แชทดูแล (24ชม.)',
       cap.key === 'full' ? 'warn' : '') +
     cellHtml(fmtNum(waiting) + (maxPending > 0 ? '/' + fmtNum(maxPending) : ''),
-      'รอตอบ' + (maxPending > 0 ? ' (เพดาน)' : '') + ' • อินบ็อกซ์ ' + fmtNum(waitInbox) + ' • คอมเมนต์ ' + fmtNum(waitCmt),
+      'รอตอบ' + (maxPending > 0 ? ' (เพดาน)' : ''),
       overPending || waiting > 0 ? 'warn' : '',
       'แชทที่ลูกค้ารอตอบตอนนี้ (24 ชม.ล่าสุด) — อินบ็อกซ์ ' + fmtNum(waitInbox) +
-        ' • คอมเมนต์ใต้โพสต์ ' + fmtNum(waitCmt) + ' (คนละงานกัน จึงแยกให้เห็น)') +
+        ' • คอมเมนต์ใต้โพสต์ ' + fmtNum(waitCmt) + ' (คนละงานกัน จึงแยกให้เห็น)',
+      waitSplitHtml_(waitInbox, waitCmt)) +
     cellHtml(esc(respFmt(t.respMins)), 'ตอบเฉลี่ย', '') +
     cellHtml(fmtNum(t.orders || 0), 'ออเดอร์วันนี้', '') +
     cellHtml(esc(THB(t.revenue || 0)), 'ยอดขาย', '');
@@ -560,7 +569,7 @@ function openSettings(a: Admin, container: HTMLElement): void {
   if (save) save.addEventListener('click', function () {
     if (saving) {
       // เช็คก่อนปิดฟอร์ม — ไม่งั้นค่าที่พิมพ์หายหมดทั้งที่ยังไม่ได้บันทึก
-      toast('กำลังบันทึกรายการก่อนหน้า — รอสักครู่แล้วกดบันทึกอีกครั้ง');
+      toast('กำลังบันทึกรายการก่อนหน้า — รอสักครู่แล้วกดบันทึกอีกครั้ง', 'warn');
       return;
     }
     const before = {
@@ -746,11 +755,11 @@ function saveRolePerms(): void {
     roleSaving = true;
     serverCall<any>('apiAdminSettings', { rolePerms: rp }).then(function (res) {
       roleSaving = false;
-      if (res && res.ok) toast('บันทึกตารางสิทธิ์แล้ว');
-      else toast('บันทึกตารางสิทธิ์ไม่สำเร็จ' + ((res && res.error) ? ': ' + res.error : ''));
+      if (res && res.ok) toast('บันทึกตารางสิทธิ์แล้ว', 'ok');
+      else toast('บันทึกตารางสิทธิ์ไม่สำเร็จ' + ((res && res.error) ? ': ' + res.error : ''), 'error');
     }).catch(function () {
       roleSaving = false;
-      toast('บันทึกตารางสิทธิ์ไม่สำเร็จ — เครือข่ายมีปัญหา');
+      toast('บันทึกตารางสิทธิ์ไม่สำเร็จ — เครือข่ายมีปัญหา', 'error');
     });
   }, 600);
 }
@@ -760,7 +769,7 @@ function saveRolePerms(): void {
 function exportCsv(): void {
   const list = getFiltered();
   if (!list.length) {
-    toast('ไม่มีข้อมูลแอดมินให้ Export');
+    toast('ไม่มีข้อมูลแอดมินให้ Export', 'warn');
     return;
   }
   const rows: unknown[][] = [[
@@ -923,7 +932,7 @@ function render(container: HTMLElement): void {
       pgsItem(fmtNum(k.activeTotal || 0), 'แชทที่ดูแลรวม (24ชม.)', '') +
       // แชทรอตอบ = อินบ็อกซ์ + คอมเมนต์ใต้โพสต์ (คนละงานกัน — ~41% ที่ค้างเป็นคอมเมนต์)
       pgsItem(fmtNum(waitingTotal),
-        'แชทรอตอบ (อินบ็อกซ์ ' + fmtNum(waitingInbox) + ' • คอมเมนต์ ' + fmtNum(waitingCmt) + ')',
+        'แชทรอตอบ',
         waitingTotal > 0 ? 'warn' : '',
         'แชทที่ลูกค้ารอตอบตอนนี้ (24 ชม.ล่าสุด) — อินบ็อกซ์ ' + fmtNum(waitingInbox) +
           ' • คอมเมนต์ใต้โพสต์ ' + fmtNum(waitingCmt) + ' (คนละงานกัน จึงแยกให้เห็น)') +
@@ -1080,17 +1089,17 @@ function openSlaEditor(container: HTMLElement): void {
   if (save) save.addEventListener('click', function () {
     const inp = root.querySelector('#sla-input') as HTMLInputElement | null;
     const v = inp ? Math.round(Number(inp.value)) : NaN;
-    if (!isFinite(v) || v < 5 || v > 1440) { toast('เกณฑ์ SLA ต้องอยู่ระหว่าง 5-1440 นาที'); return; }
+    if (!isFinite(v) || v < 5 || v > 1440) { toast('เกณฑ์ SLA ต้องอยู่ระหว่าง 5-1440 นาที', 'warn'); return; }
     save.disabled = true;
     serverCall('apiAppSettings', { settings: { slaMins: v } }).then(function () {
       closeModal();
-      toast('ตั้งเกณฑ์ SLA ' + v + ' นาทีแล้ว — กำลังคำนวณใหม่...');
+      toast('ตั้งเกณฑ์ SLA ' + v + ' นาทีแล้ว — กำลังคำนวณใหม่...', 'ok');
       dataSeq++; // กัน refetch เบื้องหลังเก่ามาทับ
       container.innerHTML = adminsSkel();
       fetchData(container, false); // ให้ server นับ "เกิน SLA" ด้วยเกณฑ์ใหม่
     }).catch(function () {
       save.disabled = false;
-      toast('บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
+      toast('บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง', 'error');
     });
   });
 }
@@ -1113,7 +1122,7 @@ function fetchData(container: HTMLElement, silent: boolean): void {
   }).catch(function (err) {
     const msg = (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ';
     if (silent && lastData) {
-      toast('รีเฟรชข้อมูลแอดมินไม่สำเร็จ: ' + msg);
+      toast('รีเฟรชข้อมูลแอดมินไม่สำเร็จ: ' + msg, 'error');
     } else {
       showError(container, msg, function () {
         container.innerHTML = adminsSkel();

@@ -189,19 +189,19 @@ function drainQueue_(container: HTMLElement): void {
   saving = true;
   serverCall<UMapData>('apiUMap', next.params).then((res) => {
     if (!res || res.ok === false) {
-      toast((res && res.error) || 'บันทึกไม่สำเร็จ');
+      toast((res && res.error) || 'บันทึกไม่สำเร็จ', 'error');
     } else {
       reqSeq++; // ตัด read เก่าที่ค้างกลางอากาศทิ้ง — กันข้อมูล stale มาทับผลที่เพิ่งบันทึก
       if (lastData) {
         lastData.units = res.units || [];
         lastData.updatedAt = res.updatedAt;
       }
-      if (next.okMsg) toast(next.okMsg);
+      if (next.okMsg) toast(next.okMsg, 'ok');
       render(container);
     }
     drainQueue_(container);
   }).catch((err) => {
-    toast('บันทึกไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
+    toast('บันทึกไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'), 'error');
     drainQueue_(container);
   });
 }
@@ -234,8 +234,8 @@ function openAddUnit(container: HTMLElement): void {
   if (save) save.addEventListener('click', () => {
     const u = ((root.querySelector('#uadd-code') as HTMLInputElement | null)?.value || '').trim().toUpperCase();
     const product = ((root.querySelector('#uadd-product') as HTMLInputElement | null)?.value || '').trim();
-    if (!/^[A-Z0-9-]{1,12}$/.test(u)) { toast('รหัส U ใช้ได้เฉพาะตัวอักษร/ตัวเลข เช่น U27, UN12'); return; }
-    if (!product) { toast('กรอกชื่อผลิตภัณฑ์ด้วย'); return; }
+    if (!/^[A-Z0-9-]{1,12}$/.test(u)) { toast('รหัส U ใช้ได้เฉพาะตัวอักษร/ตัวเลข เช่น U27, UN12', 'warn'); return; }
+    if (!product) { toast('กรอกชื่อผลิตภัณฑ์ด้วย', 'warn'); return; }
     closeModal();
     mutate(container, { action: 'addUnit', u, product }, 'เพิ่ม ' + u + ' — ' + product + ' แล้ว');
   });
@@ -258,7 +258,7 @@ function openEditUnit(container: HTMLElement, u: string): void {
   const save = root.querySelector('#uedit-save') as HTMLButtonElement | null;
   if (save) save.addEventListener('click', () => {
     const product = ((root.querySelector('#uedit-product') as HTMLInputElement | null)?.value || '').trim();
-    if (!product) { toast('กรอกชื่อผลิตภัณฑ์ด้วย'); return; }
+    if (!product) { toast('กรอกชื่อผลิตภัณฑ์ด้วย', 'warn'); return; }
     closeModal();
     mutate(container, { action: 'editUnit', u, product }, 'แก้ ' + u + ' เป็น "' + product + '" แล้ว');
   });
@@ -406,7 +406,7 @@ function shuffle_<T>(arr: T[]): T[] {
 
 function openQuiz(): void {
   const pool = ((lastData && lastData.units) || []).filter((x) => x.product);
-  if (pool.length < 4) { toast('ต้องมี U ที่มีชื่อผลิตภัณฑ์อย่างน้อย 4 ตัวถึงจะเล่นได้'); return; }
+  if (pool.length < 4) { toast('ต้องมี U ที่มีชื่อผลิตภัณฑ์อย่างน้อย 4 ตัวถึงจะเล่นได้', 'warn'); return; }
   const total = Math.min(10, pool.length);
   const qs = shuffle_(pool).slice(0, total);
   let idx = 0;
@@ -499,7 +499,7 @@ function copyApiLink(): void {
   const fallback = () => { window.prompt('คัดลอกลิงก์ API (Ctrl+C):', url); };
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(url)
-      .then(() => toast('คัดลอกแล้ว — GET ' + url + note))
+      .then(() => toast('คัดลอกแล้ว — GET ' + url + note, 'ok'))
       .catch(fallback);
   } else fallback();
 }
@@ -552,10 +552,10 @@ function bindEvents(container: HTMLElement): void {
     const card = t.closest('.u-card') as HTMLElement | null;
     if (!card) return;
     const u = card.getAttribute('data-u') || '';
-    if (!selected) { toast('เลือกแอดมินฝั่งซ้ายก่อน แล้วค่อยคลิกการ์ด U'); return; }
+    if (!selected) { toast('เลือกแอดมินฝั่งซ้ายก่อน แล้วค่อยคลิกการ์ด U', 'warn'); return; }
     const unit = (lastData && lastData.units || []).find((it) => it.u === u);
     if (unit && unit.admins.some((m) => m.id === selected!.id)) {
-      toast(selected.name + ' อยู่ใน ' + u + ' อยู่แล้ว');
+      toast(selected.name + ' อยู่ใน ' + u + ' อยู่แล้ว', 'warn');
       return;
     }
     mutate(container, { action: 'assign', u, userId: selected.id },
@@ -597,7 +597,7 @@ function fetchAndRender(container: HTMLElement): void {
   }).catch((err) => {
     if (seq !== reqSeq) return;
     if (lastData) {
-      toast('โหลดข้อมูลใหม่ไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
+      toast('โหลดข้อมูลใหม่ไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'), 'error');
     } else {
       showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', () => {
         umap.load(container, true);

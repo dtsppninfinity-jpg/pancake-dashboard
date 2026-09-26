@@ -129,19 +129,20 @@ function render(container: HTMLElement, d: ProfitData | null): void {
   const personCard = personCardHtml_(d);
 
   // ---- สินค้าเทสประจำปี (จากแท็บ 0.ข้อมูล ของชีท KPI: ติด / ไม่ติด) ----
-  // ผลเทสบอกด้วยป้ายสถานะ (จุด+พื้นสี) แทน ✅ ❌ ⏳ — title บอกผลเป็นคำ ไม่ต้องเดาจากสีอย่างเดียว
+  // ผลเทสบอกด้วยป้ายสถานะ (จุด+พื้นสี) แทน ✅ ❌ ⏳ — ต้องมีคำ "ติด/ไม่ติด" อยู่ในป้ายด้วย
+  // (ตอนเป็นอีโมจิ รูปทรงต่างกัน คนตาบอดสีก็แยกได้ · สีอย่างเดียวแยกไม่ได้ และ title แตะดูบนมือถือไม่ได้)
   const ts = d.testSummary;
   const testCard = ts && ts.total
     ? '<div class="card" style="margin-top:14px">' +
       '<h3>สินค้าเทสประจำปี — สำเร็จ ' + (ts.pct === null ? '—' : ts.pct + '%') +
         ' (ติด ' + fmtNum(ts.ok) + ' / ตัดสินแล้ว ' + fmtNum(ts.ok + ts.fail) + ' จากทั้งหมด ' + fmtNum(ts.total) + ' ตัว)</h3>' +
-      '<div class="card-sub">จากแท็บ 0.ข้อมูล ของชีท KPI — ' + statusDot('good') + ' ติด • ' + statusDot('bad') + ' ไม่ติด • ' +
-        statusDot('muted') + ' ยังเทสอยู่/ยังไม่ตัดสิน (' + fmtNum(ts.pending) + ' ตัว)</div>' +
+      '<div class="card-sub">จากแท็บ 0.ข้อมูล ของชีท KPI — ' + statusDot('good', 'ติด') + ' ติด • ' + statusDot('bad', 'ไม่ติด') + ' ไม่ติด • ' +
+        statusDot('muted', 'ยังเทสอยู่') + ' ยังเทสอยู่/ยังไม่ตัดสิน (' + fmtNum(ts.pending) + ' ตัว)</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
         (d.testProducts || []).map(function (t) {
           const kind = t.ok === true ? 'good' : t.ok === false ? 'bad' : 'muted';
           const word = t.ok === true ? 'ติด' : t.ok === false ? 'ไม่ติด' : 'ยังเทสอยู่';
-          return '<span title="' + word + '">' + statusPill(kind, esc(t.u) + ' ' + esc(t.name)) + '</span>';
+          return statusPill(kind, esc(t.u) + ' ' + esc(t.name) + ' · ' + word);
         }).join('') +
       '</div></div>'
     : '';

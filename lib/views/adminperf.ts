@@ -343,7 +343,7 @@ function scoreTier(v: number | null | undefined): string {
 }
 
 function scoreBadge(v: number | null | undefined): string {
-  return '<span class="score-badge ' + scoreTier(v) + '" title="คะแนน Overall">' + scoreFmt(v) + '</span>';
+  return '<span class="score-badge ' + scoreTier(v) + '" title="คะแนน Overall">คะแนน ' + scoreFmt(v) + '</span>';
 }
 
 function modeLabel(key: string): string {
@@ -828,7 +828,7 @@ function bindComEvents(container: HTMLElement): void {
   });
   const csv = container.querySelector('#rk-com-csv');
   if (csv) csv.addEventListener('click', function () {
-    if (!comData || !comData.rows.length) { toast('ยังไม่มีข้อมูลให้ Export'); return; }
+    if (!comData || !comData.rows.length) { toast('ยังไม่มีข้อมูลให้ Export', 'warn'); return; }
     const out: (string | number)[][] = [
       ['ค่าคอมแอดมิน ' + comMonthLabel(comData.month)],
       ['ชื่อเล่น', 'ชื่อจริง (ชีท)', 'ยูนิต', 'ยอดขาย', 'ตีกลับ', 'ยกเลิก', 'คงเหลือ',
@@ -870,14 +870,14 @@ function bindComEvents(container: HTMLElement): void {
             if (res && res.ok === false) throw new Error(res.error || 'บันทึกไม่สำเร็จ');
             if (row) row.note = String(note).trim();
             closeModal();
-            toast(String(note).trim() ? 'บันทึกหมายเหตุแล้ว' : 'ลบหมายเหตุแล้ว');
+            toast(String(note).trim() ? 'บันทึกหมายเหตุแล้ว' : 'ลบหมายเหตุแล้ว', 'ok');
             const box = container.querySelector('#rk-com') as HTMLElement | null;
             if (box) { box.innerHTML = comSectionHtml(); bindComEvents(container); }
           })
           .catch(function (e: any) {
             (save as HTMLButtonElement).disabled = false;
             save.innerHTML = icon(ICON_FOR.save) + 'บันทึก'; // innerHTML เพราะมีไอคอน (textContent จะทิ้ง svg)
-            toast(e && e.message ? e.message : 'บันทึกไม่สำเร็จ');
+            toast(e && e.message ? e.message : 'บันทึกไม่สำเร็จ', 'error');
           });
       });
     });
@@ -1222,7 +1222,7 @@ function bindEvents(container: HTMLElement): void {
       const dot = container.querySelector('.live-dot');
       if (dot) dot.classList.toggle('on', autoOn);
       if (autoOn) startAuto(container); else stopAuto();
-      toast(autoOn ? 'เปิดอัปเดตอัตโนมัติทุก ' + Math.round(AUTO_MS / 1000) + ' วินาที' : 'ปิดอัปเดตอัตโนมัติแล้ว');
+      toast(autoOn ? 'เปิดอัปเดตอัตโนมัติทุก ' + Math.round(AUTO_MS / 1000) + ' วินาที' : 'ปิดอัปเดตอัตโนมัติแล้ว', 'info');
     });
   }
 
@@ -1252,8 +1252,8 @@ function bindEvents(container: HTMLElement): void {
   const kpiSave = container.querySelector('#rk-kpi-save');
   if (kpiSave) kpiSave.addEventListener('click', function () {
     serverCall('apiAdminSettings', { kpiTargets: kpiTargets })
-      .then(function () { toast('บันทึกเป้า KPI แล้ว — ทุกคนจะเห็นเป้าเดียวกัน'); })
-      .catch(function () { toast('บันทึกเป้า KPI ไม่สำเร็จ'); });
+      .then(function () { toast('บันทึกเป้า KPI แล้ว — ทุกคนจะเห็นเป้าเดียวกัน', 'ok'); })
+      .catch(function () { toast('บันทึกเป้า KPI ไม่สำเร็จ', 'error'); });
   });
 
   const kpiReset = container.querySelector('#rk-kpi-reset');
@@ -1261,7 +1261,7 @@ function bindEvents(container: HTMLElement): void {
     kpiTargets = { ...DEFAULT_KPI_TARGETS };
     state.kpiOpen = true;
     render(container, lastData);
-    toast('กลับไปใช้เป้าเริ่มต้นแล้ว (ยังไม่บันทึก)');
+    toast('กลับไปใช้เป้าเริ่มต้นแล้ว (ยังไม่บันทึก)', 'info');
   });
 
   // toggle แผงเกณฑ์
@@ -1330,8 +1330,8 @@ function bindEvents(container: HTMLElement): void {
   const saveBtn = container.querySelector('#rk-save');
   if (saveBtn) saveBtn.addEventListener('click', function () {
     serverCall('apiScoreConfig', { config: scoreConfig, rank: rankRules })
-      .then(function () { toast('บันทึกเกณฑ์แล้ว — ทุกคนจะเห็นเกณฑ์นี้'); })
-      .catch(function () { toast('บันทึกเกณฑ์ไม่สำเร็จ'); });
+      .then(function () { toast('บันทึกเกณฑ์แล้ว — ทุกคนจะเห็นเกณฑ์นี้', 'ok'); })
+      .catch(function () { toast('บันทึกเกณฑ์ไม่สำเร็จ', 'error'); });
   });
 
   // รีเซ็ตค่าเริ่มต้น
@@ -1341,7 +1341,7 @@ function bindEvents(container: HTMLElement): void {
     rankRules = normalizeRankRules(null);
     state.panelOpen = true;
     render(container, lastData);
-    toast('กลับไปใช้ค่าเริ่มต้นแล้ว (ยังไม่บันทึก)');
+    toast('กลับไปใช้ค่าเริ่มต้นแล้ว (ยังไม่บันทึก)', 'info');
   });
 
   // export CSV
@@ -1355,7 +1355,7 @@ function bindEvents(container: HTMLElement): void {
 function exportCSV(): void {
   const rows = visRows(lastData);
   if (!rows.length) {
-    toast('ยังไม่มีข้อมูลให้ Export');
+    toast('ยังไม่มีข้อมูลให้ Export', 'warn');
     return;
   }
   scoreRows(rows);
@@ -1454,7 +1454,7 @@ function fetchData(container: HTMLElement, background: boolean): void {
   }).catch(function (err) {
     if (seq !== reqSeq) return;
     if (background) {
-      toast('โหลดข้อมูล Ranking ใหม่ไม่สำเร็จ');
+      toast('โหลดข้อมูล Ranking ใหม่ไม่สำเร็จ', 'error');
     } else {
       hideChartTip(); // กราฟถูกแทนด้วยกล่อง error — ซ่อนทูลทิปที่อาจค้าง
       showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', function () {
