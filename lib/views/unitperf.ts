@@ -160,7 +160,8 @@ function rowHtml(u: UnitRow, rank: number, d: PerfData): string {
       // ต้องเลื่อนตารางไปหา ชื่อยูนิตอยู่ใต้นิ้วตลอด · เป็น <button> จริงเพื่อให้ Tab/Enter/Space ใช้ได้เอง
       // ใช้ data-more ค่าเดียวกับปุ่ม "ดู" → ผูกกับตัวจัดการเดียวกันใน bind()
       '<button type="button" class="up-unit up-name" data-more="' + esc(rowId) + '"' +
-        ' aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
+        ' aria-expanded="' + (isOpen ? 'true' : 'false') + '"' +
+        ' aria-label="' + esc((u.u || '') + ' ' + (u.product || '') + ' — ดูรายละเอียด') + '">' +
         '<span class="up-code">' + nameHtml + '</span>' +
         '<span class="up-prod">' + esc(u.product || '') + '</span>' +
       '</button></td>' +

@@ -1735,11 +1735,11 @@ export async function apiSales(params: any) {
     else waitingInbox++;
   });
   const waitingConvs = waitingRows.length;
-  const waitingSplit = '💬 อินบ็อกซ์ ' + waitingInbox + ' • 💭 คอมเมนต์ ' + waitingComment;
+  const waitingSplit = 'อินบ็อกซ์ ' + waitingInbox + ' • คอมเมนต์ ' + waitingComment;
   if (waitingConvs >= 10) {
     alerts.push({
       icon: '💬',
-      title: '⏰ แชทค้างรอตอบ ' + waitingConvs,
+      title: 'แชทค้างรอตอบ ' + waitingConvs,
       reason: waitingSplit + ' — ลูกค้ารอการตอบกลับ (24 ชม.ล่าสุด)',
       level: 'red',
       view: 'dashboard',
@@ -1747,7 +1747,7 @@ export async function apiSales(params: any) {
   } else if (waitingConvs > 0) {
     alerts.push({
       icon: '💬',
-      title: '⏰ แชทค้างรอตอบ ' + waitingConvs,
+      title: 'แชทค้างรอตอบ ' + waitingConvs,
       reason: waitingSplit + ' — รอการตอบกลับ (24 ชม.ล่าสุด)',
       level: 'yellow',
       view: 'dashboard',

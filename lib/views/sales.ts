@@ -735,7 +735,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         '<div class="alert-icon">' + alertIconHtml_(a.icon) + '</div>' +
         '<div class="alert-body">' +
           '<div class="alert-title">' + esc(stripEmoji_(a.title)) + '</div>' +
-          '<div class="alert-reason">' + esc(stripEmoji_(a.reason)) + '</div>' +
+          '<div class="alert-reason">' + esc(a.reason) + '</div>' +
           // drill = เปิด modal ในหน้าเดิม (แจ้งเตือนออเดอร์รอตรวจเคยชี้ view:'sales' = หน้าเดียวกัน กดแล้วไม่เกิดอะไร)
           (a.drill === 'needcheck'
             ? '<div style="margin-top:6px"><button class="btn-mini" data-needcheck="today">ดูรายละเอียด →</button></div>'
@@ -1460,7 +1460,9 @@ function lossCells_(x: any): { sales: string; ads: string; profit: string; rowTi
   return {
     sales: lossNum_(THB(x.revenue), span),
     ads: lossNum_(THB(x.spend)),
-    profit: lossNum_(signedThb_(-(Number(x.loss) || 0), 'tx-warn'), 'ประมาณจาก ROAS'),
+    profit: lossNum_(signedThb_(-(Number(x.loss) || 0), 'tx-warn'),
+      'ROAS ' + (x.roas === null || x.roas === undefined ? '—' : Number(x.roas).toFixed(2)) +
+        ' / คุ้มทุน ' + Number(x.breakEven || 1).toFixed(2) + ' (ประมาณ)'),
     rowTip: 'ROAS ' + (x.roas === null || x.roas === undefined ? '—' : Number(x.roas).toFixed(2)) +
       ' (จุดคุ้มทุนที่ตั้งไว้ ' + Number(x.breakEven || 1).toFixed(2) +
       ' — ยูนิตนี้ยังไม่มีในชีทกำไร จึงใช้ ROAS โดยประมาณ) • ตัวเลขในแถวนี้ = ' + span,
@@ -1478,7 +1480,7 @@ function lossRowHtml_(x: any): string {
     // ช่องแรก = หัวการ์ดบนมือถือ (app-core ติด class tc-title ให้เอง) + แถบสีบางๆ ทางซ้ายแทนการระบายพื้นทั้งแถว
     '<td class="loss-u">' + esc(x.product || x.u) + ' <span class="chip">' + esc(x.u) + '</span>' + noteChip_(x.note) + '</td>' +
     '<td title="' + (urgent ? 'แก้ด่วนที่สุด' : 'เฝ้าระวัง') + ' — ขาดทุน ' + fmtNum(x.days) + ' วันติด">' +
-      statusPill(urgent ? 'bad' : 'warn', fmtNum(x.days) + ' วัน') + '</td>' +
+      statusPill(urgent ? 'bad' : 'warn', (urgent ? 'ด่วน · ' : 'เฝ้าระวัง · ') + fmtNum(x.days) + ' วัน') + '</td>' +
     '<td class="num">' + c.sales + '</td>' +
     '<td class="num">' + c.ads + '</td>' +
     '<td class="num">' + c.profit + '</td>' +
@@ -1564,8 +1566,13 @@ function toggleLossList_(container: HTMLElement): void {
     more.focus({ preventScroll: true });
     // ตอน "ย่อ" ปุ่มจะกระโดดขึ้นไปหลายร้อย px — เลื่อนตามไปให้ปุ่มอยู่กลางจอ คนจะได้ไม่หลงว่าอยู่ตรงไหน
     if (!lossShowAll) {
-      const r = more.getBoundingClientRect();
-      if (r.top < 0 || r.bottom > window.innerHeight) more.scrollIntoView({ block: 'center' });
+      // รอ 2 เฟรม: เฟรมแรก app-core จัดตารางเป็นการ์ด (มือถือ) เฟรมถัดไปถึงจะวัดตำแหน่งจริงได้
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          const r = more.getBoundingClientRect();
+          if (r.top < 0 || r.bottom > window.innerHeight) more.scrollIntoView({ block: 'center' });
+        });
+      });
     }
   }
 }

@@ -176,7 +176,7 @@ const STATUS_VIEW: Record<string, { word: string; kind: StatusKind }> = {
   away: { word: 'พัก', kind: 'warn' },
   busy: { word: 'ไม่ว่าง', kind: 'bad' },
   offline: { word: 'ออฟไลน์', kind: 'muted' },
-  disabled: { word: 'ปิดใช้งาน', kind: 'muted' },
+  disabled: { word: 'ปิดใช้งาน', kind: 'bad' },
 };
 
 function statusView(a: Admin): { word: string; kind: StatusKind } {
@@ -417,7 +417,7 @@ function cardHtml(a: Admin): string {
   const ot = a.onlineToday;
   const onlineRow = ot
     ? '<span class="badge neutral" title="เวลาออนไลน์รวมวันนี้ (จาก log จริง ความละเอียด ~15 นาที)">' +
-        '<span class="mini-lbl">ออนไลน์</span>' + esc(hrsFmt(ot.mins)) + '</span>' +
+        '<span class="mini-lbl">ออนไลน์วันนี้</span>' + esc(hrsFmt(ot.mins)) + '</span>' +
       (ot.gapMins
         // ห่อ span เพื่อใส่ title — statusPill ไม่รับ title เอง
         ? '<span title="ช่วงหายนานสุดวันนี้ (หลังออนไลน์ครั้งแรก)">' +

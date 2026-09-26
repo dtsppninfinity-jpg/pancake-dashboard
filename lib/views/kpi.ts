@@ -178,7 +178,7 @@ function summaryCards_(d: KpiData): string {
     '<div class="card kpi-card"><div class="kpi-ico">' + icon('compass', { size: 22 }) + '</div><div>' +
       '<div class="kpi-big">' + fmtNum(subIds.size) + '</div>' +
       '<div class="card-sub" style="margin:0">รองหัวหน้า</div></div></div>' +
-    '<div class="card kpi-card"><div class="kpi-ico">' + icon(ICON_FOR.users, { size: 22 }) + '</div><div>' +
+    '<div class="card kpi-card"><div class="kpi-ico">' + icon(ICON_FOR.admins, { size: 22 }) + '</div><div>' +
       '<div class="kpi-big">' + fmtNum(d.persons.length) + '</div>' +
       '<div class="card-sub" style="margin:0">แอดมิน (มีคะแนนเดือนนี้)</div></div></div>' +
     '<div class="card kpi-card"><div class="kpi-ico">' + icon(ICON_FOR.ok, { size: 22 }) + '</div><div>' +

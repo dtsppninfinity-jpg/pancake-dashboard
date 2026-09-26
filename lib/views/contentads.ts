@@ -9,7 +9,7 @@ import {
   toast, openModal, closeModal, showError, downloadCSV, downloadXLS,
 } from '@/lib/ui/helpers';
 import { contentadsSkel } from '@/lib/ui/skeletons';
-import { icon, brandIcon, ICON_FOR } from '@/lib/ui/icons';
+import { icon, brandIcon, statusPill, ICON_FOR, type StatusKind } from '@/lib/ui/icons';
 
 let lastData: any = null;
 const filter = { q: '', status: '', account: '', page: '', product: '', rank: 'revenue' };
@@ -60,10 +60,17 @@ function statusLabel_(st: any): string {
   return s || '-';
 }
 
-/** ป้ายสถานะแอด (สีจาก status.cls) — แถว organic (ไม่ใช้งบ) มีไอคอนต้นกล้าแทน 🌱 เดิม */
+/** ป้ายสถานะแอด = จุดสี + คำ แบบเดียวกับทั้งเว็บ
+ *  เดิมใช้ status.cls จากเซิร์ฟเวอร์ ซึ่งให้ Winning กับ Active เป็นเขียวเหมือนกัน (สมัยอีโมจิแยกด้วย 🏆 กับ ▶)
+ *  → Winning = เขียว + ถ้วย (แอดดีที่สุดต้องเด่นกว่าแอดทั่วไป), Active = สีหลัก, organic มีไอคอนต้นกล้า */
+const AD_STATUS_KIND: Record<string, StatusKind> = {
+  winning: 'good', active: 'brand', watch: 'info', needs_fix: 'warn', losing: 'bad', paused: 'muted', organic: 'muted',
+};
 function statusBadge_(st: any): string {
-  const ic = st && st.key === 'organic' ? icon(ICON_FOR.organic, { size: 14 }) : '';
-  return '<span class="badge ' + esc((st && st.cls) || 'neutral') + '">' + ic + esc(statusLabel_(st)) + '</span>';
+  const key = String((st && st.key) || '');
+  const ic = key === 'organic' ? icon(ICON_FOR.organic, { size: 12 }) + ' '
+    : key === 'winning' ? icon('trophy', { size: 12 }) + ' ' : '';
+  return statusPill(AD_STATUS_KIND[key] || 'muted', ic + esc(statusLabel_(st)));
 }
 
 /** ปุ่มปิดโมดัลแบบไอคอนล้วน — ต้องมี aria-label + title เพราะไม่มีคำบนปุ่ม */

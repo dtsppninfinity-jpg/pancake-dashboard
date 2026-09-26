@@ -77,7 +77,7 @@ function render(container: HTMLElement, d: ProfitData | null): void {
       ? '<span title="' + esc('เริ่มมียอด ' + x.age.firstSale + (x.age.active ? ' • ยังขายอยู่' : ' • หยุดขายแล้ว')) + '">' +
         // หยุดขายแล้ว: เดิมเป็น ⏸️ ที่ต้องชี้เมาส์ถึงจะรู้ความหมาย — เขียนเป็นคำสีจางแทน
         (x.age.openEnded ? '≥' : '') + fmtNum(x.age.days) + ' วัน' +
-        (x.age.active ? '' : ' <span class="tx-muted">หยุดขาย</span>') + '</span>'
+        (x.age.active ? '' : ' <span class="tx-muted" style="white-space:nowrap">หยุดขาย</span>') + '</span>'
       : '-';
     return '<tr><td><b>' + esc(x.u) + '</b>' +
       (x.product ? ' <span class="rank-fullname">' + esc(x.product) + '</span>' : '') + '</td>' +
