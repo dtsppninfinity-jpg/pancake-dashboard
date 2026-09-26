@@ -920,20 +920,53 @@ interface UnitGoalInput {
  *
  * ไม่มีทั้งคนทักและค่าแอด → null ให้โชว์ "—" (สเปกข้อ "ดึงไม่ได้ ห้ามใส่ 0") · ตัวหาร 0 แต่มีค่าแอด → 0.00%
  */
-function closeRateOf_(base: UnitCost | undefined, c: UnitCost, posOrders: number) {
-  const inq = base ? base.engNewInbox : 0;
-  const comment = base ? base.engComment : 0;
-  const total = inq + comment;
-  const metaBase = c.adInq + c.adComment;
-  const meta = {
-    metaInq: c.adInq, metaComment: c.adComment,
-    metaRate: metaBase > 0 ? Math.round((posOrders / metaBase) * 10000) / 100 : null,
+/**
+ * วันแรกที่ ad_daily มี meta_first_replies / meta_comments ครบ
+ * — งาน meta-ads เริ่มเขียน 2 คอลัมน์นี้ตอน deploy 18 ก.ย. ซึ่งครอบคลุมย้อนไปถึง 17 ก.ย.
+ *   วัดจากฐานจริง 26 ก.ย.: 16 ก.ย. ลงไป = 0 ทุกวัน · 17 ก.ย. ขึ้นมา = 4,400-5,100/วัน (ใกล้ Pancake ±2%)
+ * ⚠️ ถ้าช่วงที่เลือกคาบวันก่อนหน้านี้ ตัวหาร Meta จะขาดหายเงียบๆ แล้ว %ปิด พุ่ง — ต้องถอยไปใช้ Pancake
+ *   จะยกเลิกค่านี้ได้ก็ต่อเมื่อ backfill Meta ย้อนหลังครบแล้ว (npx tsx scripts/setup/backfill-meta-ads.ts <วัน>)
+ */
+const META_BASE_FROM = '2026-09-17';
+
+/**
+ * %ปิด + ตัวหาร "รวมคนทัก" ของหนึ่งยูนิต
+ *
+ * ฐานหลัก = **Meta** (messaging_first_reply + comment) ตามที่พีสั่ง 26 ก.ย. 69
+ *   เหตุผลที่ทีมแอดให้: Meta อัปเดตเร็วกว่า Pancake (ฝั่ง Pancake เข้าเป็นรอบ ~17 นาที
+ *   ต้นวันตัวหารจึงต่ำกว่าจริง แล้ว %ปิด เด้งสูงเกิน) · จอ ADS SUMMARY ของเขาก็ใช้ Meta แล้ว
+ *   พิสูจน์ 23 ก.ย.: U10 จอเขา ทัก 107 + คอมเมนต์ 16 = คอลัมน์ meta_* ของเราเป๊ะทั้งคู่
+ * ฐาน Pancake (customer_engagements new_inbox + comment) ยังคำนวณคู่ไว้เสมอ — ใช้เมื่อ
+ *   (ก) ช่วงที่เลือกเก่ากว่า META_BASE_FROM  (ข) แท็บ LINE (เพจ LINE ไม่มีแอด Meta)
+ *   และโชว์ใน tooltip ไว้เทียบทุกกรณี
+ *
+ * ⚠️ ห้ามผสมสองฐานในตารางเดียว — ยูนิตที่ไม่มีแอดเลยให้เป็น null ("—") ไม่ใช่ถอยไปหยิบเลข Pancake
+ *    มาแถวเดียว ไม่งั้นแถวนั้นเทียบกับแถวอื่นไม่ได้ และยอดรวมจะบวกคนละหน่วย
+ *
+ * ไม่มีทั้งคนทักและค่าแอด → null ให้โชว์ "—" (สเปกข้อ "ดึงไม่ได้ ห้ามใส่ 0") · ตัวหาร 0 แต่มีค่าแอด → 0.00%
+ */
+function closeRateOf_(base: UnitCost | undefined, c: UnitCost, posOrders: number, useMeta: boolean) {
+  const rate_ = (b: number) => (b > 0 ? Math.round((posOrders / b) * 10000) / 100 : null);
+  // ฝั่ง Pancake — ตัวหารเป็นของถังเพจ (facebook เสมอ ยกเว้นแท็บ LINE)
+  const pInq = base ? base.engNewInbox : 0;
+  const pComment = base ? base.engComment : 0;
+  const pTotal = pInq + pComment;
+  // ฝั่ง Meta — มากับแถวค่าแอดของยูนิตนั้นเอง
+  const mInq = c.adInq, mComment = c.adComment;
+  const mTotal = mInq + mComment;
+  const alt = {
+    metaInq: mInq, metaComment: mComment, metaRate: rate_(mTotal),
+    pancakeInq: pInq, pancakeComment: pComment, pancakeBase: pTotal, pancakeRate: rate_(pTotal),
+    src: (useMeta ? 'meta' : 'pancake') as 'meta' | 'pancake',
   };
-  if (total <= 0 && c.spend <= 0) return { rate: null, base: null, inq: null, comment: null, ...meta };
+  const inq = useMeta ? mInq : pInq;
+  const comment = useMeta ? mComment : pComment;
+  const total = useMeta ? mTotal : pTotal;
+  if (total <= 0 && c.spend <= 0) return { rate: null, base: null, inq: null, comment: null, ...alt };
   return {
     // ทศนิยม 2 ตำแหน่งตามสเปก (ปัดตอนคำนวณครั้งเดียว หน้าเว็บ format ต่อ)
     rate: total > 0 ? Math.round((posOrders / total) * 10000) / 100 : 0,
-    base: total, inq, comment, ...meta,
+    base: total, inq, comment, ...alt,
   };
 }
 
@@ -952,7 +985,8 @@ function unitRows_(
   baseCost: Record<string, UnitCost>,   // ถังของ "รวมคนทัก" — facebook เสมอ ยกเว้นแท็บ LINE (ดู closeRateOf_)
   unmappedKey: string,
   goal: UnitGoalInput,
-  noAds = false                        // แท็บ LINE: เพจ LINE ไม่มีค่าแอด → ค่าทักเป็น null ("—") ไม่ใช่ ฿0.00
+  noAds = false,                       // แท็บ LINE: เพจ LINE ไม่มีค่าแอด → ค่าทักเป็น null ("—") ไม่ใช่ ฿0.00
+  useMeta = false                      // ฐาน "รวมคนทัก" = Meta หรือ Pancake (ดู closeRateOf_)
 ) {
   // ยูนิตที่ "ยิงแอดแต่ยังไม่มียอด" ต้องโผล่ด้วย ไม่งั้นค่าแอดที่จ่ายไปหายจากหน้าจอเงียบๆ
   // ยูนิตที่ "มีเป้าแต่ยังขายไม่ได้เลย" ก็เช่นกัน — คือยูนิตที่ห่างเป้าที่สุด ต้องเห็นเป็น 0%
@@ -972,7 +1006,7 @@ function unitRows_(
       const spend = Math.round(c.spend);
       const rep = repeatStats_(unitCust[k] || {});
       const tgt = mapped && goal.withTargets && goal.target[k] > 0 ? goal.target[k] : 0;
-      const cl = closeRateOf_(baseCost[k], c, agg.orders);
+      const cl = closeRateOf_(baseCost[k], c, agg.orders, useMeta);
       return {
         key: k,
         u: agg.u,
@@ -989,18 +1023,25 @@ function unitRows_(
         costPerMsg: !noAds && cl.base && cl.base > 0 ? Math.round((c.spend / cl.base) * 100) / 100 : null,
         costPerMsgMeta: (cl.metaInq + cl.metaComment) > 0
           ? Math.round((c.spend / (cl.metaInq + cl.metaComment)) * 100) / 100 : null,
+        costPerMsgPancake: cl.pancakeBase > 0 ? Math.round((c.spend / cl.pancakeBase) * 100) / 100 : null,
         msgs: Math.round(c.msgs),
         reached: Math.round(c.reached),
         // ---- %ปิด แบบการ์ดทีมแอด — ดู closeRateOf_ ----
         closeRate: cl.rate,
         closeOrders: agg.orders,          // ตัวตั้ง = ออเดอร์ POS ของยูนิต (ไม่หักลูกค้าเก่า)
-        closeBase: cl.base,               // ตัวหาร = อินบ็อกซ์ใหม่ + คอมเมนต์ ของเพจ FB (Pancake)
+        closeBase: cl.base,               // ตัวหาร = รวมคนทัก ของฐานที่ใช้จริง (ดู closeBaseSrc)
         closeInq: cl.inq,
         closeComment: cl.comment,
-        // ถ้าใช้ฐาน Meta (ทัก + คอมเมนต์) ตามเอกสารสเปกของเขา — โชว์เทียบใน tooltip
+        closeBaseSrc: cl.src,             // 'meta' | 'pancake' — หน้าเว็บต้องเขียนกำกับว่าเลขมาจากไหน
+        // ฐาน Meta (messaging_first_reply + comment) — ฐานหลักตั้งแต่ 26 ก.ย. 69
         closeMetaInq: cl.metaInq,
         closeMetaComment: cl.metaComment,
         closeRateMeta: cl.metaRate,
+        // ฐาน Pancake (customer_engagements) — เก็บไว้เทียบใน tooltip + ใช้จริงเมื่อช่วงเก่ากว่า META_BASE_FROM
+        closePancakeInq: cl.pancakeInq,
+        closePancakeComment: cl.pancakeComment,
+        closePancakeBase: cl.pancakeBase,
+        closeRatePancake: cl.pancakeRate,
         // สูตรเดิมของเรา (Pancake: ออเดอร์จากแชทใหม่ ÷ คนทัก) — เก็บไว้ให้ tooltip เทียบ ไม่ได้โชว์เป็นตัวหลักแล้ว
         closeRateChat: c.reached > 0
           ? Math.round((Math.max(0, c.engOrders - c.engOldOrders) / c.reached) * 1000) / 10
@@ -1312,6 +1353,11 @@ export async function apiSales(params: any) {
     productOf,
   });
 
+  /* ฐาน "รวมคนทัก" ของช่วงที่เลือก — Meta ใช้ได้ต่อเมื่อ "ทุกวันในช่วง" มีข้อมูล Meta
+   * ถ้าช่วงคาบวันเก่ากว่านั้นแม้วันเดียว ตัวหารจะขาดเงียบๆ (วันเก่า = 0) แล้ว %ปิด พุ่งเกินจริง
+   * — กรณีนั้นถอยไปใช้ Pancake ทั้งช่วง ดีกว่าผสมสองฐานในตัวเลขเดียว */
+  const metaBaseOk = fmtDateBkk(r.start) >= META_BASE_FROM;
+
   function topAgg(list: Row[], chanKey: 'all' | 'facebook' | 'line' = 'all') {
     const pages: Record<string, { revenue: number; orders: number }> = {};
     const products: Record<string, { qty: number; value: number; orders: number }> = {};
@@ -1402,7 +1448,9 @@ export async function apiSales(params: any) {
       // ยอดขายจัดกลุ่มตามยูนิต (U/สินค้า) — เจาะ U→เพจ→สินค้า ได้ (กลุ่ม "ยังไม่จัดกลุ่ม" ต่อท้ายเสมอ)
       units: unitRows_(unitAgg, unitPages, unitWeekly, unitCust, unitCost[chanKey] || {},
         (chanKey === 'line' ? unitCost.line : unitCost.facebook) || {}, UNMAPPED, goalInput(chanKey),
-        chanKey === 'line'),
+        chanKey === 'line',
+        // แท็บ LINE ใช้ Pancake เสมอ — เพจ LINE ไม่มีแอด Meta จึงไม่มีตัวหารฝั่ง Meta ให้ใช้
+        metaBaseOk && chanKey !== 'line'),
       pageProducts,   // เพจ→รายการสินค้าที่ขายได้
       productPages,   // สินค้า→เพจที่ขายได้
     };
@@ -1424,10 +1472,14 @@ export async function apiSales(params: any) {
    *    เฉพาะตารางยูนิต แล้วหน้าเดียวกันโชว์ %ปิด สองค่า (35.0% กับ 27.7%) อยู่เดือนนึง
    */
   const closeFromUnits_ = (units: any[]) => {
-    let orders = 0, base = 0, missing = 0, missingOrders = 0, inq = 0, comment = 0, metaBase = 0;
+    let orders = 0, base = 0, missing = 0, missingOrders = 0, inq = 0, comment = 0;
+    let metaBase = 0, pancakeBase = 0;
+    let src: 'meta' | 'pancake' = metaBaseOk ? 'meta' : 'pancake';
     (units || []).forEach((u) => {
       orders += u.closeOrders || 0;
       metaBase += (u.closeMetaInq || 0) + (u.closeMetaComment || 0);
+      pancakeBase += u.closePancakeBase || 0;
+      if (u.closeBaseSrc) src = u.closeBaseSrc;
       if (u.closeBase === null || u.closeBase === undefined) {
         if (u.closeOrders) { missing++; missingOrders += u.closeOrders; }
         return;
@@ -1436,10 +1488,11 @@ export async function apiSales(params: any) {
       inq += u.closeInq || 0;
       comment += u.closeComment || 0;
     });
+    const r_ = (b: number) => (b > 0 ? Math.round((orders / b) * 10000) / 100 : null);
     return {
-      rate: base > 0 ? Math.round((orders / base) * 10000) / 100 : null,
-      orders, base, missing, missingOrders, inq, comment,
-      metaBase, metaRate: metaBase > 0 ? Math.round((orders / metaBase) * 10000) / 100 : null,
+      rate: r_(base), orders, base, missing, missingOrders, inq, comment, src,
+      metaBase, metaRate: r_(metaBase),
+      pancakeBase, pancakeRate: r_(pancakeBase),
     };
   };
   const closeAds = closeFromUnits_(((top as any)[channel || 'all'] || {}).units || []);
@@ -1701,16 +1754,19 @@ export async function apiSales(params: any) {
       avgOrder: sCur.confirmed ? Math.round(sCur.revenue / sCur.confirmed) : 0,
       needCheck: sCur.needCheck,
       adRevenue: Math.round(sCur.adRevenue),
-      // %ปิดการขาย = แบบการ์ดทีมแอด: Σ ออเดอร์ POS ÷ Σ รวมคนทัก (อินบ็อกซ์ใหม่ + คอมเมนต์ ของเพจ FB)
+      // %ปิดการขาย = แบบการ์ดทีมแอด: Σ ออเดอร์ POS ÷ Σ รวมคนทัก (ฐาน Meta ตั้งแต่ 26 ก.ย. 69)
       closeRate: closeAds.rate,
-      closeBase: closeAds.base,                     // รวมคนทัก = ตัวหาร
+      closeBase: closeAds.base,                     // รวมคนทัก = ตัวหาร (ของฐานที่ใช้จริง)
       closeOrders: closeAds.orders,                 // ออเดอร์ POS = ตัวตั้ง
-      closeBaseInbox: closeAds.inq,                 // ในรวมคนทัก: อินบ็อกซ์ใหม่
+      closeBaseInbox: closeAds.inq,                 // ในรวมคนทัก: ทัก/อินบ็อกซ์ใหม่
       closeBaseComment: closeAds.comment,           // ในรวมคนทัก: คอมเมนต์
+      closeBaseSrc: closeAds.src,                   // 'meta' | 'pancake' — หน้าเว็บต้องเขียนกำกับ
       closeUnitsNoData: closeAds.missing,           // ยูนิตที่มีออเดอร์แต่ไม่มีตัวหาร (%ปิด "—") — ออเดอร์ยังนับในตัวตั้ง
       closeOrdersNoData: closeAds.missingOrders,    // ออเดอร์ของยูนิตกลุ่มนั้นรวมกี่ใบ
-      closeMetaBase: closeAds.metaBase,             // ถ้าใช้ฐาน Meta (ตามเอกสารสเปก) — ไว้เทียบ
+      closeMetaBase: closeAds.metaBase,             // ฐาน Meta — ไว้เทียบเมื่อกำลังใช้ Pancake
       closeRateMeta: closeAds.metaRate,
+      closePancakeBase: closeAds.pancakeBase,       // ฐาน Pancake — ไว้เทียบเมื่อกำลังใช้ Meta
+      closeRatePancake: closeAds.pancakeRate,
       // สูตรเดิมฝั่ง Pancake (ออเดอร์จากแชท ÷ คนทัก) — เก็บไว้เทียบใน tooltip ไม่ใช่ตัวหลักแล้ว
       closeRateChat: closeRate,
       closeChatBase: engCh ? engCh.reached : null,

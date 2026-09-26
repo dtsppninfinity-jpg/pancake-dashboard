@@ -94,6 +94,14 @@ const state: SalesState = { preset: 'today', from: '', to: '', channel: 'faceboo
 
 const CH_LABELS: Record<string, string> = { '': '🌐 ทั้งหมด', 'facebook': '📘 Facebook', 'line': '🟢 LINE OA' };
 
+/* ---- "รวมคนทัก" รอบนี้มาจากฐานไหน (API ตัดสินให้ตามช่วงวันที่ + ช่องทาง — ดู closeRateOf_) ----
+ * ตั้งแต่ 26 ก.ย. 69 ฐานหลักคือ Meta (พีสั่ง หลังทีมแอดยืนยันว่า Meta อัปเดตเร็วกว่า Pancake)
+ * ทุกข้อความบนจอต้องอ่านค่านี้ ห้าม hardcode ชื่อแหล่ง — ช่วงเก่ากว่า 17 ก.ย. ระบบถอยไป Pancake เอง */
+let closeSrc_: 'meta' | 'pancake' = 'meta';
+const srcName_ = (): string => (closeSrc_ === 'meta' ? 'Meta' : 'Pancake');
+const srcParts_ = (): string => (closeSrc_ === 'meta' ? 'ทัก + คอมเมนต์' : 'อินบ็อกซ์ใหม่ + คอมเมนต์');
+const srcOtherName_ = (): string => (closeSrc_ === 'meta' ? 'Pancake' : 'Meta');
+
 /* ---------------- data helpers ---------------- */
 
 function buildParams() {
@@ -290,6 +298,8 @@ function hourlyChartHtml_(main: number[], prev: number[] | null, prevName: strin
 /* ---------------- render ---------------- */
 
 function render(container: HTMLElement, dArg?: SalesData | null): void {
+  const kSrc_ = ((dArg || lastData || {}) as any).kpis || {};
+  closeSrc_ = kSrc_.closeBaseSrc === 'pancake' ? 'pancake' : 'meta';
   const d: SalesData = dArg || {};
   const k = d.kpis || {};
   const t = d.trends || {};
@@ -349,15 +359,19 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     if (kk.closeBase === null || kk.closeBase === undefined)
       return 'ยังไม่มีข้อมูลคนทักในช่วงที่เลือก (ตาราง chat_engagement_daily)';
     const bits = ['ออเดอร์ ' + fmtNum(kk.closeOrders || 0) + ' ÷ รวมคนทัก ' + fmtNum(kk.closeBase || 0) +
-      ' (อินบ็อกซ์ใหม่ ' + fmtNum(kk.closeBaseInbox || 0) + ' + คอมเมนต์ ' + fmtNum(kk.closeBaseComment || 0) +
+      ' (ทัก ' + fmtNum(kk.closeBaseInbox || 0) + ' + คอมเมนต์ ' + fmtNum(kk.closeBaseComment || 0) +
+      ' จาก ' + srcName_() +
       ' ' + baseScope_() + ')' + adsCardNote_()];
     if (kk.closeUnitsNoData) {
       bits.push('ในตัวตั้งมีออเดอร์ ' + fmtNum(kk.closeOrdersNoData || 0) + ' ใบ จาก ' + fmtNum(kk.closeUnitsNoData) +
         ' แถวในตารางยูนิตที่ไม่มีคนทัก ' + baseScope_() + ' ในช่วงที่เลือก (%ปิด ในตารางเป็น —)' +
         ' — นับด้วยตามสเปก Σ ออเดอร์ทุกยูนิต');
     }
-    if (kk.closeRateMeta !== null && kk.closeRateMeta !== undefined) {
-      bits.push('ถ้าใช้ตัวเลขของ Meta (ทัก + คอมเมนต์ ' + fmtNum(kk.closeMetaBase || 0) + ') = ' + pct2_(kk.closeRateMeta));
+    // อีกฐานหนึ่งไว้เทียบเสมอ — ทีมจะได้เห็นว่าสองแหล่งห่างกันแค่ไหนโดยไม่ต้องเปิดอีกเว็บ
+    const altBase = closeSrc_ === 'meta' ? kk.closePancakeBase : kk.closeMetaBase;
+    const altRate = closeSrc_ === 'meta' ? kk.closeRatePancake : kk.closeRateMeta;
+    if (altRate !== null && altRate !== undefined) {
+      bits.push('ถ้าใช้ตัวเลขของ ' + srcOtherName_() + ' (' + fmtNum(altBase || 0) + ' คน) = ' + pct2_(altRate));
     }
     return bits.join(' • ');
   }
@@ -391,9 +405,9 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     '</div>' +
     '<div class="sr-card"' + tipAttrs({
       title: '🎯 % ปิดการขาย',
-      formula: 'ออเดอร์ ÷ รวมคนทัก (อินบ็อกซ์ใหม่ + คอมเมนต์)',
+      formula: 'ออเดอร์ ÷ รวมคนทัก (' + srcParts_() + ' จาก ' + srcName_() + ')',
       body: closeRateTip(k),
-      src: 'Pancake statistics/customer_engagements (' + baseScope_().replace('ของ', '') + ') + ออเดอร์จาก Pancake POS',
+      src: closeBaseSrcLine_() + ' + ออเดอร์จาก Pancake POS',
     }) + '>' +
       '<div class="label">🎯 % ปิดการขาย (ต่อรวมคนทัก)</div>' +
       '<div class="big">' + closeRateBig + '</div>' +
@@ -446,19 +460,21 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       title: '✅ ยืนยันแล้ว', formula: 'ออเดอร์สถานะ "ยืนยันแล้ว" (status=1)',
       body: 'ตัวที่ Pancake นับเป็น "สร้างคำสั่งซื้อ" — เอาไว้เทียบจอ Pancake' }) +
     tileHtml('🎯 %ปิดการขาย', pct2_(k.closeRate), {
-      title: '🎯 %ปิดการขาย', formula: 'ออเดอร์ ÷ รวมคนทัก (ทัก + คอมเมนต์)',
+      title: '🎯 %ปิดการขาย', formula: 'ออเดอร์ ÷ รวมคนทัก (' + srcParts_() + ' จาก ' + srcName_() + ')',
       body: closeRateTip(k),
-      src: 'Pancake statistics/customer_engagements (' + baseScope_().replace('ของ', '') + ') + ออเดอร์จาก Pancake POS' }) +
+      src: closeBaseSrcLine_() + ' + ออเดอร์จาก Pancake POS' }) +
     tileHtml('💬 รวมคนทัก', k.closeBase === null || k.closeBase === undefined ? '—' : fmtNum(k.closeBase), {
-      title: '💬 รวมคนทัก', formula: 'อินบ็อกซ์ใหม่ + คอมเมนต์ (' + baseScope_().replace('ของ', '') + ')',
+      title: '💬 รวมคนทัก', formula: srcParts_() + ' จาก ' + srcName_() + ' (' + baseScope_().replace('ของ', '') + ')',
       body: (state.channel === 'line'
           ? 'ตัวหารของ %ปิดการขาย (เพจ LINE ไม่มีค่าแอด จึงไม่มีค่าทัก)'
           : 'ตัวหารของ %ปิดการขายและค่าทัก') +
-        ' = อินบ็อกซ์ใหม่ ' + fmtNum(k.closeBaseInbox || 0) + ' + คอมเมนต์ ' + fmtNum(k.closeBaseComment || 0) +
+        ' = ทัก ' + fmtNum(k.closeBaseInbox || 0) + ' + คอมเมนต์ ' + fmtNum(k.closeBaseComment || 0) +
         (state.channel === 'line' ? ''
-          : ' • ตัวเลขของ Meta (ทัก + คอมเมนต์ จากแอด) = ' + fmtNum(k.closeMetaBase || 0)) +
+          : ' • ตัวเลขของ ' + srcOtherName_() + ' = ' +
+            fmtNum((closeSrc_ === 'meta' ? k.closePancakeBase : k.closeMetaBase) || 0)) +
         ' • ลูกค้าที่คุยทั้งหมด ' + fmtNum(k.engTotal || 0),
-      src: 'Pancake statistics/customer_engagements' }) +
+      src: closeSrc_ === 'meta' ? 'Meta Marketing API (messaging_first_reply + comment)'
+        : 'Pancake statistics/customer_engagements' }) +
     tileHtml('📨 อินบ็อกซ์ใหม่', k.closeNewInbox === null || k.closeNewInbox === undefined ? fmtNum(k.newConvs || 0) : fmtNum(k.closeNewInbox), {
       title: '📨 อินบ็อกซ์ใหม่', formula: 'customer_engagement_new_inbox',
       body: 'ลูกค้าที่เปิดบทสนทนาอินบ็อกซ์ใหม่ในช่วงนี้ — นับทุกเพจของช่องทางที่เลือก (แท็บ 🌐 ทั้งหมด รวมเพจ LINE ด้วย)' +
@@ -545,6 +561,8 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         '<td class="num">' + (u.spend ? THB(u.spend) : '—') + '</td>' +
         '<td class="num ' + roasCls + '">' + (u.roas === null ? '—' : u.roas.toFixed(2)) + '</td>' +
         '<td class="num" title="' + esc(costTip_(u)) + '">' + thb2_(u.costPerMsg) + '</td>' +
+        '<td class="num" title="' + esc(baseTip_(u)) + '">' +
+          (u.closeBase === null || u.closeBase === undefined ? '—' : fmtNum(u.closeBase)) + '</td>' +
         '<td class="num ' + closeCls_(u) + '" title="' + esc(closeTip_(u)) + '">' +
           pct2_(u.closeRate) + '</td>' +
         '<td class="num ' + perBillCls_(u, pb) + '" title="' + esc(perBillTip_(u)) + '">' +
@@ -595,15 +613,17 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         '</div>' +
         '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] +
           (state.channel === 'line'
-            ? ' — เพจ LINE ไม่มีค่าแอด (ค่าทักเป็น —) • %ปิด = ออเดอร์ ÷ รวมคนทัก'
-            : ' — ค่าแอดจริงจาก Meta • ค่าทัก = ค่าแอด ÷ รวมคนทัก • %ปิด = ออเดอร์ ÷ รวมคนทัก') +
-          ' (รวมคนทัก = อินบ็อกซ์ใหม่ + คอมเมนต์ ' + baseScope_() + adsCardNote_() + ')' +
+            ? ' — เพจ LINE ไม่มีค่าแอด (ค่าทักเป็น —) • %ปิด = ออเดอร์ ÷ คนทัก'
+            : ' — ค่าแอดจริงจาก Meta • ค่าทัก = ค่าแอด ÷ คนทัก • %ปิด = ออเดอร์ ÷ คนทัก') +
+          ' (คนทัก = ' + srcParts_() + ' ' + baseScope_() + ' จาก ' + srcName_() + adsCardNote_() + ')' +
           ' • 👆 คลิกยูนิตเพื่อดูรายเพจ + ยอดรายสัปดาห์' +
           unitGoalNote_(d, anyTarget) + '</div>' +
         (unitTable
           ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>ยูนิต</th><th class="num">ยอดขาย</th>' +
             '<th class="num">สัดส่วน</th><th class="num">ค่าแอด</th><th class="num">ROAS</th>' +
-            '<th class="num">ค่าทัก</th><th class="num" title="' + esc(closeHeadTip_()) + '">%ปิด</th>' +
+            '<th class="num">ค่าทัก</th>' +
+            '<th class="num" title="' + esc(baseHeadTip_()) + '">คนทัก</th>' +
+            '<th class="num" title="' + esc(closeHeadTip_()) + '">%ปิด</th>' +
             '<th class="num" title="' + esc(PERBILL_TIP) + '">เปอร์บิล</th>' +
             '<th class="num" title="' + esc(TARGET_TIP) + '">เป้า</th>' +
             '<th class="num" title="' + esc(TARGET_TIP) + '">%บรรลุ</th></tr></thead><tbody>' + unitTable + '</tbody></table></div>'
@@ -1101,16 +1121,47 @@ function baseScope_(): string {
  */
 function adsCardNote_(): string {
   if (state.channel === 'line') return '';
-  if (state.channel === 'facebook') {
-    return ' — ตัวหารเดียวกับการ์ดเว็บ ADS SUMMARY ของทีมแอด แต่การ์ดนับออเดอร์ทุกช่องทาง (รวม LINE)' +
-      ' จะเทียบกับการ์ดให้ดูแท็บ 🌐 ทั้งหมด';
+  // ฐาน Pancake ไม่ตรงกับจอเขาอีกแล้ว (เขาย้ายไป Meta) — ห้ามอ้างว่าเท่ากันตอนถอยไปใช้ Pancake
+  if (closeSrc_ !== 'meta') {
+    return ' — ช่วงนี้เก่ากว่าวันที่ Meta เริ่มมีข้อมูล (17 ก.ย. 69) ระบบจึงถอยไปใช้ตัวเลข Pancake' +
+      ' ซึ่งจะไม่ตรงกับจอ ADS SUMMARY ของทีมแอด';
   }
-  return ' — เท่ากับการ์ดเว็บ ADS SUMMARY ของทีมแอด';
+  if (state.channel === 'facebook') {
+    return ' — ตัวหารเดียวกับจอ ADS SUMMARY ของทีมแอด แต่จอเขานับออเดอร์ทุกช่องทาง (รวม LINE)' +
+      ' จะเทียบกับเขาให้ดูแท็บ 🌐 ทั้งหมด';
+  }
+  return ' — ฐานเดียวกับจอ ADS SUMMARY ของทีมแอด';
+}
+
+/** บรรทัด "ที่มา" ใต้ tooltip — ต้องบอกแหล่งจริงของตัวหารรอบนั้น ไม่ใช่ชื่อที่ hardcode ไว้ */
+function closeBaseSrcLine_(): string {
+  return closeSrc_ === 'meta'
+    ? 'Meta Marketing API — messaging_first_reply + comment (' + baseScope_().replace('ของ', '') + ')'
+    : 'Pancake statistics/customer_engagements (' + baseScope_().replace('ของ', '') + ')';
 }
 
 function closeHeadTip_(): string {
-  return '%ปิด = ออเดอร์ ÷ รวมคนทัก (อินบ็อกซ์ใหม่ + คอมเมนต์ ' + baseScope_() + ' จาก Pancake)' +
+  return '%ปิด = ออเดอร์ ÷ คนทัก (' + srcParts_() + ' ' + baseScope_() + ' จาก ' + srcName_() + ')' +
     adsCardNote_() + ' • เขียว = ถึงเป้า 40%, แดง = ไม่ถึง';
+}
+
+/** หัวคอลัมน์ "คนทัก" — ตัวหารของทั้ง ค่าทัก และ %ปิด (พีสั่งให้ขึ้นตาราง 26 ก.ย. 69) */
+function baseHeadTip_(): string {
+  return 'คนทัก = ' + srcParts_() + ' ' + baseScope_() + ' จาก ' + srcName_() +
+    ' — เป็นตัวหารของทั้งค่าทัก (ค่าแอด ÷ คนทัก) และ %ปิด (ออเดอร์ ÷ คนทัก)' + adsCardNote_();
+}
+
+/** tooltip ช่องคนทัก — แยกให้เห็นว่ามาจากทักกี่ คอมเมนต์กี่ และอีกแหล่งได้เท่าไหร่ */
+function baseTip_(u: any): string {
+  if (u.closeBase === null || u.closeBase === undefined) {
+    return 'คนทัก ' + baseScope_() + ' จาก ' + srcName_() +
+      ' • ยูนิตนี้ไม่มีคนทักและไม่มีค่าแอดในช่วงที่เลือก จึงไม่มีตัวหาร';
+  }
+  const parts = ['ทัก ' + fmtNum(u.closeInq || 0) + ' + คอมเมนต์ ' + fmtNum(u.closeComment || 0) +
+    ' = ' + fmtNum(u.closeBase) + ' (' + srcName_() + ' ' + baseScope_() + ')'];
+  const alt = closeSrc_ === 'meta' ? u.closePancakeBase : (u.closeMetaInq || 0) + (u.closeMetaComment || 0);
+  if (alt !== null && alt !== undefined) parts.push('ฝั่ง ' + srcOtherName_() + ' ได้ ' + fmtNum(alt));
+  return parts.join(' • ');
 }
 const TARGET_TIP = 'เป้าของช่วงวันที่ที่เลือก = เป้ารายเดือนในชีท KPI แท็บ เป้ายอดขาย ÷ จำนวนวันในเดือน × จำนวนวันที่เลือก' +
   ' • %บรรลุ = ยอดขาย ÷ เป้า — แถบเขียว = ถึงเป้า, ส้ม = 50-99%, แดง = ต่ำกว่าครึ่ง';
@@ -1123,15 +1174,19 @@ function closeCls_(u: any): string {
 
 function closeTip_(u: any): string {
   if (u.closeBase === null || u.closeBase === undefined) {
-    return '%ปิด = ออเดอร์ ÷ รวมคนทัก • ยูนิตนี้ไม่มีคนทัก ' + baseScope_() + (state.channel === 'line' ? '' : ' และไม่มีค่าแอด') +
+    return '%ปิด = ออเดอร์ ÷ คนทัก • ยูนิตนี้ไม่มีคนทัก ' + baseScope_() + (state.channel === 'line' ? '' : ' และไม่มีค่าแอด') +
       ' ในช่วงที่เลือก จึงคิดไม่ได้' + (u.orders ? ' (ออเดอร์ ' + fmtNum(u.orders) + ' ใบยังนับในยอดรวมบนการ์ด)' : '');
   }
-  const parts = ['ออเดอร์ ' + fmtNum(u.closeOrders || 0) + ' ÷ รวมคนทัก ' + fmtNum(u.closeBase || 0) +
-    ' (อินบ็อกซ์ใหม่ ' + fmtNum(u.closeInq || 0) + ' + คอมเมนต์ ' + fmtNum(u.closeComment || 0) + ' ' + baseScope_() + ')'];
+  const parts = ['ออเดอร์ ' + fmtNum(u.closeOrders || 0) + ' ÷ คนทัก ' + fmtNum(u.closeBase || 0) +
+    ' (ทัก ' + fmtNum(u.closeInq || 0) + ' + คอมเมนต์ ' + fmtNum(u.closeComment || 0) +
+    ' ' + baseScope_() + ' จาก ' + srcName_() + ')'];
   if (u.closeTarget) parts.push('เป้า ' + u.closeTarget + '% ขึ้นไป');
-  if (u.closeRateMeta !== null && u.closeRateMeta !== undefined) {
-    parts.push('ถ้าใช้ตัวเลขของ Meta (ทัก ' + fmtNum(u.closeMetaInq || 0) + ' + คอมเมนต์ ' +
-      fmtNum(u.closeMetaComment || 0) + ') = ' + pct2_(u.closeRateMeta));
+  const altRate = closeSrc_ === 'meta' ? u.closeRatePancake : u.closeRateMeta;
+  const altInq = closeSrc_ === 'meta' ? u.closePancakeInq : u.closeMetaInq;
+  const altCm = closeSrc_ === 'meta' ? u.closePancakeComment : u.closeMetaComment;
+  if (altRate !== null && altRate !== undefined) {
+    parts.push('ถ้าใช้ตัวเลขของ ' + srcOtherName_() + ' (ทัก ' + fmtNum(altInq || 0) + ' + คอมเมนต์ ' +
+      fmtNum(altCm || 0) + ') = ' + pct2_(altRate));
   }
   return parts.join(' • ');
 }
@@ -1146,13 +1201,15 @@ function thb2_(n: unknown): string {
 /** tooltip ค่าทัก — บอกตัวตั้ง/ตัวหาร + ค่าตามสูตรเดิมไว้เทียบ */
 function costTip_(u: any): string {
   if (u.costPerMsg === null || u.costPerMsg === undefined) {
-    return state.channel === 'line' ? 'ค่าทัก = ค่าแอด ÷ รวมคนทัก • เพจ LINE ไม่มีค่าแอด จึงไม่มีค่าทัก'
-      : 'ค่าทัก = ค่าแอด ÷ รวมคนทัก • ยูนิตนี้ยังไม่มีคนทักในช่วงที่เลือก';
+    return state.channel === 'line' ? 'ค่าทัก = ค่าแอด ÷ คนทัก • เพจ LINE ไม่มีค่าแอด จึงไม่มีค่าทัก'
+      : 'ค่าทัก = ค่าแอด ÷ คนทัก • ยูนิตนี้ยังไม่มีคนทักในช่วงที่เลือก';
   }
   const sp = u.spendExact === null || u.spendExact === undefined ? u.spend : u.spendExact;
-  let s = 'ค่าแอด ' + thb2_(sp || 0) + ' ÷ รวมคนทัก ' + fmtNum(u.closeBase || 0) + ' = ' + thb2_(u.costPerMsg);
-  if (u.costPerMsgMeta !== null && u.costPerMsgMeta !== undefined) {
-    s += ' • ถ้าหารด้วยตัวเลขของ Meta (ทัก + คอมเมนต์) = ' + thb2_(u.costPerMsgMeta);
+  let s = 'ค่าแอด ' + thb2_(sp || 0) + ' ÷ คนทัก ' + fmtNum(u.closeBase || 0) + ' (' + srcName_() + ')' +
+    ' = ' + thb2_(u.costPerMsg);
+  const altCost = closeSrc_ === 'meta' ? u.costPerMsgPancake : u.costPerMsgMeta;
+  if (altCost !== null && altCost !== undefined) {
+    s += ' • ถ้าหารด้วยตัวเลขของ ' + srcOtherName_() + ' = ' + thb2_(altCost);
   }
   return s;
 }
@@ -1413,8 +1470,8 @@ function openUnitDrill(unitKey: string, chKey: string): void {
       (unit.afterAds === null ? '' : '<span class="chip">💵 หลังหักค่าแอด ' + THB(unit.afterAds) + '</span>') +
       (unit.costPerMsg === null ? '' : '<span class="chip">💬 ค่าทัก ' + thb2_(unit.costPerMsg) + '</span>') +
       // ตัวเดียวกับตัวหารของ %ปิด/ค่าทัก ข้างๆ (เดิมโชว์ reached = รวมเพจ LINE → U4 327 แต่ตัวหาร 315)
-      (unit.closeBase ? '<span class="chip" title="' + esc('อินบ็อกซ์ใหม่ ' + fmtNum(unit.closeInq || 0) + ' + คอมเมนต์ ' +
-        fmtNum(unit.closeComment || 0) + ' ' + baseScope_()) + '">💬 รวมคนทัก ' + fmtNum(unit.closeBase) + '</span>' : '') +
+      (unit.closeBase ? '<span class="chip" title="' + esc(baseTip_(unit)) + '">💬 รวมคนทัก ' +
+        fmtNum(unit.closeBase) + '</span>' : '') +
       (unit.closeRate === null || unit.closeRate === undefined ? ''
         : '<span class="chip" title="' + esc(closeTip_(unit)) + '">🎯 %ปิด ' + pct2_(unit.closeRate) + '</span>') +
       (unit.customers ? '<span class="chip">👥 ' + fmtNum(unit.customers) + ' ลูกค้า</span>' : '') +
@@ -1639,8 +1696,8 @@ function buildReportRows(): unknown[][] | null {
   rows.push(['ลูกค้า', Number(k.customers) || 0]);
   rows.push(['เฉลี่ย/ออเดอร์', Math.round(Number(k.avgOrder) || 0)]);
   rows.push(['%ปิดการขาย (ออเดอร์ ÷ รวมคนทัก)', (k.closeRate === null || k.closeRate === undefined) ? '-' : k.closeRate]);
-  rows.push(['รวมคนทัก (อินบ็อกซ์ใหม่ + คอมเมนต์ ' + baseScope_() + ')', (k.closeBase === null || k.closeBase === undefined) ? '-' : Number(k.closeBase)]);
-  rows.push(['— อินบ็อกซ์ใหม่', (k.closeBaseInbox === null || k.closeBaseInbox === undefined) ? '-' : Number(k.closeBaseInbox)]);
+  rows.push(['รวมคนทัก (' + srcParts_() + ' ' + baseScope_() + ' จาก ' + srcName_() + ')', (k.closeBase === null || k.closeBase === undefined) ? '-' : Number(k.closeBase)]);
+  rows.push(['— ทัก', (k.closeBaseInbox === null || k.closeBaseInbox === undefined) ? '-' : Number(k.closeBaseInbox)]);
   rows.push(['— คอมเมนต์', (k.closeBaseComment === null || k.closeBaseComment === undefined) ? '-' : Number(k.closeBaseComment)]);
   rows.push(['ลูกค้าที่คุยทั้งหมด (อ้างอิง)', (k.engTotal === null || k.engTotal === undefined) ? '-' : Number(k.engTotal)]);
   rows.push(['ยอดขายจากแอด', Math.round(Number(k.adRevenue) || 0)]);
