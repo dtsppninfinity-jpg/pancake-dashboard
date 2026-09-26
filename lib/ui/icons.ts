@@ -228,7 +228,8 @@ const PATHS: Record<string, string> = {
  "notebook-pen": "<path d=\"M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4\"/><path d=\"M2 6h4\"/><path d=\"M2 10h4\"/><path d=\"M2 14h4\"/><path d=\"M2 18h4\"/><path d=\"M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z\"/>",
  "book-open": "<path d=\"M12 5v16\"/><path d=\"M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z\"/>",
  "newspaper": "<path d=\"M15 18h-5\"/><path d=\"M18 14h-8\"/><path d=\"M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-4 0v-9a2 2 0 0 1 2-2h2\"/><rect width=\"8\" height=\"4\" x=\"10\" y=\"6\" rx=\"1\"/>",
- "presentation": "<path d=\"M2 3h20\"/><path d=\"M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3\"/><path d=\"m7 21 5-5 5 5\"/>"
+ "presentation": "<path d=\"M2 3h20\"/><path d=\"M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3\"/><path d=\"m7 21 5-5 5 5\"/>",
+ "headset": "<path d=\"M3 11h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-5Zm0 0a9 9 0 1 1 18 0m0 0v5a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3Z\"/><path d=\"M21 16v2a4 4 0 0 1-4 4h-5\"/>"
 };
 
 const BRANDS: Record<string, { d: string; hex: string; title: string }> = {
@@ -325,6 +326,32 @@ export function statusDot(kind: StatusKind, label?: string): string {
 export function rankBadge(n: number, size: 'sm' | 'md' | 'lg' = 'md'): string {
   const k = n === 1 ? 'r1' : n === 2 ? 'r2' : n === 3 ? 'r3' : 'rn';
   return '<span class="rank rank-' + size + ' ' + k + '" role="img" aria-label="อันดับ ' + n + '">' + n + '</span>';
+}
+
+/* ---------- ไอคอนนำหน้าตัวเลข (ชิป/กล่องตัวเลข) — มีสีตามหมวด ----------
+ * พีขอ 26 ก.ย. 69: สมัยอีโมจิ ชิปตัวเลขทุกอันมีรูปนำหน้า ตัดทิ้งแล้วอ่านยากขึ้น
+ * สีตามหมวด (ไม่ใช่สีดี/แย่) ให้ตาจับกลุ่มตัวเลขได้เร็ว: เงิน / ออเดอร์ / ลูกค้า / แอด / แชท / อื่นๆ
+ * ชื่อหมวด → สี อยู่ที่ token --cat-* ใน globals.css (มีค่าแยกโหมดสว่าง) */
+export type StatCat = 'money' | 'order' | 'cust' | 'ads' | 'chat' | 'misc';
+
+/** ตัวเลขแต่ละเรื่องใช้ไอคอน+หมวดอะไร — ทุกหน้าหยิบจากที่นี่ ตัวเลขเรื่องเดียวกันจะหน้าตาเหมือนกันทั้งเว็บ */
+export const STAT = {
+  revenue: ['banknote', 'money'], perBill: ['receipt', 'money'], afterAds: ['wallet', 'money'], profit: ['piggy-bank', 'money'],
+  bills: ['receipt', 'order'], orders: ['shopping-cart', 'order'], confirmed: ['circle-check', 'order'], qty: ['package', 'order'],
+  customers: ['users', 'cust'], repeat: ['repeat', 'cust'], cycle: ['timer', 'cust'], returning: ['history', 'cust'],
+  newCustomer: ['user-plus', 'cust'], admin: ['user', 'cust'], crm: ['headset', 'cust'],
+  adSpend: ['megaphone', 'ads'], roas: ['trending-up', 'ads'], costPerMsg: ['hand-coins', 'ads'],
+  inquiries: ['messages-square', 'chat'], closeRate: ['percent', 'chat'], newInbox: ['inbox', 'chat'], comment: ['message-square', 'chat'],
+  pages: ['store', 'misc'], share: ['chart-pie', 'misc'], cancelRate: ['trending-down', 'misc'], date: ['calendar', 'misc'],
+  target: ['target', 'misc'], units: ['layers', 'misc'],
+} as const satisfies Record<string, readonly [string, StatCat]>;
+
+export type StatKey = keyof typeof STAT;
+
+/** ไอคอนเล็กนำหน้าตัวเลขตามพจนานุกรม STAT เช่น statIcon('revenue') + THB(x) */
+export function statIcon(key: StatKey, size: 14 | 16 | 18 | 20 | 22 = 14): string {
+  const [name, cat] = STAT[key];
+  return icon(name, { size, cls: 'si si-' + cat });
 }
 
 /** พจนานุกรม: ความหมาย → ชื่อไอคอน (1 ความหมาย 1 รูป — เลือกจากที่นี่ก่อนเสมอ) */

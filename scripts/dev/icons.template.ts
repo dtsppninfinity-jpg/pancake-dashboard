@@ -84,6 +84,32 @@ export function rankBadge(n: number, size: 'sm' | 'md' | 'lg' = 'md'): string {
   return '<span class="rank rank-' + size + ' ' + k + '" role="img" aria-label="อันดับ ' + n + '">' + n + '</span>';
 }
 
+/* ---------- ไอคอนนำหน้าตัวเลข (ชิป/กล่องตัวเลข) — มีสีตามหมวด ----------
+ * พีขอ 26 ก.ย. 69: สมัยอีโมจิ ชิปตัวเลขทุกอันมีรูปนำหน้า ตัดทิ้งแล้วอ่านยากขึ้น
+ * สีตามหมวด (ไม่ใช่สีดี/แย่) ให้ตาจับกลุ่มตัวเลขได้เร็ว: เงิน / ออเดอร์ / ลูกค้า / แอด / แชท / อื่นๆ
+ * ชื่อหมวด → สี อยู่ที่ token --cat-* ใน globals.css (มีค่าแยกโหมดสว่าง) */
+export type StatCat = 'money' | 'order' | 'cust' | 'ads' | 'chat' | 'misc';
+
+/** ตัวเลขแต่ละเรื่องใช้ไอคอน+หมวดอะไร — ทุกหน้าหยิบจากที่นี่ ตัวเลขเรื่องเดียวกันจะหน้าตาเหมือนกันทั้งเว็บ */
+export const STAT = {
+  revenue: ['banknote', 'money'], perBill: ['receipt', 'money'], afterAds: ['wallet', 'money'], profit: ['piggy-bank', 'money'],
+  bills: ['receipt', 'order'], orders: ['shopping-cart', 'order'], confirmed: ['circle-check', 'order'], qty: ['package', 'order'],
+  customers: ['users', 'cust'], repeat: ['repeat', 'cust'], cycle: ['timer', 'cust'], returning: ['history', 'cust'],
+  newCustomer: ['user-plus', 'cust'], admin: ['user', 'cust'], crm: ['headset', 'cust'],
+  adSpend: ['megaphone', 'ads'], roas: ['trending-up', 'ads'], costPerMsg: ['hand-coins', 'ads'],
+  inquiries: ['messages-square', 'chat'], closeRate: ['percent', 'chat'], newInbox: ['inbox', 'chat'], comment: ['message-square', 'chat'],
+  pages: ['store', 'misc'], share: ['chart-pie', 'misc'], cancelRate: ['trending-down', 'misc'], date: ['calendar', 'misc'],
+  target: ['target', 'misc'], units: ['layers', 'misc'],
+} as const satisfies Record<string, readonly [string, StatCat]>;
+
+export type StatKey = keyof typeof STAT;
+
+/** ไอคอนเล็กนำหน้าตัวเลขตามพจนานุกรม STAT เช่น statIcon('revenue') + THB(x) */
+export function statIcon(key: StatKey, size: 14 | 16 | 18 | 20 | 22 = 14): string {
+  const [name, cat] = STAT[key];
+  return icon(name, { size, cls: 'si si-' + cat });
+}
+
 /** พจนานุกรม: ความหมาย → ชื่อไอคอน (1 ความหมาย 1 รูป — เลือกจากที่นี่ก่อนเสมอ) */
 export const ICON_FOR = {
   // เมนู

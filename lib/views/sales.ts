@@ -25,7 +25,7 @@ import {
 } from '@/lib/ui/helpers';
 import { svgHourlyLine, miniBars, hbarRows, bindChartTips, hideChartTip } from '@/lib/ui/charts';
 import { salesSkel } from '@/lib/ui/skeletons';
-import { icon, brandIcon, statusPill, ICON_FOR } from '@/lib/ui/icons';
+import { icon, brandIcon, statusPill, statIcon, ICON_FOR, type StatKey } from '@/lib/ui/icons';
 
 declare global {
   // app-core (JsCommon) แนบ App / VIEW_META ไว้บน global — view อ้างถึงตรงๆ (ห้าม import กัน cycle)
@@ -204,8 +204,9 @@ function chBoxHtml(key: string, ch: any): string {
     '</button>';
 }
 
-function tileHtml(label: string, value: string, tip?: TipSpec): string {
-  return '<div class="tile"' + tipAttrs(tip) + '>' + label + '<b>' + value + '</b></div>';
+/** si = ไอคอนหมวดนำหน้าชื่อกล่อง (STAT ใน lib/ui/icons.ts) — สมัยอีโมจิทุกกล่องมีรูป พีขอให้คงไว้ */
+function tileHtml(label: string, value: string, tip?: TipSpec, si?: StatKey): string {
+  return '<div class="tile"' + tipAttrs(tip) + '>' + (si ? statIcon(si) : '') + label + '<b>' + value + '</b></div>';
 }
 
 /** สเปกของ tooltip อธิบายสูตร: หัวข้อ / สูตร / คำอธิบาย / แหล่งข้อมูล */
@@ -227,21 +228,21 @@ const AD_SETUP_HINT = 'ต้องรัน db/migrations/2026-07-23-ad-daily.s
 
 function adSpendTile(d: SalesData): string {
   const a = d.adCost;
-  if (!a) return '<div class="tile" title="' + esc(AD_SETUP_HINT) + '">ค่าแอด<b>—</b></div>';
+  if (!a) return '<div class="tile" title="' + esc(AD_SETUP_HINT) + '">' + statIcon('adSpend') + 'ค่าแอด<b>—</b></div>';
   const when = a.syncedAt ? ' • สดถึง ' + relTime(a.syncedAt) : '';
   return '<div class="tile"' + tipAttrs({
     title: 'ค่าแอด', formula: 'Σ spend ทุกแอด (บาทจริง)',
     body: 'แอดที่กำลังยิง ' + fmtNum(a.activeAds || 0) + ' ตัว' + when +
       ' • ไม่ได้แยก FB/LINE จึงไม่เปลี่ยนตามช่องทางที่กรอง',
     src: 'Meta Ads (pages/statistics/ads)',
-  }) + '>ค่าแอด<b>' + THB(a.spend) + ' ' + trendChip(a.trend) + '</b></div>';
+  }) + '>' + statIcon('adSpend') + 'ค่าแอด<b>' + THB(a.spend) + ' ' + trendChip(a.trend) + '</b></div>';
 }
 
 function roasTile(d: SalesData): string {
   const a = d.adCost;
-  if (!a) return '<div class="tile" title="' + esc(AD_SETUP_HINT) + '">ROAS<b>—</b></div>';
+  if (!a) return '<div class="tile" title="' + esc(AD_SETUP_HINT) + '">' + statIcon('roas') + 'ROAS<b>—</b></div>';
   if (a.roas === null || a.roas === undefined) {
-    return '<div class="tile" title="ช่วงนี้ยังไม่มีค่าแอด — คำนวณ ROAS ไม่ได้">ROAS<b>—</b></div>';
+    return '<div class="tile" title="ช่วงนี้ยังไม่มีค่าแอด — คำนวณ ROAS ไม่ได้">' + statIcon('roas') + 'ROAS<b>—</b></div>';
   }
   // ROAS < 1 = ขายได้น้อยกว่าค่าแอด
   const cls = a.roas >= 2 ? 'up' : (a.roas >= 1 ? '' : 'down');
@@ -253,7 +254,7 @@ function roasTile(d: SalesData): string {
     body: 'ยอดขายจากแอด (Meta) ' + THB(a.adRevenueMeta || 0) + ' ÷ ค่าแอด ' + THB(a.spend) +
       ' • ตรงกับหน้า Meta Ads dashboard (ไม่ใช่ยอดรวมทุกช่องทาง)',
     src: 'Meta Ads (meta_purchase_value)',
-  }) + '>ROAS (Meta)<b' +
+  }) + '>' + statIcon('roas') + 'ROAS (Meta)<b' +
     (cls ? ' class="sr-' + cls + '"' : '') + '>' + a.roas.toFixed(2) + 'x' + prev + '</b></div>';
 }
 
@@ -272,7 +273,7 @@ function adCloseTile(d: SalesData): string {
     return '<div class="tile"' + tipAttrs({
       title: '%ปิดจากแอด (Meta)',
       body: 'ต้องรัน migration db/migrations/2026-07-24-ad-daily-meta-purchase.sql ก่อน' }) +
-      '>%ปิดจากแอด<b>—</b></div>';
+      '>' + statIcon('closeRate') + '%ปิดจากแอด<b>—</b></div>';
   }
   // เกิน 100% = เป็นไปไม่ได้ ต้องอธิบายให้ตรงเหตุ ไม่ใช่ขึ้น "รอ Meta" ทุกกรณี
   //  • ช่วงที่รวมวันนี้ → Meta ส่ง "คนทัก" ช้ากว่า "ยอดซื้อ" ระหว่างวัน (เคยเจอ 2272%) = รอได้
@@ -288,7 +289,7 @@ function adCloseTile(d: SalesData): string {
         : 'ช่วงนี้จบไปแล้วแต่ยอดซื้อ ' + fmtNum(a.adPurchases || 0) + ' มากกว่าคนทัก ' + fmtNum(a.adMsgs || 0) +
           ' — แปลว่าข้อมูลคนทักของช่วงนี้เก็บมาไม่ครบ (ดึงย้อนหลังได้ด้วย backfill:meta-ads) ยังใช้ตัดสินใจไม่ได้',
       src: 'Meta Ads (meta_purchase ÷ messaging_started)',
-    }) + '>%ปิดจากแอด (Meta)<b>' + (live
+    }) + '>' + statIcon('closeRate') + '%ปิดจากแอด (Meta)<b>' + (live
       ? '<span class="tx-muted">รอ Meta</span>'
       : '<span class="tx-warn">' + icon('triangle-alert', { size: 14 }) + '</span> ข้อมูลไม่ครบ') + '</b></div>';
   }
@@ -299,13 +300,13 @@ function adCloseTile(d: SalesData): string {
       'เพราะ Meta นับ "ซื้อ" ตามหน้าต่าง attribution ของโฆษณา ส่วน Pancake นับออเดอร์ที่เปิดในแชทวันนั้น ' +
       '• ระหว่างวันฝั่ง Meta จะต่ำกว่าเพราะรายงานช้ากว่า',
     src: 'Meta Ads (meta_purchase ÷ messaging_started)',
-  }) + '>%ปิดจากแอด (Meta)<b>' + pctFmt(a.adCloseRate) + '</b></div>';
+  }) + '>' + statIcon('closeRate') + '%ปิดจากแอด (Meta)<b>' + pctFmt(a.adCloseRate) + '</b></div>';
 }
 
 /** ROAS แบบยอดขาย POS จริง — kind='new' (เฉพาะเพจที่ยิงแอด) | 'all' (ทั้ง Facebook) */
 function roasPosTile(d: SalesData, kind: 'new' | 'all'): string {
   const a = d.adCost;
-  const label = kind === 'new' ? 'ROAS ใหม่' : 'ROAS รวม';
+  const label = statIcon('roas') + (kind === 'new' ? 'ROAS ใหม่' : 'ROAS รวม');
   if (!a) return '<div class="tile" title="' + esc(AD_SETUP_HINT) + '">' + label + '<b>—</b></div>';
   const v = kind === 'new' ? a.roasNew : a.roasAll;
   if (v === null || v === undefined) {
@@ -493,42 +494,42 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
   const rr = d.returning;
   const retTile = rr
     ? '<div class="tile" title="ลูกค้าในช่วงที่เลือกที่เคยซื้อภายใน 95 วันก่อนหน้า — ' +
-        esc(fmtNum(rr.returning) + ' จาก ' + fmtNum(rr.total) + ' คน') + '">ลูกค้าเก่า (95 วัน)<b>' +
+        esc(fmtNum(rr.returning) + ' จาก ' + fmtNum(rr.total) + ' คน') + '">' + statIcon('returning') + 'ลูกค้าเก่า (95 วัน)<b>' +
         fmtNum(rr.returning) +
         (rr.pct !== null && rr.pct !== undefined
           ? ' <span style="font-size:11px;font-weight:600;color:var(--text-3)">(' + rr.pct + '%)</span>'
           : '') +
       '</b></div>'
-    : '<div class="tile" title="ต้องรัน SQL migration (db/migrations/2026-07-11-sprint2.sql) ใน Supabase ก่อน">ลูกค้าเก่า (95 วัน)<b>—</b></div>';
+    : '<div class="tile" title="ต้องรัน SQL migration (db/migrations/2026-07-11-sprint2.sql) ใน Supabase ก่อน">' + statIcon('returning') + 'ลูกค้าเก่า (95 วัน)<b>—</b></div>';
   // ยอดขายแยกช่องทาง (ไม่ขึ้นกับ channel filter — โชว์ครบเสมอ ตามที่บอสสั่ง)
   const sb = d.salesBreak || { total: 0, fb: 0, line: 0 };
   html += '<div class="sr-strip">' +
     tileHtml('ยอดขายรวม (เพจ+ไลน์)', THB(sb.total || 0), {
       title: 'ยอดขายรวม (เพจ+ไลน์)', formula: 'ยอดขายเพจ + ยอดขายไลน์',
       body: 'เพจ (Facebook) ' + THB(sb.fb || 0) + ' + ไลน์ ' + THB(sb.line || 0) +
-        ' • เฉพาะยืนยันแล้ว • ไม่ขึ้นกับช่องทางที่กรอง', src: 'ออเดอร์ POS จริง (ยืนยันแล้ว)' }) +
-    tileHtml('ยอดขายเพจ', THB(sb.fb || 0), {
+        ' • เฉพาะยืนยันแล้ว • ไม่ขึ้นกับช่องทางที่กรอง', src: 'ออเดอร์ POS จริง (ยืนยันแล้ว)' }, 'revenue') +
+    tileHtml(brandIcon('facebook') + ' ยอดขายเพจ', THB(sb.fb || 0), {
       title: 'ยอดขายเพจ (Facebook)', formula: 'Σ ยอดขาย FB "ยืนยันแล้ว"',
       body: 'เฉพาะ Facebook ที่ยืนยันแล้ว (ตรง Pancake) • ตัวตั้งของ ROAS รวม', src: 'ออเดอร์ POS จริง (ยืนยันแล้ว)' }) +
-    tileHtml('ยอดขายไลน์', THB(sb.line || 0), {
+    tileHtml(brandIcon('line') + ' ยอดขายไลน์', THB(sb.line || 0), {
       title: 'ยอดขายไลน์ (LINE OA)', formula: 'Σ ยอดขาย LINE "ยืนยันแล้ว"',
       body: 'เฉพาะ LINE OA ที่ยืนยันแล้ว', src: 'ออเดอร์ POS จริง (ยืนยันแล้ว)' }) +
     tileHtml('ออเดอร์', fmtNum(k.orders || 0), {
       title: 'ออเดอร์', formula: 'นับออเดอร์ที่มีสินค้าจริง',
-      body: 'ตัดออเดอร์เปล่าที่ Pancake สร้างให้ทุกแชทจากแอด', src: 'ออเดอร์ POS จริง' }) +
+      body: 'ตัดออเดอร์เปล่าที่ Pancake สร้างให้ทุกแชทจากแอด', src: 'ออเดอร์ POS จริง' }, 'orders') +
     tileHtml('ลูกค้า', fmtNum(k.customers || 0), {
       title: 'ลูกค้า', formula: 'นับ customer_id ไม่ซ้ำ',
-      body: 'จำนวนลูกค้าที่มีออเดอร์ในช่วงนี้ (คนเดียวสั่งหลายครั้งนับ 1)' }) +
+      body: 'จำนวนลูกค้าที่มีออเดอร์ในช่วงนี้ (คนเดียวสั่งหลายครั้งนับ 1)' }, 'customers') +
     tileHtml('เฉลี่ย/ออเดอร์', THB(k.avgOrder || 0), {
       title: 'เฉลี่ย/ออเดอร์', formula: 'ยอดขายยืนยันแล้ว ÷ ออเดอร์ยืนยันแล้ว',
-      body: 'มูลค่าเฉลี่ยต่อ 1 ออเดอร์ที่ปิดการขายแล้ว' }) +
+      body: 'มูลค่าเฉลี่ยต่อ 1 ออเดอร์ที่ปิดการขายแล้ว' }, 'perBill') +
     tileHtml('ยืนยันแล้ว', k.confirmedOrders === null || k.confirmedOrders === undefined ? '—' : fmtNum(k.confirmedOrders), {
       title: 'ยืนยันแล้ว', formula: 'ออเดอร์สถานะ "ยืนยันแล้ว" (status=1)',
-      body: 'ตัวที่ Pancake นับเป็น "สร้างคำสั่งซื้อ" — เอาไว้เทียบจอ Pancake' }) +
+      body: 'ตัวที่ Pancake นับเป็น "สร้างคำสั่งซื้อ" — เอาไว้เทียบจอ Pancake' }, 'confirmed') +
     tileHtml('%ปิดการขาย', pct2_(k.closeRate), {
       title: '%ปิดการขาย', formula: 'ออเดอร์ ÷ รวมคนทัก (' + srcParts_() + ' จาก ' + srcName_() + ')',
       body: closeRateTip(k),
-      src: closeBaseSrcLine_() + ' + ออเดอร์จาก Pancake POS' }) +
+      src: closeBaseSrcLine_() + ' + ออเดอร์จาก Pancake POS' }, 'closeRate') +
     tileHtml('รวมคนทัก', k.closeBase === null || k.closeBase === undefined ? '—' : fmtNum(k.closeBase), {
       title: 'รวมคนทัก', formula: srcParts_() + ' จาก ' + srcName_() + ' (' + baseScope_().replace('ของ', '') + ')',
       body: (state.channel === 'line'
@@ -540,12 +541,12 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
             fmtNum((closeSrc_ === 'meta' ? k.closePancakeBase : k.closeMetaBase) || 0)) +
         ' • ลูกค้าที่คุยทั้งหมด ' + fmtNum(k.engTotal || 0),
       src: closeSrc_ === 'meta' ? 'Meta Marketing API (messaging_first_reply + comment)'
-        : 'Pancake statistics/customer_engagements' }) +
+        : 'Pancake statistics/customer_engagements' }, 'inquiries') +
     tileHtml('อินบ็อกซ์ใหม่', k.closeNewInbox === null || k.closeNewInbox === undefined ? fmtNum(k.newConvs || 0) : fmtNum(k.closeNewInbox), {
       title: 'อินบ็อกซ์ใหม่', formula: 'customer_engagement_new_inbox',
       body: 'ลูกค้าที่เปิดบทสนทนาอินบ็อกซ์ใหม่ในช่วงนี้ — นับทุกเพจของช่องทางที่เลือก (แท็บ “ทั้งหมด” รวมเพจ LINE ด้วย)' +
         ' จึงอาจมากกว่าอินบ็อกซ์ใหม่ใน “รวมคนทัก” ซึ่งนับเฉพาะ' + baseScope_().replace('ของ', ''),
-      src: 'Pancake statistics/customer_engagements' }) +
+      src: 'Pancake statistics/customer_engagements' }, 'newInbox') +
     retTile +
     adSpendTile(d) +
     roasPosTile(d, 'new') +
@@ -865,9 +866,9 @@ function drillBodyHtml(chKey: string): string {
   const chs = d.channels || {};
   const c = (chKey ? chs[chKey] : chs.all) || {};
   const sum = '<div class="pill-grid" style="margin-bottom:12px">' +
-    '<span class="chip"><span class="mini-lbl">ยอดขาย</span>' + THB(c.revenue || 0) + '</span>' +
-    '<span class="chip">' + fmtNum(c.orders || 0) + ' ออเดอร์</span>' +
-    '<span class="chip">' + fmtNum(c.customers || 0) + ' ลูกค้า</span>' +
+    '<span class="chip">' + statIcon('revenue') + '<span class="mini-lbl">ยอดขาย</span>' + THB(c.revenue || 0) + '</span>' +
+    '<span class="chip">' + statIcon('orders') + fmtNum(c.orders || 0) + ' ออเดอร์</span>' +
+    '<span class="chip">' + statIcon('customers') + fmtNum(c.customers || 0) + ' ลูกค้า</span>' +
   '</div>';
   const pages = t.pages || [];
   const products = t.products || [];
@@ -1596,8 +1597,8 @@ function cancelSummary_(c: any): string {
   if (!c || !c.orders) return '';
   return '<div class="pill-grid" style="margin:12px 0 0;align-items:center">' +
     '<span class="badge urgent">ยกเลิก/ตีกลับ ' + fmtNum(c.orders) + ' ใบ</span>' +
-    '<span class="chip">' + THB(c.value) + '</span>' +
-    (c.rate === null ? '' : '<span class="chip">' + pctFmt(c.rate) + ' ของใบทั้งหมด</span>') +
+    '<span class="chip">' + statIcon('revenue') + THB(c.value) + '</span>' +
+    (c.rate === null ? '' : '<span class="chip">' + statIcon('cancelRate') + pctFmt(c.rate) + ' ของใบทั้งหมด</span>') +
     '<button class="btn-mini" id="sr-cancels">' + icon('list') + 'ดูรายคน / รายเดือน</button>' +
     '</div>';
 }
@@ -1611,8 +1612,8 @@ function returnSummary_(t: any): string {
   if (!t || !t.orders) return '';
   return '<div class="pill-grid" style="margin:8px 0 0;align-items:center">' +
     '<span class="badge urgent">ตีกลับ ' + fmtNum(t.orders) + ' ใบ</span>' +
-    '<span class="chip">' + THB(t.value) + '</span>' +
-    '<span class="chip">แอดมิน ' + fmtNum(t.adminOrders) + ' / CRM ' + fmtNum(t.crmOrders) + '</span>' +
+    '<span class="chip">' + statIcon('revenue') + THB(t.value) + '</span>' +
+    '<span class="chip">' + statIcon('admin') + 'แอดมิน ' + fmtNum(t.adminOrders) + ' / CRM ' + fmtNum(t.crmOrders) + '</span>' +
     '<button class="btn-mini" id="sr-returns">' + icon('list') + 'ดูรายคน / รายสินค้า</button>' +
     '</div>';
 }
@@ -1636,10 +1637,10 @@ function openReturnDrill(): void {
       ' — นับตาม<b>วันที่รับตีกลับ</b> (ของที่สั่งเดือนก่อนแล้วกลับมาเดือนนี้ จะอยู่ในเดือนนี้) • ' +
       'ที่มา: ชีท "สรุปตีกลับ" ที่ทีมกรอก ไม่ใช่ข้อมูลจาก Pancake</div>' +
     '<div class="pill-grid" style="margin-bottom:6px">' +
-      '<span class="chip">' + fmtNum(t.orders) + ' ใบ</span>' +
-      '<span class="chip"><span class="mini-lbl">มูลค่า</span>' + THB(t.value) + '</span>' +
-      '<span class="chip"><span class="mini-lbl">แอดมิน</span>' + fmtNum(t.adminOrders) + ' ใบ / ' + THB(t.adminValue) + '</span>' +
-      '<span class="chip"><span class="mini-lbl">CRM</span>' + fmtNum(t.crmOrders) + ' ใบ / ' + THB(t.crmValue) + '</span>' +
+      '<span class="chip">' + statIcon('bills') + fmtNum(t.orders) + ' ใบ</span>' +
+      '<span class="chip">' + statIcon('revenue') + '<span class="mini-lbl">มูลค่า</span>' + THB(t.value) + '</span>' +
+      '<span class="chip">' + statIcon('admin') + '<span class="mini-lbl">แอดมิน</span>' + fmtNum(t.adminOrders) + ' ใบ / ' + THB(t.adminValue) + '</span>' +
+      '<span class="chip">' + statIcon('crm') + '<span class="mini-lbl">CRM</span>' + fmtNum(t.crmOrders) + ' ใบ / ' + THB(t.crmValue) + '</span>' +
       '</div>' +
     tbl('แยกตามเดือน', t.byMonth || [], 'เดือน') +
     tbl('แยกตามคน (แอดมิน + CRM)', t.byStaff || [], 'ชื่อเล่น') +
@@ -1666,9 +1667,9 @@ function openCancelDrill(): void {
       ' — นับจาก<b>สถานะบนใบออเดอร์</b> (ยกเลิก / ตีกลับ / ตีกลับบางส่วน / ลบ) ' +
       'ไม่ใช่ใบคืนสินค้า เพราะระบบคืนสินค้าของ Pancake ยังไม่มีใบไหนถูกเปิดเลย</div>' +
     '<div class="pill-grid" style="margin-bottom:6px">' +
-      '<span class="chip">' + fmtNum(c.orders) + ' ใบ</span>' +
-      '<span class="chip"><span class="mini-lbl">มูลค่า</span>' + THB(c.value) + '</span>' +
-      (c.rate === null ? '' : '<span class="chip">' + pctFmt(c.rate) + ' ของใบทั้งหมด</span>') +
+      '<span class="chip">' + statIcon('bills') + fmtNum(c.orders) + ' ใบ</span>' +
+      '<span class="chip">' + statIcon('revenue') + '<span class="mini-lbl">มูลค่า</span>' + THB(c.value) + '</span>' +
+      (c.rate === null ? '' : '<span class="chip">' + statIcon('cancelRate') + pctFmt(c.rate) + ' ของใบทั้งหมด</span>') +
       '</div>' +
     tbl('แยกตามสถานะ', c.byStatus || [], 'สถานะ') +
     tbl('แยกตามเดือน', c.byMonth || [], 'เดือน') +
@@ -1707,27 +1708,27 @@ function openUnitDrill(unitKey: string, chKey: string): void {
     '<div class="card-sub" style="margin-bottom:10px">' + esc((lastData && lastData.rangeLabel) || '') +
       ' • ' + chLabelHtml_(chKey) + '</div>' +
     '<div class="pill-grid" style="margin-bottom:12px">' +
-      '<span class="chip"><span class="mini-lbl">ยอดขาย</span>' + THB(unit.revenue) + '</span>' +
-      '<span class="chip">' + fmtNum(unit.orders) + ' ออเดอร์</span>' +
+      '<span class="chip">' + statIcon('revenue') + '<span class="mini-lbl">ยอดขาย</span>' + THB(unit.revenue) + '</span>' +
+      '<span class="chip">' + statIcon('orders') + fmtNum(unit.orders) + ' ออเดอร์</span>' +
       (perBill_(unit.revenue, unit.orders) === null ? ''
-        : '<span class="chip" title="' + PERBILL_TIP + '"><span class="mini-lbl">เปอร์บิล</span>' +
+        : '<span class="chip" title="' + PERBILL_TIP + '">' + statIcon('perBill') + '<span class="mini-lbl">เปอร์บิล</span>' +
           THB(perBill_(unit.revenue, unit.orders)) + '</span>') +
-      '<span class="chip">' + fmtNum(pages.length) + ' เพจ</span>' +
-      (unit.share === null ? '' : '<span class="chip"><span class="mini-lbl">สัดส่วน</span>' + pctFmt(unit.share) + '</span>') +
-      (unit.spend ? '<span class="chip"><span class="mini-lbl">ค่าแอด</span>' + THB(unit.spend) + '</span>' : '') +
-      (unit.roas === null ? '' : '<span class="chip"><span class="mini-lbl">ROAS</span>' + unit.roas.toFixed(2) + '</span>') +
-      (unit.afterAds === null ? '' : '<span class="chip"><span class="mini-lbl">หลังหักค่าแอด</span>' + THB(unit.afterAds) + '</span>') +
-      (unit.costPerMsg === null ? '' : '<span class="chip"><span class="mini-lbl">ค่าทัก</span>' + thb2_(unit.costPerMsg) + '</span>') +
+      '<span class="chip">' + statIcon('pages') + fmtNum(pages.length) + ' เพจ</span>' +
+      (unit.share === null ? '' : '<span class="chip">' + statIcon('share') + '<span class="mini-lbl">สัดส่วน</span>' + pctFmt(unit.share) + '</span>') +
+      (unit.spend ? '<span class="chip">' + statIcon('adSpend') + '<span class="mini-lbl">ค่าแอด</span>' + THB(unit.spend) + '</span>' : '') +
+      (unit.roas === null ? '' : '<span class="chip">' + statIcon('roas') + '<span class="mini-lbl">ROAS</span>' + unit.roas.toFixed(2) + '</span>') +
+      (unit.afterAds === null ? '' : '<span class="chip">' + statIcon('afterAds') + '<span class="mini-lbl">หลังหักค่าแอด</span>' + THB(unit.afterAds) + '</span>') +
+      (unit.costPerMsg === null ? '' : '<span class="chip">' + statIcon('costPerMsg') + '<span class="mini-lbl">ค่าทัก</span>' + thb2_(unit.costPerMsg) + '</span>') +
       // ตัวเดียวกับตัวหารของ %ปิด/ค่าทัก ข้างๆ (เดิมโชว์ reached = รวมเพจ LINE → U4 327 แต่ตัวหาร 315)
-      (unit.closeBase ? '<span class="chip" title="' + esc(baseTip_(unit)) + '"><span class="mini-lbl">รวมคนทัก</span>' +
+      (unit.closeBase ? '<span class="chip" title="' + esc(baseTip_(unit)) + '">' + statIcon('inquiries') + '<span class="mini-lbl">รวมคนทัก</span>' +
         fmtNum(unit.closeBase) + '</span>' : '') +
       (unit.closeRate === null || unit.closeRate === undefined ? ''
-        : '<span class="chip" title="' + esc(closeTip_(unit)) + '"><span class="mini-lbl">%ปิด</span>' + pct2_(unit.closeRate) + '</span>') +
-      (unit.customers ? '<span class="chip">' + fmtNum(unit.customers) + ' ลูกค้า</span>' : '') +
+        : '<span class="chip" title="' + esc(closeTip_(unit)) + '">' + statIcon('closeRate') + '<span class="mini-lbl">%ปิด</span>' + pct2_(unit.closeRate) + '</span>') +
+      (unit.customers ? '<span class="chip">' + statIcon('customers') + fmtNum(unit.customers) + ' ลูกค้า</span>' : '') +
       (unit.repeatRate === null ? '' : '<span class="chip" title="ลูกค้าที่ซื้อ 2 ครั้งขึ้นไปภายในช่วงที่เลือก">' +
-        '<span class="mini-lbl">ซื้อซ้ำ</span>' + pctFmt(unit.repeatRate) + ' (' + fmtNum(unit.repeatCustomers) + ' คน)</span>') +
+        statIcon('repeat') + '<span class="mini-lbl">ซื้อซ้ำ</span>' + pctFmt(unit.repeatRate) + ' (' + fmtNum(unit.repeatCustomers) + ' คน)</span>') +
       (unit.repeatCycleDays === null ? '' : '<span class="chip" title="ค่ามัธยฐานของระยะห่างระหว่างออเดอร์ของลูกค้าคนเดียวกัน">' +
-        '<span class="mini-lbl">รอบซื้อ</span>' + unit.repeatCycleDays + ' วัน</span>') +
+        statIcon('cycle') + '<span class="mini-lbl">รอบซื้อ</span>' + unit.repeatCycleDays + ' วัน</span>') +
       '</div>' +
     (unit.repeatRate === null ? '' : '<div class="card-sub" style="margin:-4px 0 10px">' +
       'ซื้อซ้ำนับเฉพาะภายในช่วงที่เลือก — คนที่ซื้อครั้งแรกก่อนช่วงนี้จะยังไม่ถูกนับว่าซื้อซ้ำ ' +
@@ -1761,9 +1762,9 @@ function openProductDrill(prodName: string, chKey: string): void {
     '<div class="card-sub" style="margin-bottom:10px">' + esc((lastData && lastData.rangeLabel) || '') +
       ' • ' + chLabelHtml_(chKey) + '</div>' +
     '<div class="pill-grid" style="margin-bottom:12px">' +
-      '<span class="chip"><span class="mini-lbl">มูลค่า</span>' + THB(totVal) + '</span>' +
-      '<span class="chip">' + fmtNum(totQty) + ' ชิ้น</span>' +
-      '<span class="chip">' + fmtNum(totOrd) + ' ออเดอร์</span></div>' +
+      '<span class="chip">' + statIcon('revenue') + '<span class="mini-lbl">มูลค่า</span>' + THB(totVal) + '</span>' +
+      '<span class="chip">' + statIcon('qty') + fmtNum(totQty) + ' ชิ้น</span>' +
+      '<span class="chip">' + statIcon('orders') + fmtNum(totOrd) + ' ออเดอร์</span></div>' +
     '<h4 style="margin:6px 0">ขายได้จากเพจ (คลิกเพจเพื่อดูสินค้าอื่นของเพจนั้น)</h4>' +
     (pages.length
       ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>#</th><th>เพจ</th><th>มูลค่า*</th>' +
@@ -1790,8 +1791,8 @@ function openPageDrill(pageName: string, chKey: string): void {
     '<div class="card-sub" style="margin-bottom:10px">' + esc((lastData && lastData.rangeLabel) || '') +
       ' • ' + chLabelHtml_(chKey) + '</div>' +
     '<div class="pill-grid" style="margin-bottom:12px">' +
-      '<span class="chip"><span class="mini-lbl">ยอดขาย</span>' + THB(info.revenue) + '</span>' +
-      '<span class="chip">' + fmtNum(info.orders) + ' ออเดอร์</span></div>' +
+      '<span class="chip">' + statIcon('revenue') + '<span class="mini-lbl">ยอดขาย</span>' + THB(info.revenue) + '</span>' +
+      '<span class="chip">' + statIcon('orders') + fmtNum(info.orders) + ' ออเดอร์</span></div>' +
     '<h4 style="margin:6px 0">สินค้าที่ขายได้ (คลิกสินค้าเพื่อดูว่าขายเพจไหนอีก)</h4>' +
     (prods.length
       ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>#</th><th>สินค้า</th><th>มูลค่า*</th>' +
@@ -1863,8 +1864,8 @@ function openNeedCheckDrill(scope: 'range' | 'today'): void {
     '<div class="hint-box" style="margin-bottom:10px">ออเดอร์สถานะ <b>ใหม่ / รอยืนยัน</b> จาก Pancake — ' +
       '<b>ยังไม่ถูกนับเป็นรายได้</b> จนกว่าแอดมินจะกดยืนยัน (ยอดขายทุกตัวเลขบนหน้านี้นับเฉพาะ "ยืนยันแล้ว")</div>' +
     '<div class="pill-grid" style="margin-bottom:12px">' +
-      '<span class="chip">' + fmtNum(total) + ' ใบ</span>' +
-      '<span class="chip"><span class="mini-lbl">มูลค่า</span>' + THB(sumVal) + ' (ถ้ายืนยันครบ)</span>' +
+      '<span class="chip">' + statIcon('bills') + fmtNum(total) + ' ใบ</span>' +
+      '<span class="chip">' + statIcon('revenue') + '<span class="mini-lbl">มูลค่า</span>' + THB(sumVal) + ' (ถ้ายืนยันครบ)</span>' +
     '</div>' +
     (list.length
       ? '<div class="table-scroll"><table class="tbl"><thead><tr>' +

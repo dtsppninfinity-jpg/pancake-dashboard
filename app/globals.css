@@ -32,6 +32,9 @@
   /* ตัวอักษร/ไอคอนสีม่วงหลักบนพื้นม่วงอ่อน — #6c5ce7 ตรงๆ จมในธีมมืด จึงยกให้สว่างขึ้น */
   --primary-ink: #a99cff;
   --row-line: rgba(38, 51, 82, 0.5);        /* เส้นคั่นแถวตาราง */
+  /* สีหมวดของไอคอนนำหน้าตัวเลข (statIcon ใน lib/ui/icons.ts) — แยกกลุ่มให้ตาจับได้เร็ว ไม่ได้แปลว่าดี/แย่ */
+  --cat-money: #fbbf24; --cat-order: #60a5fa; --cat-cust: #22d3ee;
+  --cat-ads: #fb923c; --cat-chat: #c084fc; --cat-misc: var(--text-3);
   /* ชุดสีของแถบเมนูซ้าย — แถบเมนูเป็นสีเข้มทั้ง 2 ธีม จึงห้ามใช้ --red/--green ของเนื้อหาหลัก
      (โหมดสว่างเปลี่ยน --red เป็นแดงเข้มสำหรับพื้นขาว วางบนพื้นกรมท่าแล้วเหลือคอนทราสต์ 2.3:1)
      ⚠️ ห้ามเขียนทับกลุ่มนี้ในบล็อกโหมดสว่าง */
@@ -41,6 +44,12 @@
   --sb-bad: #d63031;                        /* พื้นป้ายตัวเลข — เลขขาว 4.85:1 */
   --sb-warn: #f5a742; --sb-warn-fg: #1f1300;
   --sb-line: rgba(255, 255, 255, 0.22);
+  /* สีประจำเมนู (ไอคอนเมนูซ้าย) — อยู่บนแถบเมนูสีเข้มทั้ง 2 ธีม คอนทราสต์ทุกตัว ≥6:1 บน --sidebar-bg
+     อิงสีอีโมจิเดิม: 📊ฟ้า 💰ส้ม 🎯แดง 💹เขียว 📑ฟ้าอมเขียว 👥คราม 🏆ทอง 📐ม่วง 🧩เขียวอ่อน 🪪ฟ้าอ่อน
+     ผลงานราย Unit เดิมใช้ 🎯 ซ้ำกับ Content & Ads → ชมพู · ผู้ใช้งานเดิม 🔐 เหลืองซ้ำกับ 🏆 → เทา */
+  --ni-dashboard: #60a5fa; --ni-sales: #fb923c; --ni-contentads: #f87171; --ni-profit: #4ade80;
+  --ni-unitperf: #f472b6; --ni-report: #22d3ee; --ni-admins: #818cf8; --ni-adminperf: #facc15;
+  --ni-kpi: #c084fc; --ni-umap: #a3e635; --ni-me: #7dd3fc; --ni-users: #94a3b8;
   /* ป้ายอันดับ 1-2-3 (lib/ui/icons.ts rankBadge) — พื้นสีเหรียญ + เลขสีเข้ม */
   --rank1-bg: #f5b301; --rank1-fg: #1f1600;
   --rank2-bg: #c3ccd6; --rank2-fg: #1b2233;
@@ -113,6 +122,9 @@
   --bronze: #a86a2e;                        /* 4.00:1 (เดิม #c47f3d = 2.96:1 ตกบนพื้นรอง) */
   --primary-ink: #5b4bd6;                   /* 6.1:1 บนขาว */
   --row-line: var(--border);
+  /* สีหมวดโหมดสว่าง: เข้มขึ้นให้เส้นไอคอนบางๆ ยังชัดบนพื้นขาว/เทาอ่อน (≥4.5:1 บน --surface-2) */
+  --cat-money: #a15c07; --cat-order: #1d4ed8; --cat-cust: #0e7490;
+  --cat-ads: #c2410c; --cat-chat: #7e22ce;
   --rank1-bg: #f7c948; --rank1-fg: #3b2a00;
   --rank2-bg: #d5dbe3; --rank2-fg: #1b2233;
   --rank3-bg: #e5ae7c; --rank3-fg: #3a1f05;
@@ -329,9 +341,29 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 .nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
 .nav-item.active { background: var(--primary); color: #fff; }
 .nav-item.active .nav-label-sub { color: rgba(255,255,255,.75); }
-.nav-icon { width: 22px; height: 22px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
-/* ไอคอนเป็นเส้นสีตามตัวหนังสือของเมนู (currentColor): ปกติ = สีเมนู, ชี้/เลือกอยู่ = ขาว ตาม .nav-item */
+/* ไอคอนเมนู = เส้นสีประจำเมนูบนกล่องสีอ่อนโทนเดียวกัน (พีขอ 26 ก.ย. 69: สมัยอีโมจิแต่ละเมนูมีสีของตัวเอง
+   ทีมอาจจำเมนูจากสีไปแล้ว) สีอิงอีโมจิเดิม ยกเว้นเมนูที่เดิมสีซ้ำกัน · สีอยู่ที่ token --ni-* ใน :root
+   เมนูที่เลือกอยู่ (พื้นม่วง) ไอคอนเป็นขาว — ไอคอนสีบนพื้นม่วงจะจมหาย */
+.nav-icon {
+  width: 28px; height: 28px; flex: none; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--ni, var(--sidebar-text));
+  background: color-mix(in srgb, var(--ni, var(--sidebar-text)) 16%, transparent);
+}
 .nav-icon .ic { display: block; }
+.nav-item.active .nav-icon { color: #fff; background: rgba(255, 255, 255, 0.18); }
+.nav-item[data-view="dashboard"]  { --ni: var(--ni-dashboard); }
+.nav-item[data-view="sales"]      { --ni: var(--ni-sales); }
+.nav-item[data-view="contentads"] { --ni: var(--ni-contentads); }
+.nav-item[data-view="profit"]     { --ni: var(--ni-profit); }
+.nav-item[data-view="unitperf"]   { --ni: var(--ni-unitperf); }
+.nav-item[data-view="report"]     { --ni: var(--ni-report); }
+.nav-item[data-view="admins"]     { --ni: var(--ni-admins); }
+.nav-item[data-view="adminperf"]  { --ni: var(--ni-adminperf); }
+.nav-item[data-view="kpi"]        { --ni: var(--ni-kpi); }
+.nav-item[data-view="umap"]       { --ni: var(--ni-umap); }
+.nav-item[data-view="me"]         { --ni: var(--ni-me); }
+.nav-item[data-view="users"]      { --ni: var(--ni-users); }
 .nav-texts { display: flex; flex-direction: column; line-height: 1.25; }
 .nav-label-sub { font-size: var(--fs-1); color: rgba(169,165,208,.75); }
 .sidebar-footer { padding: var(--sp-3) var(--sp-4); font-size: var(--fs-1); opacity: .8; }
@@ -521,6 +553,16 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 .rank-mini, .b5-stats, .top3-card .sub { color: var(--text-2); }
 /* ป้ายยาว "ตอนนี้ (24 ชม.ล่าสุด) — ไม่ขึ้นกับช่วงที่เลือก" ล้นการ์ดตัวเลขบนจอ 360px — ให้ขึ้นบรรทัดใหม่ได้ */
 .stat-hint .badge, .card-sub .badge { white-space: normal; }
+
+/* ไอคอนนำหน้าตัวเลข (statIcon) — สีตามหมวด */
+.tile > .si { margin-right: 5px; }          /* กล่องตัวเลขหน้า Sales/U Map: ชื่อกล่องเป็นข้อความ inline */
+.tile > .brand-ic { margin-right: 1px; }
+.si-money { color: var(--cat-money); }
+.si-order { color: var(--cat-order); }
+.si-cust { color: var(--cat-cust); }
+.si-ads { color: var(--cat-ads); }
+.si-chat { color: var(--cat-chat); }
+.si-misc { color: var(--cat-misc); }
 
 /* สีตัวอักษรตามความหมาย (ใช้กับไอคอน/คำเตือนสั้นๆ ในประโยค) */
 .tx-good { color: var(--green); }

@@ -28,6 +28,7 @@ sprout leaf moon-star coffee bed plug database server wifi-off cloud-off power
 maximize-2 minimize-2 move grip-vertical ellipsis ellipsis-vertical
 arrow-down-a-z arrow-down-1-0 arrow-up-1-0 scan-eye
 truck wand-sparkles notebook-pen book-open newspaper presentation
+headset
 `.split(/\s+/).filter(Boolean);
 const uniq = [...new Set(NAMES)];
 const missing = uniq.filter((n) => !fs.existsSync(L + n + '.svg'));

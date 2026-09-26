@@ -353,9 +353,9 @@ function openAnalysis(data: any, adId: any): void {
     '<span class="badge neutral">' + THB(num(item.spend)) + ' → ' + THB(num(item.revenue)) +
     ' (ROAS ' + roasStr(item.roas) + ')</span>' +
     (nullable(item.ageDays) !== null
-      ? '<span class="badge neutral">อายุ ' + fmtNum(num(item.ageDays)) + ' วัน</span>' : '') +
+      ? '<span class="badge neutral">' + icon('calendar', { size: 14 }) + 'อายุ ' + fmtNum(num(item.ageDays)) + ' วัน</span>' : '') +
     (item.topSeller
-      ? '<span class="badge ai">ปิดขายมากสุด: ' + esc(item.topSeller) + '</span>' : '') +
+      ? '<span class="badge ai">' + icon('trophy', { size: 14 }) + 'ปิดขายมากสุด: ' + esc(item.topSeller) + '</span>' : '') +
     '</div>';
 
   // สื่อของแอด (รูป/คลิป/ลิงก์โพสต์) — วางบนสุดเพราะทีมแอดต้อง "เห็นครีเอทีฟ" ก่อนอ่านตัวเลข
