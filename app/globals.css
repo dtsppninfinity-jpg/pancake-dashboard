@@ -362,6 +362,31 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 .sub-more > summary::before { content: '▸'; transition: transform .15s ease; }
 .sub-more[open] > summary::before { transform: rotate(90deg); }
 .sub-more > div { padding: var(--sp-2) 0 var(--sp-1); max-width: 78ch; line-height: 1.6; }
+
+/* แถบเตือน "เพจยิงแอดแต่ยังไม่มียูนิต" เหนือตารางยูนิต — พับเก็บได้ (พีสั่ง 26 ก.ย. 69)
+   ตอนพับเหลือบรรทัดเดียวที่ยังบอก "กี่เพจ + เงินเท่าไหร่" ครบ
+   ลูกศรชิดขวาด้วย margin-left:auto — ถ้าใช้ ::before ชิดซ้ายจะไปเบียดหัวข้อตอนจอแคบ */
+.nounit-more > summary {
+  cursor: pointer; list-style: none; display: flex; flex-wrap: wrap; align-items: baseline;
+  gap: var(--sp-1) var(--sp-3); min-height: 44px; align-content: center;
+}
+.nounit-more > summary::-webkit-details-marker { display: none; }
+.nounit-more > summary::after {
+  content: '▸'; color: var(--text-3); margin-left: auto; padding-left: var(--sp-2);
+  align-self: center; transition: transform .15s ease;
+}
+.nounit-more[open] > summary::after { transform: rotate(90deg); }
+.nounit-more > summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
+.nounit-more > summary .alert-title { margin: 0; }
+.nounit-sum { font-size: var(--fs-2); color: var(--text-2); }
+.nounit-more > div { margin-top: var(--sp-2); }
+@media (prefers-reduced-motion: reduce) {
+  .nounit-more > summary::after { transition: none; }
+}
+/* เมาส์มีพื้นที่กดแม่นกว่านิ้ว — จอใหญ่ไม่ต้องกันที่ 44px ให้เปลืองแนวตั้ง */
+@media (min-width: 900px) {
+  .nounit-more > summary { min-height: 0; padding: 2px 0; }
+}
 /* แถวการ์ดคู่ — มือถือเรียงลงมาทีละใบ, เดสก์ท็อป (≥1200) ค่อยแบ่งคอลัมน์ */
 .dash-row, .dash-row.single, .dash-row.half {
   display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); margin-top: var(--sp-4);

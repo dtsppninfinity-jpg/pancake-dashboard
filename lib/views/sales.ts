@@ -760,6 +760,10 @@ function bindEvents(container: HTMLElement): void {
     });
   });
 
+  // จำว่าแถบเตือนถูกพับหรือกางไว้ — ไม่งั้นรอบรีเฟรชอัตโนมัติ (75 วิ) จะรีเซ็ตกลับทุกครั้ง
+  container.querySelectorAll('.nounit-more').forEach(function (el) {
+    el.addEventListener('toggle', function () { noUnitSetOpen_((el as HTMLDetailsElement).open); });
+  });
   container.querySelectorAll('[data-goview]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       App.switchView(btn.getAttribute('data-goview')!);
@@ -1123,7 +1127,19 @@ function pct2_(n: unknown): string {
  *
  * แยก 2 กลุ่มเสมอ: จับได้เองในหน้า U Map / ยังไม่ได้ต่อเข้า Pancake (จับไม่ได้ ต้องให้ทีมต่อเพจก่อน)
  * — ไม่งั้นคนไปหาในหน้า U Map แล้วไม่เจอ นึกว่าเว็บพัง
+ *
+ * พับเก็บได้ ปิดไว้เป็นค่าเริ่มต้น (พีสั่ง 26 ก.ย. 69 — เต็มจอมันเบียดตารางลงไปมาก)
+ * ⚠️ ตอนพับต้องยังเห็น "กี่เพจ + เงินเท่าไหร่" ในบรรทัดเดียว ไม่งั้นพับแล้วเท่ากับไม่มีเตือน
+ * ⚠️ ต้องจำสถานะไว้ใน localStorage — หน้า Sales รีเฟรชเองทุก 75 วิ ถ้าไม่จำ แถบจะหุบกลางที่กำลังอ่าน
  */
+const NOUNIT_OPEN_KEY = 'pn-nounit-open';
+function noUnitOpen_(): boolean {
+  try { return localStorage.getItem(NOUNIT_OPEN_KEY) === '1'; } catch (e) { return false; }
+}
+function noUnitSetOpen_(v: boolean): void {
+  try { localStorage.setItem(NOUNIT_OPEN_KEY, v ? '1' : '0'); } catch (e) { /* โหมดส่วนตัว/ปิดคุกกี้ — ปล่อยผ่าน */ }
+}
+
 function noUnitAdsBanner_(d: SalesData): string {
   const g = d.noUnitAds;
   if (!g || !g.pages || !g.pages.length) return '';
@@ -1137,22 +1153,28 @@ function noUnitAdsBanner_(d: SalesData): string {
     '<div class="alert-row lv-red">' +
       '<div class="alert-icon">🚧</div>' +
       '<div class="alert-body">' +
-        '<div class="alert-title">มีเพจยิงแอดอยู่ ' + fmtNum(g.pages.length) + ' เพจ ที่ยังไม่ได้จับเข้ายูนิต</div>' +
-        '<div class="alert-reason">ค่าแอด <b>' + THB(g.spend) + '</b>' +
-          (g.base ? ' และคนทัก ' + fmtNum(g.base) + ' คน' : '') +
-          ' ในช่วงที่เลือก ไปกองที่แถว “⚠️ ยังไม่จัดกลุ่ม” ท้ายตาราง' +
-          ' — ยูนิตที่ควรได้เครดิตจึงมี ROAS/%ปิด ต่ำกว่าความจริง</div>' +
-        (linkable.length
-          ? '<div class="alert-reason" style="margin-top:6px">จับคู่ได้เลยในหน้า U Map:' +
-            '<ul style="margin:4px 0 0 18px">' + linkable.map(row).join('') + '</ul></div>'
-          : '') +
-        (orphan.length
-          ? '<div class="alert-reason" style="margin-top:6px">ยังต่อเข้า Pancake ไม่ได้ จับคู่ไม่ได้จนกว่าทีมจะต่อเพจ:' +
-            '<ul style="margin:4px 0 0 18px">' + orphan.map(row).join('') + '</ul></div>'
-          : '') +
-        (linkable.length
-          ? '<div style="margin-top:8px"><button class="btn-mini" data-goview="umap">ไปหน้า U Map →</button></div>'
-          : '') +
+        '<details class="nounit-more"' + (noUnitOpen_() ? ' open' : '') + '>' +
+          '<summary title="กดเพื่อดู/ซ่อนรายชื่อเพจ">' +
+            '<span class="alert-title">มีเพจยิงแอดอยู่ ' + fmtNum(g.pages.length) + ' เพจ ที่ยังไม่ได้จับเข้ายูนิต</span>' +
+            '<span class="nounit-sum">ค่าแอด <b>' + THB(g.spend) + '</b>' +
+              (g.base ? ' · คนทัก ' + fmtNum(g.base) : '') + '</span>' +
+          '</summary>' +
+          '<div>' +
+            '<div class="alert-reason">ค่าแอดก้อนนี้ไปกองที่แถว “⚠️ ยังไม่จัดกลุ่ม” ท้ายตาราง' +
+              ' — ยูนิตที่ควรได้เครดิตจึงมี ROAS/%ปิด ต่ำกว่าความจริง</div>' +
+            (linkable.length
+              ? '<div class="alert-reason" style="margin-top:6px">จับคู่ได้เลยในหน้า U Map:' +
+                '<ul style="margin:4px 0 0 18px">' + linkable.map(row).join('') + '</ul></div>'
+              : '') +
+            (orphan.length
+              ? '<div class="alert-reason" style="margin-top:6px">ยังต่อเข้า Pancake ไม่ได้ จับคู่ไม่ได้จนกว่าทีมจะต่อเพจ:' +
+                '<ul style="margin:4px 0 0 18px">' + orphan.map(row).join('') + '</ul></div>'
+              : '') +
+            (linkable.length
+              ? '<div style="margin-top:8px"><button class="btn-mini" data-goview="umap">ไปหน้า U Map →</button></div>'
+              : '') +
+          '</div>' +
+        '</details>' +
       '</div>' +
     '</div>' +
   '</div>';
