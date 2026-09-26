@@ -29,6 +29,22 @@
   --gold: #f5b301;
   --silver: #9aa5b1;
   --bronze: #c47f3d;
+  /* ตัวอักษร/ไอคอนสีม่วงหลักบนพื้นม่วงอ่อน — #6c5ce7 ตรงๆ จมในธีมมืด จึงยกให้สว่างขึ้น */
+  --primary-ink: #a99cff;
+  --row-line: rgba(38, 51, 82, 0.5);        /* เส้นคั่นแถวตาราง */
+  /* ชุดสีของแถบเมนูซ้าย — แถบเมนูเป็นสีเข้มทั้ง 2 ธีม จึงห้ามใช้ --red/--green ของเนื้อหาหลัก
+     (โหมดสว่างเปลี่ยน --red เป็นแดงเข้มสำหรับพื้นขาว วางบนพื้นกรมท่าแล้วเหลือคอนทราสต์ 2.3:1)
+     ⚠️ ห้ามเขียนทับกลุ่มนี้ในบล็อกโหมดสว่าง */
+  --sb-good: #34d399;                       /* 9.5:1 บน --sidebar-bg */
+  --sb-bad-text: #ff8a9f;                   /* 8.2:1 */
+  --sb-warn-text: #f5b95c;                  /* 10.4:1 */
+  --sb-bad: #d63031;                        /* พื้นป้ายตัวเลข — เลขขาว 4.85:1 */
+  --sb-warn: #f5a742; --sb-warn-fg: #1f1300;
+  --sb-line: rgba(255, 255, 255, 0.22);
+  /* ป้ายอันดับ 1-2-3 (lib/ui/icons.ts rankBadge) — พื้นสีเหรียญ + เลขสีเข้ม */
+  --rank1-bg: #f5b301; --rank1-fg: #1f1600;
+  --rank2-bg: #c3ccd6; --rank2-fg: #1b2233;
+  --rank3-bg: #d08a4a; --rank3-fg: #1f1200;
   --radius: 14px;
   --shadow: 0 1px 3px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
   --track: rgba(255, 255, 255, 0.08);       /* รางกราฟ/เส้น grid (โทนมืด) */
@@ -95,6 +111,11 @@
   --gold: #a37500;                          /* 3.74:1 */
   --silver: #7c8794;                        /* 3.31:1 */
   --bronze: #a86a2e;                        /* 4.00:1 (เดิม #c47f3d = 2.96:1 ตกบนพื้นรอง) */
+  --primary-ink: #5b4bd6;                   /* 6.1:1 บนขาว */
+  --row-line: var(--border);
+  --rank1-bg: #f7c948; --rank1-fg: #3b2a00;
+  --rank2-bg: #d5dbe3; --rank2-fg: #1b2233;
+  --rank3-bg: #e5ae7c; --rank3-fg: #3a1f05;
 }
 /* ปรับสีที่ฝังไว้สำหรับพื้นเข้ม ให้เข้ากับพื้นสว่าง */
 :root[data-theme="light"] .badge.neutral { background: rgba(15,23,42,.07); }
@@ -102,7 +123,6 @@
 :root[data-theme="light"] .badge.brand,
 :root[data-theme="light"] .alert-recommend,
 :root[data-theme="light"] .tag-cloud .chip { color: var(--primary); }
-:root[data-theme="light"] table.tbl td,
 :root[data-theme="light"] .sr-today-row { border-bottom-color: var(--border); }
 
 /* ============================================================
@@ -189,7 +209,7 @@ body.nav-locked { overflow: hidden; }
 .nav { flex: 1; padding: var(--sp-2) var(--sp-3); }
 .nav-section {
   font-size: var(--fs-1); font-weight: 700; text-transform: uppercase;
-  letter-spacing: .4px; opacity: .55; margin: var(--sp-4) var(--sp-2) var(--sp-2);
+  letter-spacing: .4px; opacity: .72; margin: var(--sp-4) var(--sp-2) var(--sp-2);
 }
 .nav-item {
   display: flex; align-items: center; gap: var(--sp-3); width: 100%;
@@ -201,11 +221,11 @@ body.nav-locked { overflow: hidden; }
 .nav-badge {
   position: absolute; top: 6px; right: 8px;
   min-width: 18px; height: 18px; padding: 0 var(--sp-1); border-radius: 9px;
-  background: #e74c3c; color: #fff; font-size: var(--fs-1); font-weight: 800;
+  background: var(--sb-bad); color: #fff; font-size: var(--fs-1); font-weight: 800;
   display: inline-flex; align-items: center; justify-content: center; line-height: 1;
   box-shadow: 0 0 0 2px var(--sidebar-bg, rgba(0,0,0,.35));
 }
-.nav-badge.warn { background: #e67e22; }
+.nav-badge.warn { background: var(--sb-warn); color: var(--sb-warn-fg); }
 /* มี badge เมื่อไหร่ เว้นที่ขวาให้ชื่อแท็บไม่วิ่งไปใต้เลข */
 .nav-item.has-badge { padding-right: var(--sp-7); }
 /* ป้ายหมายเหตุยูนิต (เช่น "รอรีแบรนด์") — โทนเหลืองอำพันให้ต่างจาก chip รหัสยูนิต */
@@ -314,7 +334,7 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 .nav-texts { display: flex; flex-direction: column; line-height: 1.25; }
 .nav-label-sub { font-size: var(--fs-1); color: rgba(169,165,208,.75); }
 .sidebar-footer { padding: var(--sp-3) var(--sp-4); font-size: var(--fs-1); opacity: .8; }
-.live-badge { color: #2dd4a0; font-weight: 700; margin-bottom: var(--sp-1); }
+.live-badge { color: var(--sb-good); font-weight: 700; margin-bottom: var(--sp-1); }
 .sidebar-sync { line-height: 1.5; }
 
 /* ---------- topbar ---------- */
@@ -432,6 +452,70 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 .badge.brand { background: var(--primary-soft); color: #a99cff; }
 .pill-grid { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
 
+/* ============================================================
+   ไอคอน + ป้ายสถานะ + ป้ายอันดับ (ตรวจ UI รอบ 2, 26 ก.ย. 69 — แทนอีโมจิทั้งเว็บ)
+   ตัวสร้าง HTML อยู่ที่ lib/ui/icons.ts: icon() / brandIcon() / statusPill() / statusDot() / rankBadge()
+   ============================================================ */
+/* ไอคอนลายเส้น — สีตามตัวหนังสือรอบข้างเสมอ (stroke = currentColor) */
+.ic { display: inline-block; flex: none; vertical-align: -0.18em; }
+.ic-muted { color: var(--text-3); }
+/* ปุ่ม/ชิป/ป้ายที่มีไอคอนข้างใน: เรียงไอคอนกับคำให้อยู่แนวเดียวกัน เว้นช่องเท่ากันทุกปุ่ม
+   ใช้ :has() เพื่อไม่ไปเปลี่ยน display ของปุ่มที่ไม่มีไอคอน (ปุ่มพวกนั้นเลย์เอาต์เดิมทุกพิกเซล) */
+:is(.btn, .btn-mini, .filter-btn, .chip, .badge, .kpi-tab):has(> .ic) {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+:is(.btn, .btn-mini, .filter-btn, .chip, .badge, .kpi-tab):has(> .ic) > .ic { vertical-align: 0; }
+/* ปุ่มที่มีแต่ไอคอน (ไม่มีคำ) — ต้องมี aria-label + title ที่ตัวปุ่มเสมอ */
+.btn-icon { padding-left: var(--sp-2); padding-right: var(--sp-2); min-width: 36px; }
+
+/* ป้ายสถานะ = จุดสี + คำ บนพื้นอ่อนสีเดียวกัน (แทน 🟢🟡🔴⚪ ✅ ❌ ⚠️)
+   สีมาจากชุดสีกลางผ่าน --st / --st-soft เท่านั้น */
+.st-good  { --st: var(--green); --st-soft: var(--green-soft); }
+.st-warn  { --st: var(--amber); --st-soft: var(--amber-soft); }
+.st-bad   { --st: var(--red);   --st-soft: var(--red-soft); }
+.st-info  { --st: var(--blue);  --st-soft: var(--blue-soft); }
+.st-muted { --st: var(--text-3); --st-soft: var(--track); }
+.st-brand { --st: var(--primary-ink); --st-soft: var(--primary-soft); }
+.st {
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  padding: 2px var(--sp-3) 2px var(--sp-2); border-radius: 99px;
+  font-size: var(--fs-2); font-weight: 700; line-height: 1.5;
+  color: var(--st); background: var(--st-soft);
+}
+.st::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%; flex: none; background: currentColor;
+}
+/* จุดเดี่ยว (ไม่มีพื้น) วางหน้าคำในแถวรายการ */
+.st-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none;
+  background: var(--st); vertical-align: 0.05em;
+}
+
+/* ป้ายอันดับ: วงกลมเลข (แทน 🥇🥈🥉) — เลขสีเข้มบนพื้นเหรียญสีอ่อน อ่านชัดทั้ง 2 ธีม */
+.rank {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  border-radius: 50%; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums;
+  background: var(--rank-bg, var(--surface-2)); color: var(--rank-fg, var(--text-2));
+  box-shadow: inset 0 0 0 1px var(--rank-ring, var(--border));
+}
+.rank-sm { width: 20px; height: 20px; font-size: var(--fs-1); }
+.rank-md { width: 24px; height: 24px; font-size: var(--fs-2); }
+.rank-lg { width: 36px; height: 36px; font-size: var(--fs-5); }
+.rank.r1 { --rank-bg: var(--rank1-bg); --rank-fg: var(--rank1-fg); --rank-ring: transparent; }
+.rank.r2 { --rank-bg: var(--rank2-bg); --rank-fg: var(--rank2-fg); --rank-ring: transparent; }
+.rank.r3 { --rank-bg: var(--rank3-bg); --rank-fg: var(--rank3-fg); --rank-ring: transparent; }
+
+/* โลโก้แบรนด์ (Facebook / LINE) — สีแบรนด์จริงฝังใน fill แล้ว ห้ามทับสี */
+.brand-ic { vertical-align: -0.16em; }
+
+/* กรอบไอคอนของกล่องตัวเลขใหญ่: ไอคอนสีเดียวกับกรอบ */
+.stat-icon .ic, .kpi-ico .ic { width: 22px; height: 22px; }
+.stat-icon.purple, .kpi-ico { color: var(--primary-ink); }
+.stat-icon.green { color: var(--green); }
+.stat-icon.amber { color: var(--amber); }
+.stat-icon.blue { color: var(--blue); }
+.stat-icon.red { color: var(--red); }
+
 .chip {
   display: inline-flex; align-items: center; gap: var(--sp-2);
   background: var(--surface-2); border: 1px solid var(--border);
@@ -543,7 +627,7 @@ table.tbl th {
   text-align: left; color: var(--text-3); font-size: var(--fs-2); font-weight: 700;
   padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border); white-space: nowrap;
 }
-table.tbl td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid rgba(38,51,82,.5); }
+table.tbl td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--row-line); }
 table.tbl tr:hover td { background: rgba(108,92,231,.05); }
 
 /* ---------- 🎯 ผลงานราย Unit (up-*) — ตารางจัดอันดับ ----------
@@ -1145,7 +1229,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .sp-row {
   display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--sp-2); row-gap: var(--sp-1); align-items: center;
-  padding: var(--sp-2) 0; border-bottom: 1px dashed rgba(38,51,82,.5);
+  padding: var(--sp-2) 0; border-bottom: 1px dashed var(--row-line);
 }
 .sp-row > .sp-metric, .sp-row > .sp-dir { grid-column: 1 / -1; }
 .sp-row:last-child { border-bottom: none; }
@@ -1173,7 +1257,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .kpi-bar-txt b { font-weight: 800; }
 .kpi-bar.good .kpi-bar-track i { background: var(--green); }
 .kpi-bar.good .kpi-bar-txt b { color: var(--green); }
-.kpi-bar.mid .kpi-bar-track i { background: var(--amber); }
+.kpi-bar.mid .kpi-bar-track i { background: var(--amber-bar); }
 .kpi-bar.mid .kpi-bar-txt b { color: var(--amber); }
 .kpi-bar.low .kpi-bar-track i { background: var(--red); }
 .kpi-bar.low .kpi-bar-txt b { color: var(--red); }
@@ -1691,8 +1775,13 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   color: #fff; font-weight: 700; font-size: var(--fs-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.me-role { font-size: var(--fs-1); opacity: .7; margin-bottom: var(--sp-2); }
-.btn-logout { padding: var(--sp-1) var(--sp-3); font-size: var(--fs-1); width: 100%; }
+.me-role { font-size: var(--fs-1); opacity: .82; margin-bottom: var(--sp-2); }
+/* ปุ่มออกจากระบบอยู่บนแถบเมนูสีเข้มเสมอ — เดิมใช้พื้น --surface-2 ของเนื้อหาหลัก โหมดสว่างเลยกลายเป็นแถบเทาสว่างโดด */
+.btn.btn-logout {
+  padding: var(--sp-1) var(--sp-3); font-size: var(--fs-1); width: 100%;
+  background: transparent; border-color: var(--sb-line); color: var(--sidebar-text);
+}
+.btn.btn-logout:hover { border-color: var(--sidebar-text); color: #fff; }
 
 /* ---------- หน้า login ---------- */
 .login-wrap {
@@ -1868,8 +1957,19 @@ table.tbl.tbl-cards tr.sr-unmapped { border-color: var(--amber); background: rgb
 table.tbl.tbl-cards tr.sr-unmapped td { background: none; }   /* กันสีส้มทับสองชั้น */
 /* ปุ่มจัดการในการ์ด — เรียง 2 ปุ่มต่อแถว (เรียงลงมาทีละปุ่มทำให้การ์ดสูงเกินจำเป็น)
    ยังกว้างพอสำหรับนิ้วเพราะครึ่งหนึ่งของ 340px ยังเกิน 44px อยู่มาก */
-table.tbl.tbl-cards td .us-actions { flex-direction: row; flex-wrap: wrap; gap: var(--sp-2); flex: 1; }
-table.tbl.tbl-cards td .us-actions .btn-mini { width: auto; flex: 1 1 40%; }
+/* ⚠️ class us-actions อยู่บน <td> เอง (lib/views/users.ts) — เดิมเขียน "td .us-actions" ซึ่งเล็งกล่องข้างใน td
+   เลยไม่เคยทำงาน ปุ่ม 4 ปุ่มเรียงลงมาเต็มความกว้าง การ์ดผู้ใช้สูงเกินจริง (ตรวจ UI รอบ 2, 26 ก.ย. 69) */
+table.tbl.tbl-cards td.us-actions { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; align-items: stretch; gap: var(--sp-2); }
+table.tbl.tbl-cards td.us-actions::before { flex-basis: 100%; }
+table.tbl.tbl-cards td.us-actions .btn-mini { width: auto; flex: 1 1 40%; }
+/* ปุ่มลบแยกไปบรรทัดสุดท้าย คั่นด้วยเส้น — ไม่ให้วางติดปุ่มธรรมดาจนกดพลาด */
+table.tbl.tbl-cards td.us-actions .btn-mini.danger {
+  flex-basis: 100%; margin-top: var(--sp-1); position: relative;
+}
+table.tbl.tbl-cards td.us-actions .btn-mini.danger::before {
+  content: ''; position: absolute; left: 0; right: 0; top: calc(var(--sp-2) * -1 - 1px);
+  border-top: 1px solid var(--border);
+}
 table.tbl.tbl-cards td > .btn-mini { flex: 1; }
 
 /* ============================================================
@@ -2068,7 +2168,7 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
   }
   table.tbl.tbl-cards td, table.tbl.tbl-cards tr.tc-plain td, table.tbl.tbl-cards td.tc-title {
     display: table-cell; order: 0; font-weight: inherit; font-size: inherit;
-    padding: var(--sp-2) var(--sp-3); margin: 0; border-bottom: 1px solid rgba(38,51,82,.5);
+    padding: var(--sp-2) var(--sp-3); margin: 0; border-bottom: 1px solid var(--row-line);
   }
   table.tbl.tbl-cards td::before { content: none; }
   table.tbl.tbl-cards td.num { text-align: right; }
