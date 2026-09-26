@@ -1,12 +1,13 @@
-// lib/views/unitperf.ts — หน้า "🎯 ผลงานราย Unit" (พีสั่ง 21 ก.ย. 2569)
+// lib/views/unitperf.ts — หน้า "ผลงานราย Unit" (พีสั่ง 21 ก.ย. 2569)
 // ยอดเดือนนี้ vs เป้า + คาดการณ์สิ้นเดือน + สัญญาณเตือนที่ระบบตรวจเจอ เรียงตามความเสี่ยง
 // ตัวเลขทุกตัวมาจาก apiUnitPerf (lib/api/unitperf.ts) — กติกาเดียวกับหน้า Sales ทุกช่อง
 //
 // หน้าตา = "ตารางจัดอันดับ" ทีมเลือกเองจาก 3 แบบที่เสนอ (21 ก.ย. 69) เหตุผลที่ให้มาคือ "ดูง่าย"
-// ทุกยูนิตอยู่ในตารางเดียว เรียงได้ทุกคอลัมน์ กดปุ่มท้ายแถวเพื่อกางสัญญาณเต็ม + ตัวเลขรอง
+// ทุกยูนิตอยู่ในตารางเดียว เรียงได้ทุกคอลัมน์ กดชื่อยูนิตหรือปุ่มท้ายแถวเพื่อกางสัญญาณเต็ม + ตัวเลขรอง
 // (ของเดิมเป็นการ์ดใบละยูนิต — เลิกใช้เพราะทีมอ่านเทียบยูนิตต่อยูนิตยาก)
 
 import { serverCall, esc, THB, fmtNum, showError } from '@/lib/ui/helpers';
+import { icon, ICON_FOR } from '@/lib/ui/icons';
 
 declare global {
   // app-core แนบ App ไว้บน global — view อ้างถึงตรงๆ (ห้าม import กัน cycle)
@@ -123,7 +124,9 @@ const COLS: Col[] = [
 function headHtml(): string {
   return COLS.map((c) => {
     const sorted = state.sortKey === c.key;
-    const arrow = !c.val ? '' : sorted ? (state.sortDir === 'asc' ? '↑' : '↓') : '↕';
+    // ลูกศรเรียงเป็นไอคอนชุดเดียวกันทั้ง 3 สถานะ (เดิม ↕ เป็นอักขระที่บางเครื่องวาดเป็นอีโมจิสี)
+    const arrow = !c.val ? ''
+      : icon(sorted ? (state.sortDir === 'asc' ? 'arrow-up' : 'arrow-down') : 'arrow-up-down', { size: 12 });
     const inner = c.val
       ? '<button type="button" class="up-sort" data-sort="' + c.key + '"' +
         ' aria-sort="' + (sorted ? state.sortDir : 'none') + '">' +
@@ -136,24 +139,31 @@ function headHtml(): string {
 function rowHtml(u: UnitRow, rank: number, d: PerfData): string {
   const p = headPct(u, d);
   const cls = pctClass(p);
-  const name = u.mapped ? (u.u || '') : '⚠️ ยังไม่จัดกลุ่ม';
+  // ชื่อในช่องยูนิตเป็น HTML แล้ว (กองที่ยังไม่จัดกลุ่มมีไอคอนเตือนนำหน้า) — escape ที่นี่ที่เดียว
+  const nameHtml = u.mapped ? esc(u.u || '')
+    : '<span class="tx-warn">' + icon(ICON_FOR.alert, { size: 14 }) + '</span> ยังไม่จัดกลุ่ม';
   const projSub = !u.target ? 'ไม่มีเป้าในชีท'
     : !d.isCurrentMonth ? 'ยอดจริงทั้งเดือน'
       : u.projected === null ? 'ยังคาดไม่ได้' : thbShort(u.projected);
   const roasCls = u.roas === null || !u.breakEvenSet ? '' : (u.roas >= u.breakEven ? 'good' : 'bad');
 
   const rowId = u.key || u.u || 'none';
-  return '<tr data-u="' + esc(u.u) + '"' + (state.open === rowId ? ' class="up-open"' : '') + '>' +
+  const isOpen = state.open === rowId;
+  return '<tr data-u="' + esc(u.u) + '"' + (isOpen ? ' class="up-open"' : '') + '>' +
     '<td class="up-rankcell" title="' + esc(LEVEL_LABEL[u.level]) + '">' +
       '<span class="up-dot ' + u.level + '"></span><span class="up-rank">' + rank + '</span></td>' +
 
     '<td title="' + esc((u.product || 'ยังไม่จัดกลุ่ม') +
       (u.mapped ? ' • ' + fmtNum(u.pages) + ' เพจ • ' + fmtNum(u.admins) + ' แอดมิน' : '') +
-      (u.note ? ' • 📌 ' + u.note : '')) + '">' +
-      '<div class="up-unit">' +
-        '<span class="up-code">' + esc(name) + '</span>' +
+      (u.note ? ' • หมายเหตุ: ' + u.note : '')) + '">' +
+      // ช่องชื่อ (ตรึงซ้าย) กดแล้วกางรายละเอียดเหมือนปุ่ม "ดู" ท้ายแถว — บนมือถือปุ่ม "ดู" อยู่สุดขวา
+      // ต้องเลื่อนตารางไปหา ชื่อยูนิตอยู่ใต้นิ้วตลอด · เป็น <button> จริงเพื่อให้ Tab/Enter/Space ใช้ได้เอง
+      // ใช้ data-more ค่าเดียวกับปุ่ม "ดู" → ผูกกับตัวจัดการเดียวกันใน bind()
+      '<button type="button" class="up-unit up-name" data-more="' + esc(rowId) + '"' +
+        ' aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
+        '<span class="up-code">' + nameHtml + '</span>' +
         '<span class="up-prod">' + esc(u.product || '') + '</span>' +
-      '</div></td>' +
+      '</button></td>' +
 
     '<td class="up-goal" title="' + esc('ยอดจริง ' + THB(u.revenue) + ' • ออเดอร์ ' + fmtNum(u.orders) +
       (u.target
@@ -201,10 +211,10 @@ function rowHtml(u: UnitRow, rank: number, d: PerfData): string {
       : '<span class="up-sig ok">ไม่มี</span>') + '</td>' +
 
     '<td class="r"><button type="button" class="up-more" data-more="' + esc(rowId) + '"' +
-      ' aria-expanded="' + (state.open === rowId ? 'true' : 'false') + '">' +
-      (state.open === rowId ? 'ปิด' : 'ดู') + '</button></td>' +
+      ' aria-expanded="' + (isOpen ? 'true' : 'false') + '">' +
+      (isOpen ? 'ปิด' : 'ดู') + '</button></td>' +
   '</tr>' +
-  (state.open === rowId ? detailHtml(u) : '');
+  (isOpen ? detailHtml(u) : '');
 }
 
 function detailHtml(u: UnitRow): string {
@@ -222,7 +232,7 @@ function detailHtml(u: UnitRow): string {
       '<span>ขาดอีก <b>' + (u.gap ? THB(u.gap) : '—') + '</b></span>' +
       '<span>จุดคุ้มทุน <b>' + (u.breakEvenSet ? u.breakEven + 'x' : 'ยังไม่ตั้ง') + '</b></span>' +
       (u.mapped ? '<span>เพจ/แอดมิน <b>' + fmtNum(u.pages) + ' / ' + fmtNum(u.admins) + '</b></span>' : '') +
-      (u.note ? '<span>📌 ' + esc(u.note) + '</span>' : '') +
+      (u.note ? '<span>หมายเหตุ <b>' + esc(u.note) + '</b></span>' : '') +
     '</div>' +
     (u.mapped ? '<button type="button" class="up-daily" data-u="' + esc(u.u) + '">ดูยอดรายวันของ ' + esc(u.u) + ' ›</button>' : '') +
   '</td></tr>';
@@ -314,7 +324,7 @@ function levelChips(units: UnitRow[]): string {
 function render(container: HTMLElement, d: PerfData | null): void {
   if (!d) return;
   if (d.salesFailed) {
-    container.innerHTML = '<div class="card"><h3>🎯 ผลงานราย Unit</h3>' +
+    container.innerHTML = '<div class="card"><h3>ผลงานราย Unit</h3>' +
       '<div class="empty-note">ดึงยอดขายรอบนี้ไม่สำเร็จ (ฐานข้อมูลตอบช้าหรือพลาด) — กดรีเฟรชอีกครั้ง' +
       ' ไม่ต้องรัน SQL ซ้ำ</div></div>';
     return;
@@ -322,7 +332,7 @@ function render(container: HTMLElement, d: PerfData | null): void {
   // ไม่มี RPC ยอดขาย = ทั้งหน้าไม่มีตัวเลขเลย ต้องหยุดและบอกวิธีรัน
   // ส่วน RPC ค่าแอดหายไปแค่ทำให้ ROAS/ค่าทัก/ค่าแอด เป็น "—" ตัวเลขที่เหลือยังใช้ได้ จึงแค่เตือน
   if (d.needSalesRpc) {
-    container.innerHTML = '<div class="card"><h3>🎯 ผลงานราย Unit</h3>' +
+    container.innerHTML = '<div class="card"><h3>ผลงานราย Unit</h3>' +
       '<div class="empty-note">ยังใช้ไม่ได้ — ต้องรันไฟล์ <b>db/migrations/2026-09-21-sales-daily-by-page.sql</b>' +
       ' ใน Supabase (SQL Editor → วาง → Run) ก่อนหนึ่งครั้ง</div></div>';
     return;
@@ -343,9 +353,14 @@ function render(container: HTMLElement, d: PerfData | null): void {
       (d.isCurrentMonth ? 'คาดการณ์สิ้นเดือนรวม' : 'ยอดจริงทั้งเดือน') + '</span></div>' +
   '</div>';
 
+  // warn = ไอคอนเตือนสีส้มนำหน้าประโยค (แทน ⚠️)
+  const warn = '<span class="tx-warn">' + icon(ICON_FOR.alert, { size: 14 }) + '</span> ';
   const toolbar = '<div class="up-toolbar">' +
     '<div class="up-controls">' +
-      '<input class="input up-search" id="up-q" placeholder="🔍 ค้นหารหัส U หรือชื่อสินค้า" value="' + esc(state.q) + '">' +
+      // class up-search (ขนาด flex) ย้ายไปอยู่ที่กรอบ .search-box — ตัว input กว้างเต็มกรอบ
+      '<div class="search-box up-search">' + icon(ICON_FOR.search) +
+        '<input class="input" id="up-q" placeholder="ค้นหารหัส U หรือชื่อสินค้า" aria-label="ค้นหารหัส U หรือชื่อสินค้า" value="' + esc(state.q) + '">' +
+      '</div>' +
       '<select class="input" id="up-month" aria-label="เลือกเดือน">' + monthOptions(d.month, d.dataStart) + '</select>' +
     '</div>' +
     levelChips(d.units || []) +
@@ -354,7 +369,7 @@ function render(container: HTMLElement, d: PerfData | null): void {
   container.innerHTML =
     '<div class="sr-head">' +
       '<div>' +
-        '<div class="sr-title">🎯 ภาพรวมผลงานราย Unit — ' + esc(monthLabel(d.month)) + '</div>' +
+        '<div class="sr-title">ภาพรวมผลงานราย Unit — ' + esc(monthLabel(d.month)) + '</div>' +
         '<div class="sr-title-sub" aria-live="polite">แสดง ' + fmtNum(list.length) + ' จาก ' + fmtNum((d.units || []).length) +
           ' ยูนิต • ' + esc(dayNote) + '</div>' +
       '</div>' +
@@ -362,16 +377,16 @@ function render(container: HTMLElement, d: PerfData | null): void {
     toolbar +
     summary +
     (d.needAdsRpc
-      ? '<div class="empty-note">⚠️ ค่าแอด / ROAS / ค่าทัก ยังขึ้นเป็น “—” เพราะยังไม่ได้รันไฟล์' +
+      ? '<div class="empty-note">' + warn + 'ค่าแอด / ROAS / ค่าทัก ยังขึ้นเป็น “—” เพราะยังไม่ได้รันไฟล์' +
         ' <b>db/migrations/2026-09-21-ads-daily-by-page.sql</b> ใน Supabase — ตัวเลขอื่นใช้ได้ตามปกติ</div>'
       : d.adsFailed
-        ? '<div class="empty-note">⚠️ ดึงค่าแอดรอบนี้ไม่สำเร็จ — ค่าแอด / ROAS / ค่าทัก จึงขึ้นเป็น “—” ชั่วคราว</div>'
+        ? '<div class="empty-note">' + warn + 'ดึงค่าแอดรอบนี้ไม่สำเร็จ — ค่าแอด / ROAS / ค่าทัก จึงขึ้นเป็น “—” ชั่วคราว</div>'
         : '') +
     (d.beforeData
-      ? '<div class="empty-note">⚠️ เดือนนี้อยู่ก่อนวันที่ระบบเริ่มเก็บออเดอร์จริง (' + esc(d.dataStart) + ')' +
+      ? '<div class="empty-note">' + warn + 'เดือนนี้อยู่ก่อนวันที่ระบบเริ่มเก็บออเดอร์จริง (' + esc(d.dataStart) + ')' +
         ' — ยอด ฿0 แปลว่า “ไม่มีข้อมูล” ไม่ใช่ขายไม่ได้</div>'
       : '') +
-    (d.goalYearMismatch ? '<div class="empty-note">⚠️ ชีท KPI ที่ sync มาเป็นของคนละปีกับเดือนที่เลือก — ตารางจึงไม่มีเป้า</div>' : '') +
+    (d.goalYearMismatch ? '<div class="empty-note">' + warn + 'ชีท KPI ที่ sync มาเป็นของคนละปีกับเดือนที่เลือก — ตารางจึงไม่มีเป้า</div>' : '') +
     (list.length
       ? '<div class="card" style="padding:0;overflow:hidden">' +
           '<div class="table-scroll">' +
@@ -384,7 +399,7 @@ function render(container: HTMLElement, d: PerfData | null): void {
         '</div>'
       : '<div class="empty-note">ไม่มียูนิตที่ตรงกับตัวกรองนี้</div>') +
     '<div class="card-sub" style="margin-top:10px">' +
-      'กดหัวคอลัมน์เพื่อเรียง • กดปุ่ม “ดู” ท้ายแถวเพื่ออ่านสัญญาณเต็มและตัวเลขรอง • ' +
+      'กดหัวคอลัมน์เพื่อเรียง • กดชื่อยูนิตหรือปุ่ม “ดู” ท้ายแถวเพื่ออ่านสัญญาณเต็มและตัวเลขรอง • ' +
       'ยอดขาย/ออเดอร์/คนทัก/ค่าแอด = กติกาเดียวกับหน้า Sales (ไม่นับออเดอร์ยกเลิก ตีกลับ รอสินค้า และออเดอร์เปล่า) • ' +
       'กำไรมาจากชีทสรุปรายสินค้า • สัญญาณ “ขาดทุน/ROAS ต่ำกว่าคุ้มทุน” นับวันติดต่อกันถึง' +
       (d.lossThroughDate ? ' ' + esc(d.lossThroughDate) : 'เมื่อวาน') + ' (วันนี้ยังไม่จบ จึงยังไม่ตัดสิน)' +
@@ -423,11 +438,14 @@ function bind(container: HTMLElement): void {
       rerender(container, '.up-sort[data-sort="' + key + '"]');
     });
   });
-  container.querySelectorAll('.up-more').forEach(function (b) {
+  // ปุ่ม "ดู" ท้ายแถว + ปุ่มชื่อยูนิต (ช่องตรึงซ้าย) ใช้ตัวจัดการเดียวกัน — คืนโฟกัสให้ปุ่มชนิดที่เพิ่งกด
+  // ไม่งั้นคนที่กดชื่อด้วยคีย์บอร์ดจะโดนดีดโฟกัสไปปุ่ม "ดู" สุดขวา แล้วตารางเลื่อนตามไปเอง
+  container.querySelectorAll('.up-more, .up-name').forEach(function (b) {
     b.addEventListener('click', function () {
       const u = (b as HTMLElement).dataset.more || '';
+      const cls = (b as HTMLElement).classList.contains('up-name') ? '.up-name' : '.up-more';
       state.open = state.open === u ? '' : u;
-      rerender(container, '.up-more[data-more="' + u + '"]');
+      rerender(container, cls + '[data-more="' + u + '"]');
     });
   });
   container.querySelectorAll('.up-daily').forEach(function (b) {
@@ -443,7 +461,7 @@ function bind(container: HTMLElement): void {
 }
 
 /**
- * "ดูยอดรายวันของ Uxx" — สลับไปหน้า Sales แล้วพาไปที่ตาราง 📅 ยอดขายรายวัน พร้อมไฮไลต์คอลัมน์ของยูนิตนั้น
+ * "ดูยอดรายวันของ Uxx" — สลับไปหน้า Sales แล้วพาไปที่ตารางยอดขายรายวัน พร้อมไฮไลต์คอลัมน์ของยูนิตนั้น
  * หน้า Sales ยังทยอยวาดการ์ดด้านบนหลังสลับหน้า ตารางจึงถูกดันลงเรื่อยๆ ต้องเลื่อนตามจนตำแหน่งนิ่ง
  * (วัดบน prod: เลื่อนครั้งเดียวแล้วจบ ตารางอยู่ต่ำกว่าขอบจอ 4,429px) และหยุดทันทีถ้าผู้ใช้เลื่อนเอง
  */

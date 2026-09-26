@@ -199,11 +199,10 @@ body.nav-locked { overflow: hidden; }
   box-shadow: 4px 0 24px rgba(0,0,0,.32);
 }
 .brand { display: flex; gap: var(--sp-3); align-items: center; padding: var(--sp-4) var(--sp-4) var(--sp-4); }
-.brand-logo {
-  width: 38px; height: 38px; border-radius: 10px;
-  background: linear-gradient(135deg, #7d6cf0, #6c5ce7);
-  color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center;
-}
+/* โลโก้ = <svg> จาก logoMark() (lib/ui/helpers.ts) วาดตัวอักษรเป็นรูปทรงล้วน — เดิมพิมพ์ "PN" ด้วยฟอนต์
+   ซึ่งหน้าตาต่างกันไปตามเครื่อง สีพื้นกับมุมมนอยู่ใน SVG แล้ว กล่องนี้แค่จองขนาด */
+.brand-logo { width: 38px; height: 38px; flex: none; display: flex; }
+.logo-mark { display: block; flex: none; }
 .brand-name { font-weight: 700; color: #fff; font-size: var(--fs-4); }
 .brand-sub { font-size: var(--fs-1); opacity: .7; }
 .nav { flex: 1; padding: var(--sp-2) var(--sp-3); }
@@ -330,12 +329,12 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 .nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
 .nav-item.active { background: var(--primary); color: #fff; }
 .nav-item.active .nav-label-sub { color: rgba(255,255,255,.75); }
-.nav-icon { font-size: var(--fs-5); width: 22px; text-align: center; }
+.nav-icon { width: 22px; height: 22px; flex: none; display: inline-flex; align-items: center; justify-content: center; }
+/* ไอคอนเป็นเส้นสีตามตัวหนังสือของเมนู (currentColor): ปกติ = สีเมนู, ชี้/เลือกอยู่ = ขาว ตาม .nav-item */
+.nav-icon .ic { display: block; }
 .nav-texts { display: flex; flex-direction: column; line-height: 1.25; }
 .nav-label-sub { font-size: var(--fs-1); color: rgba(169,165,208,.75); }
 .sidebar-footer { padding: var(--sp-3) var(--sp-4); font-size: var(--fs-1); opacity: .8; }
-.live-badge { color: var(--sb-good); font-weight: 700; margin-bottom: var(--sp-1); }
-.sidebar-sync { line-height: 1.5; }
 
 /* ---------- topbar ---------- */
 .topbar {
@@ -466,7 +465,8 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 }
 :is(.btn, .btn-mini, .filter-btn, .chip, .badge, .kpi-tab):has(> .ic) > .ic { vertical-align: 0; }
 /* ปุ่มที่มีแต่ไอคอน (ไม่มีคำ) — ต้องมี aria-label + title ที่ตัวปุ่มเสมอ */
-.btn-icon { padding-left: var(--sp-2); padding-right: var(--sp-2); min-width: 36px; }
+.btn-icon { padding-left: var(--sp-2); padding-right: var(--sp-2); min-width: 44px; }
+@media (min-width: 900px) { .btn-icon { min-width: 36px; } }   /* จอกว้างใช้เมาส์ หดได้ */
 
 /* ป้ายสถานะ = จุดสี + คำ บนพื้นอ่อนสีเดียวกัน (แทน 🟢🟡🔴⚪ ✅ ❌ ⚠️)
    สีมาจากชุดสีกลางผ่าน --st / --st-soft เท่านั้น */
@@ -507,6 +507,20 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 
 /* โลโก้แบรนด์ (Facebook / LINE) — สีแบรนด์จริงฝังใน fill แล้ว ห้ามทับสี */
 .brand-ic { vertical-align: -0.16em; }
+
+/* ไอคอนเฉพาะจุด (แทนอีโมจิ) */
+.ca-play { display: flex; align-items: center; justify-content: center; }   /* ป้ายวิดีโอบนรูปครีเอทีฟ */
+.ca-play .ic { fill: currentColor; }                                        /* สามเหลี่ยมเส้นบางมองยากบนรูป เติมทึบ */
+.ca-media-img .ca-play .ic { width: 14px; height: 14px; }
+.ca-media-img .ca-ph .ic { width: 40px; height: 40px; }                     /* รูปแตกในโมดัลกรอบใหญ่ ไอคอน 20px ดูเล็กไป */
+.ca-num b.ca-wait { font-weight: 600; }                                     /* "รอข้อมูล" แทน ⏳ ไม่ให้อ่านเป็นค่า */
+.u-tool-btn { display: inline-flex; align-items: center; justify-content: center; }
+.u-tool-btn.danger:hover { color: var(--red); border-color: var(--red); }
+.u-member .x, .page-pick .chk { display: inline-flex; align-items: center; }
+/* บรรทัดตัวเลขย่อยในการ์ด Ranking: ป้ายคำ .mini-lbl จาง ตัวเลขต้องชัดกว่า */
+.rank-mini, .b5-stats, .top3-card .sub { color: var(--text-2); }
+/* ป้ายยาว "ตอนนี้ (24 ชม.ล่าสุด) — ไม่ขึ้นกับช่วงที่เลือก" ล้นการ์ดตัวเลขบนจอ 360px — ให้ขึ้นบรรทัดใหม่ได้ */
+.stat-hint .badge, .card-sub .badge { white-space: normal; }
 
 /* สีตัวอักษรตามความหมาย (ใช้กับไอคอน/คำเตือนสั้นๆ ในประโยค) */
 .tx-good { color: var(--green); }
@@ -729,6 +743,17 @@ table.tbl.up-tbl tr.up-open td { background-color: rgba(108,92,231,.05); }
 /* ช่อง "ยูนิต" (ตรึงซ้าย) = จุดสีระดับ + ลำดับ + รหัส + ชื่อสินค้า */
 .up-rankcell { white-space: nowrap; }
 .up-unit { display: flex; align-items: baseline; gap: var(--sp-2); }
+/* ชื่อยูนิต (ช่องตรึงซ้าย) เป็นปุ่มกางรายละเอียดเหมือนปุ่ม "ดู" — ล้างหน้าตาปุ่มให้เหมือนข้อความเดิม
+   margin ติดลบเท่า padding ของ td = พื้นที่กดสูง 44px บนมือถือโดยแถวไม่สูงขึ้น */
+.up-name {
+  display: flex; align-items: center; text-align: left; width: 100%;
+  min-height: 44px; margin: calc(var(--sp-2) * -1) 0; padding: var(--sp-2) 0;
+  background: none; border: 0; color: inherit; font: inherit; cursor: pointer;
+}
+.up-name:hover .up-code { color: var(--primary); }
+@media (min-width: 900px) { .up-name { min-height: 0; } }
+.up-sort i { display: inline-flex; }       /* ลูกศรเรียงคอลัมน์เป็น svg แล้ว — ให้อยู่แนวเดียวกับคำ */
+.up-sig::before { width: 8px; height: 8px; }   /* จุดสัญญาณขนาดเดียวกับป้ายสถานะกลาง .st */
 .up-rank { color: var(--text-3); font-size: var(--fs-2); font-variant-numeric: tabular-nums; margin-left: 6px; }
 .up-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; vertical-align: middle; }
 .up-dot.urgent { background: var(--red); }
@@ -976,7 +1001,12 @@ table.tbl.ds-tbl tbody tr:hover td {
 .alert-row.lv-orange { border-left-color: var(--amber); }
 .alert-row.lv-yellow { border-left-color: #e8d44d; }
 .alert-row.lv-green { border-left-color: var(--green); }
-.alert-icon { font-size: var(--fs-6); }
+/* ไอคอนลายเส้นในแถวแจ้งเตือน (แทนอีโมจิ) — flex ตัดช่องว่าง line-height ใต้ svg, สีตามระดับของแถว */
+.alert-icon { display: flex; flex: none; line-height: 1; padding-top: var(--sp-1); color: var(--text-3); }
+.alert-row.lv-red .alert-icon { color: var(--red); }
+.alert-row.lv-orange .alert-icon,
+.alert-row.lv-yellow .alert-icon { color: var(--amber); }
+.alert-row.lv-green .alert-icon { color: var(--green); }
 .alert-body { flex: 1; min-width: 0; }
 .alert-title { font-weight: 700; font-size: var(--fs-3); }
 .alert-reason { font-size: var(--fs-2); color: var(--text-2); margin-top: var(--sp-1); }
@@ -1017,7 +1047,6 @@ table.tbl.ds-tbl tbody tr:hover td {
 /* ---------- แจ้งเตือนยูนิตขาดทุน (บนสุดหน้า Sales) ---------- */
 /* การ์ดนี้ต้องสะดุดตากว่าการ์ดอื่นทั้งหน้า — ทีมสั่งว่า "ต้องขึ้นแจ้งเตือนทันที" */
 .loss-card { border-color: rgba(255, 118, 117, .45); box-shadow: 0 0 0 1px rgba(255, 118, 117, .12); }
-.loss-list { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-3); }
 .loss-row {
   display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: var(--sp-3); align-items: center;
   padding: var(--sp-3); border-radius: 10px; background: var(--surface-2);
@@ -1030,7 +1059,25 @@ table.tbl.ds-tbl tbody tr:hover td {
 .loss-icon { font-size: var(--fs-5); line-height: 1; }
 .loss-title { font-size: var(--fs-4); margin-bottom: var(--sp-1); }
 .loss-reason { font-size: var(--fs-2); color: var(--text-2); }
-.loss-owners { font-size: var(--fs-2); color: var(--text-2); margin-top: var(--sp-1); display: flex; gap: var(--sp-1); flex-wrap: wrap; align-items: center; }
+/* ---------- ตารางยูนิตขาดทุน (บนสุดหน้า Sales) — แทนการ์ดชมพูรายยูนิตเดิม (ตรวจ UI รอบ 2) ----------
+   บอกระดับด้วยแถบสีบางๆ ทางซ้ายแทนการระบายพื้นทั้งแถว: แดง = ขาดทุน ≥2 วันติด (ด่วน), ส้ม = 1 วัน (เฝ้าระวัง)
+   มือถือ: app-core แปลงตารางเป็นการ์ดต่อแถว → แถบอยู่ที่ขอบซ้ายของการ์ด
+   (.loss-row/.loss-icon/.loss-body ด้านบนยังใช้อยู่ใน adminperf.ts ห้ามลบ) */
+.loss-tbl tr.loss-urgent { --loss-c: var(--red); }
+.loss-tbl tr.loss-watch { --loss-c: var(--amber); }
+table.tbl.tbl-cards.loss-tbl tr { border-left: 3px solid var(--loss-c, var(--border)); }
+.loss-v { text-align: right; }
+.loss-sub { font-size: var(--fs-1); font-weight: 500; color: var(--text-3); line-height: 1.4; }
+.loss-who { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--sp-1); }
+.loss-more { margin-top: var(--sp-3); text-align: center; }
+@media (min-width: 900px) {
+  /* จอกว้างเป็นตารางจริง: ย้ายแถบสีเข้าไปในช่องแรก (ขอบของ <tr> ในตารางวาดไม่สม่ำเสมอ) */
+  table.tbl.tbl-cards.loss-tbl tr { border-left: 0; }
+  .loss-tbl td { vertical-align: top; }
+  .loss-tbl td.loss-u { box-shadow: inset 3px 0 0 var(--loss-c, transparent); }
+  .loss-who { justify-content: flex-start; }
+  .loss-tbl td.loss-act { text-align: right; white-space: nowrap; }
+}
 
 /* คอลัมน์ตัวเลขในตาราง — ชิดขวา + เลขความกว้างเท่ากันเพื่อให้หลักตรงกันทุกแถว */
 table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -1136,8 +1183,9 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
   background: var(--surface); border: 2px solid var(--border); border-radius: 16px;
   padding: var(--sp-4) var(--sp-3); text-align: center;
 }
-.top3-card .medal { font-size: 30px; }
-.top3-card.first .medal { font-size: 40px; }
+/* ในกล่อง .medal เป็นวงเหรียญ .rank-lg แล้ว (เดิมอีโมจิ 30/40px) — ตัด line-height ส่วนเกิน อันดับ 1 วงใหญ่กว่า */
+.top3-card .medal { line-height: 1; }
+.top3-card.first .medal .rank { width: 44px; height: 44px; font-size: var(--fs-6); }
 .top3-card.first { padding: var(--sp-5) var(--sp-3); }
 .top3-card.gold { border-color: var(--gold); background: linear-gradient(180deg, rgba(245,179,1,.10), var(--surface)); box-shadow: 0 6px 18px rgba(245,179,1,.25); }
 .top3-card.silver { border-color: var(--silver); background: linear-gradient(180deg, rgba(154,165,177,.10), var(--surface)); }
@@ -1214,6 +1262,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
   display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: var(--fs-3);
 }
 .rank-no.medal { background: transparent; font-size: var(--fs-8); }
+.rank-no.medal > .rank { width: 34px; height: 34px; }   /* วงเหรียญเท่ากรอบเลขอันดับอื่น */
 .rank-mid { flex: 1; min-width: 0; }
 .rank-name { font-weight: 700; font-size: var(--fs-4); display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
 .rank-sub { font-size: var(--fs-2); color: var(--text-3); margin-top: var(--sp-1); }
@@ -1369,6 +1418,14 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 }
 .modal-head h3 { font-size: var(--fs-4); margin-top: var(--sp-2); }
 .modal-close { background: none; border: none; color: var(--text-3); font-size: var(--fs-6); margin-top: var(--sp-1); }
+/* ปุ่มปิดแบบไอคอนกากบาท (modalCloseBtn / openModal แปลง ✕ เดิมให้) — จัดไอคอนให้อยู่กลางพื้นที่กด */
+.modal-close:has(> .ic) { display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 10px; }
+.modal-close:has(> .ic):hover { color: var(--text); background: var(--surface-2); }
+/* ปุ่ม "ยกเลิก/ปิด" ท้ายฟอร์มที่ใส่ class modal-close ร่วม (ให้ openModal ผูกปิดให้) ต้องหน้าตาเป็นปุ่มปกติ
+   เดิมโดนกฎของกากบาทด้านบนทับ: พื้น/กรอบหาย และบนมือถือตัวหนังสือโตเป็น 21px เท่ากากบาท */
+.btn.modal-close, .btn-mini.modal-close {
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text); margin-top: 0; font-size: var(--fs-3);
+}
 /* ปุ่มยืนยัน/ยกเลิกเรียงลงมาเต็มความกว้าง นิ้วโป้งเอื้อมถึงทั้งคู่
    column-reverse = ปุ่มหลักอยู่บน (ใกล้นิ้วที่สุด) แต่ลำดับใน DOM/คีย์บอร์ดยังเป็นยกเลิก→ยืนยันตามเดิม */
 .modal-actions {
@@ -1381,7 +1438,17 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
   padding: var(--sp-3) var(--sp-4); border-radius: 10px; font-size: var(--fs-3); box-shadow: var(--shadow);
   animation: toastIn .25s ease;
+  /* ไอคอนสถานะ (toast(msg, kind) ใน helpers) อยู่หน้าข้อความ — ข้อความยาวบนมือถือต้องไม่ล้นขอบจอ */
+  display: flex; align-items: flex-start; gap: var(--sp-2); max-width: min(420px, calc(100vw - 40px));
 }
+.toast-ic { display: inline-flex; flex: none; margin-top: 2px; }
+.toast-ok .toast-ic { color: var(--green); }
+.toast-warn .toast-ic { color: var(--amber); }
+.toast-error .toast-ic { color: var(--red); }
+.toast-info .toast-ic { color: var(--blue); }
+.toast-busy .toast-ic { color: var(--primary-ink); }
+.toast-busy .toast-ic .ic { animation: spin 1s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .toast-busy .toast-ic .ic { animation: none; } }
 @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
 .empty-note { text-align: center; color: var(--text-3); padding: var(--sp-6) var(--sp-3); font-size: var(--fs-3); }
 .loading { text-align: center; color: var(--text-3); padding: 60px var(--sp-3); font-size: var(--fs-3); }
@@ -1430,6 +1497,20 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
   background: var(--red-soft); border: 1px solid var(--red); border-radius: 12px;
   padding: var(--sp-4); color: var(--text); font-size: var(--fs-3);
 }
+.error-msg { display: flex; align-items: flex-start; gap: var(--sp-2); }
+.error-msg .ic { margin-top: 2px; }
+
+/* ---- หน้าต่าง "ข้อมูลที่ไม่อัปเดต" (เฉพาะผู้ดูแลระบบ — openSyncProblems ใน app-core) ---- */
+.sync-list { list-style: none; display: flex; flex-direction: column; gap: var(--sp-2); }
+.sync-item { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: var(--sp-3); }
+.sync-item-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); font-size: var(--fs-4); }
+.sync-job {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: var(--fs-1);
+  color: var(--text-3); background: var(--track); padding: 1px var(--sp-1); border-radius: 4px;
+}
+.sync-item-top .st { margin-left: auto; }
+.sync-item-when { font-size: var(--fs-2); color: var(--text-2); margin-top: var(--sp-1); }
+.sync-item-msg { font-size: var(--fs-2); color: var(--text-3); margin-top: var(--sp-1); overflow-wrap: anywhere; }
 .hint-box {
   background: var(--surface-2); border: 1px solid var(--border); border-left: 4px solid var(--primary);
   border-radius: 10px; padding: var(--sp-3) var(--sp-4); font-size: var(--fs-2); color: var(--text-2); margin: var(--sp-3) 0;
@@ -1808,7 +1889,32 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 /* ⚠️ 16px ตายตัว ไม่ใช่ token — iOS ซูมเข้าเองทุกครั้งที่โฟกัสช่องที่เล็กกว่า 16px
    ต่อให้วันหน้ามีคนปรับสเกลตัวอักษร ช่องกรอกต้องไม่หลุดต่ำกว่า 16px */
 .login-input { width: 100%; margin-bottom: var(--sp-3); font-size: 16px; }
-.login-err { color: var(--red); font-size: var(--fs-2); margin-bottom: var(--sp-3); }
+.login-brand {
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
+  text-align: center; margin-bottom: var(--sp-4);
+}
+.login-logo { display: block; }
+.login-title { font-size: var(--fs-6); font-weight: 800; }
+.login-brand .card-sub { margin-bottom: 0; }
+/* ป้ายชื่อช่องอยู่เหนือช่องเสมอ (placeholder หายทันทีที่พิมพ์) */
+.login-label { display: block; font-size: var(--fs-2); font-weight: 600; color: var(--text-2); margin-bottom: var(--sp-1); }
+/* ช่องรหัสผ่าน + ปุ่มตาแสดง/ซ่อน ซ้อนอยู่ขอบขวาในช่อง — กันที่ขวาให้ปุ่มด้วย padding ไม่ให้ตัวอักษรไปอยู่ใต้ปุ่ม */
+.pw-field { position: relative; margin-bottom: var(--sp-3); }
+.pw-field .login-input { display: block; margin-bottom: 0; padding-right: 48px; }
+/* ⚠️ ความเจาะจงต้องชนะกฎ ≥900 "input.input { font-size: var(--fs-3) }" — iPad แนวนอน (≥900) ก็ซูมเองถ้าช่องเล็กกว่า 16px */
+.login-card .login-input { font-size: 16px; }
+.pw-toggle {
+  position: absolute; right: 0; top: 50%; transform: translateY(-50%);
+  width: 44px; height: 44px;                    /* พื้นที่กดขั้นต่ำบนมือถือ */
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 0; border-radius: 10px; color: var(--text-3);
+}
+.pw-toggle:hover { color: var(--text); }
+.pw-toggle[aria-pressed="true"] { color: var(--primary-ink); }
+.pw-toggle:disabled { opacity: .4; cursor: not-allowed; }
+.pw-toggle > span { display: inline-flex; }
+.login-err { color: var(--red); font-size: var(--fs-2); margin-bottom: var(--sp-3); display: flex; align-items: flex-start; gap: var(--sp-2); }
+.login-err > span:first-child { display: inline-flex; flex: none; margin-top: 1px; }
 .login-hint { font-size: var(--fs-1); color: var(--text-3); text-align: center; margin-top: var(--sp-3); }
 
 /* ---------- หน้า "ผลงานของฉัน" ---------- */
@@ -1861,18 +1967,38 @@ tr.row-off { opacity: .55; }
    ค่าเริ่มต้น = มือถือ  (กฎที่เหลือของหัวเว็บ/ปุ่ม/ตาราง)
    ============================================================ */
 
-/* หัวเว็บบนมือถือมีที่แค่ ~340px สำหรับ [☰] [ชื่อหน้า] [ธีม] [รีเฟรช]
-   ชิปเวลา sync จึงย้ายไปอยู่ในแถบเมนู เหลือบนหัวเว็บเฉพาะตอนมีงานพัง */
-#sync-chip { display: none; }
-#sync-chip.txt-bad { display: inline-flex; white-space: nowrap; padding: var(--sp-1) var(--sp-2); }
-.chip-long { display: none; }            /* เหลือ "⚠️ 1" — ข้อความเต็มอยู่ใน title + แถบเมนู */
-#btn-refresh { font-size: 0; min-width: 44px; justify-content: center; }
-#btn-refresh::before { content: '⟳'; font-size: var(--fs-5); }
-#btn-theme { min-width: 44px; }
-/* ปุ่มส่งออกเหลือแต่ไอคอน — บนมือถือแทบไม่มีใครโหลดไฟล์ แต่คำว่า "CSV/Excel" กินไปทั้งบรรทัด */
-#sr-csv, #sr-xls, #pf-csv, #rp-csv, #ap-csv { font-size: 0; min-width: 44px; justify-content: center; }
-#sr-csv::before, #pf-csv::before, #rp-csv::before, #ap-csv::before { content: '📄'; font-size: var(--fs-4); }
-#sr-xls::before { content: '📊'; font-size: var(--fs-4); }
+/* ---- ความสดของข้อมูลบนหัวเว็บ (renderSyncInfo ใน lib/ui/app-core.ts) ----
+   หัวเว็บบนมือถือมีที่แค่ ~340px สำหรับ [เมนู] [ชื่อหน้า] [ธีม] [รีเฟรช]
+   เวลา "อัปเดตล่าสุด" ปกติจึงซ่อนบนมือถือ โผล่เฉพาะตอนข้อมูลค้าง/มีปัญหา (.is-alert) ซึ่งต้องเห็นทุกจอ */
+.sync-chip { display: none; align-items: center; min-width: 0; }
+.sync-chip.is-alert { display: inline-flex; }
+/* ปกติ = ตัวเทาเล็กเงียบๆ ไม่ใช่ชิป — เป็นข้อมูลประกอบ ไม่ใช่สิ่งที่ต้องทำอะไร */
+.sync-stamp {
+  display: inline-flex; align-items: center; gap: var(--sp-1);
+  font-size: var(--fs-2); color: var(--text-3); white-space: nowrap;
+}
+/* ข้อมูลค้างเกิน 60 นาที (ทุกสิทธิ์เห็น) — ส้ม ไม่ใช่แดง: ตัวเลขยังใช้ได้ แค่อาจไม่ใช่ล่าสุด */
+.sync-stamp.sync-late { color: var(--amber); font-weight: 700; }
+/* ผู้ดูแลระบบ: มีงานเบื้องหลังที่มีปัญหา → ชิปส้มกดเปิดรายละเอียดได้ */
+.chip.sync-alert {
+  background: var(--amber-soft); border-color: var(--amber); color: var(--amber);
+  font-weight: 700; white-space: nowrap; min-height: 44px; padding: var(--sp-1) var(--sp-3);
+}
+.chip.sync-alert:hover { border-color: var(--amber); color: var(--amber); background: var(--amber-soft); filter: brightness(1.08); }
+.chip-long { display: none; }            /* จอแคบเหลือคำสั้น เช่น "ไม่อัปเดต (2)" — ข้อความเต็มโผล่ที่ ≥900 */
+/* ปุ่มรีเฟรชบนมือถือเหลือแต่ไอคอน (ชื่อปุ่มยังอยู่ใน aria-label/title) · ปุ่มธีมเป็นไอคอนล้วนอยู่แล้ว */
+#btn-refresh { min-width: 44px; }
+#btn-refresh .btn-word { display: none; }
+#btn-theme { min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
+/* ปุ่มสลับธีมมีไอคอน 2 ตัว (page.tsx) โชว์ตัวของ "โหมดที่จะสลับไป": มืดอยู่ = พระอาทิตย์, สว่างอยู่ = พระจันทร์
+   ใช้ CSS เลือกแทน JS เพราะ data-theme ถูกตั้งก่อนวาดจอ ไอคอนจึงถูกตั้งแต่เฟรมแรก */
+.theme-ic { display: inline-flex; }
+.theme-ic-dark { display: none; }
+:root[data-theme="light"] .theme-ic-light { display: none; }
+:root[data-theme="light"] .theme-ic-dark { display: inline-flex; }
+/* ปุ่มส่งออก: ไอคอน + คำสั้น "CSV"/"Excel" ทุกขนาดจอ (เดิมบนมือถือเหลือแต่อีโมจิ ซึ่งเดาไม่ออกว่าปุ่มอะไร)
+   คำสั้นพอที่จะไม่ดันแถวปุ่มจนเกินบรรทัดแล้ว ไม่ต้องซ่อน */
+#sr-csv, #sr-xls, #pf-csv, #rp-csv, #ap-csv { min-width: 44px; }
 .spacer { display: none; }
 
 /* ---------- พื้นที่กดด้วยนิ้ว ----------
@@ -1886,6 +2012,8 @@ tr.row-off { opacity: .55; }
 .u-member .x { padding: var(--sp-2) var(--sp-1); margin: calc(var(--sp-2) * -1) 0; }
 .modal-close { min-width: 44px; min-height: 44px; font-size: var(--fs-7); }
 .u-tool-btn { min-width: 40px; min-height: 40px; }
+/* ปุ่ม "ดู/ปิด" ท้ายแถวตารางผลงานราย Unit (lib/views/unitperf.ts) — เดิม 32px แตะพลาดไปโดนแถวข้างเคียง */
+.up-more { min-height: 44px; min-width: 44px; }
 /* ⚠️ ยกเว้นโดยตั้งใจ: ลิงก์ตัวเลขในตาราง pivot กำไร (ยูนิต × 12 เดือน) ขยายเป็น 44px ไม่ได้
    ตารางจะสูงเกินจอทันที — ใช้ 40px (เกณฑ์ผ่อนผันของ WCAG เมื่อมีระยะห่างรอบข้าง)
    line-height คุมให้ตัวเลขอยู่กลางพอดี ไม่ลอยขึ้นบนแบบที่ min-height เปล่าๆ ทำ */
@@ -1912,10 +2040,6 @@ table.tbl td.num a {
 table.tbl.tbl-scroll-x { min-width: 640px; }
 /* ตารางเมทริกซ์ (สิทธิ์ × role) ต้องกว้างกว่าปกติถึงจะอ่านหัวคอลัมน์ออก */
 table.tbl.tbl-scroll-x.tbl-wide { min-width: 880px; }
-.table-scroll:has(> table.tbl-scroll-x),
-.tbl-wrap:has(> table.tbl-scroll-x) {
-  background: linear-gradient(90deg, transparent, rgba(0,0,0,.16)) right / 18px 100% no-repeat scroll;
-}
 table.tbl.tbl-scroll-x th:first-child,
 table.tbl.tbl-scroll-x td:first-child {
   position: sticky; left: 0; z-index: 1;
@@ -1935,6 +2059,60 @@ table.tbl.tbl-scroll-x tr.sr-unmapped td:first-child {
   background-color: var(--surface);
   background-image: linear-gradient(rgba(232,161,58,.09), rgba(232,161,58,.09));
 }
+
+/* ---- ตรึง 2 คอลัมน์ (.tbl-pin2) — ตารางที่คอลัมน์แรกเป็นแค่ลำดับ "#" (classifyTable ใน app-core ติดให้)
+   เดิมตรึงแค่คอลัมน์ "#" พอเลื่อนแล้วชื่อหายไปทั้งแถว เหลือเลข 1 2 3 ลอยๆ
+   ความกว้างคอลัมน์แรกวัดจากของจริงแล้วส่งมาทาง --pin1-w (เลข 1 หลัก/2 หลัก/ป้ายอันดับ กว้างไม่เท่ากัน) */
+table.tbl.tbl-scroll-x.tbl-pin2 th:first-child,
+table.tbl.tbl-scroll-x.tbl-pin2 td:first-child { box-shadow: none; }
+table.tbl.tbl-scroll-x.tbl-pin2 th:nth-child(2),
+table.tbl.tbl-scroll-x.tbl-pin2 td:nth-child(2) {
+  position: sticky; left: var(--pin1-w, 40px); z-index: 1;
+  background: var(--surface);
+  box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px rgba(0, 0, 0, .28);
+  /* ชื่อยาวบรรทัดเดียว ตัดด้วย … ไม่เกิน 40% ของจอ — ไม่งั้นคอลัมน์ที่ตรึงกินจอจนไม่เหลือที่ให้ตัวเลข */
+  max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+table.tbl.tbl-scroll-x.tbl-pin2 thead th:nth-child(2) { z-index: 2; }
+table.tbl.tbl-scroll-x.tbl-pin2 tr.clickable:hover td:nth-child(2) {
+  background-color: var(--surface);
+  background-image: linear-gradient(rgba(108,92,231,.12), rgba(108,92,231,.12));
+}
+table.tbl.tbl-scroll-x.tbl-pin2 tr.sr-unmapped td:nth-child(2) {
+  background-color: var(--surface);
+  background-image: linear-gradient(rgba(232,161,58,.09), rgba(232,161,58,.09));
+}
+/* แถวที่ช่องแรกกินหลายคอลัมน์ (เช่น "รวม" colspan=2) ช่องที่ 2 ของแถวนั้นคือคอลัมน์อื่น — ห้ามตรึง
+   ไม่งั้นมันจะไปลอยทับชื่อคอลัมน์ที่ 2 ของแถวอื่น */
+table.tbl.tbl-scroll-x.tbl-pin2 tr:has(> :first-child[colspan]) > :nth-child(2) {
+  position: static; box-shadow: none; max-width: none; background: none;
+}
+/* ช่องแรกที่กินหลายคอลัมน์ของแถวนั้นกลายเป็นขอบที่ตรึงแทน — ต้องมีเงาขอบเหมือนคอลัมน์ชื่อ */
+table.tbl.tbl-scroll-x.tbl-pin2 tr > td:first-child[colspan] {
+  box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px rgba(0, 0, 0, .28);
+}
+
+/* ---- บอกว่า "ขวามือยังมีอีก" (bindScrollHint ใน app-core ติด .sx-more เมื่อยังเลื่อนต่อได้) ----
+   ขอบขวาของกล่องเลื่อนจางหายเข้าพื้นการ์ดด้วย mask (จางทั้งตัวเลขจริง ไม่ใช่เงาที่อยู่ใต้ตัวเลข)
+   mask ใช้แค่ความทึบของสี ไม่ได้ทาสีจริง จึงใช้กับพื้นการ์ด/โมดัล/ธีมไหนก็ได้
+   เลื่อนจนสุดแล้ว = .sx-more หลุด ขอบคมตามปกติ คอลัมน์สุดท้ายไม่โดนบัง */
+.sx-scroll.sx-more {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
+}
+/* ลูกศร › อยู่ในกรอบที่ห่อกล่องเลื่อน (ไม่ใช่ในกล่องเลื่อน ไม่งั้นมันเลื่อนหนีไปกับตาราง)
+   ตารางสั้น = กลางความสูง · ตารางยาว = ค้างไว้แถวบนๆ (96px) ให้เห็นตั้งแต่เปิดหน้า */
+.sx-frame { position: relative; min-width: 0; }
+.sx-frame::after {
+  content: '›'; position: absolute; right: var(--sp-1); top: min(50%, 96px); z-index: 2;
+  width: 26px; height: 26px; margin-top: -13px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; padding-bottom: 2px;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2);
+  font-size: var(--fs-6); font-weight: 700; line-height: 1; box-shadow: var(--shadow);
+  pointer-events: none; opacity: 0; transition: opacity .18s ease;
+}
+.sx-frame.sx-more::after { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .sx-frame::after { transition: none; } }
 
 /* ---- แบบการ์ดต่อแถว ----
    tr เป็น flex column เพื่อให้ .tc-title ถูกดึงขึ้นหัวการ์ดด้วย order ได้
@@ -2142,13 +2320,13 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
   .topbar h1 { font-size: var(--fs-6); }
   .topbar-sub { display: block; }
   .topbar-right { gap: var(--sp-3); }
-  #sync-chip { display: inline-flex; }
+  .sync-chip { display: inline-flex; }
+  .chip.sync-alert { min-height: 32px; }
   .chip-long { display: inline; }
-  #btn-refresh { font-size: var(--fs-3); min-width: 0; }
-  #btn-refresh::before { content: none; }
-  #btn-theme { min-width: 0; }
+  #btn-refresh { min-width: 0; }
+  #btn-refresh .btn-word { display: inline; }
+  #btn-theme { min-width: 36px; }
   #sr-csv, #sr-xls, #pf-csv, #rp-csv, #ap-csv { font-size: var(--fs-2); min-width: 0; }
-  #sr-csv::before, #sr-xls::before, #pf-csv::before, #rp-csv::before, #ap-csv::before { content: none; }
   .spacer { display: block; }
 
   .view { padding: var(--sp-5) var(--sp-6) var(--sp-8); }
@@ -2162,19 +2340,28 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
   .u-member .x { padding: 0 1px; margin: 0; }
   .btn-mini { padding: var(--sp-1) var(--sp-3); font-size: var(--fs-2); }
   .modal-close { min-width: 0; min-height: 0; font-size: var(--fs-6); }
+  .btn-mini.modal-close { font-size: var(--fs-2); }
   .u-tool-btn { min-width: 0; min-height: 0; }
+  .up-more { min-height: 32px; min-width: 0; }
+  /* เมาส์: ปุ่มตาในช่องรหัสผ่านสูงเท่าช่อง (ช่องเตี้ยลงเหลือ ~37px ที่จอนี้ ปุ่ม 44px จะล้นกรอบ) */
+  .pw-toggle { width: 40px; height: 100%; }
   table.tbl td.num a { min-height: 0; line-height: inherit; padding: 0; }
   .input, select.input, input.input { font-size: var(--fs-3); }
 
   /* จอกว้างพอแล้ว ตารางกลับเป็นตาราง: เลิกบังคับ 640px เลิกตรึงคอลัมน์แรก เลิกโหมดการ์ด */
   table.tbl.tbl-scroll-x { min-width: 0; }
-  .table-scroll:has(> table.tbl-scroll-x),
-  .tbl-wrap:has(> table.tbl-scroll-x) { background: none; }
   table.tbl.tbl-scroll-x th:first-child, table.tbl.tbl-scroll-x td:first-child {
     position: static; background: none; box-shadow: none;
   }
   table.tbl.tbl-scroll-x tr.clickable:hover td:first-child,
   table.tbl.tbl-scroll-x tr.sr-unmapped td:first-child { background-image: none; }
+  table.tbl.tbl-scroll-x.tbl-pin2 th:nth-child(2), table.tbl.tbl-scroll-x.tbl-pin2 td:nth-child(2) {
+    position: static; background: none; box-shadow: none; max-width: none; overflow: visible;
+  }
+  table.tbl.tbl-scroll-x.tbl-pin2 td:nth-child(2) { white-space: normal; }
+  table.tbl.tbl-scroll-x.tbl-pin2 tr > td:first-child[colspan] { box-shadow: none; }
+  table.tbl.tbl-scroll-x.tbl-pin2 tr.clickable:hover td:nth-child(2),
+  table.tbl.tbl-scroll-x.tbl-pin2 tr.sr-unmapped td:nth-child(2) { background-image: none; }
 
   table.tbl.tbl-cards { display: table; }
   table.tbl.tbl-cards thead { display: table-header-group; }

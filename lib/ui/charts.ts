@@ -87,7 +87,7 @@ export function svgWeekBars(data: WeekBar[]): string {
     //    แสดงเป็นสัดส่วน "เพจ:ลูกค้า x.x:1" แทน — ตรงกับสิ่งที่วัดได้จริง
     const ratio = tot > 0 ? (rep / tot) : null;
     parts.push('<circle class="ch-hit" cx="' + Math.round(cx) + '" cy="' + (baseY - Math.max(hC, hP)) + '" r="10" fill="transparent"' +
-      ' data-title="📅 ' + esc(d.label) + '" data-fmt="num" data-unit="ข้อความ"' +
+      ' data-title="' + esc(d.label) + '" data-fmt="num" data-unit="ข้อความ"' +
       ' data-cur="' + tot + '" data-curlabel="ลูกค้าส่ง"' +
       ' data-prev="' + rep + '" data-prevlabel="เพจส่ง"' +
       (ratio !== null
@@ -321,7 +321,7 @@ function bindOneChart_(svg: SVGSVGElement): void {
     const fv = (n: number) => isNum ? fmtNum(n) + (unit ? ' ' + unit : '') : THB(n);
     const curLabel = c.getAttribute('data-curlabel') || '';
     const prevLabel = c.getAttribute('data-prevlabel') || '';
-    els.title.textContent = c.getAttribute('data-title') || ('🕐 ' + ('0' + h).slice(-2) + ':00 น.');
+    els.title.textContent = c.getAttribute('data-title') || (('0' + h).slice(-2) + ':00 น.');
     els.value.textContent = (curLabel ? curLabel + ' ' : '') + fv(cur);
     const pillTxt = c.getAttribute('data-pill');
     if (pillTxt !== null) {

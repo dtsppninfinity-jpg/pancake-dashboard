@@ -3,6 +3,7 @@
 // + การตลาด: ลูกค้าซื้อซ้ำต่อรอบ รายยูนิต (จากออเดอร์ POS จริง)
 
 import { serverCall, esc, fmtNum, THB, pctFmt, showError, downloadCSV, toast } from '@/lib/ui/helpers';
+import { icon, statusPill, ICON_FOR } from '@/lib/ui/icons';
 
 interface UnitRow {
   u: string; product: string; target: number; actual: number;
@@ -38,7 +39,7 @@ function attainCls(v: number | null): string {
 
 function unitTableHtml_(d: ReportData): string {
   if (!d.hasTargets) {
-    return '<div class="card" style="margin-top:14px"><h3>🎯 เป้า vs จริง</h3>' +
+    return '<div class="card" style="margin-top:14px"><h3>เป้า vs จริง</h3>' +
       '<div class="empty-note">ยังไม่มีเป้าจากชีท KPI (แท็บ เป้ายอดขาย) — รอ sync หรือรัน npm run import:kpi</div></div>';
   }
   // หัวคอลัมน์วีค = วีคที่มีจริงในเดือน (รวมทุกยูนิต)
@@ -48,20 +49,21 @@ function unitTableHtml_(d: ReportData): string {
   const wLabel = (w: string, i: number) => 'W' + (i + 1) + ' (' + w.slice(8, 10) + '+)';
 
   // ---- สถานะเทียบ "จังหวะที่ควรจะเป็น" ไม่ใช่เทียบ 100% เฉยๆ ----
-  // ของเดิมตัดสินด้วย attain >= 100 อย่างเดียว เดือนปัจจุบันจึงขึ้นแดง "✗ ไม่ถึง" ทุกยูนิต
+  // ของเดิมตัดสินด้วย attain >= 100 อย่างเดียว เดือนปัจจุบันจึงขึ้นแดง "ไม่ถึง" ทุกยูนิต
   // ตั้งแต่วันที่ 7 ของเดือน = แดงทั้งตารางประมาณ 3 ใน 4 ของเดือน แล้วไม่มีใครอ่านคอลัมน์นี้อีก
   // เดือนที่จบแล้วยังตัดสินแบบเดิม (ถึง/ไม่ถึง) เพราะไม่มี "จังหวะ" ให้เทียบแล้ว
   const daysInMonth = new Date(Number(d.year), d.month, 0).getDate();
   const dayOfMonth = d.isCurrent ? Math.max(1, daysInMonth - d.daysLeft + 1) : daysInMonth;
   const pacePct = Math.round((dayOfMonth / daysInMonth) * 1000) / 10;   // ผ่านมากี่ % ของเดือน
 
+  // ป้ายสถานะ = จุดสี + คำ (statusPill) ทั้งคอลัมน์ ให้หน้าตาเดียวกับป้ายสถานะทุกหน้า — เกณฑ์ตัดสินเหมือนเดิมทุกข้อ
   function statusBadge(attain: number | null): string {
-    if (attain === null) return '<span class="badge neutral">ไม่ตั้งเป้า</span>';
-    if (attain >= 100) return '<span class="badge ai">✅ ถึงเป้าแล้ว</span>';
-    if (!d.isCurrent) return '<span class="badge urgent">✗ ไม่ถึงเป้า</span>';
-    if (attain >= pacePct) return '<span class="badge info">🟦 ตามแผน</span>';
-    if (attain >= pacePct * 0.75) return '<span class="badge admin">⚠️ ช้ากว่าแผน</span>';
-    return '<span class="badge urgent">🔴 ต่ำกว่าแผนมาก</span>';
+    if (attain === null) return statusPill('muted', 'ไม่ตั้งเป้า');
+    if (attain >= 100) return statusPill('good', 'ถึงเป้าแล้ว');
+    if (!d.isCurrent) return statusPill('bad', 'ไม่ถึงเป้า');
+    if (attain >= pacePct) return statusPill('info', 'ตามแผน');
+    if (attain >= pacePct * 0.75) return statusPill('warn', 'ช้ากว่าแผน');
+    return statusPill('bad', 'ต่ำกว่าแผนมาก');
   }
 
   const body = d.units.map((x) => {
@@ -81,9 +83,10 @@ function unitTableHtml_(d: ReportData): string {
 
   return '<div class="card" style="margin-top:14px">' +
     '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-      '<h3 style="margin:0">🎯 เป้า vs จริง รายยูนิต — ' + esc(TH_MONTHS[d.month - 1] + ' ' + d.year) + '</h3>' +
+      '<h3 style="margin:0">เป้า vs จริง รายยูนิต — ' + esc(TH_MONTHS[d.month - 1] + ' ' + d.year) + '</h3>' +
       '<div class="spacer" style="flex:1"></div>' +
-      '<button class="btn-mini" id="rp-csv">📄 CSV</button>' +
+      // จอแคบ globals.css ซ่อนคำในปุ่มนี้ (font-size 0) เหลือแต่ไอคอน — aria-label/title จึงต้องมีเสมอ
+      '<button class="btn-mini" id="rp-csv" aria-label="ดาวน์โหลด CSV" title="ดาวน์โหลด CSV">' + icon(ICON_FOR.csv) + 'CSV</button>' +
     '</div>' +
     '<div class="card-sub">เป้าจากชีท KPI (แท็บ เป้ายอดขาย) • ยอดจริงจากชีทสรุปรายสินค้า (แหล่งเดียวกับที่ทีมใช้วัด) • ' +
       'ยอดรายวีคนับจันทร์–อาทิตย์' +
@@ -108,15 +111,15 @@ function yearTableHtml_(d: ReportData): string {
       '<td class="num">' + THB(y.actual) + '</td>' +
       '<td class="num ' + cls + '"><b>' + pctFmt(y.attain) + '</b></td>' +
       '<td class="num">' + fmtNum(y.hitUnits) + '/' + fmtNum(y.judgedUnits) + '</td>' +
-      '<td>' + (!y.closed ? '<span class="badge neutral">ยังไม่จบเดือน</span>'
-        : y.attain !== null && y.attain >= 100 ? '<span class="badge ai">✅ สำเร็จ</span>'
-        : '<span class="badge urgent">✗ ไม่ถึงเป้า</span>') + '</td>' +
+      '<td>' + (!y.closed ? statusPill('muted', 'ยังไม่จบเดือน')
+        : y.attain !== null && y.attain >= 100 ? statusPill('good', 'สำเร็จ')
+        : statusPill('bad', 'ไม่ถึงเป้า')) + '</td>' +
       '</tr>';
   }).join('');
   const closed = d.yearSummary.filter((y) => y.closed && y.attain !== null);
   const okMonths = closed.filter((y) => (y.attain || 0) >= 100).length;
   return '<div class="card" style="margin-top:14px">' +
-    '<h3>📅 ความสำเร็จรายเดือน ปี ' + esc(d.year) + ' — ถึงเป้า ' + fmtNum(okMonths) + '/' + fmtNum(closed.length) + ' เดือนที่จบแล้ว</h3>' +
+    '<h3>ความสำเร็จรายเดือน ปี ' + esc(d.year) + ' — ถึงเป้า ' + fmtNum(okMonths) + '/' + fmtNum(closed.length) + ' เดือนที่จบแล้ว</h3>' +
     '<div class="card-sub">เป้ารวม = ผลรวมเป้าทุกยูนิตของเดือนนั้น • "ยูนิตถึงเป้า" นับเฉพาะยูนิตที่ตั้งเป้าไว้</div>' +
     '<div class="table-scroll"><table class="tbl"><thead><tr>' +
       '<th>เดือน</th><th class="num">เป้ารวม</th><th class="num">ยอดจริง</th><th class="num">%บรรลุ</th>' +
@@ -147,7 +150,7 @@ function marketHtml_(): string {
       '</tr></thead><tbody>' + body + '</tbody></table></div>';
   }
   return '<div class="card" style="margin-top:14px" id="rp-market">' +
-    '<h3>🛒 การตลาด: ลูกค้าซื้อซ้ำรายยูนิต' + (marketData ? ' (ตั้งแต่ ' + esc(marketData.sinceDate) + ')' : '') + '</h3>' +
+    '<h3>การตลาด: ลูกค้าซื้อซ้ำรายยูนิต' + (marketData ? ' (ตั้งแต่ ' + esc(marketData.sinceDate) + ')' : '') + '</h3>' +
     '<div class="card-sub">จากออเดอร์ POS จริงทั้งหมดที่ระบบมี — รอบซื้อซ้ำ = ระยะห่างเฉลี่ยระหว่างออเดอร์ของลูกค้าคนเดิม • ' +
       'ช่วงข้อมูลยังสั้น (~2.5 เดือน) %ซื้อซ้ำจริงจะสูงกว่านี้เมื่อเก็บนานขึ้น</div>' +
     inner + '</div>';
@@ -156,7 +159,7 @@ function marketHtml_(): string {
 function render(container: HTMLElement, d: ReportData | null): void {
   if (!d) return;
   if (d.setupNeeded) {
-    container.innerHTML = '<div class="empty-note">⏳ ยังไม่มีข้อมูล — รอ sync ชีท (unit_daily)</div>';
+    container.innerHTML = '<div class="empty-note">ยังไม่มีข้อมูล — รอ sync ชีท (unit_daily)</div>';
     return;
   }
   const monthBtns = d.monthsAvail.map((m) =>
@@ -181,7 +184,10 @@ function fetchMarket(container: HTMLElement): void {
   }).catch(function () {
     if (seq !== mkReq) return;
     const box = container.querySelector('#rp-market .loading');
-    if (box) box.outerHTML = '<div class="empty-note">⚠️ วิเคราะห์ซื้อซ้ำไม่สำเร็จ — รีเฟรชเพื่อลองใหม่</div>';
+    if (box) {
+      box.outerHTML = '<div class="empty-note"><span class="tx-warn">' + icon(ICON_FOR.alert, { size: 14 }) + '</span>' +
+        ' วิเคราะห์ซื้อซ้ำไม่สำเร็จ — รีเฟรชเพื่อลองใหม่</div>';
+    }
   });
 }
 

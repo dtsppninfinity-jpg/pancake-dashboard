@@ -6,7 +6,8 @@
    - serverCall / esc / relTime / toast มาจาก helpers
    ============================================================ */
 
-import { serverCall, esc, relTime, toast } from '@/lib/ui/helpers';
+import { serverCall, esc, relTime, toast, openModal, modalCloseBtn, thaiDateShort } from '@/lib/ui/helpers';
+import { icon, statusPill, ICON_FOR, type StatusKind } from '@/lib/ui/icons';
 import { hideChartTip } from '@/lib/ui/charts';
 import { bindInfoTips, hideInfoTip } from '@/lib/ui/infotip';
 import { dashboard } from '@/lib/views/dashboard';
@@ -37,13 +38,109 @@ interface SyncLogEntry {
 type SyncHealthKind = 'fail' | 'skip' | 'stale' | 'partial' | 'invariant';
 interface SyncHealthItem { job: string; kind: SyncHealthKind | string; ageMins: number; message: string }
 
-/** คำอธิบายอาการเป็นไทย — ใช้ทั้งบนชิปหัวเว็บและใน sidebar (เดิมเขียนคนละชุดจนไม่ตรงกัน) */
+/** คำอธิบายอาการเป็นไทย — ใช้ในหน้าต่างรายละเอียดของผู้ดูแลระบบ */
 function healthKindTh(h: SyncHealthItem): string {
   if (h.kind === 'fail') return 'ล้มเหลว';
   if (h.kind === 'skip') return 'ถูกข้าม';
   if (h.kind === 'partial') return 'ข้อมูลไม่ครบ';
   if (h.kind === 'invariant') return 'ตัวเลขผิดปกติ';
   return 'เงียบ ' + Math.round(h.ageMins / 60) + ' ชม.';
+}
+
+/** สีป้ายของแต่ละอาการ: ล้ม/ตัวเลขผิด = แดง (หน้าเว็บกำลังโชว์ของผิดหรือไม่ขยับเลย) ที่เหลือ = ส้ม */
+function healthTone(h: SyncHealthItem): StatusKind {
+  return h.kind === 'fail' || h.kind === 'invariant' ? 'bad' : 'warn';
+}
+
+/** ชื่องานดึงข้อมูลเบื้องหลังเป็นภาษาคน — ชื่อจริงมาจาก runJob('ชื่อ', ...) ใน scripts/sync/index.ts
+    (+ orders-delta / invariants / env-check ที่ลง log เอง) งานใหม่ที่ยังไม่อยู่ในรายการนี้จะโชว์ชื่อดิบแทน
+    ไม่พัง แค่อ่านยาก — เพิ่มงานใหม่เมื่อไหร่ให้เติมชื่อที่นี่ด้วย */
+const JOB_LABEL: Record<string, string> = {
+  orders: 'ออเดอร์',
+  'orders-delta': 'ยอดขายสดรายนาที',
+  'chat-today': 'สถิติแชทวันนี้',
+  'chat-yesterday': 'สถิติแชทเมื่อวาน',
+  conversations: 'รายการแชท',
+  'online-status': 'สถานะออนไลน์แอดมิน',
+  'engagements-today': 'ยอดคนทักวันนี้',
+  'engagements-yesterday': 'ยอดคนทักเมื่อวาน',
+  'admin-chat-today': 'สถิติตอบแชทรายแอดมิน',
+  'admin-chat-2d': 'สถิติตอบแชทรายแอดมิน (ย้อน 2 วัน)',
+  'meta-ads-recent': 'ค่าแอดจาก Meta',
+  'meta-ads-yesterday': 'ค่าแอดจาก Meta (เมื่อวาน)',
+  pages: 'รายชื่อเพจ',
+  ads: 'รายการแอด',
+  'admins-roster': 'รายชื่อแอดมิน',
+  'ad-creatives': 'ครีเอทีฟแอด',
+  'ad-stats-today': 'สถิติแอดจาก Pancake',
+  'ad-stats-yesterday': 'สถิติแอดจาก Pancake (เมื่อวาน)',
+  'ad-page-fill': 'จับคู่แอดกับเพจ',
+  'unit-alerts': 'แจ้งเตือนยูนิตขาดทุน',
+  'kpi-sheet': 'ชีท KPI',
+  'roster-sheet': 'ชีทยันยอดแอดมิน',
+  returns: 'ตีกลับจากชีท',
+  'product-sheets': 'กำไรและค่าคอมจากชีทสินค้า',
+  prune: 'ล้างข้อมูลเก่า',
+  invariants: 'ตรวจความถูกต้องของตัวเลข',
+  'env-check': 'ตรวจการตั้งค่าระบบ',
+};
+
+/** งานที่ไม่ได้ "ดึงข้อมูล" (ตรวจ/ล้าง/ดีบัก) — ไม่นับเป็นเวลาอัปเดตข้อมูลล่าสุดบนหัวเว็บ */
+const NOT_DATA_JOB = ['invariants', 'env-check', 'prune'];
+const isDataJob = (job: string) => NOT_DATA_JOB.indexOf(job) < 0 && job.indexOf('trace-') !== 0;
+
+/** เวลาที่ถือว่าข้อมูล "ค้าง" สำหรับทีม — งานหลักรันทุก 15 นาที เกิน 60 นาที = พลาดไปแล้ว ~4 รอบ */
+const STALE_MINS = 60;
+
+/** ts จาก apiBootstrap = 'YYYY-MM-DDTHH:mm:ss' เป็นเวลาไทยแต่ไม่มีโซนเวลาติดมา
+    ต้องเติม +07:00 เอง ไม่งั้นเครื่องที่ตั้งโซนเวลาอื่นจะคลาดเป็นชั่วโมง */
+const bkkIso = (ts: string) => String(ts || '').replace(' ', 'T').slice(0, 19) + '+07:00';
+const bkkMs = (ts: string) => Date.parse(bkkIso(ts));
+
+/** 'HH:MM' ถ้าเป็นวันนี้ (เวลาไทย) ไม่งั้น '25 ก.ย. 69 HH:MM' — ts เป็นเวลาไทยอยู่แล้ว ตัดสตริงได้ตรงๆ */
+function stampText(ts: string): string {
+  const day = String(ts).slice(0, 10);
+  const hm = String(ts).slice(11, 16);
+  const todayBkk = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
+  return day === todayBkk ? hm : thaiDateShort(day) + ' ' + hm;
+}
+
+/** จำนวนนาที → 'x นาที/ชม./วันที่แล้ว' (ใช้กับงานที่ไม่มีแถวใน log ให้อ่านเวลา เช่น orders-delta) */
+function agoText(mins: number): string {
+  if (!isFinite(mins) || mins >= 999999) return 'ยังไม่เคยทำงานสำเร็จ';
+  if (mins < 60) return Math.max(0, Math.round(mins)) + ' นาทีที่แล้ว';
+  if (mins < 24 * 60) return Math.round(mins / 60) + ' ชม.ที่แล้ว';
+  return Math.round(mins / 1440) + ' วันที่แล้ว';
+}
+
+/** หน้าต่างรายละเอียด "ข้อมูลส่วนไหนไม่อัปเดต" — เปิดได้เฉพาะผู้ดูแลระบบ */
+function openSyncProblems(b: Bootstrap): void {
+  const byJob: Record<string, SyncLogEntry> = {};
+  (b.lastSync || []).forEach(function (l) { byJob[l.job] = l; });
+  const items = ((b.syncHealth || []) as SyncHealthItem[]).map(function (h) {
+    const last = byJob[h.job];
+    // บอก "ครั้งล่าสุดที่ทำงาน" จากแถวล่าสุดใน log — ถ้าแถวนั้นล้ม ก็บอกตรงๆ ว่ารอบล่าสุดไม่สำเร็จ
+    const when = last && last.ts
+      ? (last.ok ? 'ทำงานสำเร็จล่าสุด ' : 'ทำงานล่าสุด (ไม่สำเร็จ) ') + stampText(last.ts) +
+        ' · ' + relTime(bkkIso(last.ts))
+      : 'อัปเดตสำเร็จล่าสุด ' + agoText(h.ageMins);
+    return '<li class="sync-item">' +
+      '<div class="sync-item-top">' +
+        '<b>' + esc(JOB_LABEL[h.job] || h.job) + '</b>' +
+        (JOB_LABEL[h.job] ? '<code class="sync-job">' + esc(h.job) + '</code>' : '') +
+        statusPill(healthTone(h), esc(healthKindTh(h))) +
+      '</div>' +
+      '<div class="sync-item-when">' + esc(when) + '</div>' +
+      (h.message ? '<div class="sync-item-msg">' + esc(h.message) + '</div>' : '') +
+    '</li>';
+  }).join('');
+  openModal(
+    '<div class="modal-head"><h3>ข้อมูลที่ไม่อัปเดต</h3>' + modalCloseBtn() + '</div>' +
+    '<div class="card-sub">งานดึงข้อมูลเบื้องหลังที่มีปัญหาตอนนี้ — หน้านี้เห็นเฉพาะผู้ดูแลระบบ ' +
+      '(ทีมขายเห็นแค่เวลาอัปเดตล่าสุดบนหัวเว็บ)</div>' +
+    '<ul class="sync-list">' + items + '</ul>' +
+    '<div class="modal-actions"><button type="button" class="btn modal-close">ปิด</button></div>'
+  );
 }
 
 interface Bootstrap {
@@ -75,7 +172,7 @@ const VIEW_META: Record<string, { title: string; sub: string }> = {
   sales:      { title: 'Sales Dashboard', sub: 'ยอดขาย Facebook / LINE จาก Pancake POS' },
   contentads: { title: 'Content & Ads Performance', sub: 'แอดที่กำลังยิง + คำแนะนำจากตัวเลขจริง' },
   admins:     { title: 'Admin Management', sub: 'รายชื่อแอดมิน • สถานะออนไลน์ • สิทธิ์' },
-  adminperf:  { title: 'Admin Performance', sub: 'Ranking ยอดขาย • Top 3 🥇🥈🥉' },
+  adminperf:  { title: 'Admin Performance', sub: 'Ranking ยอดขาย • Top 3' },
   kpi:        { title: 'KPI ทีมขาย', sub: 'หัวหน้า • รองหัวหน้า • แอดมิน — คะแนนจากชีท KPI ของทีม' },
   profit:     { title: 'กำไร & ตีกลับ', sub: 'กำไรสุทธิจริงรายยูนิต/เดือน/ปี + ตีกลับ — จากชีททีม' },
   unitperf:   { title: 'ผลงานราย Unit', sub: 'การ์ดรายยูนิต: ยอด vs เป้า • คาดการณ์สิ้นเดือน • สัญญาณเตือน' },
@@ -92,7 +189,13 @@ function setTheme(theme: string): void {
   document.documentElement.setAttribute('data-theme', t);
   try { localStorage.setItem('pn-theme', t); } catch (e) {}
   const btn = document.getElementById('btn-theme');
-  if (btn) btn.textContent = t === 'light' ? '🌙' : '☀️'; // แสดงไอคอนของโหมดที่จะสลับไป
+  if (btn) {
+    // ปุ่มบอก "โหมดที่จะสลับไป" (กดแล้วได้อะไร) ไม่ใช่โหมดปัจจุบัน
+    // ไอคอนพระอาทิตย์/พระจันทร์อยู่ในปุ่มทั้งคู่แล้ว (page.tsx) CSS สลับให้ตาม data-theme — ที่นี่แก้แค่ชื่อปุ่ม
+    const label = t === 'light' ? 'เปลี่ยนเป็นโหมดมืด' : 'เปลี่ยนเป็นโหมดสว่าง';
+    btn.setAttribute('aria-label', label);
+    btn.setAttribute('title', label);
+  }
 }
 
 function toggleTheme(): void {
@@ -198,6 +301,83 @@ function labelRows(tbl: HTMLTableElement, labels: string[], titleIdx: number): v
   });
 }
 
+/* ---------- ตารางเลื่อนแนวนอน: ตรึง 2 คอลัมน์ + บอกว่ายังเลื่อนต่อได้ ----------
+   ปัญหาบนมือถือ: (1) ตารางที่คอลัมน์แรกเป็น "#" พอเลื่อนแล้วชื่อหายไปทั้งแถว
+   (2) ไม่มีอะไรบอกว่าขวามือยังมีคอลัมน์อีก คนเลยไม่รู้ว่าต้องเลื่อน
+   (เดิมใช้เงาดำจางๆ ที่พื้นหลังกล่อง ซึ่งอยู่ "ใต้" ตัวเลข จึงแทบมองไม่เห็น)
+   ความกว้างคอลัมน์แรกไม่ตายตัว (เลข 1 หลัก vs 2 หลัก / ป้ายอันดับ) จึงวัดของจริงแล้วส่งให้ CSS ทาง --pin1-w
+   ResizeObserver ตัวเดียวดูทั้ง: หัวคอลัมน์แรก (วัดใหม่เมื่อหมุนจอ/ตารางโผล่จากที่ซ่อน) และกล่องเลื่อน/ตาราง
+   (ขนาดเปลี่ยน = ต้องเช็คใหม่ว่ายังเลื่อนต่อได้ไหม) */
+let sxObserver: ResizeObserver | null = null;
+function sxObs(): ResizeObserver | null {
+  if (sxObserver || typeof ResizeObserver === 'undefined') return sxObserver;
+  sxObserver = new ResizeObserver(function (entries) {
+    entries.forEach(function (en) {
+      const el = en.target as HTMLElement;
+      // ตารางถูก view เขียนทับไปแล้ว — เลิกดู ไม่งั้นค้างอยู่ในหน่วยความจำทุกรอบรีเฟรช 5 นาที
+      if (!el.isConnected) { sxObserver!.unobserve(el); return; }
+      if (el.tagName === 'TH') {
+        const tbl = el.closest('table') as HTMLElement | null;
+        const w = Math.round(el.getBoundingClientRect().width);
+        if (tbl && w > 0) tbl.style.setProperty('--pin1-w', w + 'px');
+      } else if (el.tagName === 'TABLE') {
+        if (el.parentElement) sxUpdate(el.parentElement);
+      } else {
+        sxUpdate(el);
+      }
+    });
+  });
+  return sxObserver;
+}
+
+function pinSecondColumn(tbl: HTMLTableElement, firstTh: HTMLElement): void {
+  tbl.classList.add('tbl-pin2');
+  const w = Math.round(firstTh.getBoundingClientRect().width);
+  if (w > 0) tbl.style.setProperty('--pin1-w', w + 'px');
+  const ro = sxObs();
+  if (ro) ro.observe(firstTh);
+}
+
+/** ยังเลื่อนไปทางขวาได้อีกไหม → ติด .sx-more (จางขอบขวา + ลูกศร) · เลื่อนสุดแล้ว/ไม่ล้นจอ = เอาออก */
+function sxUpdate(sc: HTMLElement): void {
+  if (!sc.hasAttribute('data-sx')) return;
+  const more = sc.scrollWidth - sc.clientWidth - sc.scrollLeft > 2;
+  sc.classList.toggle('sx-more', more);
+  const frame = sc.parentElement;
+  if (frame && frame.classList.contains('sx-frame')) frame.classList.toggle('sx-more', more);
+}
+
+function bindScrollHint(tbl: HTMLTableElement): void {
+  const sc = tbl.parentElement;
+  if (!sc) return;
+  const ox = getComputedStyle(sc).overflowX;
+  if (ox !== 'auto' && ox !== 'scroll') return;   // ไม่ใช่กล่องเลื่อน (ตารางวางลอยๆ) — ไม่มีอะไรให้บอก
+  if (!sc.hasAttribute('data-sx')) {
+    sc.setAttribute('data-sx', '1');
+    sc.classList.add('sx-scroll');
+    // passive = ไม่ขวางการเลื่อนของเบราว์เซอร์ (แค่อ่านตำแหน่ง ไม่ preventDefault)
+    sc.addEventListener('scroll', function () { sxUpdate(sc); }, { passive: true });
+    // ลูกศรต้องอยู่นอกกล่องเลื่อน ไม่งั้นมันเลื่อนหนีไปกับตาราง → ห่อกล่องเลื่อนด้วยกรอบ position:relative
+    // ห่อเฉพาะเมื่อแม่เป็นบล็อกธรรมดา: ถ้าแม่เป็น flex/grid การแทรกกรอบจะเปลี่ยนว่าใครเป็นลูกของเลย์เอาต์
+    // (กรณีนั้นยังได้ขอบจางจาก mask ของกล่องเลื่อนเอง แค่ไม่มีลูกศร)
+    const host = sc.parentElement;
+    if (host && !host.classList.contains('sx-frame') && !sc.classList.contains('card')) {
+      const d = getComputedStyle(host).display;
+      if (d === 'block' || d === 'flow-root') {
+        const frame = document.createElement('div');
+        frame.className = 'sx-frame';
+        host.insertBefore(frame, sc);
+        frame.appendChild(sc);
+      }
+    }
+    const ro = sxObs();
+    if (ro) ro.observe(sc);
+  }
+  const ro = sxObs();
+  if (ro) ro.observe(tbl);   // แถวงอกเพิ่มทีหลัง (กางดูทีม/โหลดเพิ่ม) ความกว้างตารางเปลี่ยนได้
+  sxUpdate(sc);
+}
+
 function classifyTable(tbl: HTMLTableElement): void {
   // แถวหัวแรกเท่านั้น — ตารางที่มีหัว 2 ชั้นจะนับคอลัมน์เกินจริง
   const ths = Array.from(tbl.querySelectorAll(':scope > thead > tr:first-child > th')) as HTMLElement[];
@@ -206,7 +386,14 @@ function classifyTable(tbl: HTMLTableElement): void {
 
   if (!cols || merged || cols > CARD_MAX_COLS) {
     // หัวซับซ้อน/คอลัมน์เยอะ = ปล่อยเป็นตารางเลื่อนแนวนอน ตรึงคอลัมน์แรกไว้
-    if (cols > CARD_MAX_COLS || merged) tbl.classList.add('tbl-scroll-x');
+    if (cols > CARD_MAX_COLS || merged) {
+      tbl.classList.add('tbl-scroll-x');
+      // คอลัมน์แรกเป็นแค่ลำดับ (#) → ตรึงคอลัมน์ที่ 2 (ชื่อ) ด้วย ไม่งั้นเลื่อนแล้วเหลือแต่เลข 1 2 3
+      // ไม่รู้ว่าแถวนี้ของใคร (ตารางแอดมิน KPI / สรุปรายปี / ค่าคอม) · หัว 2 ชั้นไม่ทำ เพราะ nth-child ไม่ตรงคอลัมน์
+      const first = (ths[0].textContent || '').trim();
+      if (!merged && cols > 2 && NOT_A_TITLE.indexOf(first) >= 0) pinSecondColumn(tbl, ths[0]);
+      bindScrollHint(tbl);
+    }
     tbl.setAttribute('data-cards', 'off');
     return;
   }
@@ -290,7 +477,7 @@ const App = {
     }
     document.getElementById('btn-refresh')!.addEventListener('click', function () {
       self.loadView(self.state.view, true);
-      toast('⟳ กำลังโหลดข้อมูลใหม่...');
+      toast('กำลังโหลดข้อมูลใหม่...', 'busy');
     });
     const themeBtn = document.getElementById('btn-theme');
     if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
@@ -326,41 +513,62 @@ const App = {
     }, 5 * 60 * 1000);
   },
 
+  /**
+   * สถานะความสดของข้อมูลบนหัวเว็บ — แยกตามสิทธิ์ (#app[data-role])
+   * เดิมทุกคนเห็นชิปแดง "งาน sync มีปัญหา N งาน" + ชื่องานภาษาช่าง (engagements-today, invariants ...)
+   * ใต้เมนู ทีมขายอ่านไม่ออกแต่ตกใจ และทำอะไรกับมันไม่ได้อยู่ดี จึงแยกเป็น:
+   *   ผู้บริหาร/แอดมิน  → "อัปเดตล่าสุด HH:MM" สีเทาเงียบๆ · เกิน 60 นาที = ส้ม "ตัวเลขบางส่วนอาจยังไม่อัปเดต"
+   *   ผู้ดูแลระบบ      → เหมือนกัน แต่ถ้ามีงานที่มีปัญหา = ชิปส้มกดดูรายละเอียดทีละงานได้
+   * ⚠️ เกณฑ์ว่าอะไรคือ "มีปัญหา" ยังเป็นของ lib/api/bootstrap.ts (syncHealth) ทั้งหมด ที่นี่แค่เลือกว่าใครเห็นอะไร
+   */
   renderSyncInfo(b: Bootstrap | null): void {
-    const chip = document.getElementById('sync-chip')!;
-    const side = document.getElementById('sidebar-sync');
-    if (!b || !b.lastSync || !b.lastSync.length) {
-      chip.textContent = '⏳ ยังไม่มีข้อมูล sync — ระบบซิงค์อัตโนมัติทุก 15 นาที';
+    const chip = document.getElementById('sync-chip');
+    if (!chip) return;
+    const role = document.getElementById('app')?.getAttribute('data-role') || '';
+    const logs = (b && b.lastSync) || [];
+    const health = ((b && b.syncHealth) || []) as SyncHealthItem[];
+
+    // งานดึงข้อมูลที่ "สำเร็จ" ล่าสุด = ข้อมูลบนจอสดถึงเวลานี้ (ไม่นับงานตรวจ/ล้างข้อมูล)
+    let latest: SyncLogEntry | null = null;
+    let latestMs = 0;
+    logs.forEach(function (l) {
+      const ms = bkkMs(l.ts);
+      if (!l.ok || !isDataJob(l.job) || !(ms > 0) || ms <= latestMs) return;
+      latest = l;
+      latestMs = ms;
+    });
+    const ageMins = latestMs ? (Date.now() - latestMs) / 60000 : Infinity;
+
+    chip.className = 'sync-chip';
+    chip.removeAttribute('title');
+
+    if (role === 'superadmin' && b && health.length) {
+      chip.classList.add('is-alert');
+      // จอแคบซ่อนคำหน้า (.chip-long) เหลือ "ไม่อัปเดต (N)" — ยังอ่านรู้เรื่อง ไม่ใช่ตัวเลขลอยๆ
+      chip.innerHTML = '<button type="button" class="chip chip-btn sync-alert" aria-haspopup="dialog"' +
+        ' title="กดดูว่าข้อมูลส่วนไหนไม่อัปเดต">' + icon(ICON_FOR.alert, { size: 14 }) +
+        '<span><span class="chip-long">ข้อมูลบางส่วน</span>ไม่อัปเดต (' + health.length + ')</span></button>';
+      const btn = chip.querySelector('button');
+      const snap = b;
+      if (btn) btn.addEventListener('click', function () { openSyncProblems(snap); });
       return;
     }
-    const latest = b.lastSync.reduce(function (a: SyncLogEntry | null, c: SyncLogEntry) {
-      return (!a || c.ts > a.ts) ? c : a;
-    }, null as SyncLogEntry | null)!;
-    // 🩺 งาน sync ที่ล้ม/ข้าม/เงียบนานเกินรอบ — โชว์บนหัวเว็บทันที ไม่รอให้ตัวเลขเพี้ยนแล้วทีมทักก่อน
-    const health = (b.syncHealth || []) as SyncHealthItem[];
-    if (health.length) {
-      // ห่อคำอธิบายไว้ใน .chip-long เพื่อให้จอแคบซ่อนได้ เหลือ "⚠️ 1" — ของเดิมข้อความเต็ม
-      // กินพื้นที่หัวเว็บจนชื่อหน้าเหลือ 2 ตัวอักษรบนมือถือ (ข้อความเต็มยังอยู่ใน title และแถบเมนู)
-      chip.innerHTML = '⚠️ <span class="chip-long">งาน sync มีปัญหา </span>' + health.length +
-        '<span class="chip-long"> งาน</span>';
-      chip.title = health.map(function (h) {
-        return h.job + ' (' + healthKindTh(h) + '): ' + h.message;
-      }).join('\n');
-      chip.classList.add('txt-bad');
-    } else {
-      chip.textContent = '🕐 sync ล่าสุด ' + relTime(latest.ts);
-      chip.title = '';
-      chip.classList.remove('txt-bad');
+    if (!latest) {
+      chip.innerHTML = '<span class="sync-stamp">รอข้อมูล</span>';
+      chip.title = 'ยังไม่มีข้อมูลอัปเดต — ระบบดึงข้อมูลใหม่อัตโนมัติทุก 15 นาที';
+      return;
     }
-    if (side) {
-      const warnLines = health.slice(0, 3).map(function (h) {
-        return '<span class="txt-bad">⚠️ ' + esc(h.job) + ' ' + esc(healthKindTh(h)) + '</span>';
-      });
-      const okLines = b.lastSync.slice(0, 5 - warnLines.length).map(function (l) {
-        return (l.ok ? '✅' : '❌') + ' ' + esc(l.job) + ' ' + relTime(l.ts);
-      });
-      side.innerHTML = warnLines.concat(okLines).join('<br>');
+    const ts = (latest as SyncLogEntry).ts;
+    const at = stampText(ts);
+    if (ageMins > STALE_MINS) {
+      chip.classList.add('is-alert');
+      chip.innerHTML = '<span class="sync-stamp sync-late">' + icon(ICON_FOR.time, { size: 14 }) +
+        '<span><span class="chip-long">ตัวเลขบางส่วนอาจ</span>ยังไม่อัปเดต</span></span>';
+      chip.title = 'อัปเดตล่าสุด ' + at + ' (' + relTime(bkkIso(ts)) + ') — ปกติระบบดึงข้อมูลใหม่ทุก 15 นาที';
+      return;
     }
+    chip.innerHTML = '<span class="sync-stamp">อัปเดตล่าสุด ' + esc(at) + '</span>';
+    chip.title = 'ระบบดึงข้อมูลใหม่อัตโนมัติทุก 15 นาที';
   },
 
   switchView(view: string): void {

@@ -1,6 +1,8 @@
 import { headers } from 'next/headers';
 import DashboardClient from './DashboardClient';
 import { canView, ROLE_LABEL, type Role } from '@/lib/auth-session';
+import { icon, ICON_FOR } from '@/lib/ui/icons';
+import { logoMark } from '@/lib/ui/helpers';
 
 // โครง HTML พอร์ตจาก Index.html (GAS) แบบตรงตัว — class / ข้อความไทย / โครงเดิมทุกตัวอักษร
 // server component: render โครงนิ่ง ๆ แล้วให้ <DashboardClient/> (client) เรียก App.init()
@@ -17,35 +19,35 @@ const themeInit = `(function () {
   } catch (e) {}
 })();`;
 
+// icon = ชื่อไอคอนลายเส้นจาก ICON_FOR (lib/ui/icons.ts) — 1 เมนู 1 รูป ห้ามซ้ำกัน
+// (เดิมเป็นอีโมจิ และ 🎯 เคยซ้ำกันสองเมนู — เมนูที่ไอคอนซ้ำกันคือเมนูที่กดผิดกันบ่อย)
 type NavItem = { view: string; icon: string; title: string; sub: string };
 
 const NAV_OVERVIEW: NavItem[] = [
-  { view: 'dashboard', icon: '📊', title: 'Dashboard', sub: 'ภาพรวมแชทวันนี้' },
-  { view: 'sales', icon: '💰', title: 'Sales Dashboard', sub: 'ยอดขาย FB/LINE + Ranking' },
-  { view: 'contentads', icon: '🎯', title: 'Content & Ads Performance', sub: 'แอดที่กำลังยิง + คำแนะนำ' },
-  { view: 'profit', icon: '💹', title: 'กำไร & ตีกลับ', sub: 'กำไรจริงรายยูนิต/เดือน/ปี' },
-  { view: 'unitperf', icon: '🎯', title: 'ผลงานราย Unit', sub: 'ยอด vs เป้า • คาดการณ์ • สัญญาณเตือน' },
-  { view: 'report', icon: '📑', title: 'รายงาน & การตลาด', sub: 'เป้า vs จริง • ซื้อซ้ำรายยูนิต' },
+  { view: 'dashboard', icon: ICON_FOR.dashboard, title: 'Dashboard', sub: 'ภาพรวมแชทวันนี้' },
+  { view: 'sales', icon: ICON_FOR.sales, title: 'Sales Dashboard', sub: 'ยอดขาย FB/LINE + Ranking' },
+  { view: 'contentads', icon: ICON_FOR.contentads, title: 'Content & Ads Performance', sub: 'แอดที่กำลังยิง + คำแนะนำ' },
+  { view: 'profit', icon: ICON_FOR.profit, title: 'กำไร & ตีกลับ', sub: 'กำไรจริงรายยูนิต/เดือน/ปี' },
+  { view: 'unitperf', icon: ICON_FOR.unitperf, title: 'ผลงานราย Unit', sub: 'ยอด vs เป้า • คาดการณ์ • สัญญาณเตือน' },
+  { view: 'report', icon: ICON_FOR.report, title: 'รายงาน & การตลาด', sub: 'เป้า vs จริง • ซื้อซ้ำรายยูนิต' },
 ];
 const NAV_ADMIN: NavItem[] = [
-  { view: 'admins', icon: '👥', title: 'Admin Management', sub: 'รายชื่อ • สถานะ • สิทธิ์' },
-  { view: 'adminperf', icon: '🏆', title: 'Admin Performance', sub: 'Ranking ยอดขาย • Top 3 🥇🥈🥉' },
-  { view: 'kpi', icon: '📐', title: 'KPI ทีมขาย', sub: 'หัวหน้า • รอง • แอดมิน • ท็อปเซล' },
-  { view: 'umap', icon: '🧩', title: 'U Map', sub: 'แอดมินอยู่ U ไหน • จับคู่' },
+  { view: 'admins', icon: ICON_FOR.admins, title: 'Admin Management', sub: 'รายชื่อ • สถานะ • สิทธิ์' },
+  { view: 'adminperf', icon: ICON_FOR.adminperf, title: 'Admin Performance', sub: 'Ranking ยอดขาย • Top 3' },
+  { view: 'kpi', icon: ICON_FOR.kpi, title: 'KPI ทีมขาย', sub: 'หัวหน้า • รอง • แอดมิน • ท็อปเซล' },
+  { view: 'umap', icon: ICON_FOR.umap, title: 'U Map', sub: 'แอดมินอยู่ U ไหน • จับคู่' },
 ];
 const NAV_ME: NavItem[] = [
-  // 🎯 ถูกใช้ไปแล้วที่เมนู Content & Ads — เมนูที่ไอคอนซ้ำกันคือเมนูที่กดผิดกันบ่อย
-  // 🪪 เลือกเพราะยังไม่มีที่ไหนใช้ (🙋 ใช้แล้วที่ชิป "คนทัก" หน้า Sales, 👤/📐 ก็ถูกใช้แล้ว)
-  { view: 'me', icon: '🪪', title: 'ผลงานของฉัน', sub: 'ยอดขาย • KPI • อันดับ' },
+  { view: 'me', icon: ICON_FOR.me, title: 'ผลงานของฉัน', sub: 'ยอดขาย • KPI • อันดับ' },
 ];
 const NAV_SYSTEM: NavItem[] = [
-  { view: 'users', icon: '🔐', title: 'ผู้ใช้งาน', sub: 'บัญชี • ระดับสิทธิ์' },
+  { view: 'users', icon: ICON_FOR.users, title: 'ผู้ใช้งาน', sub: 'บัญชี • ระดับสิทธิ์' },
 ];
 
 function navButton(it: NavItem, active: boolean) {
   return (
     <button key={it.view} className={'nav-item' + (active ? ' active' : '')} data-view={it.view}>
-      <span className="nav-icon">{it.icon}</span>
+      <span className="nav-icon" dangerouslySetInnerHTML={{ __html: icon(it.icon, { size: 18 }) }} />
       <span className="nav-texts">
         <span>{it.title}</span>
         <span className="nav-label-sub">{it.sub}</span>
@@ -78,7 +80,7 @@ export default async function Page() {
 
         <aside className="sidebar" id="sidebar">
           <div className="brand">
-            <div className="brand-logo">PN</div>
+            <div className="brand-logo" dangerouslySetInnerHTML={{ __html: logoMark(38) }} />
             <div className="brand-text">
               <div className="brand-name">PN Infinity</div>
               <div className="brand-sub">Pancake POS Dashboard</div>
@@ -114,12 +116,13 @@ export default async function Page() {
 
           <div className="sidebar-footer">
             <div className="me-box">
-              <div className="me-name" title={displayName}>👤 {displayName || '—'}</div>
+              <div className="me-name" title={displayName}>{displayName || '—'}</div>
               <div className="me-role">{ROLE_LABEL[role] || '—'}</div>
-              <button id="btn-logout" className="btn btn-logout" title="ออกจากระบบ">ออกจากระบบ</button>
+              <button id="btn-logout" className="btn btn-logout" title="ออกจากระบบ"
+                dangerouslySetInnerHTML={{ __html: icon(ICON_FOR.logout, { size: 14 }) + 'ออกจากระบบ' }} />
             </div>
-            <div className="live-badge">● LIVE จาก Supabase</div>
-            <div id="sidebar-sync" className="sidebar-sync"></div>
+            {/* สถานะงานดึงข้อมูลเบื้องหลัง (ชื่องาน/เวลาทีละงาน) ย้ายออกจากตรงนี้แล้ว — เป็นศัพท์ช่าง ทีมขายอ่านแล้วตกใจ
+                ตอนนี้โชว์บนหัวเว็บเป็น "อัปเดตล่าสุด HH:MM" แทน ส่วนรายละเอียดงานที่มีปัญหาเห็นเฉพาะผู้ดูแลระบบ (ดู renderSyncInfo) */}
           </div>
         </aside>
 
@@ -128,15 +131,22 @@ export default async function Page() {
             {/* ปุ่มเมนูโผล่เฉพาะจอแคบ (ดู globals.css) */}
             {/* จอแคบ = เปิดลิ้นชักเมนู • จอกว้าง = พับ/กางแถบเมนูที่ปักซ้าย (จำค่าไว้) */}
             <button id="btn-nav" className="btn btn-nav" aria-label="เปิด/ปิดเมนู"
-              title="เปิด/ปิดแถบเมนู">☰</button>
+              title="เปิด/ปิดแถบเมนู" dangerouslySetInnerHTML={{ __html: icon(ICON_FOR.menu, { size: 20 }) }} />
             <div className="topbar-titles">
               <h1 id="topbar-title">Dashboard</h1>
               <div id="topbar-sub" className="topbar-sub">ภาพรวมแชทวันนี้</div>
             </div>
             <div className="topbar-right">
-              <span id="sync-chip" className="chip" title="เวลาที่ sync ข้อมูลล่าสุด"></span>
-              <button id="btn-theme" className="btn" title="สลับโหมดสว่าง / มืด">☀️</button>
-              <button id="btn-refresh" className="btn" title="โหลดข้อมูลใหม่">⟳ รีเฟรช</button>
+              {/* เนื้อในเติมโดย renderSyncInfo (app-core) ตามสิทธิ์ของคนที่ล็อกอิน */}
+              <span id="sync-chip" className="sync-chip"></span>
+              {/* ไอคอนของ "โหมดที่จะสลับไป" มีทั้ง 2 ตัว CSS เลือกโชว์ตาม data-theme (ตั้งโดย themeInit ก่อนวาดจอ)
+                  จึงถูกตั้งแต่เฟรมแรก ไม่กระพริบรอ JS · ชื่อปุ่มค่าเริ่มต้น = โหมดมืด → setTheme() ใน app-core แก้ให้ตรงหลังโหลด */}
+              <button id="btn-theme" type="button" className="btn btn-icon" aria-label="เปลี่ยนเป็นโหมดสว่าง"
+                title="เปลี่ยนเป็นโหมดสว่าง" dangerouslySetInnerHTML={{ __html:
+                  '<span class="theme-ic theme-ic-light">' + icon(ICON_FOR.themeLight, { size: 18 }) + '</span>' +
+                  '<span class="theme-ic theme-ic-dark">' + icon(ICON_FOR.themeDark, { size: 18 }) + '</span>' }} />
+              <button id="btn-refresh" type="button" className="btn" aria-label="รีเฟรช" title="โหลดข้อมูลใหม่"
+                dangerouslySetInnerHTML={{ __html: icon(ICON_FOR.refresh, { size: 16 }) + '<span class="btn-word">รีเฟรช</span>' }} />
             </div>
           </header>
 
@@ -152,7 +162,7 @@ export default async function Page() {
       </div>
 
       <div id="modal-root"></div>
-      <div id="toast-container"></div>
+      <div id="toast-container" role="status" aria-live="polite"></div>
 
       <DashboardClient />
     </>

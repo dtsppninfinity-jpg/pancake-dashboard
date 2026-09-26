@@ -38,6 +38,7 @@ import {
 } from '@/lib/scoring';
 import { hbarRows, svgHourlyLine, bindChartTips, hideChartTip } from '@/lib/ui/charts';
 import { adminperfSkel } from '@/lib/ui/skeletons';
+import { icon, brandIcon, statusPill, rankBadge, ICON_FOR } from '@/lib/ui/icons';
 
 /* ---------- types ---------- */
 
@@ -139,14 +140,13 @@ function visRows(data: PerfData | null): PerfRow[] {
 
 const RANK_MODES = [
   // ทีมขอ 2026-08-10: อันดับหลักใช้ "เท่า" นำ แล้วค่อยดู %ปิด → เปอร์บิล → ตอบเร็ว
-  { key: 'roas', label: '🔥 เท่า (ROAS)' },
-  { key: 'overall', label: '🏆 Overall' },
-  { key: 'sales', label: '💰 ยอดขายดีที่สุด' },
-  { key: 'close', label: '🎯 % ปิดการขายดีที่สุด' },
-  { key: 'speed', label: '⚡ ตอบเร็วที่สุด' },
+  // label = คำล้วน (ใช้ใน CSV/คำอธิบายด้วย) · ic = ไอคอนบนปุ่มเท่านั้น
+  { key: 'roas', label: 'เท่า (ROAS)', ic: ICON_FOR.roas },
+  { key: 'overall', label: 'Overall', ic: 'award' },
+  { key: 'sales', label: 'ยอดขายดีที่สุด', ic: ICON_FOR.revenue },
+  { key: 'close', label: '% ปิดการขายดีที่สุด', ic: ICON_FOR.closeRate },
+  { key: 'speed', label: 'ตอบเร็วที่สุด', ic: ICON_FOR.fast },
 ];
-
-const MEDALS = ['🥇', '🥈', '🥉'];
 
 /* ---------- formatting ---------- */
 
@@ -194,18 +194,18 @@ const ROAS_TIP = 'ROAS รายคน = ยอดขายรวมของค
   'ถ้าใช้อัตราเดียวทั้งบริษัท คนในยูนิตที่ทักถูกจะโดนคิดต้นทุนเกินจริง • ' +
   'ผลรวมต้นทุนของทุกคนเท่ากับค่าแอดจริงทั้งช่วงพอดี'
 
-/** '📣 ROAS 2.59x' หรือ '—' พร้อมเหตุผล (ห้ามเดาเมื่อไม่มียอดผูกแอด) */
+/** 'ROAS 2.59x' หรือ 'ROAS —' พร้อมเหตุผล (ห้ามเดาเมื่อไม่มียอดผูกแอด) */
 function roasHtml(r: PerfRow): string {
   const v = r.roas;
   if (v === null || v === undefined || isNaN(Number(v))) {
     const setup = lastData && lastData.adSetupNeeded;
     return '<span title="' + esc(setup
       ? 'ยังไม่มีข้อมูลค่าแอด (ต้องรัน db/migrations/2026-07-23-ad-daily.sql แล้วรอ sync รอบถัดไป)'
-      : ROAS_NA_TIP) + '">📣 ROAS —</span>';
+      : ROAS_NA_TIP) + '"><span class="mini-lbl">ROAS</span>—</span>';
   }
   const tip = ROAS_TIP + ' • ยอดขาย ' + THB(Number(r.adRevenue) || 0) +
     ' ÷ ต้นทุนแอด ' + THB(Number(r.adSpend) || 0);
-  return '<span title="' + esc(tip) + '">📣 ROAS ' + esc(String(Number(v).toFixed(2))) + 'x</span>';
+  return '<span title="' + esc(tip) + '"><span class="mini-lbl">ROAS</span>' + esc(String(Number(v).toFixed(2))) + 'x</span>';
 }
 
 /** เปอร์บิล = ยอดขาย ÷ ออเดอร์ (โชว์ทุกโหมด ไม่ใช่เฉพาะโหมดที่ไม่ใช่ Overall) */
@@ -241,7 +241,7 @@ function closeRateTip(r: PerfRow): string {
 }
 
 function perBillHtml(r: PerfRow): string {
-  return '<span title="เปอร์บิล = ยอดขาย ÷ จำนวนออเดอร์ ในช่วงเวลาที่เลือก">🧾 เปอร์บิล ' +
+  return '<span title="เปอร์บิล = ยอดขาย ÷ จำนวนออเดอร์ ในช่วงเวลาที่เลือก"><span class="mini-lbl">เปอร์บิล</span>' +
     esc(THB(r.avgOrder)) + '</span>';
 }
 
@@ -294,7 +294,7 @@ function kpiBarHtml(r: PerfRow): string {
   const pct = kpiProgress(Number(r.revenue) || 0, target, 'high');
   const w = Math.max(0, Math.min(100, pct === null ? 0 : pct));
   const tip = 'เป้ายอดขายต่อคนต่อวัน ' + THB(target) + ' • ' + timeLeftTxt() +
-    ' (ปรับเป้าได้ที่ปุ่ม 🎯 เป้า KPI ด้านบน)';
+    ' (ปรับเป้าได้ที่ปุ่ม "เป้า KPI" ด้านบน)';
   return '<div class="kpi-bar ' + progCls(pct) + '" title="' + esc(tip) + '">' +
       '<div class="kpi-bar-track"><i style="width:' + w + '%"></i></div>' +
       '<div class="kpi-bar-txt">' + esc(THB(r.revenue)) + ' / ' + esc(THB(target)) +
@@ -321,11 +321,12 @@ function kpiChipsHtml(r: PerfRow): string {
     const val = m.key === 'orders' ? fmtNum(Number(raw) || 0)
       : m.key === 'closeRate' ? pctFmt(raw as number | null)
       : respLong(r);
-    const icon = m.key === 'orders' ? '🛒' : (m.key === 'closeRate' ? '🎯' : '⚡');
+    // ป้ายคำสั้นแทนอีโมจิ 🛒 🎯 ⚡ เดิม — บอกว่าเลขนี้คืออะไรโดยไม่ต้องเดาจากรูป
+    const lbl = m.key === 'orders' ? 'ออเดอร์' : (m.key === 'closeRate' ? 'ปิด' : 'ตอบ');
     chips.push('<span class="kpi-chip ' + progCls(pct) + '" title="' +
       esc('เป้า' + m.label + 'ต่อคน/วัน = ' + target + ' ' + m.unit +
         (m.dir === 'low' ? ' (ยิ่งน้อยยิ่งดี)' : '')) + '">' +
-      icon + ' ' + esc(val) + ' / ' + esc(String(target) + suffix) + '</span>');
+      '<span class="mini-lbl">' + lbl + '</span>' + esc(val) + ' / ' + esc(String(target) + suffix) + '</span>');
   });
   return chips.length ? '<div class="kpi-chips">' + chips.join('') + '</div>' : '';
 }
@@ -342,7 +343,7 @@ function scoreTier(v: number | null | undefined): string {
 }
 
 function scoreBadge(v: number | null | undefined): string {
-  return '<span class="score-badge ' + scoreTier(v) + '">🏆 ' + scoreFmt(v) + '</span>';
+  return '<span class="score-badge ' + scoreTier(v) + '" title="คะแนน Overall">' + scoreFmt(v) + '</span>';
 }
 
 function modeLabel(key: string): string {
@@ -455,8 +456,8 @@ function sortRows(rows: PerfRow[], mode: string): PerfRow[] {
 function channelSelectHtml(): string {
   const opts = [
     { v: '', t: 'ทุกช่องทาง' },
-    { v: 'facebook', t: '📘 Facebook' },
-    { v: 'line', t: '🟢 LINE' },
+    { v: 'facebook', t: 'Facebook' },
+    { v: 'line', t: 'LINE' },
   ];
   return '<select class="input" id="rk-channel">' + opts.map(function (o) {
     return '<option value="' + o.v + '"' + (state.channel === o.v ? ' selected' : '') + '>' +
@@ -471,7 +472,7 @@ function groupSelectHtml(data: PerfData | null): string {
   return '<select class="input" id="rk-group">' +
     '<option value=""' + (state.group === '' ? ' selected' : '') + '>ทุกกลุ่มสินค้า</option>' +
     groups.map(function (g) {
-      return '<option value="' + esc(g) + '"' + (state.group === g ? ' selected' : '') + '>📦 ' +
+      return '<option value="' + esc(g) + '"' + (state.group === g ? ' selected' : '') + '>' +
         esc(g) + '</option>';
     }).join('') + '</select>';
 }
@@ -484,7 +485,7 @@ function liveChipHtml(): string {
   const on = autoOn && kpiActive();
   return '<span class="chip live-chip" title="' + esc(on
     ? 'อัปเดตอัตโนมัติทุก ' + Math.round(AUTO_MS / 1000) + ' วินาที (ข้ามรอบเมื่อเปิดหน้าต่างแก้ไข/สลับไปแท็บอื่น)'
-    : 'ปิดอัปเดตอัตโนมัติอยู่ — กด ⏸️ เพื่อเปิด') + '">' +
+    : 'ปิดอัปเดตอัตโนมัติอยู่ — กดปุ่ม "อัปเดตอัตโนมัติ" เพื่อเปิด') + '">' +
     '<span class="live-dot' + (on ? ' on' : '') + '"></span>อัปเดต ' + esc(t) + '</span>';
 }
 
@@ -494,7 +495,7 @@ function roasHintText(): string {
   if (rankRules.minAdSpend > 0) floors.push('ค่าแอด ≥ ' + THB(rankRules.minAdSpend));
   if (rankRules.minOrders > 0) floors.push('ออเดอร์ ≥ ' + fmtNum(rankRules.minOrders));
   if (rankRules.minSpendPctOfRev > 0) floors.push('ค่าแอด ≥ ' + fmtNum(rankRules.minSpendPctOfRev) + '% ของยอด');
-  return '1️⃣ เท่า → 2️⃣ %ปิด → 3️⃣ เปอร์บิล → 4️⃣ ตอบเร็ว' +
+  return '1. เท่า → 2. %ปิด → 3. เปอร์บิล → 4. ตอบเร็ว' +
     (floors.length ? ' • ขั้นต่ำ ' + floors.join(' + ') : '');
 }
 
@@ -511,16 +512,21 @@ function roasHintChipHtml(): string {
     esc(roasHintText()) + '</span>';
 }
 
+/** ข้างในปุ่มเปิด/ปิดอัตโนมัติ — ใช้ทั้งตอนวาดหน้าและตอนกดสลับ (ต้องเป็น innerHTML เพราะมีไอคอน) */
+function autoBtnInner(): string {
+  return autoOn ? icon(ICON_FOR.pause) + 'หยุดอัตโนมัติ' : icon(ICON_FOR.play) + 'อัปเดตอัตโนมัติ';
+}
+
 function controlsHtml(data: PerfData | null): string {
   const modeBtns = RANK_MODES.map(function (m) {
     return '<button class="btn-mini' + (state.mode === m.key ? ' primary' : '') +
-      '" data-rkmode="' + m.key + '">' + m.label + '</button>';
+      '" data-rkmode="' + m.key + '">' + icon(m.ic, { size: 14 }) + esc(m.label) + '</button>';
   }).join('');
   // ปุ่มอัตโนมัติโชว์เฉพาะ preset 'วันนี้' — ช่วงอื่นเป็นข้อมูลปิดวันแล้ว ไม่ต้องรีเฟรช
   const autoBtn = kpiActive()
     ? '<button class="btn' + (autoOn ? ' primary' : '') + '" id="rk-auto" title="รีเฟรชอัตโนมัติทุก ' +
       Math.round(AUTO_MS / 1000) + ' วินาที (เฉพาะช่วง &quot;วันนี้&quot;)">' +
-      (autoOn ? '⏸️ หยุดอัตโนมัติ' : '▶️ อัปเดตอัตโนมัติ') + '</button>'
+      autoBtnInner() + '</button>'
     : '';
   return '<div class="pg-controls">' +
       rangeControlsHtml(state, 'rk') +
@@ -529,16 +535,16 @@ function controlsHtml(data: PerfData | null): string {
       '<div class="spacer"></div>' +
       (kpiActive() ? liveChipHtml() : '') +
       autoBtn +
-      '<button class="btn" id="rk-csv">📄 CSV</button>' +
+      '<button class="btn" id="rk-csv">' + icon(ICON_FOR.csv) + 'CSV</button>' +
     '</div>' +
     '<div class="pg-controls">' +
       modeBtns +
       (state.mode === 'roas' ? roasHintChipHtml() : '') +
       '<div class="spacer"></div>' +
-      '<button class="btn' + (state.kpiOpen ? ' primary' : '') + '" id="rk-kpi-toggle">🎯 เป้า KPI</button>' +
-      '<button class="btn' + (state.panelOpen ? ' primary' : '') + '" id="rk-toggle">⚙️ เกณฑ์การให้คะแนน</button>' +
+      '<button class="btn' + (state.kpiOpen ? ' primary' : '') + '" id="rk-kpi-toggle">' + icon(ICON_FOR.target) + 'เป้า KPI</button>' +
+      '<button class="btn' + (state.panelOpen ? ' primary' : '') + '" id="rk-toggle">' + icon(ICON_FOR.settings) + 'เกณฑ์การให้คะแนน</button>' +
       '<span class="chip">' + esc((data && data.rangeLabel) || '') +
-        (kpiActive() ? ' • ⏱️ ' + esc(timeLeftTxt()) : '') + '</span>' +
+        (kpiActive() ? ' • ' + esc(timeLeftTxt()) : '') + '</span>' +
     '</div>';
 }
 
@@ -561,8 +567,8 @@ function kpiPanelHtml(): string {
       '<div class="sp-list">' + rows + '</div>' +
       '<div class="sp-foot">' +
         '<div class="spacer" style="flex:1"></div>' +
-        '<button class="btn" id="rk-kpi-reset">↺ ค่าเริ่มต้น</button>' +
-        '<button class="btn primary" id="rk-kpi-save">💾 บันทึกเป้า</button>' +
+        '<button class="btn" id="rk-kpi-reset">' + icon('rotate-ccw') + 'ค่าเริ่มต้น</button>' +
+        '<button class="btn primary" id="rk-kpi-save">' + icon(ICON_FOR.save) + 'บันทึกเป้า</button>' +
       '</div>' +
     '</div>';
 }
@@ -614,7 +620,7 @@ function kpiStripHtml(data: PerfData | null): string {
     const waitCmt = Number(data && data.waitingCommentTotal) || 0;
     nowItems =
       pgsItem(fmtNum(waitN - waitCmt),
-        '⏰ แชทรอตอบ (อินบ็อกซ์)',
+        'แชทรอตอบ (อินบ็อกซ์)',
         waitN - waitCmt > 0 ? 'warn' : '',
         'อินบ็อกซ์ที่ลูกค้ารอตอบตอนนี้ (24 ชม.ล่าสุด) — ไม่รวมคอมเมนต์ใต้โพสต์ ' + fmtNum(waitCmt) +
           ' รายการ (แยกออกตามที่ทีมขอ)') +
@@ -647,7 +653,7 @@ function replyCompareHtml(data: PerfData | null): string {
     .map(function (r) { return { label: nickOf(r) || '-', value: Number(r.replies) || 0 }; });
   if (!rows.length) return '';
   return '<div class="card">' +
-    '<h3>📊 เปรียบเทียบข้อความที่ตอบ (Top 10)</h3>' +
+    '<h3>เปรียบเทียบข้อความที่ตอบ (Top 10)</h3>' +
     '<div class="card-sub">รวมตอบแชท + คอมเมนต์ ในช่วงเวลาที่เลือก</div>' +
     hbarRows(rows, { empty: 'ยังไม่มีข้อมูล' }) +
   '</div>';
@@ -656,10 +662,11 @@ function replyCompareHtml(data: PerfData | null): string {
 function teamHourlyCardHtml(data: PerfData | null): string {
   const hourly = (data && data.teamHourly) || null;
   if (!hourly || !hourly.some(function (v) { return v > 0; })) return '';
-  const chTxt = state.channel === 'facebook' ? 'เฉพาะ 📘 Facebook'
-    : state.channel === 'line' ? 'เฉพาะ 🟢 LINE' : 'ทุกช่องทาง';
+  // chTxt เป็น HTML (มีโลโก้แบรนด์) — ห้ามส่งผ่าน esc()
+  const chTxt = state.channel === 'facebook' ? 'เฉพาะ ' + brandIcon('facebook') + ' Facebook'
+    : state.channel === 'line' ? 'เฉพาะ ' + brandIcon('line') + ' LINE' : 'ทุกช่องทาง';
   return '<div class="card">' +
-    '<h3>🕐 ปริมาณลูกค้าทักรายชั่วโมง (ทีมรวม)</h3>' +
+    '<h3>ปริมาณลูกค้าทักรายชั่วโมง (ทีมรวม)</h3>' +
     '<div class="card-sub">' + esc((data && data.rangeLabel) || '') +
       ' — ข้อความลูกค้าทัก (' + chTxt + ', ข้อมูลจริงจาก Pancake) • ชี้ที่จุดเพื่อดูราย ชม.</div>' +
     svgHourlyLine(hourly.map(function (v) { return Number(v) || 0; }), null, { fmt: 'num', unit: 'ข้อความ' }) +
@@ -711,13 +718,13 @@ function comRoasTxt(r: ComRow): string {
 
 function comSectionHtml(): string {
   const head = '<div class="card-head" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-    '<h3 style="margin:0">💰 ค่าคอมแอดมินรายเดือน</h3>';
+    '<h3 style="margin:0">ค่าคอมแอดมินรายเดือน</h3>';
   if (!comData) {
     return head + '</div><div class="loading"><div class="spinner"></div>กำลังโหลดข้อมูลค่าคอม...</div>';
   }
   const d = comData;
   if (d.setupNeeded) {
-    return head + '</div><div class="empty-note">⏳ ยังไม่มีข้อมูลค่าคอม — ต้องรัน ' +
+    return head + '</div><div class="empty-note">ยังไม่มีข้อมูลค่าคอม — ต้องรัน ' +
       '<code>db/migrations/2026-07-31-admin-commission-v2.sql</code> ใน Supabase แล้วรอ sync รอบถัดไป</div>';
   }
   const opts = d.months.map(function (m) {
@@ -740,9 +747,11 @@ function comSectionHtml(): string {
       '<td class="num">' + pctFmt(r.closeRate) + '</td>' +
       '<td class="num">' + comRoasTxt(r) + '</td>' +
       // หมายเหตุติดตัวคน (บอสขอ 2026-08-03 — ไว้โน้ตเช่น "ออกแล้ว") กดดินสอเพื่อแก้/ลบ
-      '<td>' + (r.note ? '<span class="chip chip-note" title="' + esc(r.note) + '">📌 ' + esc(r.note) + '</span> ' : '') +
-        '<button class="btn-mini com-note-btn" data-comnote="' + esc(r.admin) + '" title="' +
-        (r.note ? 'แก้/ลบหมายเหตุ' : 'เพิ่มหมายเหตุ') + '">' + (r.note ? '✏️' : '➕') + '</button></td>' +
+      '<td>' + (r.note ? '<span class="chip chip-note" title="' + esc(r.note) + '">' + icon('pin', { size: 14 }) + esc(r.note) + '</span> ' : '') +
+        // ปุ่มมีแต่ไอคอน (ช่องตารางแคบ) — ต้องมี aria-label + title ให้โปรแกรมอ่านหน้าจอ/ชี้เมาส์รู้ว่าทำอะไร
+        '<button class="btn-mini btn-icon com-note-btn" data-comnote="' + esc(r.admin) + '" title="' +
+        (r.note ? 'แก้/ลบหมายเหตุ' : 'เพิ่มหมายเหตุ') + '" aria-label="' + (r.note ? 'แก้/ลบหมายเหตุ' : 'เพิ่มหมายเหตุ') + '">' +
+        icon(r.note ? ICON_FOR.edit : ICON_FOR.add) + '</button></td>' +
     '</tr>';
   }).join('');
   const t = d.totals;
@@ -758,7 +767,7 @@ function comSectionHtml(): string {
   const noCom = (d.noComAlerts || []);
   const noComHtml = noCom.length
     ? '<div class="loss-row lv-yellow" style="margin-bottom:10px">' +
-        '<div class="loss-icon">🔔</div><div class="loss-body">' +
+        '<div class="loss-icon tx-warn">' + icon('bell', { size: 20 }) + '</div><div class="loss-body">' +
         '<div class="loss-title">ไม่ได้ค่าคอม <b>2 เดือนติด</b> (' +
           esc(comMonthLabel(noCom[0].months[0])) + ' + ' + esc(comMonthLabel(noCom[0].months[1])) + ') — ' +
           fmtNum(noCom.length) + ' คน</div>' +
@@ -771,7 +780,7 @@ function comSectionHtml(): string {
   return head +
       '<select class="input" id="rk-com-month">' + opts + '</select>' +
       '<div class="spacer" style="flex:1"></div>' +
-      '<button class="btn-mini" id="rk-com-csv">📄 CSV</button>' +
+      '<button class="btn-mini" id="rk-com-csv">' + icon(ICON_FOR.csv) + 'CSV</button>' +
     '</div>' +
     noComHtml +
     '<div class="card-sub">ยอดขาย/ตีกลับ/<b>คงเหลือ</b>/คอม/%ปิดลูกค้าใหม่ = ตารางประเมินในชีท Com:Admin ตรงๆ ' +
@@ -781,7 +790,7 @@ function comSectionHtml(): string {
       ? '<div class="table-scroll"><table class="tbl"><thead><tr>' +
         '<th>#</th><th>แอดมิน</th><th>ยูนิต</th><th class="num">ยอดขาย</th><th class="num">ตีกลับ</th>' +
         '<th class="num">คงเหลือ</th><th class="num">คอม @Admin</th><th class="num">%ปิดใหม่</th><th class="num">ROAS</th>' +
-        '<th>📌 หมายเหตุ</th>' +
+        '<th>หมายเหตุ</th>' +
         '</tr></thead><tbody>' + body + foot + '</tbody></table></div>'
       : '<div class="empty-note">เดือนนี้ยังไม่มีข้อมูลในชีท</div>');
 }
@@ -800,8 +809,9 @@ function fetchCom(container: HTMLElement, month: string): void {
     if (seq !== comReq) return;
     const box = container.querySelector('#rk-com') as HTMLElement | null;
     if (box) {
-      box.innerHTML = '<h3>💰 ค่าคอมแอดมินรายเดือน</h3>' +
-        '<div class="empty-note">⚠️ โหลดข้อมูลค่าคอมไม่สำเร็จ <button class="btn-mini" id="rk-com-retry">ลองใหม่</button></div>';
+      box.innerHTML = '<h3>ค่าคอมแอดมินรายเดือน</h3>' +
+        '<div class="empty-note"><span class="tx-warn">' + icon(ICON_FOR.alert, { size: 14 }) + '</span> ' +
+        'โหลดข้อมูลค่าคอมไม่สำเร็จ <button class="btn-mini" id="rk-com-retry">' + icon(ICON_FOR.refresh) + 'ลองใหม่</button></div>';
       const b = box.querySelector('#rk-com-retry');
       if (b) b.addEventListener('click', function () { fetchCom(container, month); });
     }
@@ -812,7 +822,7 @@ function bindComEvents(container: HTMLElement): void {
   const sel = container.querySelector('#rk-com-month') as HTMLSelectElement | null;
   if (sel) sel.addEventListener('change', function () {
     const box = container.querySelector('#rk-com') as HTMLElement | null;
-    if (box) box.innerHTML = '<h3>💰 ค่าคอมแอดมินรายเดือน</h3>' +
+    if (box) box.innerHTML = '<h3>ค่าคอมแอดมินรายเดือน</h3>' +
       '<div class="loading"><div class="spinner"></div>กำลังโหลด ' + esc(comMonthLabel(sel.value)) + '...</div>';
     fetchCom(container, sel.value);
   });
@@ -838,14 +848,15 @@ function bindComEvents(container: HTMLElement): void {
       const row = comData && comData.rows.find(function (r) { return r.admin === admin; });
       const cur = (row && row.note) || '';
       openModal(
-        '<div class="modal-head"><h3>📌 หมายเหตุ — ' + esc(admin) + '</h3><button class="modal-close">✕</button></div>' +
+        '<div class="modal-head"><h3>หมายเหตุ — ' + esc(admin) + '</h3>' +
+          '<button class="modal-close" aria-label="ปิด" title="ปิด">' + icon(ICON_FOR.close, { size: 20 }) + '</button></div>' +
         '<div class="card-sub" style="margin-bottom:8px">โน้ตติดตัวแอดมินคนนี้ เห็นทุกเดือนในตารางค่าคอม ' +
           '(เช่น "ออกแล้ว มี.ค. — รอเคลียร์คอมงวดสุดท้าย") • ล้างข้อความแล้วบันทึก = ลบหมายเหตุ</div>' +
         '<textarea class="input" id="com-note-text" maxlength="200" rows="3" style="width:100%" ' +
           'placeholder="พิมพ์หมายเหตุ...">' + esc(cur) + '</textarea>' +
         '<div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">' +
           '<button class="btn-mini modal-close">ยกเลิก</button>' +
-          '<button class="btn-mini" id="com-note-save">💾 บันทึก</button></div>'
+          '<button class="btn-mini" id="com-note-save">' + icon(ICON_FOR.save) + 'บันทึก</button></div>'
       );
       const root = document.getElementById('modal-root');
       const save = root && root.querySelector('#com-note-save');
@@ -859,14 +870,14 @@ function bindComEvents(container: HTMLElement): void {
             if (res && res.ok === false) throw new Error(res.error || 'บันทึกไม่สำเร็จ');
             if (row) row.note = String(note).trim();
             closeModal();
-            toast(String(note).trim() ? '✅ บันทึกหมายเหตุแล้ว' : '🗑️ ลบหมายเหตุแล้ว');
+            toast(String(note).trim() ? 'บันทึกหมายเหตุแล้ว' : 'ลบหมายเหตุแล้ว');
             const box = container.querySelector('#rk-com') as HTMLElement | null;
             if (box) { box.innerHTML = comSectionHtml(); bindComEvents(container); }
           })
           .catch(function (e: any) {
             (save as HTMLButtonElement).disabled = false;
-            save.textContent = '💾 บันทึก';
-            toast('❌ ' + (e && e.message ? e.message : 'บันทึกไม่สำเร็จ'));
+            save.innerHTML = icon(ICON_FOR.save) + 'บันทึก'; // innerHTML เพราะมีไอคอน (textContent จะทิ้ง svg)
+            toast(e && e.message ? e.message : 'บันทึกไม่สำเร็จ');
           });
       });
     });
@@ -890,7 +901,7 @@ function panelRowHtml(c: MetricConfig): string {
 /** เกณฑ์ "ใครมีสิทธิ์เข้าอันดับ" ของโหมดเท่า — คนละเรื่องกับน้ำหนักคะแนน Overall จึงแยกแถวไว้บนสุด */
 function rankRulesRowHtml(): string {
   return '<div class="sp-row" id="rk-rankrules">' +
-    '<label class="sp-metric"><span>🔥 เข้าอันดับโหมด &quot;เท่า&quot;</span></label>' +
+    '<label class="sp-metric"><span>เข้าอันดับโหมด &quot;เท่า&quot;</span></label>' +
     '<div class="sp-field">ค่าแอดขั้นต่ำ <input type="number" min="0" step="50" class="input sp-num" id="rk-min-spend" value="' +
       rankRules.minAdSpend + '"><span class="sp-u">฿</span></div>' +
     '<div class="sp-field">ออเดอร์ขั้นต่ำ <input type="number" min="0" step="1" class="input sp-num" id="rk-min-orders" value="' +
@@ -906,7 +917,7 @@ function panelHtml(): string {
   return '<div class="score-panel' + (state.panelOpen ? '' : ' collapsed') + '" id="rk-panel">' +
       '<div class="sp-hint">ปรับ <b>น้ำหนัก (%)</b> และ <b>เป้าหมาย</b> ของแต่ละตัวชี้วัดได้เอง — คะแนน Overall = ผลรวมถ่วงน้ำหนัก ' +
         '(ได้ครบ 100 คะแนนของตัวนั้นเมื่อถึงเป้า) • คนที่ไม่มีข้อมูลตัวไหนจะไม่ถูกคิดตัวนั้น • กด "บันทึกเกณฑ์" เพื่อให้ทุกคนใช้เกณฑ์เดียวกัน</div>' +
-      '<div class="sp-hint">แถวแรกไม่ใช่คะแนน แต่เป็น <b>ด่านเข้าอันดับของโหมด 🔥 เท่า</b> — ' +
+      '<div class="sp-hint">แถวแรกไม่ใช่คะแนน แต่เป็น <b>ด่านเข้าอันดับของโหมด "เท่า"</b> — ' +
         'เท่า = ยอดจากแอด ÷ ค่าแอด คนที่ค่าแอดปันมานิดเดียวจะได้เลขสูงลิ่วโดยไม่ได้แปลว่าเก่ง ' +
         '(เจอจริง: 3 ออเดอร์ ค่าแอด ฿35 = 27.82 เท่า) • ช่อง <b>% ของยอดขาย</b> ปิดไว้ (0) ' +
         'เพราะตั้งแต่ 17 ส.ค. ค่าแอดถูกปันครบ 100% แล้ว เคสเพจหยุดยิงแอดจึงไม่ทำให้เท่าพุ่งอีก ' +
@@ -915,8 +926,8 @@ function panelHtml(): string {
       '<div class="sp-foot">' +
         '<span class="chip">รวมน้ำหนักที่เปิด <b id="rk-wsum">' + enabledWeightSum() + '</b>%</span>' +
         '<div class="spacer" style="flex:1"></div>' +
-        '<button class="btn" id="rk-reset">↺ รีเซ็ตค่าเริ่มต้น</button>' +
-        '<button class="btn primary" id="rk-save">💾 บันทึกเกณฑ์</button>' +
+        '<button class="btn" id="rk-reset">' + icon('rotate-ccw') + 'รีเซ็ตค่าเริ่มต้น</button>' +
+        '<button class="btn primary" id="rk-save">' + icon(ICON_FOR.save) + 'บันทึกเกณฑ์</button>' +
       '</div>' +
     '</div>';
 }
@@ -928,14 +939,15 @@ function podiumCard(r: PerfRow | null, rank: number): string {
   const cls = (rank === 1) ? 'gold first' : ((rank === 2) ? 'silver' : 'bronze');
   const full = fullNameSub(r);
   return '<div class="top3-card ' + cls + '">' +
-    '<div class="medal">' + MEDALS[rank - 1] + '</div>' +
+    '<div class="medal">' + rankBadge(rank, 'lg') + '</div>' +
     avatarHtml(r.id, r.name, r.online) +
     '<div class="nm" title="' + esc(r.name) + '">' + esc(nickOf(r)) + '</div>' +
     (full ? '<div class="nm-full">' + esc(full) + '</div>' : '') +
     '<div class="val">' + esc(modeValue(r)) + '</div>' +
     '<div>' + scoreBadge(r._score) + '</div>' +
-    '<div class="sub">🛒 ' + esc(fmtNum(r.orders)) + ' • 🎯 ' + esc(pctFmt(r.closeRate)) +
-      ' • ⚡ ' + esc(respShort(r)) + '</div>' +
+    '<div class="sub"><span class="mini-lbl">ออเดอร์</span>' + esc(fmtNum(r.orders)) +
+      ' • <span class="mini-lbl">ปิด</span>' + esc(pctFmt(r.closeRate)) +
+      ' • <span class="mini-lbl">ตอบ</span>' + esc(respShort(r)) + '</div>' +
     // เปอร์บิล + ROAS โชว์ทุกโหมด (บอสใช้ดูคุณภาพบิล/คุ้มค่าแอด ไม่ใช่แค่ตอนจัดอันดับยอดขาย)
     '<div class="sub">' + perBillHtml(r) + ' • ' + roasHtml(r) + '</div>' +
     '</div>';
@@ -987,11 +999,12 @@ function unitChipsHtml(r: PerfRow): string {
  */
 function b5CardHtml(r: PerfRow, lowNo: number, pos: number, total: number): string {
   const full = fullNameSub(r);
-  const stats = '<span title="เท่า (ROAS)">🔥 ' + esc(roasTxt(r)) + '</span> • ' +
-    '<span title="%ปิดการขาย">🎯 ' + esc(pctFmt(r.closeRate)) + '</span> • ' +
-    '<span title="เปอร์บิล">🧾 ' + esc(THB(r.avgOrder)) + '</span> • ' +
-    '<span title="เวลาตอบเฉลี่ย">⚡ ' + esc(respLong(r)) + '</span> • ' +
-    '🛒 ' + esc(fmtNum(r.orders)) + ' • 💰 ' + esc(THB(r.revenue));
+  // ป้ายคำสั้นนำหน้าตัวเลข (เดิมเป็นอีโมจิ 🔥🎯🧾⚡🛒💰 ที่ต้องเดาความหมายเอง)
+  const stats = '<span title="เท่า (ROAS)"><span class="mini-lbl">ROAS</span>' + esc(roasTxt(r)) + '</span> • ' +
+    '<span title="%ปิดการขาย"><span class="mini-lbl">ปิด</span>' + esc(pctFmt(r.closeRate)) + '</span> • ' +
+    '<span title="เปอร์บิล"><span class="mini-lbl">บิล</span>' + esc(THB(r.avgOrder)) + '</span> • ' +
+    '<span title="เวลาตอบเฉลี่ย"><span class="mini-lbl">ตอบ</span>' + esc(respLong(r)) + '</span> • ' +
+    '<span class="mini-lbl">ออเดอร์</span>' + esc(fmtNum(r.orders)) + ' • <span class="mini-lbl">ยอด</span>' + esc(THB(r.revenue));
   return '<div class="b5-card' + (lowNo === 1 ? ' worst' : '') + '">' +
     '<div class="b5-rank" title="' + esc('ต่ำสุดอันดับ ' + lowNo + ' (อันดับ 1 = ต่ำสุดของทีม)') + '">' +
       '<span class="b5-rank-lo">ต่ำสุด</span><span class="b5-rank-n">' + lowNo + '</span></div>' +
@@ -1029,7 +1042,7 @@ function bottom5Html(sorted: PerfRow[]): string {
       : '');
   return '<div class="b5-zone">' +
       '<div class="b5-head">' +
-        '<div class="b5-title">⚠️ ' + fmtNum(pick.length) + ' อันดับต่ำสุด — ต้องเข้าไปดูแล</div>' +
+        '<div class="b5-title">' + fmtNum(pick.length) + ' อันดับต่ำสุด — ต้องเข้าไปดูแล</div>' +
         '<div class="b5-note">' + note + '</div>' +
       '</div>' +
       cards +
@@ -1042,33 +1055,37 @@ function rankTabsHtml(): string {
     return '<button class="rank-tab ' + cls + (state.rankTab === key ? ' active' : '') +
       '" data-ranktab="' + key + '">' + label + '</button>';
   };
-  return '<div class="rank-tabs">' + btn('top', '🥇 ท็อป 3', 'good') + btn('bottom', '⚠️ ต่ำสุด 5', 'warn') + '</div>';
+  // .rank-tab ไม่ได้อยู่ในกฎจัดไอคอนอัตโนมัติ (:has(> .ic)) จึงเว้นวรรคหลังไอคอนเอง
+  return '<div class="rank-tabs">' +
+    btn('top', icon('trophy', { size: 14 }) + ' ท็อป 3', 'good') +
+    btn('bottom', icon(ICON_FOR.alert, { size: 14 }) + ' ต่ำสุด 5', 'warn') + '</div>';
 }
 
 function rankCardHtml(r: PerfRow, idx: number): string {
   const pos = idx + 1;
   const cardCls = 'rank-card' + (pos <= 3 ? ' top' + pos : '');
+  // 1-3 = วงกลมเหรียญทอง/เงิน/ทองแดง (แทน 🥇🥈🥉) · อันดับอื่นใช้วงกลมเทาเดิม
   const noHtml = (pos <= 3)
-    ? '<div class="rank-no medal">' + MEDALS[pos - 1] + '</div>'
+    ? '<div class="rank-no medal">' + rankBadge(pos, 'lg') + '</div>'
     : '<div class="rank-no">' + pos + '</div>';
-  const badge = r.online
-    ? '<span class="badge ai">🟢 ออนไลน์</span>'
-    : '<span class="badge neutral">⚪ ออฟไลน์</span>';
+  const badge = r.online ? statusPill('good', 'ออนไลน์') : statusPill('muted', 'ออฟไลน์');
   const slaBadge = (Number(r.overSla) || 0) > 0
-    ? ' <span class="badge urgent" title="แชทที่ลูกค้ารอเกินเกณฑ์ SLA ตอนนี้ (ไม่ขึ้นกับช่วงเวลาที่เลือก)">⏰ ' +
+    ? ' <span class="badge urgent" title="แชทที่ลูกค้ารอเกินเกณฑ์ SLA ตอนนี้ (ไม่ขึ้นกับช่วงเวลาที่เลือก)">เกิน SLA ' +
       esc(fmtNum(Number(r.overSla))) + '</span>'
     : '';
-  const sub1 = '🛒 ' + esc(fmtNum(r.orders)) + ' ออเดอร์ • 💬 <span title="คนทัก = บทสนทนาอินบ็อกซ์ใหม่ + ความคิดเห็น (ตรงจอสถิติการมีส่วนร่วมของ Pancake) — ใช้เป็นตัวหาร %ปิดการขาย">' +
-    esc(fmtNum(r.chats)) + ' คนทัก</span> • ↩ ' + esc(fmtNum(r.replies)) + ' ตอบ • 📞 ' + esc(fmtNum(r.phones)) + ' เบอร์';
-  const sub2 = '📦 ' + esc(r.topProduct || '-') + ' • 📄 ' + esc(r.topPage || '-') +
+  const sub1 = esc(fmtNum(r.orders)) + ' ออเดอร์ • <span title="คนทัก = บทสนทนาอินบ็อกซ์ใหม่ + ความคิดเห็น (ตรงจอสถิติการมีส่วนร่วมของ Pancake) — ใช้เป็นตัวหาร %ปิดการขาย">' +
+    esc(fmtNum(r.chats)) + ' คนทัก</span> • ' + esc(fmtNum(r.replies)) + ' ตอบ • ' + esc(fmtNum(r.phones)) + ' เบอร์';
+  const sub2 = '<span class="mini-lbl">ขายดี</span>' + esc(r.topProduct || '-') +
+    ' • <span class="mini-lbl">เพจ</span>' + esc(r.topPage || '-') +
     (r.lastOrderAt ? ' • ออเดอร์ล่าสุด ' + esc(relTime(r.lastOrderAt)) : '');
   // แชทรอตอบตอนนี้ของคนนี้ — เฉพาะอินบ็อกซ์ (บอสสั่งเอาคอมเมนต์ออก 2026-08-03; ยอดคอมเมนต์ยังอยู่ใน CSV)
   const waitN = Number(r.waitingNow) || 0;
   const waitCmt = Number(r.waitingCommentNow) || 0;
   const waitInbox = Math.max(0, waitN - waitCmt);
   const sub3 = waitInbox > 0
+    // สีส้มอยู่ที่ span ข้างใน — .rank-sub ประกาศทีหลัง .tx-warn ใน globals.css ถ้าใส่ที่ div สีจะโดนทับ
     ? '<div class="rank-sub" title="อินบ็อกซ์ที่ลูกค้ารอตอบตอนนี้ (24 ชม.ล่าสุด) — ไม่รวมคอมเมนต์ใต้โพสต์ ' + esc(fmtNum(waitCmt)) + ' รายการ">' +
-      '⏰ แชทรอตอบ ' + esc(fmtNum(waitInbox)) + '</div>'
+      '<span class="tx-warn">แชทรอตอบ ' + esc(fmtNum(waitInbox)) + '</span></div>'
     : '';
   // โหมด Overall โชว์คะแนนเป็นตัวใหญ่ + ยอดขายเป็นตัวรอง; โหมดอื่นโชว์ยอดขายเป็นตัวใหญ่
   const big = (state.mode === 'overall')
@@ -1077,8 +1094,9 @@ function rankCardHtml(r: PerfRow, idx: number): string {
       ? '<div class="rank-big">' + esc(roasTxt(r)) + '<span class="rank-big-u"> เท่า</span></div>'
       : '<div class="rank-big">' + esc(THB(r.revenue)) + '</div>';
   // เปอร์บิล + ROAS อยู่ในทุกโหมด (เดิมเปอร์บิลโผล่เฉพาะโหมดที่ไม่ใช่ Overall)
-  const mini = ((state.mode === 'overall' || state.mode === 'roas') ? '💰 ' + esc(THB(r.revenue)) + ' • ' : '') +
-    '<span title="' + esc(closeRateTip(r)) + '">🎯 ' + esc(pctFmt(r.closeRate)) + '</span> • ⚡ ' + esc(respLong(r)) +
+  const mini = ((state.mode === 'overall' || state.mode === 'roas') ? '<span class="mini-lbl">ยอด</span>' + esc(THB(r.revenue)) + ' • ' : '') +
+    '<span title="' + esc(closeRateTip(r)) + '"><span class="mini-lbl">ปิด</span>' + esc(pctFmt(r.closeRate)) + '</span>' +
+    ' • <span class="mini-lbl">ตอบ</span>' + esc(respLong(r)) +
     '<br>' + perBillHtml(r) + ' • ' + roasHtml(r);
   return '<div class="' + cardCls + '">' +
     noHtml +
@@ -1101,7 +1119,7 @@ function rankCardHtml(r: PerfRow, idx: number): string {
 /** ส่วนอันดับ (podium + list) — recompute ได้เร็วโดยไม่แตะแผงเกณฑ์ */
 function rankingHtml(data: PerfData | null): string {
   const rows = visRows(data);
-  if (!rows.length) return '<div class="empty-note">🏆 ยังไม่มีข้อมูลในช่วง/ตัวกรองนี้</div>';
+  if (!rows.length) return '<div class="empty-note">ยังไม่มีข้อมูลในช่วง/ตัวกรองนี้</div>';
   scoreRows(rows);
   const sorted = sortRows(rows, state.mode);
   return rankTabsHtml() +
@@ -1200,11 +1218,11 @@ function bindEvents(container: HTMLElement): void {
     autoBtn.addEventListener('click', function () {
       autoOn = !autoOn;
       autoBtn.classList.toggle('primary', autoOn);
-      autoBtn.textContent = autoOn ? '⏸️ หยุดอัตโนมัติ' : '▶️ อัปเดตอัตโนมัติ';
+      autoBtn.innerHTML = autoBtnInner(); // innerHTML เพราะมีไอคอน (textContent จะทิ้ง svg)
       const dot = container.querySelector('.live-dot');
       if (dot) dot.classList.toggle('on', autoOn);
       if (autoOn) startAuto(container); else stopAuto();
-      toast(autoOn ? '🔄 เปิดอัปเดตอัตโนมัติทุก ' + Math.round(AUTO_MS / 1000) + ' วินาที' : '⏸️ ปิดอัปเดตอัตโนมัติแล้ว');
+      toast(autoOn ? 'เปิดอัปเดตอัตโนมัติทุก ' + Math.round(AUTO_MS / 1000) + ' วินาที' : 'ปิดอัปเดตอัตโนมัติแล้ว');
     });
   }
 
@@ -1234,8 +1252,8 @@ function bindEvents(container: HTMLElement): void {
   const kpiSave = container.querySelector('#rk-kpi-save');
   if (kpiSave) kpiSave.addEventListener('click', function () {
     serverCall('apiAdminSettings', { kpiTargets: kpiTargets })
-      .then(function () { toast('💾 บันทึกเป้า KPI แล้ว — ทุกคนจะเห็นเป้าเดียวกัน'); })
-      .catch(function () { toast('⚠️ บันทึกเป้า KPI ไม่สำเร็จ'); });
+      .then(function () { toast('บันทึกเป้า KPI แล้ว — ทุกคนจะเห็นเป้าเดียวกัน'); })
+      .catch(function () { toast('บันทึกเป้า KPI ไม่สำเร็จ'); });
   });
 
   const kpiReset = container.querySelector('#rk-kpi-reset');
@@ -1243,7 +1261,7 @@ function bindEvents(container: HTMLElement): void {
     kpiTargets = { ...DEFAULT_KPI_TARGETS };
     state.kpiOpen = true;
     render(container, lastData);
-    toast('↺ กลับไปใช้เป้าเริ่มต้นแล้ว (ยังไม่บันทึก)');
+    toast('กลับไปใช้เป้าเริ่มต้นแล้ว (ยังไม่บันทึก)');
   });
 
   // toggle แผงเกณฑ์
@@ -1312,8 +1330,8 @@ function bindEvents(container: HTMLElement): void {
   const saveBtn = container.querySelector('#rk-save');
   if (saveBtn) saveBtn.addEventListener('click', function () {
     serverCall('apiScoreConfig', { config: scoreConfig, rank: rankRules })
-      .then(function () { toast('💾 บันทึกเกณฑ์แล้ว — ทุกคนจะเห็นเกณฑ์นี้'); })
-      .catch(function () { toast('⚠️ บันทึกเกณฑ์ไม่สำเร็จ'); });
+      .then(function () { toast('บันทึกเกณฑ์แล้ว — ทุกคนจะเห็นเกณฑ์นี้'); })
+      .catch(function () { toast('บันทึกเกณฑ์ไม่สำเร็จ'); });
   });
 
   // รีเซ็ตค่าเริ่มต้น
@@ -1323,7 +1341,7 @@ function bindEvents(container: HTMLElement): void {
     rankRules = normalizeRankRules(null);
     state.panelOpen = true;
     render(container, lastData);
-    toast('↺ กลับไปใช้ค่าเริ่มต้นแล้ว (ยังไม่บันทึก)');
+    toast('กลับไปใช้ค่าเริ่มต้นแล้ว (ยังไม่บันทึก)');
   });
 
   // export CSV
@@ -1436,7 +1454,7 @@ function fetchData(container: HTMLElement, background: boolean): void {
   }).catch(function (err) {
     if (seq !== reqSeq) return;
     if (background) {
-      toast('⚠️ โหลดข้อมูล Ranking ใหม่ไม่สำเร็จ');
+      toast('โหลดข้อมูล Ranking ใหม่ไม่สำเร็จ');
     } else {
       hideChartTip(); // กราฟถูกแทนด้วยกล่อง error — ซ่อนทูลทิปที่อาจค้าง
       showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', function () {

@@ -49,10 +49,10 @@ const state: RangeState = { preset: 'today', from: '', to: '' };
 
 /* ---------------- ชิ้นส่วน HTML ---------------- */
 
-/** การ์ดตัวเลขใหญ่ 1 ตัว */
-function bigCard(icon: string, label: string, value: string, sub: string, tone = ''): string {
+/** การ์ดตัวเลขใหญ่ 1 ตัว — ป้ายคำ + ตัวเลข ไม่มีรูปนำหน้า (ตรวจ UI รอบ 2: เลิกใช้อีโมจิ การ์ดตัวเลขที่ไม่มีกรอบไอคอนใช้คำล้วน) */
+function bigCard(label: string, value: string, sub: string, tone = ''): string {
   return '<div class="card me-card' + (tone ? ' ' + tone : '') + '">' +
-    '<div class="me-card-top">' + icon + ' ' + esc(label) + '</div>' +
+    '<div class="me-card-top">' + esc(label) + '</div>' +
     '<div class="me-card-val">' + value + '</div>' +
     (sub ? '<div class="card-sub">' + sub + '</div>' : '') +
     '</div>';
@@ -88,7 +88,7 @@ function bodyHtml(d: MeData): string {
   const controls = '<div class="pg-controls">' + rangeControlsHtml(state, 'me') + '</div>';
 
   if (d.linked === false) {
-    return controls + '<div class="card"><div class="empty">🔗 ' + esc(d.message || 'บัญชียังไม่ได้ผูกกับแอดมิน') + '</div></div>';
+    return controls + '<div class="card"><div class="empty">' + esc(d.message || 'บัญชียังไม่ได้ผูกกับแอดมิน') + '</div></div>';
   }
   if (d.empty || !d.me) {
     return controls + '<div class="card"><div class="empty">ยังไม่มีข้อมูลของคุณในช่วง ' + esc(d.rangeLabel || '') + '</div></div>';
@@ -103,9 +103,9 @@ function bodyHtml(d: MeData): string {
   const shown = esc(m.nickname || m.name || '');
 
   const head = '<div class="card me-hero">' +
-    '<div class="me-hero-name">👋 สวัสดี ' + shown + '</div>' +
+    '<div class="me-hero-name">สวัสดี ' + shown + '</div>' +
     '<div class="me-hero-sub">ผลงานของคุณ • ' + esc(d.rangeLabel || '') +
-      (state.preset === 'today' ? ' • ⏱️ ' + timeLeftToday() : '') + '</div>' +
+      (state.preset === 'today' ? ' • ' + esc(timeLeftToday()) : '') + '</div>' +
     '<div class="me-rank">อันดับ <b>' + fmtNum(d.rank || 0) + '</b> จาก ' + fmtNum(d.teamSize || 0) + ' คน</div>' +
     '</div>';
 
@@ -116,27 +116,27 @@ function bodyHtml(d: MeData): string {
     progressRow('คนทัก', Number(m.chats) || 0, Number(tg.chats) || 0, (n) => fmtNum(n)),
   ].filter(Boolean).join('');
   const progCard = progs
-    ? '<div class="card"><h3>🎯 เทียบเป้าหมาย</h3>' + progs + '</div>'
+    ? '<div class="card"><h3>เทียบเป้าหมาย</h3>' + progs + '</div>'
     : '';
 
   const cards = '<div class="me-grid">' +
-    bigCard('💰', 'ยอดขาย', THB(rev), 'เฉลี่ยทีม ' + THB(avg.revenue)) +
-    bigCard('🛒', 'ออเดอร์', fmtNum(m.orders || 0), 'เฉลี่ยทีม ' + fmtNum(avg.orders)) +
-    bigCard('💬', 'คนทัก', fmtNum(m.chats || 0), 'เฉลี่ยทีม ' + fmtNum(avg.chats)) +
-    bigCard('🎯', '% ปิดการขาย', pctFmt(m.closeRate),
+    bigCard('ยอดขาย', THB(rev), 'เฉลี่ยทีม ' + THB(avg.revenue)) +
+    bigCard('ออเดอร์', fmtNum(m.orders || 0), 'เฉลี่ยทีม ' + fmtNum(avg.orders)) +
+    bigCard('คนทัก', fmtNum(m.chats || 0), 'เฉลี่ยทีม ' + fmtNum(avg.chats)) +
+    bigCard('% ปิดการขาย', pctFmt(m.closeRate),
       avg.closeRate === null ? '' : 'เฉลี่ยทีม ' + pctFmt(avg.closeRate)) +
-    bigCard('🧾', 'เปอร์บิล', THB(m.avgOrder || 0), 'ยอดขายเฉลี่ยต่อบิล') +
-    bigCard('📈', 'ROAS',
+    bigCard('เปอร์บิล', THB(m.avgOrder || 0), 'ยอดขายเฉลี่ยต่อบิล') +
+    bigCard('ROAS',
       (m.roas === null || m.roas === undefined) ? '—' : (Math.round(Number(m.roas) * 100) / 100) + 'x',
       (m.roas === null || m.roas === undefined) ? 'ยอดขายไม่ได้มาจากแอด' : 'ยอดขาย ÷ ค่าแอดที่จัดสรร') +
-    bigCard('⚡', 'ตอบเฉลี่ย',
+    bigCard('ตอบเฉลี่ย',
       (m.avgRespMins === null || m.avgRespMins === undefined) ? '—' : m.avgRespMins + ' น.', 'ยิ่งน้อยยิ่งดี') +
-    bigCard('↩', 'ข้อความที่ตอบ', fmtNum(m.replies || 0), '📞 เบอร์ใหม่ ' + fmtNum(m.phones || 0)) +
+    bigCard('ข้อความที่ตอบ', fmtNum(m.replies || 0), 'เบอร์ใหม่ ' + fmtNum(m.phones || 0)) +
     '</div>';
 
   // งานค้างตอนนี้ — ค่า "ตอนนี้" ไม่ขึ้นกับช่วงที่เลือก บอกให้ชัดกันเข้าใจผิด
   const now = '<div class="card">' +
-    '<h3>⏰ งานค้างตอนนี้</h3>' +
+    '<h3>งานค้างตอนนี้</h3>' +
     '<div class="card-sub">24 ชม. ล่าสุด — ไม่ขึ้นกับช่วงเวลาที่เลือกด้านบน</div>' +
     '<div class="pg-summary">' +
       '<div class="pgs-item"><b>' + fmtNum(m.activeNow || 0) + '</b><span>แชทที่ดูแล</span></div>' +
@@ -145,7 +145,7 @@ function bodyHtml(d: MeData): string {
     '</div></div>';
 
   const detail = '<div class="card">' +
-    '<h3>📦 รายละเอียด</h3>' +
+    '<h3>รายละเอียด</h3>' +
     '<div class="me-kv"><span>สินค้าขายดีของคุณ</span><b>' + esc(m.topProduct || '-') + '</b></div>' +
     '<div class="me-kv"><span>เพจที่ทำยอดดีสุด</span><b>' + esc(m.topPage || '-') + '</b></div>' +
     '<div class="me-kv"><span>ออเดอร์ล่าสุด</span><b>' + esc(m.lastOrderAt || '-') + '</b></div>' +
@@ -178,7 +178,7 @@ function fetchAndRender(container: HTMLElement): void {
     .catch((err) => {
       if (seq !== reqSeq) return;
       if (lastData) {
-        toast('⚠️ โหลดข้อมูลใหม่ไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
+        toast('โหลดข้อมูลใหม่ไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
       } else {
         showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', () => me.load(container, true));
       }

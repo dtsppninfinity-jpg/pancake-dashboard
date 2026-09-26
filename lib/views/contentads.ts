@@ -9,6 +9,7 @@ import {
   toast, openModal, closeModal, showError, downloadCSV, downloadXLS,
 } from '@/lib/ui/helpers';
 import { contentadsSkel } from '@/lib/ui/skeletons';
+import { icon, brandIcon, ICON_FOR } from '@/lib/ui/icons';
 
 let lastData: any = null;
 const filter = { q: '', status: '', account: '', page: '', product: '', rank: 'revenue' };
@@ -28,25 +29,45 @@ const RANGE_OPTIONS = [
   { d: 90, label: '90 วัน' },
 ];
 
+// ตัวเลือกใน <select> ใส่ไอคอนไม่ได้ — คำล้วน (ตรวจ UI รอบ 2 ถอดอีโมจิออกทั้งชุด)
 const STATUS_OPTIONS = [
   { key: '', label: 'ทุกสถานะ' },
-  { key: 'winning', label: '🏆 Winning' },
-  { key: 'needs_fix', label: '🛠️ Needs Fix' },
-  { key: 'losing', label: '📉 Losing' },
-  { key: 'watch', label: '👀 Watch' },
-  { key: 'active', label: '▶️ Active' },
-  { key: 'organic', label: '🌱 Organic (ไม่ใช้งบ)' }, // แถวที่ไม่มี spend — เดิมกรองหาไม่ได้เลย (บั๊ก)
-  { key: 'paused', label: '⏸️ Paused' },
+  { key: 'winning', label: 'Winning' },
+  { key: 'needs_fix', label: 'Needs Fix' },
+  { key: 'losing', label: 'Losing' },
+  { key: 'watch', label: 'Watch' },
+  { key: 'active', label: 'Active' },
+  { key: 'organic', label: 'Organic (ไม่ใช้งบ)' }, // แถวที่ไม่มี spend — เดิมกรองหาไม่ได้เลย (บั๊ก)
+  { key: 'paused', label: 'Paused' },
 ];
 
+// ปุ่มเรียงลำดับ 6 ปุ่มเรียงติดกัน — คำล้วนอ่านง่ายกว่าไอคอน 6 รูปที่ต้องจำความหมาย
 const RANK_MODES = [
-  { key: 'revenue', label: '💰 ทำยอดขายสูงสุด' },
-  { key: 'roas', label: '📈 ROAS ดีที่สุด' },
-  { key: 'cpo', label: '💸 Cost/Order ต่ำสุด' },
-  { key: 'worry', label: '⚠️ น่าเป็นห่วง' },
-  { key: 'spend', label: '🔥 Spend สูงสุด' },
-  { key: 'lowclose', label: '💬 แชทเยอะปิดต่ำ' },
+  { key: 'revenue', label: 'ทำยอดขายสูงสุด' },
+  { key: 'roas', label: 'ROAS ดีที่สุด' },
+  { key: 'cpo', label: 'Cost/Order ต่ำสุด' },
+  { key: 'worry', label: 'น่าเป็นห่วง' },
+  { key: 'spend', label: 'Spend สูงสุด' },
+  { key: 'lowclose', label: 'แชทเยอะปิดต่ำ' },
 ];
+
+/**
+ * ป้ายสถานะแอดจาก server (lib/api/contentads.ts) ยังมีอีโมจินำหน้า เช่น '🏆 Winning' '⏸ Paused'
+ * ตัดสัญลักษณ์หน้าคำทิ้งตอนแสดง — สีของป้ายมาจาก status.cls อยู่แล้ว ไม่ต้องพึ่งอีโมจิ
+ */
+function statusLabel_(st: any): string {
+  const s = String((st && st.label) || '').replace(/^[^\p{L}\p{N}]+/u, '').trim();
+  return s || '-';
+}
+
+/** ป้ายสถานะแอด (สีจาก status.cls) — แถว organic (ไม่ใช้งบ) มีไอคอนต้นกล้าแทน 🌱 เดิม */
+function statusBadge_(st: any): string {
+  const ic = st && st.key === 'organic' ? icon(ICON_FOR.organic, { size: 14 }) : '';
+  return '<span class="badge ' + esc((st && st.cls) || 'neutral') + '">' + ic + esc(statusLabel_(st)) + '</span>';
+}
+
+/** ปุ่มปิดโมดัลแบบไอคอนล้วน — ต้องมี aria-label + title เพราะไม่มีคำบนปุ่ม */
+const MODAL_CLOSE_BTN = '<button class="modal-close" aria-label="ปิด" title="ปิด">' + icon(ICON_FOR.close, { size: 18 }) + '</button>';
 
 const VERDICT_ACTIONS: Record<string, string[]> = {
   scale: [
@@ -157,18 +178,19 @@ function uniqueProducts(items: any[]): string[] {
 function mediaBoxHtml_(it: any, cls: string): string {
   const m = it && it.media;
   const isVid = !!(m && m.video);
-  const icon = isVid ? '🎬' : (it && it.organicPost ? '📝' : '🖼️');
+  // ไอคอนในกล่องว่าง: คลิป / โพสต์ (organic) / รูป — ขนาดใหญ่ในหน้าวิเคราะห์ปรับด้วย CSS .ca-media-img .ca-ph .ic
+  const ph = icon(isVid ? 'video' : (it && it.organicPost ? 'file-text' : 'image'), { size: 20 });
   const img = safeUrl_(m && m.img);
   const alt = safeUrl_(m && m.imgAlt);
   // ไม่มีรูปเลย → เรนเดอร์กล่องว่างตั้งแต่แรก (ไม่ต้องรอ error)
   if (!img) {
-    return '<div class="' + cls + ' broken"><span class="ca-ph">' + icon + '</span></div>';
+    return '<div class="' + cls + ' broken"><span class="ca-ph">' + ph + '</span></div>';
   }
   return '<div class="' + cls + '">' +
     '<img src="' + esc(img) + '" alt="" loading="lazy" decoding="async"' +
     (alt && alt !== img ? ' data-ca-fallback="' + esc(alt) + '"' : ' data-ca-fallback=""') + '>' +
-    '<span class="ca-ph">' + icon + '</span>' +
-    (isVid ? '<span class="ca-play">▶️</span>' : '') +
+    '<span class="ca-ph">' + ph + '</span>' +
+    (isVid ? '<span class="ca-play" title="วิดีโอ">' + icon(ICON_FOR.play, { size: 12, label: 'วิดีโอ' }) + '</span>' : '') +
     '</div>';
 }
 
@@ -199,11 +221,12 @@ function safeUrl_(u: any): string {
 function mediaLinksHtml_(it: any): string {
   const m = it && it.media;
   if (!m) return '';
-  const btn = function (href: any, label: string): string {
+  // labelHtml = ไอคอน + คำ (ประกอบจากค่าคงที่ในไฟล์นี้เท่านั้น ไม่มีข้อมูลผู้ใช้ปน)
+  const btn = function (href: any, labelHtml: string): string {
     const u = safeUrl_(href);
     if (!u) return '';
     return '<a class="btn-mini" href="' + esc(u) + '" target="_blank" rel="noopener noreferrer">' +
-      label + '</a>';
+      labelHtml + '</a>';
   };
   let h = '';
   // Ads Manager = ที่เดียวที่ดูครีเอทีฟของแอด (รวม dark post + วิดีโอ) ได้ครบจริง
@@ -212,11 +235,11 @@ function mediaLinksHtml_(it: any): string {
   const adId = String((it && it.adId) || '');
   if (acc && adId) {
     h += btn('https://adsmanager.facebook.com/adsmanager/manage/ads?act=' + encodeURIComponent(acc) +
-      '&selected_ad_ids=' + encodeURIComponent(adId), '📊 เปิดใน Ads Manager ↗');
+      '&selected_ad_ids=' + encodeURIComponent(adId), icon(ICON_FOR.open, { size: 14 }) + 'เปิดใน Ads Manager');
   }
-  h += btn(m.permalink, 'เปิดโพสต์จริงบน Facebook ↗');
-  h += btn(m.ig, '📸 โพสต์ Instagram ↗');
-  h += btn(m.link, '🌐 ลิงก์ปลายทาง ↗');
+  h += btn(m.permalink, brandIcon('facebook') + 'เปิดโพสต์จริงบน Facebook');
+  h += btn(m.ig, brandIcon('instagram') + 'โพสต์ Instagram');
+  h += btn(m.link, icon(ICON_FOR.link, { size: 14 }) + 'ลิงก์ปลายทาง');
   return h;
 }
 
@@ -242,7 +265,7 @@ function mediaPanelHtml_(it: any): string {
   // คลิปของแอดเป็น dark post ไม่ได้เผยแพร่สาธารณะ plugin จึงขึ้น "วิดีโอไม่พร้อมใช้งาน" เสมอ
   // และดึงไฟล์ตรงจาก Graph API ก็ไม่ได้ (error 10 — app ไม่มีสิทธิ์) จึงส่งไป Ads Manager แทน
   h += '<div class="ca-media-note">' +
-    (m.video ? '🎬 คลิปของแอดดูได้ที่ <b>Ads Manager</b> (ต้องล็อกอิน Facebook ที่มีสิทธิ์บัญชีโฆษณา) — ' : '') +
+    (m.video ? 'คลิปของแอดดูได้ที่ <b>Ads Manager</b> (ต้องล็อกอิน Facebook ที่มีสิทธิ์บัญชีโฆษณา) — ' : '') +
     'รูปดึงจาก Meta โดยตรง ลิงก์มีวันหมดอายุ ถ้าไม่ขึ้นให้กด "เปิดโพสต์จริง"</div>';
   h += '</div></div>';
   return h;
@@ -250,6 +273,10 @@ function mediaPanelHtml_(it: any): string {
 
 /* ---------------- rule-based analysis (deterministic, ไม่เรียก server) ---------------- */
 
+/**
+ * ปัญหาของแอดจากกฎตายตัว — ic = ชื่อไอคอนลายเส้น (เดิมเป็นอีโมจิ 🥱💸📉🕳️💬🪝)
+ * ไอคอนย้อมสีตามความรุนแรงตอนวาด (สูง = แดง, กลาง = เหลือง) ดู openAnalysis()
+ */
 function computeProblems(it: any): any[] {
   const probs: any[] = [];
   const spend = num(it.spend), orders = num(it.orders), msgs = num(it.msgs), clicks = num(it.clicks);
@@ -258,29 +285,29 @@ function computeProblems(it: any): any[] {
   const close = nullable(it.closeRate);
   const age = nullable(it.ageDays);
   if (age !== null && age > 30 && it.status && it.status.key !== 'paused' && spend > 0) {
-    probs.push({ icon: '🥱', label: 'คอนเทนต์ล้า (ยิงมานาน)',
+    probs.push({ ic: 'history', label: 'คอนเทนต์ล้า (ยิงมานาน)',
       why: 'แอดนี้รันมาแล้ว ' + fmtNum(age) + ' วัน — ครีเอทีฟเดิมมักล้าหลัง 30 วัน ควรเตรียมตัวใหม่',
       sev: 'medium' });
   }
   if (cpo !== null && cpo > 400) {
-    probs.push({ icon: '💸', label: 'Cost ต่อออเดอร์สูงเกินกำหนด',
+    probs.push({ ic: 'coins', label: 'Cost ต่อออเดอร์สูงเกินกำหนด',
       why: 'Cost/Order ' + THB(cpo) + ' เกินเพดาน ฿400', sev: 'high' });
   }
   if (roas !== null && roas < 1.5) {
-    probs.push({ icon: '📉', label: 'ROAS ต่ำ',
+    probs.push({ ic: ICON_FOR.trendDown, label: 'ROAS ต่ำ',
       why: 'ROAS ' + roasStr(roas) + ' ต่ำกว่าเกณฑ์ 1.5 (ใช้งบ ' + THB(spend) + ')',
       sev: roas < 1 ? 'high' : 'medium' });
   }
   if (spend > 800 && orders === 0) {
-    probs.push({ icon: '🕳️', label: 'จ่ายแล้วไม่มีออเดอร์',
+    probs.push({ ic: 'package-x', label: 'จ่ายแล้วไม่มีออเดอร์',
       why: 'ใช้งบไปแล้ว ' + THB(spend) + ' แต่ยังไม่มีออเดอร์เลย', sev: 'high' });
   }
   if (msgs > 30 && close !== null && close < 10) {
-    probs.push({ icon: '💬', label: 'แชทเยอะ แต่ปิดไม่ได้',
+    probs.push({ ic: ICON_FOR.chats, label: 'แชทเยอะ แต่ปิดไม่ได้',
       why: 'มีแชท ' + fmtNum(msgs) + ' แต่ปิดการขายได้แค่ ' + pctFmt(close), sev: 'medium' });
   }
   if (clicks > 800 && msgs < 15) {
-    probs.push({ icon: '🪝', label: 'Hook ไม่ดึงเข้าแชท',
+    probs.push({ ic: 'mouse-pointer-click', label: 'Hook ไม่ดึงเข้าแชท',
       why: 'คลิก ' + kFmt(clicks) + ' แต่ทักแชทแค่ ' + fmtNum(msgs), sev: 'medium' });
   }
   return probs;
@@ -308,26 +335,27 @@ function openAnalysis(data: any, adId: any): void {
     if (p.sev === 'high') hasHigh = true;
     else if (p.sev === 'medium') hasMed = true;
   });
+  // ป้ายมีสีตามความเร่งด่วนอยู่แล้ว (แดง/เหลือง/เขียว) — ไม่ต้องมีวงกลมสีอีโมจิต่อท้าย
   const urgBadge = hasHigh
-    ? '<span class="badge urgent">ความเร่งด่วน: ด่วนมาก 🔴</span>'
+    ? '<span class="badge urgent">ความเร่งด่วน: ด่วนมาก</span>'
     : (hasMed
-      ? '<span class="badge admin">ควรปรับใน 48 ชม. 🟠</span>'
-      : '<span class="badge ai">ติดตามต่อ 🟢</span>');
+      ? '<span class="badge admin">ควรปรับใน 48 ชม.</span>'
+      : '<span class="badge ai">ติดตามต่อ</span>');
   const st = item.status || { label: '-', cls: 'neutral' };
 
-  let html = '<div class="modal-head"><h3>🧠 วิเคราะห์: ' +
+  let html = '<div class="modal-head"><h3>วิเคราะห์: ' +
     esc(item.name || ('Ad ' + item.adId)) +
-    '</h3><button class="modal-close">✕</button></div>';
+    '</h3>' + MODAL_CLOSE_BTN + '</div>';
 
   html += '<div class="pill-grid">' +
-    '<span class="badge ' + esc(st.cls || 'neutral') + '">' + esc(st.label || '-') + '</span>' +
+    statusBadge_(st) +
     urgBadge +
     '<span class="badge neutral">' + THB(num(item.spend)) + ' → ' + THB(num(item.revenue)) +
     ' (ROAS ' + roasStr(item.roas) + ')</span>' +
     (nullable(item.ageDays) !== null
-      ? '<span class="badge neutral">🗓️ อายุ ' + fmtNum(num(item.ageDays)) + ' วัน</span>' : '') +
+      ? '<span class="badge neutral">อายุ ' + fmtNum(num(item.ageDays)) + ' วัน</span>' : '') +
     (item.topSeller
-      ? '<span class="badge ai">🧑‍💼 ปิดขายมากสุด: ' + esc(item.topSeller) + '</span>' : '') +
+      ? '<span class="badge ai">ปิดขายมากสุด: ' + esc(item.topSeller) + '</span>' : '') +
     '</div>';
 
   // สื่อของแอด (รูป/คลิป/ลิงก์โพสต์) — วางบนสุดเพราะทีมแอดต้อง "เห็นครีเอทีฟ" ก่อนอ่านตัวเลข
@@ -341,7 +369,7 @@ function openAnalysis(data: any, adId: any): void {
       '<span style="color:var(--text-3)">' + label + '</span>' +
       '<span style="font-weight:600;text-align:right;min-width:0">' + val + '</span></div>';
   };
-  html += '<div style="font-weight:700;font-size:13px;margin:16px 0 4px">🧾 รายละเอียดการขาย (POS จริง)</div>';
+  html += '<div style="font-weight:700;font-size:13px;margin:16px 0 4px">รายละเอียดการขาย (POS จริง)</div>';
   html += '<div>';
   html += dRow('บริษัท / เพจ', esc(item.pageName || '—'));
   html += dRow('Ad ID', '<span style="font-family:monospace;font-size:11px">' + esc(String(item.adId)) + '</span>');
@@ -352,26 +380,26 @@ function openAnalysis(data: any, adId: any): void {
   }
   html += dRow('อัปเดตล่าสุด', item.updatedAt ? esc(relTime(item.updatedAt)) : '—');
   html += '</div>';
-  html += '<div style="font-weight:700;font-size:13px;margin:14px 0 4px">🧑‍💼 ปิดยอดขาย (ใครปิดได้เท่าไร)</div>';
+  html += '<div style="font-weight:700;font-size:13px;margin:14px 0 4px">ปิดยอดขาย (ใครปิดได้เท่าไร)</div>';
   if (!closers.length) {
     html += '<div class="empty-note" style="padding:10px">ยังไม่มีออเดอร์ POS ที่ผูกแอดนี้ในช่วงที่เลือก</div>';
   } else {
     html += '<div>' + closers.map(function (c: any) {
       return '<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;' +
         'border-bottom:1px dashed rgba(38,51,82,.5);font-size:12.5px">' +
-        '<span>👤 ' + esc(String(c.name)) + ' <span class="badge neutral">' + fmtNum(num(c.orders)) + '</span></span>' +
+        '<span>' + esc(String(c.name)) + ' <span class="badge neutral">' + fmtNum(num(c.orders)) + '</span></span>' +
         '<span style="font-weight:600">' + THB(num(c.revenue)) + '</span></div>';
     }).join('') + '</div>';
   }
 
-  html += '<div style="font-weight:700;font-size:13px;margin:16px 0 4px">⚠️ ปัญหาที่พบ</div>';
+  html += '<div style="font-weight:700;font-size:13px;margin:16px 0 4px">ปัญหาที่พบ</div>';
   if (!probs.length) {
-    html += '<div class="empty-note" style="padding:14px 10px">ไม่พบปัญหา — แอดทำงานได้ดี 🎉</div>';
+    html += '<div class="empty-note" style="padding:14px 10px">ไม่พบปัญหา — แอดทำงานได้ดี</div>';
   } else {
     html += probs.map(function (p) {
       return '<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 0;' +
         'border-bottom:1px dashed rgba(38,51,82,.6);font-size:12.5px">' +
-        '<span style="font-size:16px">' + p.icon + '</span>' +
+        '<span class="' + (p.sev === 'high' ? 'tx-bad' : 'tx-warn') + '">' + icon(p.ic, { size: 16 }) + '</span>' +
         '<span style="flex:1;min-width:0"><b>' + esc(p.label) + '</b><br>' +
         '<span style="color:var(--text-3);font-size:11.5px">' + esc(p.why) + '</span></span>' +
         '<span class="badge ' + (p.sev === 'high' ? 'urgent' : 'admin') + '">' +
@@ -380,14 +408,15 @@ function openAnalysis(data: any, adId: any): void {
   }
 
   const actions = VERDICT_ACTIONS[computeVerdict(item)] || VERDICT_ACTIONS.adjust;
-  html += '<div style="font-weight:700;font-size:13px;margin:16px 0 4px">✅ Action ที่แนะนำ</div>';
+  html += '<div style="font-weight:700;font-size:13px;margin:16px 0 4px">Action ที่แนะนำ</div>';
   html += actions.map(function (a, idx) {
     return '<div style="display:flex;gap:10px;align-items:flex-start;padding:6px 0;font-size:12.5px">' +
       '<span class="badge neutral">' + (idx + 1) + '</span>' +
       '<span style="padding-top:3px">' + esc(a) + '</span></div>';
   }).join('');
 
-  html += '<div class="hint-box">🤖 วิเคราะห์จากกฎอัตโนมัติบนตัวเลขจริง — ยังไม่ใช่ AI</div>';
+  // คำล้วน ไม่ใส่ไอคอนประกาย — ประโยคนี้บอกว่า "ยังไม่ใช่ AI" ไอคอนสื่อ AI จะขัดกับคำ
+  html += '<div class="hint-box">วิเคราะห์จากกฎอัตโนมัติบนตัวเลขจริง — ยังไม่ใช่ AI</div>';
   html += '<div class="modal-actions"><button class="btn" id="ca-modal-ok">ปิด</button></div>';
 
   openModal(html);
@@ -443,7 +472,8 @@ function buildExportRows(data: any): any[][] | null {
       i + 1,
       csvVal(it.name), csvVal(it.adId), csvVal(it.campaign), csvVal(it.adsetId), csvVal(it.account),
       csvVal(it.pageName || it.pageId), (it.products || []).join(', '),
-      csvVal(it.marketer), (it.status && it.status.label) || '',
+      // ป้ายสถานะแบบตัดอีโมจิแล้ว ให้ไฟล์ตรงกับที่เห็นบนจอ (แถวไม่มีสถานะ = ช่องว่างเหมือนเดิม)
+      csvVal(it.marketer), it.status && it.status.label ? statusLabel_(it.status) : '',
       csvVal(nullable(it.ageDays)), csvVal(it.topSeller),
       org ? '-' : num(it.spend), org ? '-' : num(it.impressions),
       org ? '-' : num(it.reach), org ? '-' : num(it.clicks),
@@ -466,11 +496,13 @@ function controlsHtml(items: any[]): string {
   let h = '<div class="conv-filters" id="ca-range" style="margin-bottom:10px">' +
     RANGE_OPTIONS.map(function (o) {
       return '<button class="filter-btn' + (rangeDays === o.d ? ' active' : '') +
-        '" data-cadays="' + o.d + '">🗓️ ' + o.label + '</button>';
+        '" data-cadays="' + o.d + '">' + o.label + '</button>';
     }).join('') + '</div>';
   h += '<div class="pg-controls">';
-  h += '<input class="input" id="ca-q" style="flex:1;min-width:220px;max-width:360px" ' +
-    'placeholder="🔍 ค้นหาชื่อแอด / แคมเปญ / บัญชีแอด..." value="' + esc(filter.q) + '">';
+  // ช่องค้นหา: แว่นขยายวาดใน .search-box (placeholder ใส่รูปไม่ได้) — ขนาด/flex ย้ายจาก input มาไว้ที่กรอบ
+  h += '<div class="search-box" style="flex:1;min-width:220px;max-width:360px">' + icon(ICON_FOR.search) +
+    '<input class="input" id="ca-q" ' +
+    'placeholder="ค้นหาชื่อแอด / แคมเปญ / บัญชีแอด..." value="' + esc(filter.q) + '"></div>';
   h += '<select class="input" id="ca-status">' + STATUS_OPTIONS.map(function (o) {
     return '<option value="' + o.key + '"' + (filter.status === o.key ? ' selected' : '') + '>' +
       o.label + '</option>';
@@ -494,8 +526,8 @@ function controlsHtml(items: any[]): string {
         esc(p) + '</option>';
     }).join('') + '</select>';
   h += '<span class="spacer"></span>';
-  h += '<button class="btn" id="ca-csv" title="Export รายการที่กรอง/เรียงแล้วทั้งหมด">📄 CSV</button>';
-  h += '<button class="btn" id="ca-xls" title="ไฟล์ Excel เปิดแล้วภาษาไทยไม่เพี้ยน">📊 Excel</button>';
+  h += '<button class="btn" id="ca-csv" title="Export รายการที่กรอง/เรียงแล้วทั้งหมด">' + icon(ICON_FOR.csv) + 'CSV</button>';
+  h += '<button class="btn" id="ca-xls" title="ไฟล์ Excel เปิดแล้วภาษาไทยไม่เพี้ยน">' + icon(ICON_FOR.excel) + 'Excel</button>';
   h += '</div>';
   return h;
 }
@@ -516,18 +548,29 @@ function alertLevelBadge(level: string): string {
   return '<span class="badge info">เฝ้าดู</span>';
 }
 
+/**
+ * ไอคอนของ alert — server (lib/api/contentads.ts) ยังส่งอีโมจิมาใน a.icon จึงไม่ใช้ค่านั้นแล้ว
+ * เลือกจากชนิดท้าย id แทน ('AL-<adId>-roas' | -cpo | -zero | -close | -scale | -stop) ชนิดที่ไม่รู้จัก = กระดิ่ง
+ */
+const ALERT_ICONS: Record<string, string> = {
+  roas: ICON_FOR.trendDown, cpo: 'coins', zero: 'package-x', close: ICON_FOR.chats,
+  scale: ICON_FOR.trendUp, stop: 'octagon-alert',
+};
+const ALERT_TONE: Record<string, string> = { red: 'tx-bad', orange: 'tx-warn', yellow: 'tx-warn', green: 'tx-good' };
+
 function alertRowHtml(a: any): string {
   const lv = String(a.level || 'yellow');
   const reason = String(a.reason || '') + (a.nums ? ' • ' + String(a.nums) : '');
+  const kind = String(a.id || '').split('-').pop() || '';
   return '<div class="alert-row lv-' + esc(lv) + '">' +
-    '<div class="alert-icon">' + esc(a.icon || '🔔') + '</div>' +
+    '<div class="alert-icon ' + (ALERT_TONE[lv] || 'tx-muted') + '">' + icon(ALERT_ICONS[kind] || 'bell', { size: 20 }) + '</div>' +
     '<div class="alert-body">' +
     '<div class="alert-title">' + esc(a.title || '') + ' ' + alertLevelBadge(lv) + '</div>' +
     '<div class="alert-reason">' + esc(reason) + '</div>' +
     (a.recommend ? '<div class="alert-recommend">แนะนำ: ' + esc(a.recommend) + '</div>' : '') +
     '</div>' +
     '<div style="flex-shrink:0">' +
-    '<button class="btn-mini" data-ca-view="' + esc(a.adId) + '">🔎 ดูรายละเอียด</button>' +
+    '<button class="btn-mini" data-ca-view="' + esc(a.adId) + '">ดูรายละเอียด' + icon(ICON_FOR.next, { size: 14 }) + '</button>' +
     '</div></div>';
 }
 
@@ -536,12 +579,12 @@ function alertsCardHtml(data: any): string {
   const alerts = (data && data.alerts) || [];
   let h = '<div class="card" style="margin-bottom:14px">';
   h += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">' +
-    '<h3 style="margin:0">🔔 Content Alerts</h3>' +
+    '<h3 style="margin:0">Content Alerts</h3>' +
     '<span class="badge urgent">' + fmtNum(num(s.urgent)) + ' ด่วน</span>' +
     '<span class="badge admin">' + fmtNum(num(s.adjust)) + ' ควรปรับ</span>' +
     '<span class="badge ai">' + fmtNum(num(s.scale)) + ' ควร Scale</span></div>';
   if (!alerts.length) {
-    h += '<div class="empty-note">ไม่มี Alert ตอนนี้ 🎉</div>';
+    h += '<div class="empty-note">ไม่มี Alert ตอนนี้</div>';
   } else {
     const shown = alertShowAll ? alerts : alerts.slice(0, 5);
     h += '<div class="alert-list">' + shown.map(alertRowHtml).join('') + '</div>';
@@ -577,18 +620,20 @@ function cardHtml(it: any, rank: number): string {
   if (hasCreatives) h += mediaBoxHtml_(it, 'ca-thumb');
   h += '<div class="ca-main">';
   h += '<div class="ca-id">' + esc(it.name || ('Ad ' + it.adId)) +
-    ' <span class="badge ' + esc(st.cls || 'neutral') + '">' + esc(st.label || '-') + '</span>' +
+    ' ' + statusBadge_(st) +
     (it.campaign
       ? ' <span class="chip" style="padding:2px 10px;font-size:var(--fs-1)">' + esc(it.campaign) + '</span>'
       : '') +
     '</div>';
   const isOrganic = !!it.organicPost;
+  // เพจ/สินค้าเดิมบอกด้วยอีโมจิ 📄/📦 อย่างเดียว — ใช้คำสั้นสีจางนำหน้าแทน
   h += '<div class="ca-sub">' + esc(isOrganic ? 'ยอดขายจากโพสต์ (ไม่ผ่านแอด)' : line1) +
-    (it.pageName ? ' • 📄 ' + esc(it.pageName) : '') +
-    (it.topSeller ? ' • 🧑‍💼 ปิดขายมากสุด: ' + esc(it.topSeller) : '') + '</div>';
+    (it.pageName ? ' • <span class="mini-lbl">เพจ</span>' + esc(it.pageName) : '') +
+    (it.topSeller ? ' • ปิดขายมากสุด: ' + esc(it.topSeller) : '') + '</div>';
   h += '<div class="ca-sub">' + (isOrganic ? 'Post ' : 'Ad ') + esc(it.adId) +
     (nullable(it.ageDays) !== null ? ' • อายุ ' + fmtNum(num(it.ageDays)) + ' วัน' : '') +
-    ((it.products || []).length ? ' • 📦 ' + esc((it.products || []).slice(0, 2).join(', ')) : '') +
+    ((it.products || []).length
+      ? ' • <span class="mini-lbl">สินค้า</span>' + esc((it.products || []).slice(0, 2).join(', ')) : '') +
     ' • อัปเดต ' + esc(relTime(it.updatedAt)) + '</div>';
   h += '</div>';
 
@@ -619,13 +664,13 @@ function cardHtml(it: any, rank: number): string {
   // โชว์ตัวเลขพันเปอร์เซ็นต์ทำให้ตารางอ่านไม่ได้ — ใส่หมายเหตุแทน เกณฑ์เดียวกับการ์ดหน้า Sales
   h += caNum(Number(it.closeRate) > 100
     ? '<b title="ซื้อ ' + fmtNum(it.orders || 0) + ' มากกว่าคนทัก ' + fmtNum(it.msgs || 0) +
-      ' — Meta ส่งยอดซื้อมาก่อนตัวเลขคนทัก (หรือปิดจากคลิกวันก่อน) รอสิ้นวันจะนิ่ง">⏳</b>'
+      ' — Meta ส่งยอดซื้อมาก่อนตัวเลขคนทัก (หรือปิดจากคลิกวันก่อน) รอสิ้นวันจะนิ่ง" class="tx-muted ca-wait">รอข้อมูล</b>'
     : '<b title="ซื้อ ÷ ทัก (แบบ Meta)">' + pctFmt(it.closeRate) + '</b>', '% ปิด');
   h += '</div>';
 
   if (!isOrganic) {
     h += '<div style="flex-shrink:0"><button class="btn-mini primary" data-ca-view="' +
-      esc(it.adId) + '" title="วิเคราะห์จากตัวเลขจริง + คำแนะนำ">🧠 วิเคราะห์</button></div>';
+      esc(it.adId) + '" title="วิเคราะห์จากตัวเลขจริง + คำแนะนำ">' + icon(ICON_FOR.analyze, { size: 14 }) + 'วิเคราะห์</button></div>';
   }
   h += '</div>';
   return h;
@@ -635,14 +680,14 @@ function listHtml(allItems: any[], list: any[], needSetup?: boolean): string {
   if (!allItems.length) {
     // แยก 2 กรณีให้ชัด: ยังไม่ได้สร้างตาราง vs สร้างแล้วแต่ยังไม่มีข้อมูลในช่วงนี้
     return needSetup
-      ? '<div class="card"><div class="empty-note">🧩 ยังไม่ได้เปิดใช้ข้อมูลค่าแอด — ' +
+      ? '<div class="card"><div class="empty-note">ยังไม่ได้เปิดใช้ข้อมูลค่าแอด — ' +
         'ต้องรัน <b>db/migrations/2026-07-23-ad-daily.sql</b> ใน Supabase ก่อน ' +
         'แล้วรอ sync รอบถัดไป (ทุก 15 นาที)</div></div>'
-      : '<div class="card"><div class="empty-note">📡 ยังไม่มีข้อมูลแอดในช่วงนี้ — ' +
+      : '<div class="card"><div class="empty-note">ยังไม่มีข้อมูลแอดในช่วงนี้ — ' +
         'ลองเลือกช่วงที่ยาวขึ้น หรือรอ sync รอบถัดไป</div></div>';
   }
   if (!list.length) {
-    return '<div class="card"><div class="empty-note">🎯 ไม่พบแอดตามตัวกรอง</div></div>';
+    return '<div class="card"><div class="empty-note">ไม่พบแอดตามตัวกรอง</div></div>';
   }
   const top = list.slice(0, 30);
   let h = '<div class="ca-list">' + top.map(function (it, i) {
@@ -650,7 +695,7 @@ function listHtml(allItems: any[], list: any[], needSetup?: boolean): string {
   }).join('') + '</div>';
   if (list.length > 30) {
     h += '<div class="empty-note" style="padding:14px 10px">แสดง 30 อันดับแรกจากทั้งหมด ' +
-      fmtNum(list.length) + ' รายการ — กด 📄 CSV เพื่อดูทั้งหมด</div>';
+      fmtNum(list.length) + ' รายการ — กดปุ่ม CSV เพื่อดูทั้งหมด</div>';
   }
   return h;
 }
@@ -674,7 +719,7 @@ function mediaKFmt_(v: number): string {
 
 function mediaSectionHtml(): string {
   const headRow = '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-    '<h3 style="margin:0">🖼️ สื่อรายเพจ — เทียบทั้งปี</h3>' +
+    '<h3 style="margin:0">สื่อรายเพจ — เทียบทั้งปี</h3>' +
     (mediaPages
       ? '<select class="input" id="ca-media-page"><option value="">— เลือกเพจ (' + mediaPages.length + ' เพจที่มีค่าแอด 60 วัน) —</option>' +
         mediaPages.map(function (pg) {
@@ -685,7 +730,7 @@ function mediaSectionHtml(): string {
     '<div class="spacer" style="flex:1"></div></div>';
 
   let bodyHtml = '<div class="card-sub">เลือกเพจเพื่อดูว่าเพจนั้นยิงสื่อ (โพสต์) ตัวไหนบ้างทั้งปี — ' +
-    'ค่าแอดรายเดือนต่อสื่อ • สื่อเดียวกันหลายแอดรวมเป็นแถวเดียว • ▶️ = วิดีโอ</div>';
+    'ค่าแอดรายเดือนต่อสื่อ • สื่อเดียวกันหลายแอดรวมเป็นแถวเดียว • ' + icon('video', { size: 14 }) + ' = วิดีโอ</div>';
   if (mediaPageId && !mediaData) {
     bodyHtml += '<div class="loading"><div class="spinner"></div>กำลังรวมสื่อทั้งปีของเพจ...</div>';
   } else if (mediaData && mediaData.items) {
@@ -697,10 +742,11 @@ function mediaSectionHtml(): string {
       const img = x.thumb
         ? '<img src="' + esc(x.thumb) + '" style="width:44px;height:44px;object-fit:cover;border-radius:6px" loading="lazy">'
         // เดิมใช้ var(--bg-2,#333) แต่ --bg-2 ไม่เคยถูกประกาศ → ตกไปใช้ #333 เป็นกล่องดำบนธีมขาว
-        : '<div style="width:44px;height:44px;border-radius:6px;background:var(--surface-2);display:flex;align-items:center;justify-content:center">🖼️</div>';
+        : '<div class="tx-muted" style="width:44px;height:44px;border-radius:6px;background:var(--surface-2);display:flex;align-items:center;justify-content:center">' +
+          icon('image', { size: 18 }) + '</div>';
       const title = (x.permalink
         ? '<a href="' + esc(x.permalink) + '" target="_blank" rel="noopener" style="text-decoration:none">'
-        : '') + (x.isVideo ? '▶️ ' : '') + esc(String(x.title).slice(0, 60)) + (x.permalink ? '</a>' : '');
+        : '') + (x.isVideo ? icon('video', { size: 14, label: 'วิดีโอ' }) + ' ' : '') + esc(String(x.title).slice(0, 60)) + (x.permalink ? '</a>' : '');
       return '<tr>' +
         '<td>' + (idx + 1) + '</td>' +
         '<td><div style="display:flex;gap:8px;align-items:center">' + img +
@@ -744,7 +790,7 @@ function fetchMedia(container: HTMLElement): void {
     if (box) { box.innerHTML = mediaSectionHtml(); bindMedia(container); }
   }).catch(function () {
     if (seq !== mediaReq) return;
-    toast('⚠️ โหลดสื่อของเพจไม่สำเร็จ');
+    toast('โหลดสื่อของเพจไม่สำเร็จ');
   });
 }
 
@@ -773,12 +819,13 @@ function render(container: HTMLElement, data: any): void {
   let html = '';
   // ค่าแอดไม่ครบช่วง = ROAS สูงเกินจริง — ต้องเตือนก่อนตัวเลข ไม่ใช่ปล่อยให้อ่านผิด
   if (data && data.adDaysWarning) {
-    html += '<div class="hint-box" style="border-color:var(--red,#e17055);color:var(--red,#e17055)">⚠️ ' +
-      esc(data.adDaysWarning) + '</div>';
+    // ไอคอนรับสีแดงจากกล่อง (stroke = currentColor)
+    html += '<div class="hint-box" style="border-color:var(--red,#e17055);color:var(--red,#e17055)">' +
+      icon(ICON_FOR.alert, { size: 14 }) + ' ' + esc(data.adDaysWarning) + '</div>';
   }
   // มีแอดแต่ไม่มีสื่อสักตัว = ยังไม่ได้เปิดใช้ตาราง ad_creative (บอกให้ชัด ไม่ใช่ปล่อยกล่องรูปว่าง)
   if (data && !data.needAdSetup && items.length && !num(data.creativeCount)) {
-    html += '<div class="hint-box">🖼️ ยังไม่มีรูปครีเอทีฟ — รัน <b>db/migrations/2026-07-27-ad-creative.sql</b> ' +
+    html += '<div class="hint-box">ยังไม่มีรูปครีเอทีฟ — รัน <b>db/migrations/2026-07-27-ad-creative.sql</b> ' +
       'ใน Supabase แล้วสั่ง <b>npm run backfill:ad-creatives</b> (หลังจากนั้นเติมเองอัตโนมัติทุกชั่วโมง)</div>';
   }
   if (data && data.note) html += '<div class="hint-box">' + esc(data.note) + '</div>';
@@ -862,7 +909,7 @@ function fetchFresh(container: HTMLElement, background: boolean): void {
     render(container, lastData);
   }).catch(function (err: any) {
     if (background) {
-      toast('⚠️ โหลดข้อมูลแอดใหม่ไม่สำเร็จ — แสดงข้อมูลเดิมไปก่อน');
+      toast('โหลดข้อมูลแอดใหม่ไม่สำเร็จ — แสดงข้อมูลเดิมไปก่อน');
     } else {
       showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', function () {
         container.innerHTML = contentadsSkel();

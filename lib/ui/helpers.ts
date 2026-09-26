@@ -1,6 +1,28 @@
 // lib/ui/helpers.ts — helpers ฝั่ง client (port จาก JsCommon.html)
 // ฟังก์ชัน pure รันบน browser เท่านั้น — ห้าม import อะไรจากฝั่ง server
 // HTML string / ชื่อ class / ข้อความไทย / esc() คงเดิมทุกตัวอักษรจากเวอร์ชัน GAS
+// (ยกเว้น logoMark() ที่ page.tsx ฝั่ง server เรียกด้วย — ไฟล์นี้จึงห้ามแตะ window/document ตอน import)
+
+import { icon, brandIcon } from '@/lib/ui/icons';
+
+/* ---------------- โลโก้ PN ----------------
+ * วาดตัว P กับ N เป็นรูปทรงล้วน (path) ไม่ใช้ <text> — เดิมโลโก้/ไอคอนแท็บพิมพ์ "PN" ด้วยฟอนต์ Segoe UI
+ * ซึ่งไม่มีใน iPhone/Android ตัวอักษรเลยเพี้ยนเป็นฟอนต์อื่นคนละหน้าตาในแต่ละเครื่อง
+ * ⚠️ ถ้าแก้รูปทรงตรงนี้ ต้องแก้ app/icon.svg (ไอคอนแท็บเบราว์เซอร์) ให้ตรงกันด้วย — ไฟล์นั้นเป็น SVG นิ่ง import ไม่ได้ */
+// กริด 64×64: ตัวอักษรสูง 26 (y 19–45) เส้นหนา 5 · P กว้าง x 10–30 · N กว้าง x 34–54 → กึ่งกลางพอดี
+// P = กรอบนอก + รูตรงกลาง (fill-rule evenodd เจาะรูให้) · N = รูปหลายเหลี่ยมก้อนเดียว (ขาซ้าย+เฉียง+ขาขวา)
+const LOGO_P = 'M10 45V19h12a8 8 0 0 1 0 16h-7v10zM15 24v6h7a3 3 0 0 0 0-6z';
+const LOGO_N = 'M34 45V19h6l9 16.71V19h5v26h-6l-9-16.71V45z';
+
+/** โลโก้ PN (สี่เหลี่ยมมุมมนสีม่วงหลัก + ตัวอักษรขาว) — คืน HTML string ของ <svg> */
+export function logoMark(size = 38, label?: string): string {
+  const a11y = label ? 'role="img" aria-label="' + esc(label) + '"' : 'aria-hidden="true"';
+  return '<svg class="logo-mark" viewBox="0 0 64 64" width="' + size + '" height="' + size + '" focusable="false" ' + a11y + '>' +
+    '<rect width="64" height="64" rx="14" fill="#6c5ce7"/>' +
+    '<path fill="#fff" fill-rule="evenodd" d="' + LOGO_P + '"/>' +
+    '<path fill="#fff" d="' + LOGO_N + '"/>' +
+  '</svg>';
+}
 
 /* ---------------- server call ---------------- */
 
@@ -62,13 +84,13 @@ export function relTime(iso: string | null | undefined): string {
   return Math.floor(hrs / 24) + ' วันที่แล้ว';
 }
 
+/** โลโก้ช่องทางของเพจ (สีแบรนด์จริง) — ⚠️ คืน HTML ของ <svg> ไม่ใช่ตัวอักษร:
+ *  ห้ามส่งเข้า esc() / title= / <option> (จะกลายเป็นโค้ดดิบโผล่บนจอ) ให้ต่อเข้า HTML ตรงๆ เท่านั้น
+ *  (เดิมคืนอีโมจิ 🟢/📘 ซึ่งทำให้ "วงกลมเขียว" ในเว็บมีสองความหมาย: LINE กับ สถานะดี) */
 export function platformIcon(pf: string | null | undefined): string {
   const p = String(pf || '').toLowerCase();
-  if (p === 'line') return '🟢';
-  if (p === 'instagram') return '📸';
-  if (p === 'tiktok') return '🎵';
-  if (p === 'shopee') return '🛒';
-  return '📘';
+  if (p === 'line' || p === 'instagram' || p === 'tiktok' || p === 'shopee') return brandIcon(p, { size: 14 });
+  return brandIcon('facebook', { size: 14 });
 }
 
 const AVATAR_COLORS = ['#6c5ce7', '#0984e3', '#00b894', '#e17055', '#d63031', '#e84393', '#fdcb6e', '#00cec9'];
@@ -99,13 +121,57 @@ export function avatarHtml(
 
 /* ---------------- UI helpers ---------------- */
 
-export function toast(msg: string): void {
+/** ชนิดของข้อความเด้ง — กำหนดไอคอน+สีหน้าข้อความ (แทนอีโมจิ ✅ ⚠️ ❌ ⟳ ที่เคยพิมพ์ไว้หน้าข้อความ) */
+export type ToastKind = 'ok' | 'warn' | 'error' | 'info' | 'busy';
+const TOAST_ICON: Record<ToastKind, string> = {
+  ok: 'circle-check', warn: 'triangle-alert', error: 'circle-x', info: 'info', busy: 'refresh-cw',
+};
+
+/**
+ * ข้อความเด้งมุมจอ — toast('บันทึกแล้ว', 'ok')
+ * ไม่ส่ง kind มา: เดาจากคำเฉพาะกรณีที่ชัดเจน ("ไม่สำเร็จ/ผิดพลาด/ล้มเหลว" = error, ขึ้นต้น "กำลัง" = busy)
+ * เพราะมี toast หลายสิบจุดทั่วเว็บที่เคยสื่อสถานะด้วยอีโมจิ พอถอดอีโมจิออกสถานะจะหายไปเงียบๆ
+ * กรณีอื่นไม่เดา (ไม่มีไอคอน) — ไอคอนผิดความหมายแย่กว่าไม่มีไอคอน
+ */
+export function toast(msg: string, kind?: ToastKind): void {
   const box = document.getElementById('toast-container')!;
+  const k: ToastKind | undefined = kind ||
+    (/ไม่สำเร็จ|ผิดพลาด|ล้มเหลว/.test(msg) ? 'error' : /^กำลัง/.test(msg) ? 'busy' : undefined);
   const t = document.createElement('div');
-  t.className = 'toast';
-  t.textContent = msg;
+  t.className = 'toast' + (k ? ' toast-' + k : '');
+  if (k) {
+    const ic = document.createElement('span');
+    ic.className = 'toast-ic';
+    ic.innerHTML = icon(TOAST_ICON[k], { size: 16 });
+    t.appendChild(ic);
+  }
+  // ข้อความยังเป็น textContent เสมอ — ข้อความ error จากเซิร์ฟเวอร์ห้ามถูกตีความเป็น HTML
+  const tx = document.createElement('span');
+  tx.textContent = msg;
+  t.appendChild(tx);
   box.appendChild(t);
   setTimeout(() => { t.remove(); }, 3200);
+}
+
+/** ปุ่มปิดมุมบนของโมดัล (ใส่ใน .modal-head) — ปุ่มไอคอนล้วนจึงต้องมี aria-label + title เสมอ */
+export function modalCloseBtn(): string {
+  return '<button type="button" class="modal-close btn-icon" aria-label="ปิด" title="ปิด">' + icon('x', { size: 20 }) + '</button>';
+}
+
+/** ตัวกากบาทแบบเก่าที่ view บางหน้ายังพิมพ์ไว้ในปุ่มปิด (✕ ✖ ×) — สร้างจากรหัสอักขระ กันตัวตรวจอีโมจิสะดุด */
+const LEGACY_CLOSE = [0x2715, 0x2716, 0xd7, 0x78, 0x58].map((c) => String.fromCharCode(c));
+
+/** ปุ่มปิดที่ยังเป็นตัวกากบาทพิมพ์ → เปลี่ยนเป็นไอคอนเส้นชุดเดียวกับทั้งเว็บ + ชื่อปุ่มให้โปรแกรมอ่านหน้าจอ
+    ทำที่นี่จุดเดียวแทนการไล่แก้ทุก view (ปุ่ม "ยกเลิก" ที่ใช้ class เดียวกันไม่โดน เพราะข้อความไม่ใช่กากบาท) */
+function normalizeCloseBtns_(root: HTMLElement): void {
+  root.querySelectorAll('.modal-close').forEach((b) => {
+    const el = b as HTMLElement;
+    if (el.querySelector('svg') || LEGACY_CLOSE.indexOf((el.textContent || '').trim()) < 0) return;
+    el.innerHTML = icon('x', { size: 20 });
+    el.classList.add('btn-icon');
+    if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', 'ปิด');
+    if (!el.getAttribute('title')) el.setAttribute('title', 'ปิด');
+  });
 }
 
 export function openModal(html: string): void {
@@ -115,6 +181,7 @@ export function openModal(html: string): void {
   overlay.addEventListener('click', (e) => {
     if (e.target === e.currentTarget) closeModal();
   });
+  normalizeCloseBtns_(root);
   // ต้อง querySelectorAll — modal ส่วนใหญ่มีปุ่มปิด 2 ตัว (✕ มุมบน + "ยกเลิก" ท้ายฟอร์ม)
   // ถ้า bind แค่ตัวแรก ปุ่ม "ยกเลิก" จะกดไม่ติด (เคยเป็นบั๊กจริงบนหน้าจัดการผู้ใช้)
   root.querySelectorAll('.modal-close').forEach((x) => x.addEventListener('click', closeModal));
@@ -202,6 +269,7 @@ function bindSheetDrag_(overlay: HTMLElement): void {
 export function rebindModalClose(): void {
   const root = document.getElementById('modal-root');
   if (!root) return;
+  normalizeCloseBtns_(root);
   root.querySelectorAll('.modal-close').forEach((x) => x.addEventListener('click', closeModal));
 }
 
@@ -214,8 +282,9 @@ export function showLoading(el: HTMLElement): void {
 }
 
 export function showError(el: HTMLElement, msg: string, retryFn?: () => void): void {
-  el.innerHTML = '<div class="error-box">❌ ' + esc(msg) +
-    '<div style="margin-top:10px"><button class="btn" id="err-retry">ลองใหม่</button></div></div>';
+  el.innerHTML = '<div class="error-box" role="alert"><div class="error-msg">' +
+    '<span class="tx-bad">' + icon('circle-x', { size: 16 }) + '</span><span>' + esc(msg) + '</span></div>' +
+    '<div style="margin-top:10px"><button class="btn" id="err-retry">' + icon('refresh-cw', { size: 16 }) + 'ลองใหม่</button></div></div>';
   const b = el.querySelector('#err-retry');
   if (b && retryFn) b.addEventListener('click', retryFn);
 }
@@ -239,7 +308,7 @@ export function downloadCSV(rows: unknown[][], filename?: string): void {
   a.download = (filename || 'export') + '.csv';
   a.click();
   URL.revokeObjectURL(a.href);
-  toast('📄 Export CSV แล้ว');
+  toast('Export CSV แล้ว', 'ok');
 }
 
 /**
@@ -270,7 +339,7 @@ export function downloadXLS(rows: unknown[][], filename?: string, sheetName?: st
   a.download = (filename || 'export') + '.xls';
   a.click();
   URL.revokeObjectURL(a.href);
-  toast('📊 Export Excel แล้ว');
+  toast('Export Excel แล้ว', 'ok');
 }
 
 /** สีประจำแท็ก/ชื่อ — hash ชื่อ → HSL คงที่ (ชื่อเดิมได้สีเดิมเสมอ ทุกหน้า) */
@@ -693,7 +762,8 @@ function dpOpen_(trigger: HTMLElement, host: HTMLElement, state: RangeState, idP
 //    ไม่งั้นมันจะตกไป default: = "วันนี้" เงียบๆ (ปุ่ม active แต่ตัวเลขไม่เปลี่ยน)
 // ⚠️ เดิมทุกปุ่มมีอีโมจิปฏิทิน (📅 📆 🗓️ สลับกัน 3 แบบ) ซึ่ง "ทุกปุ่มมีเหมือนกัน" = ไม่ได้บอกอะไร
 // แต่ทำให้ปุ่มกว้างขึ้นตัวละ ~22px รวม 7 ปุ่มก็เกินหนึ่งบรรทัดบนมือถือ (แถวปุ่มกินไป 3 บรรทัด)
-// เหลือไว้เฉพาะ ⚙️ ของ "กำหนดเอง" ตัวเดียว เพราะอันนั้นทำงานต่างจากพวก — มันเปิดช่องให้กรอก
+// ปุ่ม "กำหนดเอง" ก็เป็นคำล้วนแล้ว (ตรวจ UI รอบ 2) — ไอคอนปฏิทินย้ายไปอยู่บนปุ่มเลือกวันที่ที่โผล่ข้างๆ แทน
+// ซึ่งเป็นตัวที่เปิดปฏิทินจริง ไม่ต้องมีปฏิทินสองอันวางติดกัน
 export const RANGE_PRESETS = [
   { key: 'today', label: 'วันนี้' },
   { key: 'yesterday', label: 'เมื่อวานนี้' },
@@ -701,7 +771,7 @@ export const RANGE_PRESETS = [
   { key: '7d', label: '7 วันล่าสุด' },
   { key: '30d', label: '30 วันล่าสุด' },
   { key: 'month', label: 'เดือนนี้' },
-  { key: 'custom', label: '⚙️ กำหนดเอง' },
+  { key: 'custom', label: 'กำหนดเอง' },
 ];
 
 /** สร้าง HTML ปุ่ม preset + date input; state = {preset, from, to} */
@@ -720,7 +790,7 @@ export function rangeControlsHtml(state: RangeState, idPrefix: string): string {
   const dates = state.preset === 'custom'
     ? '<div class="dp-wrap">' +
         '<button type="button" class="dp-trigger" id="' + idPrefix + '-dp" aria-haspopup="dialog"' +
-          ' aria-expanded="false">📅 ' + esc(label) + '<span class="dp-caret">▾</span></button>' +
+          ' aria-expanded="false">' + icon('calendar', { size: 16 }) + esc(label) + '<span class="dp-caret">▾</span></button>' +
         '<div class="dp-host" id="' + idPrefix + '-dphost"></div>' +
       '</div>'
     : '';

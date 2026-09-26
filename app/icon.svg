@@ -1,11 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="PN Infinity">
+  <!-- ตัว P กับ N วาดเป็นรูปทรงล้วน ไม่ใช้ <text> — เดิมพิมพ์ด้วยฟอนต์ Segoe UI ซึ่งไม่มีใน iPhone/Android
+       ไอคอนแท็บเลยเพี้ยนเป็นฟอนต์อื่นในแต่ละเครื่อง · รูปทรงชุดเดียวกับ logoMark() ใน lib/ui/helpers.ts (แก้ต้องแก้คู่กัน) -->
   <defs>
     <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#7d6cf0"/>
       <stop offset="1" stop-color="#6c5ce7"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="16" fill="url(#g)"/>
-  <text x="32" y="43" text-anchor="middle" fill="#ffffff"
-        font-family="Segoe UI, system-ui, sans-serif" font-size="30" font-weight="800" letter-spacing="-1">PN</text>
+  <rect width="64" height="64" rx="14" fill="url(#g)"/>
+  <path fill="#fff" fill-rule="evenodd" d="M10 45V19h12a8 8 0 0 1 0 16h-7v10zM15 24v6h7a3 3 0 0 0 0-6z"/>
+  <path fill="#fff" d="M34 45V19h6l9 16.71V19h5v26h-6l-9-16.71V45z"/>
 </svg>

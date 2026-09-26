@@ -51,5 +51,6 @@ export async function middleware(req: NextRequest) {
 
 export const config = {
   // ป้องกันทุกเส้นทาง ยกเว้น: static ของ Next, หน้า login, endpoint login/logout, API สาธารณะ, favicon
-  matcher: ['/((?!_next/|login|api/login|api/logout|api/public/|favicon).*)'],
+  // และไอคอนแอป (app/icon.svg, app/apple-icon.png) — ไม่งั้นแท็บหน้า login ไม่มีไอคอนเพราะโดนเด้งไป /login
+  matcher: ['/((?!_next/|login|api/login|api/logout|api/public/|favicon|icon\\.svg|apple-icon\\.png).*)'],
 };

@@ -8,11 +8,12 @@
    ============================================================ */
 
 import {
-  serverCall, esc, fmtNum, pctFmt, platformIcon, avatarHtml,
+  serverCall, esc, fmtNum, pctFmt, avatarHtml,
   showError, toast, tagColor, rangeControlsHtml, bindRangeControls, RangeState,
 } from '@/lib/ui/helpers';
 import { svgWeekBars, svgDonut, hbarRows, bindChartTips, hideChartTip } from '@/lib/ui/charts';
 import { dashboardSkel, dashboardBodySkel } from '@/lib/ui/skeletons';
+import { icon, brandIcon, statusPill, ICON_FOR } from '@/lib/ui/icons';
 
 /* ---------------- data types (apiDashboard) ---------------- */
 
@@ -105,12 +106,20 @@ const state: DashState = { preset: 'today', from: '', to: '', channel: '' };
 let rangeLabel = 'วันนี้';
 let rangeDays = 1;
 
-const CHANNELS: { key: string; label: string }[] = [
+// ic = ไอคอนหน้าคำ (HTML) — ช่องทางใช้โลโก้แบรนด์จริง ไม่ใช้ 📘/🟢 แทน Facebook/LINE อีกแล้ว
+const CHANNELS: { key: string; label: string; ic?: string }[] = [
   { key: '', label: 'ทั้งหมด' },
-  { key: 'facebook', label: '📘 Facebook' },
-  { key: 'line', label: '🟢 LINE OA' },
-  { key: 'comment', label: '💭 คอมเมนต์' }, // มุมมองเฉพาะคอมเมนต์ (ทุก platform)
+  { key: 'facebook', label: 'Facebook', ic: brandIcon('facebook') },
+  { key: 'line', label: 'LINE OA', ic: brandIcon('line') },
+  { key: 'comment', label: 'คอมเมนต์', ic: icon(ICON_FOR.comment, { size: 14 }) }, // มุมมองเฉพาะคอมเมนต์ (ทุก platform)
 ];
+
+/** โลโก้ช่องทางของเพจ/แชท (แทน platformIcon() ที่คืนอีโมจิ) — ช่องทางที่ไม่รู้จักถือเป็น Facebook เหมือนของเดิม */
+function channelIcon_(pf: string | null | undefined): string {
+  const p = String(pf || '').toLowerCase();
+  const name = (p === 'line' || p === 'instagram' || p === 'tiktok' || p === 'shopee') ? p : 'facebook';
+  return brandIcon(name, { size: 14, label: true });
+}
 
 function buildParams() {
   return { preset: state.preset, from: state.from, to: state.to, channel: state.channel };
@@ -137,7 +146,8 @@ const NOW_TIP = 'ค่าตอนนี้จากบทสนทนา 24 �
  */
 function nowBadge_(): string {
   if (isTodayRange_()) return '';
-  return ' <span class="badge info" title="' + esc(NOW_TIP) + '">⏱️ ตอนนี้ (24 ชม.ล่าสุด) — ไม่ขึ้นกับช่วงที่เลือก</span>';
+  // ป้ายยาวอยู่แล้ว — ถอด ⏱️ ออกเฉยๆ ไม่ใส่ไอคอนแทน (กว้างขึ้นจะล้นการ์ดตัวเลขบนมือถือ)
+  return ' <span class="badge info" title="' + esc(NOW_TIP) + '">ตอนนี้ (24 ชม.ล่าสุด) — ไม่ขึ้นกับช่วงที่เลือก</span>';
 }
 
 /** หมายเหตุตัวเลขรวมหลายวัน (คนเดิมที่ทักคนละวันถูกนับซ้ำ — endpoint ต้นทางไม่มี unique ข้ามวัน) */
@@ -150,7 +160,7 @@ function multiDayNote_(): string {
 function chipRowHtml(): string {
   const pills = CHANNELS.map((c) => {
     return '<button class="filter-btn' + (state.channel === c.key ? ' active' : '') +
-      '" data-ch="' + esc(c.key) + '">' + esc(c.label) + '</button>';
+      '" data-ch="' + esc(c.key) + '">' + (c.ic || '') + esc(c.label) + '</button>';
   }).join('');
   return '<div class="conv-filters" id="dash-channels">' + pills + '</div>';
 }
@@ -161,9 +171,10 @@ function controlsHtml(): string {
     chipRowHtml();
 }
 
-function statCard(icon: string, iconCls: string, label: string, valueHtml: string, hintHtml: string): string {
+/** การ์ดตัวเลขใหญ่ — ic = ชื่อไอคอนจาก ICON_FOR (วาดขนาด 22 ในกรอบสี ไอคอนรับสีจากกรอบเอง) */
+function statCard(ic: string, iconCls: string, label: string, valueHtml: string, hintHtml: string): string {
   return '<div class="stat-card">' +
-    '<div class="stat-icon ' + iconCls + '">' + icon + '</div>' +
+    '<div class="stat-icon ' + iconCls + '">' + icon(ic, { size: 22 }) + '</div>' +
     '<div style="min-width:0">' +
     '<div class="stat-label">' + label + '</div>' +
     '<div class="stat-value">' + valueHtml + '</div>' +
@@ -181,7 +192,7 @@ function statGridHtml(k: Kpis, donut?: DonutData): string {
   const cards: string[] = [];
   if (commentMode) {
     // มุมคอมเมนต์: ตัวเลขแรกคือ "จำนวนคอมเมนต์" ไม่ใช่บทสนทนา — ป้ายต้องตรงความหมาย
-    cards.push(statCard('💭', 'purple', rangeTitle_('คอมเมนต์จากลูกค้า'), fmtNum(k.custMsgs),
+    cards.push(statCard(ICON_FOR.comment, 'purple', rangeTitle_('คอมเมนต์จากลูกค้า'), fmtNum(k.custMsgs),
       'เพจตอบคอมเมนต์ ' + fmtNum(k.pageReplies) + ' ครั้ง'));
   } else {
     // "คนทัก" = คนที่ทักเข้ามาจริง = อินบ็อกซ์ใหม่ + คอมเมนต์ (บอสยืนยันนิยามนี้)
@@ -197,21 +208,21 @@ function statGridHtml(k: Kpis, donut?: DonutData): string {
       ' data-tip-src="Pancake · statistics/customer_engagements">';
     const convSub = hasEng
       ? 'อินบ็อกซ์ใหม่ ' + fmtNum(k.engNewInbox || 0) + ' + คอมเมนต์ ' + fmtNum(k.engComment || 0) +
-        ' • 📞 เบอร์ใหม่ ' + fmtNum(k.phones)
-      : 'ข้อความลูกค้า ' + fmtNum(k.custMsgs) + ' • 📞 เบอร์ใหม่ ' + fmtNum(k.phones);
-    cards.push(statCard('💬', 'purple', rangeTitle_('คนทัก'),
+        ' • เบอร์ใหม่ ' + fmtNum(k.phones)
+      : 'ข้อความลูกค้า ' + fmtNum(k.custMsgs) + ' • เบอร์ใหม่ ' + fmtNum(k.phones);
+    cards.push(statCard(ICON_FOR.chats, 'purple', rangeTitle_('คนทัก'),
       '<span' + convTip + fmtNum(reached) + '</span>', convSub));
   }
   // ⚠️ pageReplies = จำนวน "ข้อความ" ที่เพจส่งในช่วงที่เลือก (รวมบอต/ข้อความอัตโนมัติ/บรอดแคสต์)
   //    ไม่ใช่จำนวนบทสนทนาที่ตอบ — และคนละชุดข้อมูล/คนละช่วงเวลากับ replyRate (24 ชม. จาก conversations)
   //    เดิมเอามาแปะคู่กันในการ์ดเดียว ทำให้ดูเหมือน "ตอบ 94% จาก 47,375 ครั้ง" ซึ่งไม่จริง
   //    replyRate ยังอยู่ในการ์ดโดนัทที่เขียน "(24 ชม.)" กำกับไว้ชัดเจนแล้ว
-  cards.push(statCard('📤', 'green', rangeTitle_('ข้อความที่เพจส่ง'), fmtNum(k.pageReplies),
+  cards.push(statCard('send', 'green', rangeTitle_('ข้อความที่เพจส่ง'), fmtNum(k.pageReplies),
     'รวมบอต/ข้อความอัตโนมัติ • ลูกค้าส่ง ' + fmtNum(k.custMsgs) + ' ข้อความ'));
   // 2 ใบนี้มาจาก conversations = ค่าตอนนี้เสมอ ไม่ขึ้นกับช่วงที่เลือก (ดูหมายเหตุหัวไฟล์)
-  cards.push(statCard('🤖', 'purple', 'ตอบอัตโนมัติ (24 ชม.)', fmtNum(ai),
+  cards.push(statCard(ICON_FOR.autoReply, 'purple', 'ตอบอัตโนมัติ (24 ชม.)', fmtNum(ai),
     (convBase ? '<b class="up">' + aiPct + '%</b> ของบทสนทนา 24 ชม.' : 'ยังไม่มีข้อมูล') + nowBadge_()));
-  cards.push(statCard('👤', 'amber', 'รอแอดมินตอบ (ตอนนี้)', fmtNum(k.waiting),
+  cards.push(statCard(ICON_FOR.wait, 'amber', 'รอแอดมินตอบ (ตอนนี้)', fmtNum(k.waiting),
     (waiting > 0 ? '<b class="warn">ต้องการความสนใจ</b>' : 'ไม่มีงานค้าง') + nowBadge_()));
   // ตัวเลขบรรทัดล่างมาจาก statistics/customer_engagements = ชุดเดียวกับหน้าสถิติแชทของ Pancake
   // ให้เทียบจอต่อจอได้ (บรรทัดบนมาจาก statistics/pages ซึ่งนับ "ลูกค้าใหม่" คนละนิยามเล็กน้อย)
@@ -219,7 +230,7 @@ function statGridHtml(k: Kpis, donut?: DonutData): string {
     ? (commentMode ? 'ทุกช่องทางรวมกัน (แยกเฉพาะคอมเมนต์ไม่ได้)' : 'จากทุกเพจที่ sync')
     : 'Pancake นับ <b>' + fmtNum(k.engNewInbox) + '</b> คนเปิดแชทใหม่ • คุยทั้งหมด ' +
       fmtNum(k.engCustomers || 0) + ' คน';
-  cards.push(statCard('🆕', 'blue', rangeTitle_('ลูกค้าใหม่'), fmtNum(k.newCustomers),
+  cards.push(statCard(ICON_FOR.newCustomer, 'blue', rangeTitle_('ลูกค้าใหม่'), fmtNum(k.newCustomers),
     engSub + esc(multiDayNote_())));
   return '<div class="stat-grid">' + cards.join('') + '</div>';
 }
@@ -231,7 +242,7 @@ function weekCardHtml(data: DashData): string {
     : '<div class="empty-note">ยังไม่มีข้อมูล</div>';
   // กราฟยึดวันท้ายของช่วงที่เลือก แต่กว้าง 7-14 วันเสมอ (server เป็นคนตัดสิน + ส่ง weekLabel มา)
   const note = data.weekNote
-    ? '<span style="margin-left:14px">📌 ' + esc(data.weekNote) + '</span>'
+    ? '<span style="margin-left:14px">' + esc(data.weekNote) + '</span>'
     : '';
   // ป้ายต้องบอกว่าเป็น "จำนวนข้อความ" ไม่ใช่บทสนทนา — เพจส่งสคริปต์ขายทีละหลายบับเบิล
   // แท่งม่วงจึงสูงกว่าแท่งฟ้าหลายเท่าเป็นปกติ (ไม่ใช่ข้อมูลผิด)
@@ -267,8 +278,8 @@ function donutCardHtml(k: Kpis, donut?: DonutData): string {
 
 function typeLabel(t: string | undefined): string {
   const u = String(t || '').toUpperCase();
-  if (u === 'INBOX') return '💬 ข้อความ';
-  if (u === 'COMMENT') return '💭 คอมเมนต์';
+  if (u === 'INBOX') return 'ข้อความ';
+  if (u === 'COMMENT') return 'คอมเมนต์';
   return String(t || '-');
 }
 
@@ -301,31 +312,36 @@ function tagsCardHtml(tags?: TagItem[]): string {
     body + '</div>';
 }
 
+/**
+ * แถบแนวนอนรายเพจ + โลโก้ช่องทางหน้าชื่อเพจ
+ * ทำไมไม่ใช้ hbarRows(): มัน escape ป้ายทั้งก้อน ใส่ <svg> โลโก้ไม่ได้ (เดิมเลยใช้อีโมจิในป้ายแทน)
+ * จึงประกอบเองด้วยโครง/คลาสเดียวกับ hbarRows ทุกตัว — CSS ของ .hbar-* ใช้ได้เหมือนเดิม
+ */
+function pageBarRows_(pages: ByPageItem[] | undefined, cls: string, empty: string): string {
+  const items = (pages || []).map((p) => ({ name: String(p.name || '-'), pf: p.platform, value: Number(p.count) || 0 }));
+  if (!items.length) return '<div class="empty-note">' + esc(empty) + '</div>';
+  const max = Math.max(...items.map((it) => it.value).concat([1]));
+  return items.map((it) => {
+    const w = Math.round((it.value / max) * 100);
+    return '<div class="hbar-row">' +
+      '<div class="hbar-label" title="' + esc(it.name) + '">' + channelIcon_(it.pf) + ' ' + esc(it.name) + '</div>' +
+      '<div class="hbar-track"><div class="hbar-fill ' + cls + '" style="width:' + w + '%"></div></div>' +
+      '<div class="hbar-num">' + esc(fmtNum(it.value)) + '</div></div>';
+  }).join('');
+}
+
 function byPageCardHtml(byPage?: ByPageItem[]): string {
-  const items = (byPage || []).map((p) => {
-    return {
-      label: platformIcon(p.platform) + ' ' + String(p.name || '-'),
-      value: Number(p.count) || 0,
-      cls: 'blue',
-    };
-  });
   return '<div class="card">' +
     '<h3>แชทแยกตามเพจ (24 ชม.)</h3>' +
     '<div class="card-sub">เพจที่ลูกค้าทักเยอะที่สุด (top 8)' + nowBadge_() + '</div>' +
-    hbarRows(items, { cls: 'blue', empty: 'ยังไม่มีข้อมูล' }) + '</div>';
+    pageBarRows_(byPage, 'blue', 'ยังไม่มีข้อมูล') + '</div>';
 }
 
 function commentByPageCardHtml(commentByPage?: ByPageItem[]): string {
-  const items = (commentByPage || []).map((p) => {
-    return {
-      label: platformIcon(p.platform) + ' ' + String(p.name || '-'),
-      value: Number(p.count) || 0,
-    };
-  });
   return '<div class="card">' +
-    '<h3>💭 คอมเมนต์แยกตามเพจ (' + esc(rangeLabel) + ')</h3>' +
+    '<h3>คอมเมนต์แยกตามเพจ (' + esc(rangeLabel) + ')</h3>' +
     '<div class="card-sub">เพจที่ลูกค้าคอมเมนต์เยอะที่สุด (top 8) — จากสถิติรายชั่วโมงจริง</div>' +
-    hbarRows(items, { empty: isTodayRange_() ? 'วันนี้ยังไม่มีคอมเมนต์' : 'ช่วงนี้ยังไม่มีคอมเมนต์' }) + '</div>';
+    pageBarRows_(commentByPage, '', isTodayRange_() ? 'วันนี้ยังไม่มีคอมเมนต์' : 'ช่วงนี้ยังไม่มีคอมเมนต์') + '</div>';
 }
 
 function waitLabel(mins: number | undefined): string {
@@ -351,8 +367,8 @@ function attentionCardHtml(attention?: AttentionItem[]): string {
         avatarHtml(a.id, a.customer) +
         '<div class="attn-body">' +
         '<div class="attn-name">' + esc(a.customer || '-') +
-        ' <span>' + platformIcon(a.platform) + '</span>' +
-        (urgent ? ' <span class="badge urgent">🔥 ด่วน</span>' : '') +
+        ' ' + channelIcon_(a.platform) +
+        (urgent ? ' ' + statusPill('bad', 'ด่วน') : '') +
         ' <span class="badge admin">' + esc(waitLabel(a.waitMins)) + '</span></div>' +
         '<div class="attn-snippet">' + esc(a.snippet || '') + '</div>' +
         '</div>' +
@@ -360,16 +376,16 @@ function attentionCardHtml(attention?: AttentionItem[]): string {
         // ช่องชื่อจึงถูกบีบจนแคบกว่าป้าย "รอ 22 ชม." ป้ายเลยยื่นพ้นออกไปนอกกล่องบนมือถือ
         '<div class="attn-actions">' +
         '<a class="btn-mini" href="' + esc(pancakeUrl) + '" target="_blank" rel="noopener" ' +
-          'title="เปิดแชทนี้ใน Pancake (แท็บใหม่)">↗ เปิดใน Pancake</a>' +
+          'title="เปิดแชทนี้ใน Pancake (แท็บใหม่)">' + icon(ICON_FOR.open, { size: 14 }) + 'เปิดใน Pancake</a>' +
         '<div class="attn-page">' + esc(a.pageName || '') + '</div>' +
         '</div></div>';
     }).join('');
   } else {
-    body = '<div class="empty-note">🎉 ไม่มีแชทค้างรอแอดมิน</div>';
+    body = '<div class="empty-note">ไม่มีแชทค้างรอแอดมิน</div>';
   }
   return '<div class="card">' +
-    '<h3>🔔 แชทที่รอแอดมินตอบ</h3>' +
-    '<div class="card-sub">เรียงจากรอนานที่สุด — คลิก ↗ เพื่อเปิดตอบใน Pancake' + nowBadge_() + '</div>' +
+    '<h3>แชทที่รอแอดมินตอบ</h3>' +
+    '<div class="card-sub">เรียงจากรอนานที่สุด — กด "เปิดใน Pancake" เพื่อไปตอบในแท็บใหม่' + nowBadge_() + '</div>' +
     body + '</div>';
 }
 
@@ -450,7 +466,7 @@ function fetchAndRender(container: HTMLElement): void {
     if (seq !== reqSeq) return;
     if (lastData) {
       // มีข้อมูลเดิมแสดงอยู่ — แจ้งเตือนเฉยๆ ไม่ทำลายหน้า
-      toast('⚠️ โหลดข้อมูลใหม่ไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
+      toast('โหลดข้อมูลใหม่ไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
     } else {
       hideChartTip(); // หน้าเปลี่ยนเป็นกล่อง error — ซ่อนทูลทิปที่อาจค้าง
       showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', () => {

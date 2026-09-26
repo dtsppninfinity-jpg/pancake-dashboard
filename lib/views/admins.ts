@@ -22,13 +22,13 @@ import { adminsSkel } from '@/lib/ui/skeletons';
 import {
   ADMIN_ROLES,
   PERM_LABELS,
-  ADMIN_STATUS_META,
   effectiveStatus,
   capacityOf,
   RolePerms,
   DEFAULT_MAX_ACTIVE,
 } from '@/lib/adminconfig';
 import { computeScore, normalizeConfig, type MetricConfig } from '@/lib/scoring';
+import { icon, brandIcon, statusPill, statusDot, ICON_FOR, type StatusKind } from '@/lib/ui/icons';
 
 /* ---------------- types ---------------- */
 
@@ -152,7 +152,39 @@ function scoreOf(a: Admin): number | null {
   }, scoreCfg).score;
 }
 
-const CH_LABEL: Record<string, string> = { both: '📘+🟢', facebook: '📘 FB', line: '🟢 LINE' };
+// ช่องทางที่รับผิดชอบ: ข้อความล้วน (ใช้ใน title/CSV) + แบบมีโลโก้แบรนด์ (ใช้บนจอ)
+// เดิมใช้ 📘/🟢 แทน FB/LINE — วงกลมเขียวไปชนกับ "ออนไลน์" จึงเปลี่ยนเป็นโลโก้จริง
+const CH_TEXT: Record<string, string> = { both: 'FB + LINE', facebook: 'FB', line: 'LINE' };
+
+/** คีย์ช่องทางของแอดมิน — ค่าแปลก/ว่าง = ทั้งสองช่องทาง (เหมือนเดิม) */
+function chKeyOf(a: Admin): string {
+  const ch = String(a.channels || 'both');
+  return CH_TEXT[ch] ? ch : 'both';
+}
+
+/** โลโก้ช่องทาง — long = มีคำกำกับครบ (ใช้ในหน้าต่างสถิติที่มีที่พอ) */
+function chHtml(ch: string, long?: boolean): string {
+  const fb = brandIcon('facebook'), ln = brandIcon('line');
+  if (ch === 'facebook') return fb + (long ? ' Facebook' : ' FB');
+  if (ch === 'line') return ln + ' LINE';
+  return long ? fb + ' Facebook + ' + ln + ' LINE' : fb + ' ' + ln;
+}
+
+// สถานะแอดมิน → คำ + สีป้าย (ป้ายใน lib/adminconfig.ts ยังมีอีโมจินำหน้า จึงไม่ใช้ label ตรงนั้นแสดงผลแล้ว)
+const STATUS_VIEW: Record<string, { word: string; kind: StatusKind }> = {
+  online: { word: 'ออนไลน์', kind: 'good' },
+  away: { word: 'พัก', kind: 'warn' },
+  busy: { word: 'ไม่ว่าง', kind: 'bad' },
+  offline: { word: 'ออฟไลน์', kind: 'muted' },
+  disabled: { word: 'ปิดใช้งาน', kind: 'muted' },
+};
+
+function statusView(a: Admin): { word: string; kind: StatusKind } {
+  return STATUS_VIEW[statusOf(a)] || STATUS_VIEW.offline;
+}
+
+/** ปุ่มปิดหน้าต่าง (มีแต่ไอคอน จึงต้องมี aria-label + title) */
+const MODAL_CLOSE_BTN = '<button class="modal-close" aria-label="ปิด" title="ปิด">' + icon(ICON_FOR.close, { size: 20 }) + '</button>';
 
 /* ---------------- helpers ภายใน view ---------------- */
 
@@ -199,7 +231,7 @@ function autoNick(a: Admin): string {
 
 /** เวลาที่ online ครั้งล่าสุดวันนี้ (จาก log จริง) — 'ตอนนี้' ถ้ายังออนไลน์อยู่ */
 function lastOnlineStr(a: Admin): string {
-  if (a.online) return 'ตอนนี้ 🟢';
+  if (a.online) return 'ตอนนี้ ' + statusDot('good', 'ออนไลน์');
   const marks = (a.onlineToday && a.onlineToday.marks) || [];
   for (let i = marks.length - 1; i >= 0; i--) {
     if (!marks[i][1]) return hhmm(marks[i][0]) + ' น.'; // จุดที่เปลี่ยนเป็นออฟไลน์ล่าสุด = เห็นออนไลน์ล่าสุด
@@ -208,8 +240,8 @@ function lastOnlineStr(a: Admin): string {
 }
 
 function statusBadge(a: Admin): string {
-  const st = ADMIN_STATUS_META[statusOf(a)] || ADMIN_STATUS_META.offline;
-  return '<span class="badge ' + st.cls + '">' + st.label + '</span>';
+  const st = statusView(a);
+  return statusPill(st.kind, esc(st.word));
 }
 
 function capOf(a: Admin): { key: string; label: string; cls: string } {
@@ -283,26 +315,26 @@ function saveAdmin(
     revert();
     recomputeLocal(a); // ห้ามลืม — ไม่งั้น status/capacity ที่คำนวณจากค่าใหม่ค้างอยู่ทั้งที่ revert แล้ว
     renderBody(container);
-    toast('⏳ กำลังบันทึกรายการก่อนหน้า — ลองอีกครั้ง');
+    toast('กำลังบันทึกรายการก่อนหน้า — ลองอีกครั้ง');
     return;
   }
   saving = true;
   dataSeq++; // มีการแก้ state — refetch เบื้องหลังที่เริ่มก่อนหน้านี้ห้ามเอาข้อมูลมาทับ
   serverCall<any>('apiAdminSettings', { admin: { user_id: String(a.id), ...changed } }).then(function (res) {
     saving = false;
-    if (res && res.ok) { toast(res.warning ? '⚠️ ' + res.warning : okMsg); return; }
+    if (res && res.ok) { toast(res.warning ? 'คำเตือน: ' + res.warning : okMsg); return; }
     revert();
     recomputeLocal(a);
     renderBody(container);
     toast(res && res.needSetup
-      ? '⚠️ ยังบันทึกไม่ได้ — ตารางตั้งค่ายังไม่ถูกสร้างใน Supabase'
-      : '⚠️ บันทึกไม่สำเร็จ: ' + ((res && res.error) || 'ไม่ทราบสาเหตุ'));
+      ? 'ยังบันทึกไม่ได้ — ตารางตั้งค่ายังไม่ถูกสร้างใน Supabase'
+      : 'บันทึกไม่สำเร็จ: ' + ((res && res.error) || 'ไม่ทราบสาเหตุ'));
   }).catch(function (err) {
     saving = false;
     revert();
     recomputeLocal(a);
     renderBody(container);
-    toast('⚠️ บันทึกไม่สำเร็จ: ' + ((err && err.message) || 'เครือข่ายมีปัญหา'));
+    toast('บันทึกไม่สำเร็จ: ' + ((err && err.message) || 'เครือข่ายมีปัญหา'));
   });
 }
 
@@ -367,19 +399,23 @@ function cardHtml(a: Admin): string {
   const overSla = Number(a.overSla) || 0;
   const overPending = maxPending > 0 && waiting > maxPending;
   const groups = String(a.productGroups || '');
-  const meta = (a.role ? a.role : (a.department || '—')) +
-    ' • ' + (CH_LABEL[String(a.channels || 'both')] || CH_LABEL.both) +
-    (groups ? ' • ' + cut(groups, 20) : (a.saleGroup ? ' • ' + a.saleGroup : '')) +
+  // meta = ข้อความล้วนสำหรับ title / metaHtml = ตัวที่โชว์ (ช่องทางเป็นโลโก้แบรนด์)
+  const chKey = chKeyOf(a);
+  const metaHead = a.role ? a.role : (a.department || '—');
+  const metaTail = (groups ? ' • ' + cut(groups, 20) : (a.saleGroup ? ' • ' + a.saleGroup : '')) +
     ' • ' + fmtNum(a.pageCount || 0) + ' เพจ';
+  const meta = metaHead + ' • ' + CH_TEXT[chKey] + metaTail;
+  const metaHtml = esc(metaHead) + ' • ' + chHtml(chKey) + esc(metaTail);
   const ot = a.onlineToday;
   const onlineRow = ot
-    ? '<span class="badge neutral" title="เวลาออนไลน์รวมวันนี้ (จาก log จริง ความละเอียด ~15 นาที)">🟢 ' +
-        esc(hrsFmt(ot.mins)) + '</span>' +
+    ? '<span class="badge neutral" title="เวลาออนไลน์รวมวันนี้ (จาก log จริง ความละเอียด ~15 นาที)">' +
+        '<span class="mini-lbl">ออนไลน์</span>' + esc(hrsFmt(ot.mins)) + '</span>' +
       (ot.gapMins
-        ? '<span class="badge ' + (ot.gapMins > 45 ? 'admin' : 'neutral') +
-          '" title="ช่วงหายนานสุดวันนี้ (หลังออนไลน์ครั้งแรก)">😴 หาย ' + esc(hrsFmt(ot.gapMins)) + '</span>'
+        // ห่อ span เพื่อใส่ title — statusPill ไม่รับ title เอง
+        ? '<span title="ช่วงหายนานสุดวันนี้ (หลังออนไลน์ครั้งแรก)">' +
+          statusPill(ot.gapMins > 45 ? 'warn' : 'muted', 'หายไป ' + esc(hrsFmt(ot.gapMins))) + '</span>'
         : '')
-    : '<span class="badge neutral" title="เริ่มเก็บประวัติออนไลน์อัตโนมัติ — จะแสดงเมื่อมีข้อมูล">🕐 รอเก็บข้อมูล</span>';
+    : '<span class="badge neutral" title="เริ่มเก็บประวัติออนไลน์อัตโนมัติ — จะแสดงเมื่อมีข้อมูล">รอเก็บข้อมูล</span>';
   const pages = a.pages || '';
 
   // แชทรอตอบ แยกอินบ็อกซ์/คอมเมนต์ — คนละงานกันสำหรับแอดมิน (คอมเมนต์ใต้โพสต์ ~41% ของที่ค้าง)
@@ -390,17 +426,17 @@ function cardHtml(a: Admin): string {
     cellHtml(fmtNum(active) + '/' + fmtNum(maxActive), 'แชทดูแล (24ชม.)',
       cap.key === 'full' ? 'warn' : '') +
     cellHtml(fmtNum(waiting) + (maxPending > 0 ? '/' + fmtNum(maxPending) : ''),
-      'รอตอบ 💬' + fmtNum(waitInbox) + ' 💭' + fmtNum(waitCmt) + (maxPending > 0 ? ' (เพดาน)' : ''),
+      'รอตอบ' + (maxPending > 0 ? ' (เพดาน)' : '') + ' • อินบ็อกซ์ ' + fmtNum(waitInbox) + ' • คอมเมนต์ ' + fmtNum(waitCmt),
       overPending || waiting > 0 ? 'warn' : '',
-      'แชทที่ลูกค้ารอตอบตอนนี้ (24 ชม.ล่าสุด) — 💬 อินบ็อกซ์ ' + fmtNum(waitInbox) +
-        ' • 💭 คอมเมนต์ใต้โพสต์ ' + fmtNum(waitCmt) + ' (คนละงานกัน จึงแยกให้เห็น)') +
+      'แชทที่ลูกค้ารอตอบตอนนี้ (24 ชม.ล่าสุด) — อินบ็อกซ์ ' + fmtNum(waitInbox) +
+        ' • คอมเมนต์ใต้โพสต์ ' + fmtNum(waitCmt) + ' (คนละงานกัน จึงแยกให้เห็น)') +
     cellHtml(esc(respFmt(t.respMins)), 'ตอบเฉลี่ย', '') +
     cellHtml(fmtNum(t.orders || 0), 'ออเดอร์วันนี้', '') +
     cellHtml(esc(THB(t.revenue || 0)), 'ยอดขาย', '');
   const slaMins = Number(lastData && lastData.slaMins) || 60;
   const slaBadge = overSla > 0
     ? '<span class="badge urgent" title="แชทที่ลูกค้ารอเกิน ' + slaMins +
-      ' นาที (เกณฑ์ SLA แบบ proxy จากเวลาข้อความล่าสุด)">⏰ เกิน SLA ' + fmtNum(overSla) + '</span>'
+      ' นาที (เกณฑ์ SLA แบบ proxy จากเวลาข้อความล่าสุด)">เกิน SLA ' + fmtNum(overSla) + '</span>'
     : '';
 
   return '<div class="admin-card' + (enabled ? '' : ' off') + '" data-admin-id="' + esc(String(a.id)) + '">' +
@@ -411,7 +447,7 @@ function cardHtml(a: Admin): string {
         '<div class="admin-name" title="' + esc(String(a.name || '')) + '">' + esc(nickOf(a)) +
           (fullNameSub(a) ? '<span class="admin-fullname">' + esc(fullNameSub(a)) + '</span>' : '') +
         '</div>' +
-        '<div class="admin-meta" title="' + esc(meta) + '">' + esc(meta) + '</div>' +
+        '<div class="admin-meta" title="' + esc(meta) + '">' + metaHtml + '</div>' +
       '</div>' +
       '<div style="margin-left:auto;flex-shrink:0;display:flex;flex-direction:column;gap:4px;align-items:flex-end">' +
         statusBadge(a) +
@@ -423,19 +459,20 @@ function cardHtml(a: Admin): string {
       onlineRow +
       slaBadge +
       '<span style="flex:1"></span>' +
-      '<span class="chip" title="' + esc(pages || 'ไม่มีเพจ') + '">📄 ' +
+      '<span class="chip" title="' + esc(pages || 'ไม่มีเพจ') + '">' + icon(ICON_FOR.page, { size: 14 }) +
         esc(pages ? cut(pages, 26) : 'ไม่มีเพจ') + '</span>' +
     '</div>' +
     '<div class="admin-actions">' +
       '<button class="btn-mini' + (enabled ? '' : ' primary') + '" data-adtoggle="' + esc(String(a.id)) + '">' +
-        (enabled ? '⏸️ ปิดใช้งาน' : '▶️ เปิดใช้งาน') + '</button>' +
+        (enabled ? icon(ICON_FOR.pause) + 'ปิดใช้งาน' : icon(ICON_FOR.play) + 'เปิดใช้งาน') + '</button>' +
       '<select class="input ad-status-sel" data-adstatus="' + esc(String(a.id)) + '"' + (enabled ? '' : ' disabled') + '>' +
         '<option value=""' + (!a.statusOverride ? ' selected' : '') + '>สถานะอัตโนมัติ</option>' +
-        '<option value="away"' + (a.statusOverride === 'away' ? ' selected' : '') + '>🟡 พัก</option>' +
-        '<option value="busy"' + (a.statusOverride === 'busy' ? ' selected' : '') + '>🔴 ไม่ว่าง</option>' +
+        '<option value="away"' + (a.statusOverride === 'away' ? ' selected' : '') + '>พัก</option>' +
+        '<option value="busy"' + (a.statusOverride === 'busy' ? ' selected' : '') + '>ไม่ว่าง</option>' +
       '</select>' +
-      '<button class="btn-mini" data-adedit="' + esc(String(a.id)) + '" title="Role / ช่องทาง / กลุ่มสินค้า / เพดานแชท">✏️ สิทธิ์/ตั้งค่า</button>' +
-      '<button class="btn-mini primary" data-adstats="' + esc(String(a.id)) + '">📊 สถิติ</button>' +
+      '<button class="btn-mini" data-adedit="' + esc(String(a.id)) + '" title="Role / ช่องทาง / กลุ่มสินค้า / เพดานแชท">' +
+        icon(ICON_FOR.edit) + 'สิทธิ์/ตั้งค่า</button>' +
+      '<button class="btn-mini primary" data-adstats="' + esc(String(a.id)) + '">' + icon('chart-bar') + 'สถิติ</button>' +
     '</div>' +
   '</div>';
 }
@@ -449,14 +486,14 @@ function openSettings(a: Admin, container: HTMLElement): void {
     '<div class="modal-head">' +
       '<div style="display:flex;gap:12px;align-items:center;min-width:0">' +
         avatarHtml(a.id, a.name, !!a.online) +
-        '<div style="min-width:0"><h3>✏️ ' + esc(nickOf(a)) + '</h3>' +
+        '<div style="min-width:0"><h3>' + esc(nickOf(a)) + '</h3>' +
         (fullNameSub(a) ? '<div class="admin-meta">' + esc(fullNameSub(a)) + '</div>' : '') +
         '<div style="margin-top:5px">' + statusBadge(a) + '</div></div>' +
       '</div>' +
-      '<button class="modal-close">✕</button>' +
+      MODAL_CLOSE_BTN +
     '</div>' +
     '<div class="hint-box">การตั้งค่านี้เก็บในระบบ dashboard ของเรา (ใช้จัดทีม/กรอง/จัดอันดับ) — ' +
-      '<b>ไม่มีผลกับบัญชี Pancake</b> ของแอดมิน • ตารางสิทธิ์ของแต่ละ Role แก้ได้ที่แท็บ 🔐 Role Settings</div>' +
+      '<b>ไม่มีผลกับบัญชี Pancake</b> ของแอดมิน • ตารางสิทธิ์ของแต่ละ Role แก้ได้ที่แท็บ "Role Settings"</div>' +
     '<div class="adm-form">' +
       '<label class="adm-field"><span>Role / สิทธิ์</span>' +
         '<select class="input" id="adf-role">' +
@@ -467,9 +504,9 @@ function openSettings(a: Admin, container: HTMLElement): void {
         '</select></label>' +
       '<label class="adm-field"><span>ช่องทางที่รับผิดชอบ</span>' +
         '<select class="input" id="adf-channel">' +
-          '<option value="both"' + ((a.channels || 'both') === 'both' ? ' selected' : '') + '>📘+🟢 ทั้งสองช่องทาง</option>' +
-          '<option value="facebook"' + (a.channels === 'facebook' ? ' selected' : '') + '>📘 Facebook เท่านั้น</option>' +
-          '<option value="line"' + (a.channels === 'line' ? ' selected' : '') + '>🟢 LINE เท่านั้น</option>' +
+          '<option value="both"' + ((a.channels || 'both') === 'both' ? ' selected' : '') + '>ทั้งสองช่องทาง (Facebook + LINE)</option>' +
+          '<option value="facebook"' + (a.channels === 'facebook' ? ' selected' : '') + '>Facebook เท่านั้น</option>' +
+          '<option value="line"' + (a.channels === 'line' ? ' selected' : '') + '>LINE เท่านั้น</option>' +
         '</select></label>' +
       '<label class="adm-field" style="grid-column:1/-1"><span>กลุ่มสินค้าที่ดูแล (คั่นด้วย , — เว้นว่าง = ทุกกลุ่ม)</span>' +
         '<input class="input" id="adf-groups" value="' + esc(groupsVal) + '" placeholder="เช่น UN1, UN8">' +
@@ -495,7 +532,7 @@ function openSettings(a: Admin, container: HTMLElement): void {
     '</div>' +
     '<div class="modal-actions">' +
       '<button class="btn" id="adf-cancel">ยกเลิก</button>' +
-      '<button class="btn primary" id="adf-save">💾 บันทึก</button>' +
+      '<button class="btn primary" id="adf-save">' + icon(ICON_FOR.save) + 'บันทึก</button>' +
     '</div>';
   openModal(html);
   const $id = function (id: string) { return document.getElementById(id) as any; };
@@ -523,7 +560,7 @@ function openSettings(a: Admin, container: HTMLElement): void {
   if (save) save.addEventListener('click', function () {
     if (saving) {
       // เช็คก่อนปิดฟอร์ม — ไม่งั้นค่าที่พิมพ์หายหมดทั้งที่ยังไม่ได้บันทึก
-      toast('⏳ กำลังบันทึกรายการก่อนหน้า — รอสักครู่แล้วกดบันทึกอีกครั้ง');
+      toast('กำลังบันทึกรายการก่อนหน้า — รอสักครู่แล้วกดบันทึกอีกครั้ง');
       return;
     }
     const before = {
@@ -553,7 +590,7 @@ function openSettings(a: Admin, container: HTMLElement): void {
       role: a.role, channels: a.channels, product_groups: a.productGroups,
       max_active: a.maxActive, max_pending: a.maxPending, nickname: a.nicknameSet, note: a.note,
     }, function () { Object.assign(a, before); }, container,
-      '💾 บันทึกตั้งค่า "' + nickOf(a) + '" แล้ว');
+      'บันทึกตั้งค่า "' + nickOf(a) + '" แล้ว');
   });
 }
 
@@ -564,7 +601,7 @@ function openStats(a: Admin): void {
   const ot = a.onlineToday;
   const pageList = splitList(a.pages);
   const pagesHtml = pageList.length
-    ? pageList.map(function (p) { return '📄 ' + esc(p); }).join('<br>')
+    ? pageList.map(function (p) { return icon(ICON_FOR.page, { size: 14, cls: 'ic-muted' }) + ' ' + esc(p); }).join('<br>')
     : '—';
   const perms = splitList(a.permissions);
   const permsHtml = perms.length
@@ -591,22 +628,23 @@ function openStats(a: Admin): void {
   type Ev = { ts: number; icon: string; text: string };
   const evs: Ev[] = [];
   if (ot) ot.marks.forEach(function (m) {
-    evs.push({ ts: m[0], icon: m[1] ? '🟢' : '⚪', text: m[1] ? 'ออนไลน์' : 'ออฟไลน์' });
+    evs.push({ ts: m[0], icon: statusDot(m[1] ? 'good' : 'muted'), text: m[1] ? 'ออนไลน์' : 'ออฟไลน์' });
   });
   (a.orderMarks || []).forEach(function (m) {
-    evs.push({ ts: m[0], icon: '🛒', text: 'ปิดออเดอร์ ' + THB(m[1]) });
+    evs.push({ ts: m[0], icon: icon(ICON_FOR.orders, { size: 14, cls: 'tx-good' }), text: 'ปิดออเดอร์ ' + THB(m[1]) });
   });
   evs.sort(function (x, y) { return y.ts - x.ts; });
   const evHtml = evs.length
     ? '<div style="max-height:30vh;overflow-y:auto">' +
         evs.slice(0, 25).map(function (e) {
           return '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px dashed rgba(38,51,82,.5);font-size:12.5px">' +
-            '<span>' + e.icon + '</span>' +
+            // กล่องกว้างเท่ากันทุกแถว — จุดสี 8px กับไอคอน 14px จะได้ไม่ดันข้อความให้เหลื่อมกัน
+            '<span style="width:16px;flex:none;display:inline-flex;align-items:center;justify-content:center">' + e.icon + '</span>' +
             '<span style="flex:1;color:var(--text-2)">' + esc(e.text) + '</span>' +
             '<span style="color:var(--text-3)">' + esc(hhmm(e.ts)) + ' น.</span></div>';
         }).join('') +
       '</div>'
-    : '<div class="empty-note" style="padding:14px">🕐 ยังไม่มีเหตุการณ์วันนี้' +
+    : '<div class="empty-note" style="padding:14px">ยังไม่มีเหตุการณ์วันนี้' +
       (ot ? '' : ' (ระบบเพิ่งเริ่มเก็บประวัติออนไลน์ — จะแสดงตั้งแต่วันแรกที่มีข้อมูล)') + '</div>';
 
   const html =
@@ -621,24 +659,24 @@ function openStats(a: Admin): void {
             (function () {
               const sc = scoreOf(a);
               return sc === null ? '' :
-                '<span class="badge brand" title="คะแนน Overall จากตัวเลขวันนี้ — เกณฑ์ชุดเดียวกับหน้า Admin Performance (ปรับได้ที่นั่น)">⭐ ' +
+                '<span class="badge brand" title="คะแนน Overall จากตัวเลขวันนี้ — เกณฑ์ชุดเดียวกับหน้า Admin Performance (ปรับได้ที่นั่น)">คะแนน ' +
                 esc(String(sc)) + '</span>';
             })() +
           '</div>' +
         '</div>' +
       '</div>' +
-      '<button class="modal-close">✕</button>' +
+      MODAL_CLOSE_BTN +
     '</div>' +
     detailRow('อีเมล', esc(a.email || '-')) +
     detailRow('แผนก', esc(a.department || '—')) +
     detailRow('กลุ่มขาย (POS)', esc(a.saleGroup || '—')) +
     detailRow('กลุ่มสินค้า (ตั้งเอง)', esc(a.productGroups || 'ทุกกลุ่ม')) +
-    detailRow('ช่องทาง', esc(CH_LABEL[String(a.channels || 'both')] || 'ทั้งสอง')) +
+    detailRow('ช่องทาง', chHtml(chKeyOf(a), true)) +
     (a.note ? detailRow('โน้ต', esc(a.note)) : '') +
     detailRow('เพจที่ดูแล (' + fmtNum(a.pageCount || 0) + ')', pagesHtml) +
     detailRow('สิทธิ์จริงใน Pancake', permsHtml) +
     (a.role ? detailRow('สิทธิ์ตาม Role (ทะเบียนเรา)', rolePermHtml) : '') +
-    '<div style="margin:16px 0 10px;font-weight:700;font-size:13px">📊 สถิติวันนี้ (ข้อมูลจริง)</div>' +
+    '<div style="margin:16px 0 10px;font-weight:700;font-size:13px">สถิติวันนี้ (ข้อมูลจริง)</div>' +
     '<div class="page-stats">' +
       cellHtml(fmtNum(t.replies || 0), 'ตอบ', '') +
       cellHtml(fmtNum(t.chats || 0), 'คนทัก', '') +
@@ -659,7 +697,7 @@ function openStats(a: Admin): void {
       cellHtml(ot && ot.gapMins ? esc(hrsFmt(ot.gapMins)) : '—', 'หายนานสุด',
         ot && ot.gapMins && ot.gapMins > 45 ? 'warn' : '') +
     '</div>' +
-    '<div style="margin:16px 0 8px;font-weight:700;font-size:13px">🕐 Timeline วันนี้</div>' +
+    '<div style="margin:16px 0 8px;font-weight:700;font-size:13px">Timeline วันนี้</div>' +
     evHtml +
     '<div class="modal-actions">' +
       '<button class="btn" id="adm-dt-close">ปิด</button>' +
@@ -684,7 +722,7 @@ function rolesTabHtml(): string {
     '</tr>';
   }).join('');
   return '<div class="card">' +
-    '<h3>🔐 Role & Permission Settings</h3>' +
+    '<h3>Role & Permission Settings</h3>' +
     '<div class="card-sub">ติ๊ก = role นั้นทำได้ — บันทึกอัตโนมัติ • เป็น "ทะเบียนทีม" ใน dashboard ' +
       '(ใช้แสดงผล/รายงาน — เว็บยังเข้าด้วยรหัสทีมเดียว และไม่มีผลกับ Pancake)</div>' +
     // data-cards="off" = ตารางเมทริกซ์ (สิทธิ์ × role) ทำเป็นการ์ดต่อแถวไม่ได้ ต้องเห็นเป็นตารางถึงจะเทียบ role ได้
@@ -708,11 +746,11 @@ function saveRolePerms(): void {
     roleSaving = true;
     serverCall<any>('apiAdminSettings', { rolePerms: rp }).then(function (res) {
       roleSaving = false;
-      if (res && res.ok) toast('💾 บันทึกตารางสิทธิ์แล้ว');
-      else toast('⚠️ บันทึกตารางสิทธิ์ไม่สำเร็จ' + ((res && res.error) ? ': ' + res.error : ''));
+      if (res && res.ok) toast('บันทึกตารางสิทธิ์แล้ว');
+      else toast('บันทึกตารางสิทธิ์ไม่สำเร็จ' + ((res && res.error) ? ': ' + res.error : ''));
     }).catch(function () {
       roleSaving = false;
-      toast('⚠️ บันทึกตารางสิทธิ์ไม่สำเร็จ — เครือข่ายมีปัญหา');
+      toast('บันทึกตารางสิทธิ์ไม่สำเร็จ — เครือข่ายมีปัญหา');
     });
   }, 600);
 }
@@ -722,7 +760,7 @@ function saveRolePerms(): void {
 function exportCsv(): void {
   const list = getFiltered();
   if (!list.length) {
-    toast('👥 ไม่มีข้อมูลแอดมินให้ Export');
+    toast('ไม่มีข้อมูลแอดมินให้ Export');
     return;
   }
   const rows: unknown[][] = [[
@@ -733,14 +771,13 @@ function exportCsv(): void {
   ]];
   list.forEach(function (a) {
     const t = a.today || {};
-    const st = ADMIN_STATUS_META[statusOf(a)] || ADMIN_STATUS_META.offline;
     const ot = a.onlineToday;
     const sc = scoreOf(a);
     const waitN = Number(a.waiting) || 0;
     const waitCmt = Number(a.waitingComment) || 0;
     rows.push([
       nickOf(a), a.name || '', a.email || '', a.role || '', a.enabled !== false ? 'ใช่' : 'ไม่',
-      st.label.replace(/^[^ ]+ /, ''), a.channels || 'both', a.productGroups || '', a.department || '',
+      statusView(a).word, a.channels || 'both', a.productGroups || '', a.department || '',
       a.saleGroup || '', a.pages || '',
       t.replies || 0, Number(a.active) || 0, Number(a.maxActive) || DEFAULT_MAX_ACTIVE, waitN,
       Math.max(0, waitN - waitCmt), waitCmt,
@@ -761,14 +798,14 @@ function renderGrid(container: HTMLElement): void {
   const admins = (lastData && lastData.admins) || [];
   if (!admins.length) {
     wrap.innerHTML =
-      '<div class="empty-note">👥 ยังไม่มีข้อมูลแอดมิน</div>' +
-      '<div class="hint-box">💡 ระบบซิงค์รายชื่อแอดมินจาก Pancake อัตโนมัติทุกชั่วโมง — ' +
+      '<div class="empty-note">ยังไม่มีข้อมูลแอดมิน</div>' +
+      '<div class="hint-box">ระบบซิงค์รายชื่อแอดมินจาก Pancake อัตโนมัติทุกชั่วโมง — ' +
       'รอสักครู่แล้วกดรีเฟรชหน้านี้อีกครั้ง</div>';
     return;
   }
   const list = getFiltered();
   if (!list.length) {
-    wrap.innerHTML = '<div class="empty-note">👥 ไม่พบแอดมินตามเงื่อนไข</div>';
+    wrap.innerHTML = '<div class="empty-note">ไม่พบแอดมินตามเงื่อนไข</div>';
     return;
   }
   wrap.innerHTML = '<div class="admin-grid">' + list.map(cardHtml).join('') + '</div>';
@@ -809,15 +846,17 @@ function render(container: HTMLElement): void {
   if (filter.group && groups.indexOf(filter.group) < 0) filter.group = '';
 
   const controls = tab !== 'cards' ? '' :
-      '<input class="input" id="adm-q" type="text" placeholder="🔍 ค้นหาชื่อแอดมิน..." ' +
-        'value="' + esc(filter.q) + '" style="min-width:190px">' +
+      // ความกว้างขั้นต่ำย้ายจาก input มาที่กรอบ .search-box (ไอคอนแว่นขยายวางซ้อนในกรอบ)
+      '<div class="search-box" style="min-width:190px">' + icon(ICON_FOR.search) +
+        '<input class="input" id="adm-q" type="text" placeholder="ค้นหาชื่อแอดมิน..." ' +
+        'value="' + esc(filter.q) + '"></div>' +
       '<select class="input" id="adm-status">' +
         '<option value=""' + (filter.status === '' ? ' selected' : '') + '>ทุกสถานะ</option>' +
-        '<option value="online"' + (filter.status === 'online' ? ' selected' : '') + '>🟢 ออนไลน์</option>' +
-        '<option value="away"' + (filter.status === 'away' ? ' selected' : '') + '>🟡 พัก</option>' +
-        '<option value="busy"' + (filter.status === 'busy' ? ' selected' : '') + '>🔴 ไม่ว่าง</option>' +
-        '<option value="offline"' + (filter.status === 'offline' ? ' selected' : '') + '>⚪ ออฟไลน์</option>' +
-        '<option value="disabled"' + (filter.status === 'disabled' ? ' selected' : '') + '>⛔ ปิดใช้งาน</option>' +
+        '<option value="online"' + (filter.status === 'online' ? ' selected' : '') + '>ออนไลน์</option>' +
+        '<option value="away"' + (filter.status === 'away' ? ' selected' : '') + '>พัก</option>' +
+        '<option value="busy"' + (filter.status === 'busy' ? ' selected' : '') + '>ไม่ว่าง</option>' +
+        '<option value="offline"' + (filter.status === 'offline' ? ' selected' : '') + '>ออฟไลน์</option>' +
+        '<option value="disabled"' + (filter.status === 'disabled' ? ' selected' : '') + '>ปิดใช้งาน</option>' +
       '</select>' +
       '<select class="input" id="adm-role">' +
         '<option value=""' + (filter.role === '' ? ' selected' : '') + '>ทุก Role</option>' +
@@ -834,14 +873,14 @@ function render(container: HTMLElement): void {
       '</select>' +
       '<select class="input" id="adm-channel">' +
         '<option value=""' + (filter.channel === '' ? ' selected' : '') + '>ทุกช่องทาง</option>' +
-        '<option value="facebook"' + (filter.channel === 'facebook' ? ' selected' : '') + '>📘 Facebook</option>' +
-        '<option value="line"' + (filter.channel === 'line' ? ' selected' : '') + '>🟢 LINE</option>' +
+        '<option value="facebook"' + (filter.channel === 'facebook' ? ' selected' : '') + '>Facebook</option>' +
+        '<option value="line"' + (filter.channel === 'line' ? ' selected' : '') + '>LINE</option>' +
       '</select>' +
       (groups.length
         ? '<select class="input" id="adm-group">' +
           '<option value=""' + (filter.group === '' ? ' selected' : '') + '>ทุกกลุ่มสินค้า</option>' +
           groups.map(function (g) {
-            return '<option value="' + esc(g) + '"' + (filter.group === g ? ' selected' : '') + '>📦 ' +
+            return '<option value="' + esc(g) + '"' + (filter.group === g ? ' selected' : '') + '>' +
               esc(g) + '</option>';
           }).join('') +
           '</select>'
@@ -854,22 +893,24 @@ function render(container: HTMLElement): void {
         '<option value="slow"' + (filter.cap === 'slow' ? ' selected' : '') + '>ตอบช้า (>8 นาที)</option>' +
       '</select>' +
       '<div class="spacer"></div>' +
-      '<button class="btn" id="adm-sla" title="แชทที่ลูกค้ารอเกินกี่นาทีถือว่าเกิน SLA (ใช้ร่วมกับหน้า Admin Performance)">⏰ SLA ' + slaMins + ' น.</button>' +
-      '<button class="btn" id="adm-export">📄 Export CSV</button>';
+      '<button class="btn" id="adm-sla" title="แชทที่ลูกค้ารอเกินกี่นาทีถือว่าเกิน SLA (ใช้ร่วมกับหน้า Admin Performance)">' +
+        icon(ICON_FOR.time) + 'SLA ' + slaMins + ' น.</button>' +
+      '<button class="btn" id="adm-export">' + icon(ICON_FOR.csv) + 'Export CSV</button>';
 
   const html =
     (d.setupNeeded
-      ? '<div class="hint-box" style="border-left-color:var(--amber)">⚠️ <b>ตารางตั้งค่ายังไม่ถูกสร้างใน Supabase</b> — ' +
+      ? '<div class="hint-box" style="border-left-color:var(--amber)"><span class="tx-warn">' +
+        icon(ICON_FOR.alert, { size: 14 }) + '</span> <b>ตารางตั้งค่ายังไม่ถูกสร้างใน Supabase</b> — ' +
         'ปุ่มปิดใช้งาน/สถานะ/ตั้งค่าจะยังบันทึกไม่ได้ และสถิติออนไลน์ยังไม่เริ่มเก็บ ' +
         '(รัน SQL migration ตามที่แชทแจ้ง แล้วทุกอย่างจะทำงานอัตโนมัติ)</div>'
       : '') +
     // สถิติแชท (ตอบวันนี้/ตอบเฉลี่ย) เป็นสแนปช็อตทุก ~15 นาที ไม่ใช่สด — บอกให้ชัด กันเข้าใจว่าไม่ตรง Pancake
     '<div class="hint-box" style="border-left-color:var(--primary);font-size:12px">' +
-      '💬 <b>สถิติแชท</b> (ตอบวันนี้ / ตอบเฉลี่ย) = สแนปช็อต ' +
+      '<b>สถิติแชท</b> (ตอบวันนี้ / ตอบเฉลี่ย) = สแนปช็อต ' +
       (d.chatSyncedAt ? 'อัปเดตล่าสุด <b>' + esc(relTime(d.chatSyncedAt)) + '</b> ' : '') +
       '(ดึงทุก ~15 นาที ไม่ใช่สดวินาที) • เพจ FB ตรงกับ Pancake เป๊ะ — ' +
       'เพจ LINE บางเพจ Pancake API ไม่ให้ข้อมูลรายแอดมิน จึงนับได้ไม่ครบ 100%<br>' +
-      '🟢 <b>ดึงข้อมูล LINE OA ด้วย</b>: ออเดอร์/ยอดขาย LINE นับครบ (โชว์ในหน้า Sales) • คนทัก LINE นับจากเพจที่ API ให้ข้อมูล ' +
+      brandIcon('line') + ' <b>ดึงข้อมูล LINE OA ด้วย</b>: ออเดอร์/ยอดขาย LINE นับครบ (โชว์ในหน้า Sales) • คนทัก LINE นับจากเพจที่ API ให้ข้อมูล ' +
       '• <b>ตัวกรอง “ช่องทาง”</b> ด้านล่างกรองตาม “ช่องทางที่ตั้งให้แอดมินรับผิดชอบ” (ตั้งในปุ่มสิทธิ์/ตั้งค่า) ไม่ใช่กรองแหล่งข้อมูล</div>' +
     '<div class="pg-summary">' +
       pgsItem(fmtNum(k.total || 0), 'แอดมินทั้งหมด', '') +
@@ -882,17 +923,17 @@ function render(container: HTMLElement): void {
       pgsItem(fmtNum(k.activeTotal || 0), 'แชทที่ดูแลรวม (24ชม.)', '') +
       // แชทรอตอบ = อินบ็อกซ์ + คอมเมนต์ใต้โพสต์ (คนละงานกัน — ~41% ที่ค้างเป็นคอมเมนต์)
       pgsItem(fmtNum(waitingTotal),
-        '⏰ แชทรอตอบ (💬 ' + fmtNum(waitingInbox) + ' • 💭 ' + fmtNum(waitingCmt) + ')',
+        'แชทรอตอบ (อินบ็อกซ์ ' + fmtNum(waitingInbox) + ' • คอมเมนต์ ' + fmtNum(waitingCmt) + ')',
         waitingTotal > 0 ? 'warn' : '',
-        'แชทที่ลูกค้ารอตอบตอนนี้ (24 ชม.ล่าสุด) — 💬 อินบ็อกซ์ ' + fmtNum(waitingInbox) +
-          ' • 💭 คอมเมนต์ใต้โพสต์ ' + fmtNum(waitingCmt) + ' (คนละงานกัน จึงแยกให้เห็น)') +
+        'แชทที่ลูกค้ารอตอบตอนนี้ (24 ชม.ล่าสุด) — อินบ็อกซ์ ' + fmtNum(waitingInbox) +
+          ' • คอมเมนต์ใต้โพสต์ ' + fmtNum(waitingCmt) + ' (คนละงานกัน จึงแยกให้เห็น)') +
       pgsItem(fmtNum(overSlaTotal), 'เกิน SLA ' + slaMins + ' น.', overSlaTotal > 0 ? 'warn' : '') +
       pgsItem(fmtNum(k.phonesToday || 0), 'เบอร์โทรวันนี้', '') +
     '</div>' +
 
     '<div class="pg-controls">' +
-      '<button class="btn' + (tab === 'cards' ? ' primary' : '') + '" id="adm-tab-cards">👥 แอดมิน</button>' +
-      '<button class="btn' + (tab === 'roles' ? ' primary' : '') + '" id="adm-tab-roles">🔐 Role Settings</button>' +
+      '<button class="btn' + (tab === 'cards' ? ' primary' : '') + '" id="adm-tab-cards">' + icon(ICON_FOR.admins) + 'แอดมิน</button>' +
+      '<button class="btn' + (tab === 'roles' ? ' primary' : '') + '" id="adm-tab-roles">' + icon('lock') + 'Role Settings</button>' +
       controls +
     '</div>' +
 
@@ -962,7 +1003,7 @@ function bindEvents(container: HTMLElement): void {
             renderBody(container);
             saveAdmin(a, { enabled: a.enabled, status_override: String(a.statusOverride || '') },
               function () { Object.assign(a, before); }, container,
-              (a.enabled ? '▶️ เปิด' : '⏸️ ปิด') + 'ใช้งาน "' + nickOf(a) + '" แล้ว');
+              (a.enabled ? 'เปิด' : 'ปิด') + 'ใช้งาน "' + nickOf(a) + '" แล้ว');
           }
           return;
         }
@@ -995,10 +1036,9 @@ function bindEvents(container: HTMLElement): void {
       a.statusOverride = String(el.value || '');
       recomputeLocal(a);
       renderBody(container);
-      const st = ADMIN_STATUS_META[statusOf(a)] || ADMIN_STATUS_META.offline;
       saveAdmin(a, { status_override: String(a.statusOverride || '') },
         function () { Object.assign(a, before); }, container,
-        'เปลี่ยนสถานะ "' + nickOf(a) + '" → ' + st.label);
+        'เปลี่ยนสถานะ "' + nickOf(a) + '" → ' + statusView(a).word);
       return;
     }
     if (el.classList && el.classList.contains('perm-cb')) {
@@ -1019,8 +1059,8 @@ function bindEvents(container: HTMLElement): void {
 function openSlaEditor(container: HTMLElement): void {
   const cur = Number(lastData && lastData.slaMins) || 60;
   openModal(
-    '<div class="modal-head"><h3>⏰ ตั้งเกณฑ์ SLA แชทรอตอบ</h3>' +
-      '<button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>ตั้งเกณฑ์ SLA แชทรอตอบ</h3>' +
+      MODAL_CLOSE_BTN + '</div>' +
     '<div style="font-size:12.5px;color:var(--text-2);margin-bottom:12px">' +
       'แชทที่ลูกค้ารอนานเกินกี่นาทีถือว่า <b>เกิน SLA</b> — เป็นค่า proxy จากเวลาข้อความล่าสุด ' +
       '(Pancake ไม่ส่ง event รายข้อความ) • ใช้เกณฑ์เดียวกันที่หน้า Admin Performance ด้วย</div>' +
@@ -1030,7 +1070,7 @@ function openSlaEditor(container: HTMLElement): void {
     '</div>' +
     '<div class="modal-actions">' +
       '<button class="btn" id="sla-cancel">ยกเลิก</button>' +
-      '<button class="btn primary" id="sla-save">💾 บันทึก</button>' +
+      '<button class="btn primary" id="sla-save">' + icon(ICON_FOR.save) + 'บันทึก</button>' +
     '</div>'
   );
   const root = document.getElementById('modal-root')!;
@@ -1040,17 +1080,17 @@ function openSlaEditor(container: HTMLElement): void {
   if (save) save.addEventListener('click', function () {
     const inp = root.querySelector('#sla-input') as HTMLInputElement | null;
     const v = inp ? Math.round(Number(inp.value)) : NaN;
-    if (!isFinite(v) || v < 5 || v > 1440) { toast('⚠️ เกณฑ์ SLA ต้องอยู่ระหว่าง 5-1440 นาที'); return; }
+    if (!isFinite(v) || v < 5 || v > 1440) { toast('เกณฑ์ SLA ต้องอยู่ระหว่าง 5-1440 นาที'); return; }
     save.disabled = true;
     serverCall('apiAppSettings', { settings: { slaMins: v } }).then(function () {
       closeModal();
-      toast('💾 ตั้งเกณฑ์ SLA ' + v + ' นาทีแล้ว — กำลังคำนวณใหม่...');
+      toast('ตั้งเกณฑ์ SLA ' + v + ' นาทีแล้ว — กำลังคำนวณใหม่...');
       dataSeq++; // กัน refetch เบื้องหลังเก่ามาทับ
       container.innerHTML = adminsSkel();
       fetchData(container, false); // ให้ server นับ "เกิน SLA" ด้วยเกณฑ์ใหม่
     }).catch(function () {
       save.disabled = false;
-      toast('⚠️ บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
+      toast('บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง');
     });
   });
 }
@@ -1073,7 +1113,7 @@ function fetchData(container: HTMLElement, silent: boolean): void {
   }).catch(function (err) {
     const msg = (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ';
     if (silent && lastData) {
-      toast('⚠️ รีเฟรชข้อมูลแอดมินไม่สำเร็จ: ' + msg);
+      toast('รีเฟรชข้อมูลแอดมินไม่สำเร็จ: ' + msg);
     } else {
       showError(container, msg, function () {
         container.innerHTML = adminsSkel();

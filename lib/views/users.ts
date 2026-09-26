@@ -7,6 +7,7 @@
 import {
   serverCall, esc, fmtNum, relTime, showError, toast, openModal, closeModal, downloadCSV,
 } from '@/lib/ui/helpers';
+import { icon, ICON_FOR } from '@/lib/ui/icons';
 
 interface UserRow {
   id: number;
@@ -34,19 +35,20 @@ let reqSeq = 0;
 let search = '';
 let busy = false;
 
-const ROLE_ICON: Record<string, string> = { superadmin: '🔧', exec: '👔', admin: '🎧' };
-
 /* ---------------- ชิ้นส่วน HTML ---------------- */
 
 function toolbarHtml(d: UsersData): string {
   const noAcc = (d.admins || []).filter((a) => !a.hasAccount).length;
   return '<div class="pg-controls">' +
-    '<input class="input" id="us-search" placeholder="🔎 ค้นหาชื่อ / username..." value="' + esc(search) + '" style="flex:1 1 240px;max-width:100%">' +
-    '<button class="btn primary" id="us-add">➕ เพิ่มผู้ใช้</button>' +
-    '<button class="btn" id="us-bulk" title="สร้างบัญชีให้แอดมินที่ยังไม่มี">👥 สร้างยกชุดจากแอดมิน' +
+    // ขนาดช่องค้นหาตั้งที่กรอบ .search-box (แว่นขยายวาดซ้อนในกรอบ เพราะ placeholder ใส่รูปไม่ได้)
+    '<div class="search-box" style="flex:1 1 240px;max-width:100%">' + icon(ICON_FOR.search) +
+      '<input class="input" id="us-search" placeholder="ค้นหาชื่อ / username..." aria-label="ค้นหาชื่อหรือ username" value="' + esc(search) + '">' +
+    '</div>' +
+    '<button class="btn primary" id="us-add">' + icon(ICON_FOR.add) + 'เพิ่มผู้ใช้</button>' +
+    '<button class="btn" id="us-bulk" title="สร้างบัญชีให้แอดมินที่ยังไม่มี">' + icon(ICON_FOR.admins) + 'สร้างยกชุดจากแอดมิน' +
       (noAcc ? ' (' + noAcc + ')' : '') + '</button>' +
     '<div class="spacer"></div>' +
-    '<button class="btn" id="us-csv">📄 CSV</button>' +
+    '<button class="btn" id="us-csv">' + icon(ICON_FOR.csv) + 'CSV</button>' +
     '</div>';
 }
 
@@ -79,15 +81,16 @@ function rowsHtml(d: UsersData): string {
       '<td><b>' + esc(u.username) + '</b>' + (isMe ? ' <span class="badge neutral">คุณ</span>' : '') +
         (u.must_change_pw ? ' <span class="badge urgent" title="ยังไม่ได้ตั้งรหัสใหม่">รอตั้งรหัส</span>' : '') + '</td>' +
       '<td>' + esc(u.name) + '</td>' +
-      '<td>' + (ROLE_ICON[u.role] || '') + ' ' + esc(u.roleLabel || u.role) + '</td>' +
+      '<td>' + esc(u.roleLabel || u.role) + '</td>' +
       '<td>' + esc(u.admin_user_id ? (adminName[u.admin_user_id] || u.admin_user_id) : '—') + '</td>' +
       '<td>' + (u.enabled ? '<span class="badge ai">เปิด</span>' : '<span class="badge urgent">ปิด</span>') + '</td>' +
       '<td>' + esc(u.last_login_at ? relTime(u.last_login_at) : 'ยังไม่เคยเข้า') + '</td>' +
       '<td class="us-actions">' +
-        '<button class="btn-mini" data-us-edit="' + u.id + '">✏️ แก้ไข</button>' +
-        '<button class="btn-mini" data-us-reset="' + u.id + '" title="ตั้งรหัสใหม่แบบสุ่ม">🔑 รีเซ็ตรหัส</button>' +
-        '<button class="btn-mini" data-us-toggle="' + u.id + '">' + (u.enabled ? '⏸️ ปิด' : '▶️ เปิด') + '</button>' +
-        (isMe ? '' : '<button class="btn-mini danger" data-us-del="' + u.id + '">🗑️ ลบ</button>') +
+        '<button class="btn-mini" data-us-edit="' + u.id + '">' + icon(ICON_FOR.edit) + 'แก้ไข</button>' +
+        '<button class="btn-mini" data-us-reset="' + u.id + '" title="ตั้งรหัสใหม่แบบสุ่ม">' + icon(ICON_FOR.resetPassword) + 'รีเซ็ตรหัส</button>' +
+        '<button class="btn-mini" data-us-toggle="' + u.id + '">' +
+          (u.enabled ? icon(ICON_FOR.pause) + 'ปิด' : icon(ICON_FOR.play) + 'เปิด') + '</button>' +
+        (isMe ? '' : '<button class="btn-mini danger" data-us-del="' + u.id + '">' + icon(ICON_FOR.delete) + 'ลบ</button>') +
       '</td></tr>';
   }).join('');
 
@@ -98,10 +101,13 @@ function rowsHtml(d: UsersData): string {
 }
 
 function bodyHtml(d: UsersData): string {
-  if (d.error) return '<div class="card"><div class="empty">⛔ ' + esc(d.error) + '</div></div>';
+  if (d.error) {
+    return '<div class="card"><div class="empty"><span class="tx-bad">' + icon(ICON_FOR.error, { size: 14 }) + '</span> ' +
+      esc(d.error) + '</div></div>';
+  }
   return toolbarHtml(d) + summaryHtml(d) +
     '<div class="card">' +
-      '<h3>🔐 บัญชีผู้ใช้งาน</h3>' +
+      '<h3>บัญชีผู้ใช้งาน</h3>' +
       '<div class="card-sub">ระดับแอดมิน = เห็นเฉพาะผลงานของตัวเอง • ระดับบริหาร = เห็นทุกหน้า • ผู้ดูแลระบบ = จัดการผู้ใช้ได้</div>' +
       rowsHtml(d) +
     '</div>';
@@ -109,19 +115,22 @@ function bodyHtml(d: UsersData): string {
 
 /* ---------------- modal ---------------- */
 
+/** ปุ่มกากบาทมุมบนของ modal — มีแต่ไอคอน จึงต้องมี aria-label + title ให้โปรแกรมอ่านหน้าจอ/คนชี้เมาส์รู้ว่าคือ "ปิด" */
+const CLOSE_BTN = '<button class="btn btn-icon modal-close" aria-label="ปิด" title="ปิด">' + icon(ICON_FOR.close) + '</button>';
+
 /** โชว์รหัสผ่านครั้งเดียว — ย้ำให้คัดลอกเก็บ เพราะดูย้อนหลังไม่ได้ */
 function showPassword(title: string, username: string, password: string): void {
   openModal(
     '<div class="modal-head"><h3>' + esc(title) + '</h3>' +
-    '<button class="btn modal-close">✕</button></div>' +
-    '<div class="hint-box">⚠️ รหัสนี้แสดง <b>ครั้งเดียว</b> — คัดลอกเก็บก่อนปิดหน้าต่าง (ระบบเก็บแค่ค่าเข้ารหัส ดูย้อนหลังไม่ได้)</div>' +
+    CLOSE_BTN + '</div>' +
+    '<div class="hint-box"><span class="tx-warn">' + icon(ICON_FOR.alert, { size: 14 }) + '</span> รหัสนี้แสดง <b>ครั้งเดียว</b> — คัดลอกเก็บก่อนปิดหน้าต่าง (ระบบเก็บแค่ค่าเข้ารหัส ดูย้อนหลังไม่ได้)</div>' +
     '<div class="pw-box">' +
       '<div class="me-kv"><span>ชื่อผู้ใช้</span><b>' + esc(username) + '</b></div>' +
       '<div class="me-kv"><span>รหัสผ่าน</span><b class="pw-val">' + esc(password) + '</b></div>' +
     '</div>' +
     '<div class="card-sub">ผู้ใช้จะถูกบังคับตั้งรหัสใหม่ตอนเข้าครั้งแรก</div>' +
     '<div class="modal-actions">' +
-      '<button class="btn" id="pw-copy">📋 คัดลอก</button>' +
+      '<button class="btn" id="pw-copy">' + icon(ICON_FOR.copy) + 'คัดลอก</button>' +
       '<button class="btn primary modal-close">เรียบร้อย</button>' +
     '</div>'
   );
@@ -129,8 +138,8 @@ function showPassword(title: string, username: string, password: string): void {
   if (copy) {
     copy.addEventListener('click', () => {
       navigator.clipboard.writeText(username + ' / ' + password)
-        .then(() => toast('📋 คัดลอกแล้ว'))
-        .catch(() => toast('⚠️ คัดลอกไม่สำเร็จ — เลือกข้อความเอง'));
+        .then(() => toast('คัดลอกแล้ว'))
+        .catch(() => toast('คัดลอกไม่สำเร็จ — เลือกข้อความเอง'));
     });
   }
 }
@@ -147,8 +156,8 @@ function openEditor(container: HTMLElement, d: UsersData, user: UserRow | null):
   const isNew = !user;
   const roles = d.roles || [{ key: 'admin', label: 'ระดับแอดมิน' }];
   openModal(
-    '<div class="modal-head"><h3>' + (isNew ? '➕ เพิ่มผู้ใช้' : '✏️ แก้ไข ' + esc(user!.username)) + '</h3>' +
-    '<button class="btn modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>' + (isNew ? 'เพิ่มผู้ใช้' : 'แก้ไข ' + esc(user!.username)) + '</h3>' +
+    CLOSE_BTN + '</div>' +
     '<div class="adm-form">' +
       (isNew
         ? '<label class="adm-field"><span>ชื่อผู้ใช้ (a-z 0-9 . _ -)</span>' +
@@ -187,11 +196,11 @@ function openEditor(container: HTMLElement, d: UsersData, user: UserRow | null):
       const r: any = await serverCall('apiUsers', params);
       closeModal();
       if (isNew && r.password) showPassword('สร้างบัญชีแล้ว', r.username, r.password);
-      else toast('✅ บันทึกแล้ว');
+      else toast('บันทึกแล้ว');
       lastData = null;
       users.load(container, true);
     } catch (e: any) {
-      toast('❌ ' + ((e && e.message) || 'บันทึกไม่สำเร็จ'));
+      toast((e && e.message) || 'บันทึกไม่สำเร็จ');
     }
     busy = false;
   });
@@ -200,11 +209,11 @@ function openEditor(container: HTMLElement, d: UsersData, user: UserRow | null):
 function openBulk(container: HTMLElement, d: UsersData): void {
   const pool = (d.admins || []).filter((a) => !a.hasAccount);
   if (!pool.length) {
-    toast('✅ แอดมินทุกคนมีบัญชีแล้ว');
+    toast('แอดมินทุกคนมีบัญชีแล้ว');
     return;
   }
   openModal(
-    '<div class="modal-head"><h3>👥 สร้างบัญชียกชุด</h3><button class="btn modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>สร้างบัญชียกชุด</h3>' + CLOSE_BTN + '</div>' +
     '<div class="card-sub">แอดมินที่ยังไม่มีบัญชี ' + pool.length + ' คน — เลือกคนที่จะสร้างให้</div>' +
     '<div class="bulk-actions">' +
       '<button class="btn btn-mini" id="us-b-all">เลือกทั้งหมด</button>' +
@@ -228,26 +237,26 @@ function openBulk(container: HTMLElement, d: UsersData): void {
   document.getElementById('us-b-go')!.addEventListener('click', async () => {
     if (busy) return;
     const ids = chks().filter((c) => c.checked).map((c) => c.value);
-    if (!ids.length) { toast('⚠️ ยังไม่ได้เลือกใคร'); return; }
+    if (!ids.length) { toast('ยังไม่ได้เลือกใคร'); return; }
     busy = true;
-    toast('⏳ กำลังสร้าง ' + ids.length + ' บัญชี...');
+    toast('กำลังสร้าง ' + ids.length + ' บัญชี...');
     try {
       const r: any = await serverCall('apiUsers', { action: 'createBulk', adminUserIds: ids });
       closeModal();
       const made: any[] = r.created || [];
-      toast('✅ สร้างแล้ว ' + made.length + ' บัญชี');
+      toast('สร้างแล้ว ' + made.length + ' บัญชี');
       if (made.length) {
         // ดาวน์โหลดทันที — รหัสดูย้อนหลังไม่ได้ ถ้าไม่โหลดตอนนี้คือต้องรีเซ็ตใหม่ทุกคน
         downloadCSV(
           [['ชื่อ', 'ชื่อผู้ใช้', 'รหัสผ่าน'], ...made.map((m) => [m.name, m.username, m.password])],
           'pn-users-' + new Date().toISOString().slice(0, 10) + '.csv'
         );
-        toast('💾 ดาวน์โหลดไฟล์รหัสผ่านแล้ว — แจกเสร็จให้ลบไฟล์ทิ้ง');
+        toast('ดาวน์โหลดไฟล์รหัสผ่านแล้ว — แจกเสร็จให้ลบไฟล์ทิ้ง');
       }
       lastData = null;
       users.load(container, true);
     } catch (e: any) {
-      toast('❌ ' + ((e && e.message) || 'สร้างไม่สำเร็จ'));
+      toast((e && e.message) || 'สร้างไม่สำเร็จ');
     }
     busy = false;
   });
@@ -313,7 +322,7 @@ function bindRowActions(container: HTMLElement): void {
         lastData = null;
         users.load(container, true);
       } catch (e: any) {
-        toast('❌ ' + ((e && e.message) || 'รีเซ็ตไม่สำเร็จ'));
+        toast((e && e.message) || 'รีเซ็ตไม่สำเร็จ');
       }
       busy = false;
     });
@@ -326,11 +335,11 @@ function bindRowActions(container: HTMLElement): void {
       busy = true;
       try {
         await serverCall('apiUsers', { action: 'update', id: u.id, enabled: !u.enabled });
-        toast(u.enabled ? '⏸️ ปิดใช้งานแล้ว' : '▶️ เปิดใช้งานแล้ว');
+        toast(u.enabled ? 'ปิดใช้งานแล้ว' : 'เปิดใช้งานแล้ว');
         lastData = null;
         users.load(container, true);
       } catch (e: any) {
-        toast('❌ ' + ((e && e.message) || 'ทำรายการไม่สำเร็จ'));
+        toast((e && e.message) || 'ทำรายการไม่สำเร็จ');
       }
       busy = false;
     });
@@ -344,11 +353,11 @@ function bindRowActions(container: HTMLElement): void {
       busy = true;
       try {
         await serverCall('apiUsers', { action: 'delete', id: u.id });
-        toast('🗑️ ลบแล้ว');
+        toast('ลบแล้ว');
         lastData = null;
         users.load(container, true);
       } catch (e: any) {
-        toast('❌ ' + ((e && e.message) || 'ลบไม่สำเร็จ'));
+        toast((e && e.message) || 'ลบไม่สำเร็จ');
       }
       busy = false;
     });
@@ -376,7 +385,7 @@ function fetchAndRender(container: HTMLElement): void {
     })
     .catch((err) => {
       if (seq !== reqSeq) return;
-      if (lastData) toast('⚠️ โหลดข้อมูลใหม่ไม่สำเร็จ');
+      if (lastData) toast('โหลดข้อมูลใหม่ไม่สำเร็จ');
       else showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', () => users.load(container, true));
     });
 }

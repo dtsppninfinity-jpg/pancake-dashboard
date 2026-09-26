@@ -13,6 +13,7 @@
 // แล้วลบ title กัน tooltip ซ้อนของเบราว์เซอร์) — ทุกคำอธิบายเดิมเลยกลายเป็นกรอบสวยทันที
 
 import { esc } from './helpers';
+import { icon } from './icons';
 
 let tipEl: HTMLElement | null = null;
 let curTarget: Element | null = null;
@@ -56,7 +57,7 @@ function contentHtml(t: Element): string {
   if (title) h += '<div class="it-title">' + esc(title) + '</div>';
   if (formula) h += '<div class="it-formula">' + esc(formula) + '</div>';
   if (tip) h += '<div class="it-body">' + bodyHtml(tip) + '</div>';
-  if (src) h += '<div class="it-src">📊 ' + esc(src) + '</div>';
+  if (src) h += '<div class="it-src">' + icon('database', { size: 12 }) + '<span>' + esc(src) + '</span></div>';
   return h;
 }
 

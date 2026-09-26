@@ -25,6 +25,7 @@ import {
 } from '@/lib/ui/helpers';
 import { svgHourlyLine, miniBars, hbarRows, bindChartTips, hideChartTip } from '@/lib/ui/charts';
 import { salesSkel } from '@/lib/ui/skeletons';
+import { icon, brandIcon, statusPill, ICON_FOR } from '@/lib/ui/icons';
 
 declare global {
   // app-core (JsCommon) แนบ App / VIEW_META ไว้บน global — view อ้างถึงตรงๆ (ห้าม import กัน cycle)
@@ -96,7 +97,58 @@ let lastContainer: HTMLElement | null = null;
 // LINE/อื่นๆ ดูได้โดยคลิกช่องช่องทางด้านล่าง
 const state: SalesState = { preset: 'today', from: '', to: '', channel: 'facebook', compare: 'prev' };
 
-const CH_LABELS: Record<string, string> = { '': '🌐 ทั้งหมด', 'facebook': '📘 Facebook', 'line': '🟢 LINE OA' };
+// ชื่อช่องทางแบบตัวหนังสือล้วน — ใช้ในที่ที่ใส่รูปไม่ได้ (toast / ทูลทิป / ไฟล์ CSV-Excel)
+const CH_LABELS: Record<string, string> = { '': 'ทั้งหมด', 'facebook': 'Facebook', 'line': 'LINE OA' };
+/**
+ * ชื่อช่องทางแบบมีโลโก้ — ใช้ในเนื้อหน้าเว็บ (HTML) เท่านั้น
+ * เดิมใช้อีโมจิสมุดสีน้ำเงิน/วงกลมเขียวแทน Facebook/LINE ซึ่งแต่ละเครื่องวาดไม่เหมือนกัน
+ * และวงกลมเขียวไปชนกับความหมาย "สถานะดี" ของป้ายสถานะ
+ * ตัวหนังสือยังเป็นคำเดิมทุกตัว (เทสใน temp/audit15 รอคำว่า "LINE OA" ใน .card-sub)
+ */
+function chLabelHtml_(key: string): string {
+  const pic = key === 'facebook' ? brandIcon('facebook') : key === 'line' ? brandIcon('line') : icon('globe', { size: 14 });
+  return pic + ' ' + esc(CH_LABELS[key] || CH_LABELS['']);
+}
+
+/** ป้าย "ยังไม่จัดกลุ่ม" (เพจที่ยังไม่ได้ผูกยูนิตใน U Map) — ไอคอนเตือนสีส้มนำหน้าคำ */
+const UNMAPPED_HTML = '<span class="tx-warn">' + icon(ICON_FOR.alert, { size: 14 }) + '</span> ยังไม่จัดกลุ่ม';
+
+/** ปุ่มปิดโมดัล — มีแต่รูปกากบาท จึงต้องมี aria-label + title ให้โปรแกรมอ่านจอ/คนชี้เมาส์รู้ว่าคือปุ่มอะไร */
+function closeBtn_(): string {
+  return '<button class="modal-close btn-icon" aria-label="ปิด" title="ปิด">' + icon(ICON_FOR.close, { size: 20 }) + '</button>';
+}
+
+/**
+ * การ์ด "สิ่งที่ควรตรวจวันนี้": server (lib/api/sales.ts) ยังส่งอีโมจิมาในช่อง icon
+ * แปลงเป็นไอคอนลายเส้นตรงนี้แทน — เขียนอีโมจิเป็นรหัส \u{...} เพื่อไม่ให้ไฟล์นี้มีอีโมจิเหลือ
+ * ตัวที่ไม่รู้จัก = กระดิ่ง (ไม่โชว์อีโมจิดิบออกไป)
+ */
+const ALERT_ICON_BY_EMOJI: Record<string, string> = {
+  '\u{1F9FE}': ICON_FOR.orders,     // ออเดอร์รอตรวจ
+  '\u{1F4AC}': ICON_FOR.chats,      // แชทค้างรอตอบ
+  '\u{1F573}': ICON_FOR.adSpend,    // แอดจ่ายแล้วไม่มีออเดอร์
+  '\u{1F4C9}': ICON_FOR.trendDown,  // ROAS ต่ำกว่าทุน
+};
+function alertIconHtml_(raw: unknown): string {
+  const key = String(raw || '').replace(/\u{FE0F}/gu, '').trim();
+  return icon(ALERT_ICON_BY_EMOJI[key] || 'bell', { size: 18 });
+}
+
+/**
+ * ตัดอีโมจิออกจากข้อความที่ server (lib/api/sales.ts) ประกอบมาให้ — หัวข้อ/เหตุผลของแจ้งเตือน,
+ * ชื่อแหล่งที่มา, ป้ายสถานะ (เช่น รูปนาฬิกาหน้า "แชทค้างรอตอบ", รูปติ๊กเขียวหน้า "ดี")
+ * ใช้กับข้อความที่ระบบเราเขียนเองเท่านั้น ห้ามใช้กับข้อมูลจาก Pancake (ชื่อเพจ/ลูกค้า/แท็ก)
+ * ลูกศร ↔↗↘ อยู่ในกลุ่ม Extended_Pictographic ด้วย แต่เป็นเครื่องหมายที่เว็บใช้ปกติ → เก็บไว้
+ */
+function stripEmoji_(s: unknown): string {
+  return String(s || '')
+    .replace(/[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu, function (ch) {
+      const cp = ch.codePointAt(0) || 0;
+      return cp >= 0x2190 && cp <= 0x21ff ? ch : '';   // ช่วงลูกศร (Arrows block)
+    })
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
 
 /* ---- "รวมคนทัก" รอบนี้มาจากฐานไหน (API ตัดสินให้ตามข้อมูลจริง + ช่องทาง — ดู metaBaseComplete_) ----
  * ตั้งแต่ 26 ก.ย. 69 ฐานหลักคือ Meta (พีสั่ง หลังทีมแอดยืนยันว่า Meta อัปเดตเร็วกว่า Pancake)
@@ -145,7 +197,7 @@ function chBoxHtml(key: string, ch: any): string {
   ch = ch || {};
   return '<button type="button" class="sr-chbox' + (state.channel === key ? ' active' : '') +
     '" data-ch="' + key + '">' +
-    '<div class="t">' + CH_LABELS[key] + '</div>' +
+    '<div class="t">' + chLabelHtml_(key) + '</div>' +
     '<div class="v">' + THB(ch.revenue || 0) + '</div>' +
     '<div class="s">' + fmtNum(ch.orders || 0) + ' ออเดอร์ • ' +
       fmtNum(ch.customers || 0) + ' ลูกค้า' + trendChip(ch.trend) + '</div>' +
@@ -175,21 +227,21 @@ const AD_SETUP_HINT = 'ต้องรัน db/migrations/2026-07-23-ad-daily.s
 
 function adSpendTile(d: SalesData): string {
   const a = d.adCost;
-  if (!a) return '<div class="tile" title="' + esc(AD_SETUP_HINT) + '">📣 ค่าแอด<b>—</b></div>';
+  if (!a) return '<div class="tile" title="' + esc(AD_SETUP_HINT) + '">ค่าแอด<b>—</b></div>';
   const when = a.syncedAt ? ' • สดถึง ' + relTime(a.syncedAt) : '';
   return '<div class="tile"' + tipAttrs({
-    title: '📣 ค่าแอด', formula: 'Σ spend ทุกแอด (บาทจริง)',
+    title: 'ค่าแอด', formula: 'Σ spend ทุกแอด (บาทจริง)',
     body: 'แอดที่กำลังยิง ' + fmtNum(a.activeAds || 0) + ' ตัว' + when +
       ' • ไม่ได้แยก FB/LINE จึงไม่เปลี่ยนตามช่องทางที่กรอง',
     src: 'Meta Ads (pages/statistics/ads)',
-  }) + '>📣 ค่าแอด<b>' + THB(a.spend) + ' ' + trendChip(a.trend) + '</b></div>';
+  }) + '>ค่าแอด<b>' + THB(a.spend) + ' ' + trendChip(a.trend) + '</b></div>';
 }
 
 function roasTile(d: SalesData): string {
   const a = d.adCost;
-  if (!a) return '<div class="tile" title="' + esc(AD_SETUP_HINT) + '">📊 ROAS<b>—</b></div>';
+  if (!a) return '<div class="tile" title="' + esc(AD_SETUP_HINT) + '">ROAS<b>—</b></div>';
   if (a.roas === null || a.roas === undefined) {
-    return '<div class="tile" title="ช่วงนี้ยังไม่มีค่าแอด — คำนวณ ROAS ไม่ได้">📊 ROAS<b>—</b></div>';
+    return '<div class="tile" title="ช่วงนี้ยังไม่มีค่าแอด — คำนวณ ROAS ไม่ได้">ROAS<b>—</b></div>';
   }
   // ROAS < 1 = ขายได้น้อยกว่าค่าแอด
   const cls = a.roas >= 2 ? 'up' : (a.roas >= 1 ? '' : 'down');
@@ -197,11 +249,11 @@ function roasTile(d: SalesData): string {
     ? ' <span style="font-size:11px;font-weight:600;color:var(--text-3)">(ก่อนหน้า ' + a.roasPrev.toFixed(2) + 'x)</span>'
     : '';
   return '<div class="tile"' + tipAttrs({
-    title: '📊 ROAS (Meta)', formula: 'ยอดขายที่ Meta ตี ÷ ค่าแอด',
+    title: 'ROAS (Meta)', formula: 'ยอดขายที่ Meta ตี ÷ ค่าแอด',
     body: 'ยอดขายจากแอด (Meta) ' + THB(a.adRevenueMeta || 0) + ' ÷ ค่าแอด ' + THB(a.spend) +
       ' • ตรงกับหน้า Meta Ads dashboard (ไม่ใช่ยอดรวมทุกช่องทาง)',
     src: 'Meta Ads (meta_purchase_value)',
-  }) + '>📊 ROAS (Meta)<b' +
+  }) + '>ROAS (Meta)<b' +
     (cls ? ' class="sr-' + cls + '"' : '') + '>' + a.roas.toFixed(2) + 'x' + prev + '</b></div>';
 }
 
@@ -218,9 +270,9 @@ function adCloseTile(d: SalesData): string {
   const a = d.adCost;
   if (!a || a.adCloseRate === null || a.adCloseRate === undefined) {
     return '<div class="tile"' + tipAttrs({
-      title: '🎯 %ปิดจากแอด (Meta)',
+      title: '%ปิดจากแอด (Meta)',
       body: 'ต้องรัน migration db/migrations/2026-07-24-ad-daily-meta-purchase.sql ก่อน' }) +
-      '>🎯 %ปิดจากแอด<b>—</b></div>';
+      '>%ปิดจากแอด<b>—</b></div>';
   }
   // เกิน 100% = เป็นไปไม่ได้ ต้องอธิบายให้ตรงเหตุ ไม่ใช่ขึ้น "รอ Meta" ทุกกรณี
   //  • ช่วงที่รวมวันนี้ → Meta ส่ง "คนทัก" ช้ากว่า "ยอดซื้อ" ระหว่างวัน (เคยเจอ 2272%) = รอได้
@@ -228,7 +280,7 @@ function adCloseTile(d: SalesData): string {
   if (Number(a.adCloseRate) > 100) {
     const live = rangeIncludesToday_();
     return '<div class="tile"' + tipAttrs({
-      title: '🎯 %ปิดจากแอด (Meta)',
+      title: '%ปิดจากแอด (Meta)',
       body: live
         ? 'Meta รายงานยอดซื้อ ' + fmtNum(a.adPurchases || 0) + ' แต่คนทักเพิ่งมา ' + fmtNum(a.adMsgs || 0) +
           ' — ระหว่างวันตัวเลขคนทักของ Meta มาช้ากว่ายอดซื้อ %ปิดจึงยังคำนวณไม่ได้ ' +
@@ -236,22 +288,24 @@ function adCloseTile(d: SalesData): string {
         : 'ช่วงนี้จบไปแล้วแต่ยอดซื้อ ' + fmtNum(a.adPurchases || 0) + ' มากกว่าคนทัก ' + fmtNum(a.adMsgs || 0) +
           ' — แปลว่าข้อมูลคนทักของช่วงนี้เก็บมาไม่ครบ (ดึงย้อนหลังได้ด้วย backfill:meta-ads) ยังใช้ตัดสินใจไม่ได้',
       src: 'Meta Ads (meta_purchase ÷ messaging_started)',
-    }) + '>🎯 %ปิดจากแอด (Meta)<b>' + (live ? '⏳ รอ Meta' : '⚠️ ข้อมูลไม่ครบ') + '</b></div>';
+    }) + '>%ปิดจากแอด (Meta)<b>' + (live
+      ? '<span class="tx-muted">รอ Meta</span>'
+      : '<span class="tx-warn">' + icon('triangle-alert', { size: 14 }) + '</span> ข้อมูลไม่ครบ') + '</b></div>';
   }
   return '<div class="tile"' + tipAttrs({
-    title: '🎯 %ปิดจากแอด (Meta)', formula: 'ซื้อ ÷ คนทักจากแอด',
+    title: '%ปิดจากแอด (Meta)', formula: 'ซื้อ ÷ คนทักจากแอด',
     body: 'ซื้อ ' + fmtNum(a.adPurchases || 0) + ' ÷ คนทักจากแอด ' + fmtNum(a.adMsgs || 0) +
       ' • เป็นตัวเลขฝั่ง Meta ล้วน ไม่เท่ากับ "%ปิดการขาย" ด้านบน (ของ Pancake) — ปกติต่างกัน 2-4 จุด ' +
       'เพราะ Meta นับ "ซื้อ" ตามหน้าต่าง attribution ของโฆษณา ส่วน Pancake นับออเดอร์ที่เปิดในแชทวันนั้น ' +
       '• ระหว่างวันฝั่ง Meta จะต่ำกว่าเพราะรายงานช้ากว่า',
     src: 'Meta Ads (meta_purchase ÷ messaging_started)',
-  }) + '>🎯 %ปิดจากแอด (Meta)<b>' + pctFmt(a.adCloseRate) + '</b></div>';
+  }) + '>%ปิดจากแอด (Meta)<b>' + pctFmt(a.adCloseRate) + '</b></div>';
 }
 
 /** ROAS แบบยอดขาย POS จริง — kind='new' (เฉพาะเพจที่ยิงแอด) | 'all' (ทั้ง Facebook) */
 function roasPosTile(d: SalesData, kind: 'new' | 'all'): string {
   const a = d.adCost;
-  const label = kind === 'new' ? '📊 ROAS ใหม่' : '📊 ROAS รวม';
+  const label = kind === 'new' ? 'ROAS ใหม่' : 'ROAS รวม';
   if (!a) return '<div class="tile" title="' + esc(AD_SETUP_HINT) + '">' + label + '<b>—</b></div>';
   const v = kind === 'new' ? a.roasNew : a.roasAll;
   if (v === null || v === undefined) {
@@ -259,11 +313,11 @@ function roasPosTile(d: SalesData, kind: 'new' | 'all'): string {
   }
   const cls = v >= 2 ? 'up' : (v >= 1 ? '' : 'down');
   const tip: TipSpec = kind === 'new'
-    ? { title: '📊 ROAS ใหม่', formula: 'ยอดขายเฉพาะเพจที่ยิงแอด ÷ ค่าแอด',
+    ? { title: 'ROAS ใหม่', formula: 'ยอดขายเฉพาะเพจที่ยิงแอด ÷ ค่าแอด',
         body: 'ยอดขาย POS ของเพจที่มีค่าแอด ' + THB(a.adPagesRev || 0) + ' ÷ ค่าแอด ' + THB(a.spend) +
           ' • นับเฉพาะเพจที่กำลังยิงแอด (ตัดเพจที่ไม่ได้ยิงออก)',
         src: 'ออเดอร์ POS จริง' }
-    : { title: '📊 ROAS รวม', formula: 'ยอดขายทั้งหมดของ Facebook ÷ ค่าแอด',
+    : { title: 'ROAS รวม', formula: 'ยอดขายทั้งหมดของ Facebook ÷ ค่าแอด',
         body: 'ยอดขาย POS ของ Facebook ทุกเพจ ' + THB((d.salesBreak && d.salesBreak.fb) || 0) +
           ' ÷ ค่าแอด ' + THB(a.spend) + ' • รวมเพจที่ไม่ได้ยิงแอดด้วย (blended / MER)',
         src: 'ออเดอร์ POS จริง' };
@@ -280,14 +334,14 @@ function waitingRowHtml(d: SalesData): string {
   const w = d.waiting;
   if (!w) return '';
   return '<div class="sr-today-row"' + tipAttrs({
-    title: '⏰ แชทค้างรอตอบ',
+    title: 'แชทค้างรอตอบ',
     formula: 'บทสนทนาที่ลูกค้าทักล่าสุดแล้วเพจยังไม่ตอบ',
     body: 'อินบ็อกซ์ ' + fmtNum(w.inbox) + ' + คอมเมนต์ ' + fmtNum(w.comment) +
       ' • นับบทสนทนาที่ขยับใน 24 ชม.ล่าสุด (ไม่ใช่เฉพาะวันนี้) • คะแนนรีวิว (RATING) นับรวมในอินบ็อกซ์',
     src: 'ตาราง conversations (waiting=true)',
-  }) + '><span>⏰ แชทค้างรอตอบ' +
-      '<i class="sr-today-note">💬 อินบ็อกซ์ ' + fmtNum(w.inbox) +
-        ' • 💭 คอมเมนต์ ' + fmtNum(w.comment) + '</i>' +
+  }) + '><span>แชทค้างรอตอบ' +
+      '<i class="sr-today-note">อินบ็อกซ์ ' + fmtNum(w.inbox) +
+        ' • คอมเมนต์ ' + fmtNum(w.comment) + '</i>' +
     '</span><b' + (Number(w.total) >= 10 ? ' class="sr-red"' : '') + '>' + fmtNum(w.total) + '</b></div>';
 }
 
@@ -341,9 +395,10 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
           '<option value="prev30"' + (state.compare === 'prev30' ? ' selected' : '') + '>เทียบ 30 วันที่แล้ว</option>' +
           '<option value="none"' + (state.compare === 'none' ? ' selected' : '') + '>ไม่เปรียบเทียบ</option>' +
         '</select>' +
-        '<button class="btn" id="sr-reload" title="โหลดข้อมูลใหม่">⟳</button>' +
-        '<button class="btn" id="sr-csv">📄 CSV</button>' +
-        '<button class="btn" id="sr-xls" title="ไฟล์ Excel เปิดแล้วภาษาไทยไม่เพี้ยน">📊 Excel</button>' +
+        '<button class="btn btn-icon" id="sr-reload" title="โหลดข้อมูลใหม่" aria-label="โหลดข้อมูลใหม่">' +
+          icon(ICON_FOR.refresh) + '</button>' +
+        '<button class="btn" id="sr-csv">' + icon(ICON_FOR.csv) + 'CSV</button>' +
+        '<button class="btn" id="sr-xls" title="ไฟล์ Excel เปิดแล้วภาษาไทยไม่เพี้ยน">' + icon(ICON_FOR.excel) + 'Excel</button>' +
       '</div>' +
     '</div>';
 
@@ -390,34 +445,37 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       title: 'กำลังกรองช่องทาง',
       body: 'ยอดขาย / ออเดอร์ / %ปิด นับเฉพาะ ' + CH_LABELS[state.channel] +
         ' • ค่าแอด/ROAS เป็นของ Facebook เสมอ (แอดทั้งหมดอยู่บน FB) • คลิกช่องด้านล่าง (หรือ "ทั้งหมด") เพื่อเปลี่ยน',
-    }) + '>👁️ กำลังดูเฉพาะ <b>' + CH_LABELS[state.channel] + '</b>' +
+    }) + '>' + icon(ICON_FOR.filter, { size: 14 }) + ' กำลังดูเฉพาะ <b>' + chLabelHtml_(state.channel) + '</b>' +
       '<span class="sr-chan-hint">— ยอดขาย/ออเดอร์/%ปิด นับเฉพาะช่องทางนี้ • เปลี่ยนได้ที่ช่องด้านล่าง</span></div>';
   }
   html += '<div class="sr-cards">' +
     '<div class="sr-card"' + tipAttrs({
-      title: '🛒 คำสั่งซื้อ',
+      title: 'คำสั่งซื้อ',
       formula: 'นับออเดอร์ที่มีสินค้าจริง',
       body: 'ตัดออเดอร์เปล่าที่ Pancake สร้างให้ทุกแชทจากแอดทิ้งแล้ว • "ยืนยันแล้ว" = ออเดอร์ที่แอดมินกดยืนยัน = ตัวที่ Pancake นับเป็น "สร้างคำสั่งซื้อ"',
       src: 'ออเดอร์ POS จริง',
     }) + '>' +
-      '<div class="label">🛒 คำสั่งซื้อ</div>' +
+      '<div class="label">คำสั่งซื้อ</div>' +
       '<div class="big">' + fmtNum(k.orders || 0) + confirmedSuffix(k) + '</div>' +
-      '<div class="foot">📘 ' + THB(fb.revenue || 0) + ' • 🟢 ' + THB(ln.revenue || 0) +
+      // โลโก้แทนชื่อช่องทาง (label:true ให้โปรแกรมอ่านจอยังอ่านว่า Facebook / LINE)
+      '<div class="foot">' + brandIcon('facebook', { label: true }) + ' ' + THB(fb.revenue || 0) +
+        ' · ' + brandIcon('line', { label: true }) + ' ' + THB(ln.revenue || 0) +
         // "ต้องตรวจ" กดได้ → เปิดตารางรายออเดอร์ (เดิมเป็นตัวเลขเฉยๆ ไม่รู้ว่าใบไหน)
         (Number(k.needCheck) > 0
           ? ' <button type="button" class="sr-needcheck" data-needcheck="range"' +
-              ' title="คลิกดูรายออเดอร์ที่ยังไม่ยืนยัน / รอสินค้า (ยังไม่นับเป็นยอดขาย)">⚠️ ต้องตรวจ ' + fmtNum(k.needCheck) + '</button>'
+              ' title="คลิกดูรายออเดอร์ที่ยังไม่ยืนยัน / รอสินค้า (ยังไม่นับเป็นยอดขาย)">' +
+              icon(ICON_FOR.alert, { size: 14 }) + ' ต้องตรวจ ' + fmtNum(k.needCheck) + '</button>'
           : ' ✓ ไม่มีค้างตรวจ') +
         trendChip(t.orders) +
       '</div>' +
     '</div>' +
     '<div class="sr-card"' + tipAttrs({
-      title: '🎯 % ปิดการขาย',
+      title: '% ปิดการขาย',
       formula: 'ออเดอร์ ÷ รวมคนทัก (' + srcParts_() + ' จาก ' + srcName_() + ')',
       body: closeRateTip(k),
       src: closeBaseSrcLine_() + ' + ออเดอร์จาก Pancake POS',
     }) + '>' +
-      '<div class="label">🎯 % ปิดการขาย (ต่อรวมคนทัก)</div>' +
+      '<div class="label">% ปิดการขาย (ต่อรวมคนทัก)</div>' +
       '<div class="big">' + closeRateBig + '</div>' +
       '<div class="foot">ยอดขายจากแอด ' + THB(k.adRevenue || 0) +
         ' • เฉลี่ย ' + THB(k.avgOrder || 0) + '/ออเดอร์</div>' +
@@ -435,44 +493,44 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
   const rr = d.returning;
   const retTile = rr
     ? '<div class="tile" title="ลูกค้าในช่วงที่เลือกที่เคยซื้อภายใน 95 วันก่อนหน้า — ' +
-        esc(fmtNum(rr.returning) + ' จาก ' + fmtNum(rr.total) + ' คน') + '">🔁 ลูกค้าเก่า (95 วัน)<b>' +
+        esc(fmtNum(rr.returning) + ' จาก ' + fmtNum(rr.total) + ' คน') + '">ลูกค้าเก่า (95 วัน)<b>' +
         fmtNum(rr.returning) +
         (rr.pct !== null && rr.pct !== undefined
           ? ' <span style="font-size:11px;font-weight:600;color:var(--text-3)">(' + rr.pct + '%)</span>'
           : '') +
       '</b></div>'
-    : '<div class="tile" title="ต้องรัน SQL migration (db/migrations/2026-07-11-sprint2.sql) ใน Supabase ก่อน">🔁 ลูกค้าเก่า (95 วัน)<b>—</b></div>';
+    : '<div class="tile" title="ต้องรัน SQL migration (db/migrations/2026-07-11-sprint2.sql) ใน Supabase ก่อน">ลูกค้าเก่า (95 วัน)<b>—</b></div>';
   // ยอดขายแยกช่องทาง (ไม่ขึ้นกับ channel filter — โชว์ครบเสมอ ตามที่บอสสั่ง)
   const sb = d.salesBreak || { total: 0, fb: 0, line: 0 };
   html += '<div class="sr-strip">' +
-    tileHtml('🧾 ยอดขายรวม (เพจ+ไลน์)', THB(sb.total || 0), {
-      title: '🧾 ยอดขายรวม (เพจ+ไลน์)', formula: 'ยอดขายเพจ + ยอดขายไลน์',
+    tileHtml('ยอดขายรวม (เพจ+ไลน์)', THB(sb.total || 0), {
+      title: 'ยอดขายรวม (เพจ+ไลน์)', formula: 'ยอดขายเพจ + ยอดขายไลน์',
       body: 'เพจ (Facebook) ' + THB(sb.fb || 0) + ' + ไลน์ ' + THB(sb.line || 0) +
         ' • เฉพาะยืนยันแล้ว • ไม่ขึ้นกับช่องทางที่กรอง', src: 'ออเดอร์ POS จริง (ยืนยันแล้ว)' }) +
-    tileHtml('📘 ยอดขายเพจ', THB(sb.fb || 0), {
-      title: '📘 ยอดขายเพจ (Facebook)', formula: 'Σ ยอดขาย FB "ยืนยันแล้ว"',
+    tileHtml('ยอดขายเพจ', THB(sb.fb || 0), {
+      title: 'ยอดขายเพจ (Facebook)', formula: 'Σ ยอดขาย FB "ยืนยันแล้ว"',
       body: 'เฉพาะ Facebook ที่ยืนยันแล้ว (ตรง Pancake) • ตัวตั้งของ ROAS รวม', src: 'ออเดอร์ POS จริง (ยืนยันแล้ว)' }) +
-    tileHtml('🟢 ยอดขายไลน์', THB(sb.line || 0), {
-      title: '🟢 ยอดขายไลน์ (LINE OA)', formula: 'Σ ยอดขาย LINE "ยืนยันแล้ว"',
+    tileHtml('ยอดขายไลน์', THB(sb.line || 0), {
+      title: 'ยอดขายไลน์ (LINE OA)', formula: 'Σ ยอดขาย LINE "ยืนยันแล้ว"',
       body: 'เฉพาะ LINE OA ที่ยืนยันแล้ว', src: 'ออเดอร์ POS จริง (ยืนยันแล้ว)' }) +
-    tileHtml('🛒 ออเดอร์', fmtNum(k.orders || 0), {
-      title: '🛒 ออเดอร์', formula: 'นับออเดอร์ที่มีสินค้าจริง',
+    tileHtml('ออเดอร์', fmtNum(k.orders || 0), {
+      title: 'ออเดอร์', formula: 'นับออเดอร์ที่มีสินค้าจริง',
       body: 'ตัดออเดอร์เปล่าที่ Pancake สร้างให้ทุกแชทจากแอด', src: 'ออเดอร์ POS จริง' }) +
-    tileHtml('👥 ลูกค้า', fmtNum(k.customers || 0), {
-      title: '👥 ลูกค้า', formula: 'นับ customer_id ไม่ซ้ำ',
+    tileHtml('ลูกค้า', fmtNum(k.customers || 0), {
+      title: 'ลูกค้า', formula: 'นับ customer_id ไม่ซ้ำ',
       body: 'จำนวนลูกค้าที่มีออเดอร์ในช่วงนี้ (คนเดียวสั่งหลายครั้งนับ 1)' }) +
-    tileHtml('💵 เฉลี่ย/ออเดอร์', THB(k.avgOrder || 0), {
-      title: '💵 เฉลี่ย/ออเดอร์', formula: 'ยอดขายยืนยันแล้ว ÷ ออเดอร์ยืนยันแล้ว',
+    tileHtml('เฉลี่ย/ออเดอร์', THB(k.avgOrder || 0), {
+      title: 'เฉลี่ย/ออเดอร์', formula: 'ยอดขายยืนยันแล้ว ÷ ออเดอร์ยืนยันแล้ว',
       body: 'มูลค่าเฉลี่ยต่อ 1 ออเดอร์ที่ปิดการขายแล้ว' }) +
-    tileHtml('✅ ยืนยันแล้ว', k.confirmedOrders === null || k.confirmedOrders === undefined ? '—' : fmtNum(k.confirmedOrders), {
-      title: '✅ ยืนยันแล้ว', formula: 'ออเดอร์สถานะ "ยืนยันแล้ว" (status=1)',
+    tileHtml('ยืนยันแล้ว', k.confirmedOrders === null || k.confirmedOrders === undefined ? '—' : fmtNum(k.confirmedOrders), {
+      title: 'ยืนยันแล้ว', formula: 'ออเดอร์สถานะ "ยืนยันแล้ว" (status=1)',
       body: 'ตัวที่ Pancake นับเป็น "สร้างคำสั่งซื้อ" — เอาไว้เทียบจอ Pancake' }) +
-    tileHtml('🎯 %ปิดการขาย', pct2_(k.closeRate), {
-      title: '🎯 %ปิดการขาย', formula: 'ออเดอร์ ÷ รวมคนทัก (' + srcParts_() + ' จาก ' + srcName_() + ')',
+    tileHtml('%ปิดการขาย', pct2_(k.closeRate), {
+      title: '%ปิดการขาย', formula: 'ออเดอร์ ÷ รวมคนทัก (' + srcParts_() + ' จาก ' + srcName_() + ')',
       body: closeRateTip(k),
       src: closeBaseSrcLine_() + ' + ออเดอร์จาก Pancake POS' }) +
-    tileHtml('💬 รวมคนทัก', k.closeBase === null || k.closeBase === undefined ? '—' : fmtNum(k.closeBase), {
-      title: '💬 รวมคนทัก', formula: srcParts_() + ' จาก ' + srcName_() + ' (' + baseScope_().replace('ของ', '') + ')',
+    tileHtml('รวมคนทัก', k.closeBase === null || k.closeBase === undefined ? '—' : fmtNum(k.closeBase), {
+      title: 'รวมคนทัก', formula: srcParts_() + ' จาก ' + srcName_() + ' (' + baseScope_().replace('ของ', '') + ')',
       body: (state.channel === 'line'
           ? 'ตัวหารของ %ปิดการขาย (เพจ LINE ไม่มีค่าแอด จึงไม่มีค่าทัก)'
           : 'ตัวหารของ %ปิดการขายและค่าทัก') +
@@ -483,10 +541,10 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         ' • ลูกค้าที่คุยทั้งหมด ' + fmtNum(k.engTotal || 0),
       src: closeSrc_ === 'meta' ? 'Meta Marketing API (messaging_first_reply + comment)'
         : 'Pancake statistics/customer_engagements' }) +
-    tileHtml('📨 อินบ็อกซ์ใหม่', k.closeNewInbox === null || k.closeNewInbox === undefined ? fmtNum(k.newConvs || 0) : fmtNum(k.closeNewInbox), {
-      title: '📨 อินบ็อกซ์ใหม่', formula: 'customer_engagement_new_inbox',
-      body: 'ลูกค้าที่เปิดบทสนทนาอินบ็อกซ์ใหม่ในช่วงนี้ — นับทุกเพจของช่องทางที่เลือก (แท็บ 🌐 ทั้งหมด รวมเพจ LINE ด้วย)' +
-        ' จึงอาจมากกว่าอินบ็อกซ์ใหม่ใน 💬 รวมคนทัก ซึ่งนับเฉพาะ' + baseScope_().replace('ของ', ''),
+    tileHtml('อินบ็อกซ์ใหม่', k.closeNewInbox === null || k.closeNewInbox === undefined ? fmtNum(k.newConvs || 0) : fmtNum(k.closeNewInbox), {
+      title: 'อินบ็อกซ์ใหม่', formula: 'customer_engagement_new_inbox',
+      body: 'ลูกค้าที่เปิดบทสนทนาอินบ็อกซ์ใหม่ในช่วงนี้ — นับทุกเพจของช่องทางที่เลือก (แท็บ “ทั้งหมด” รวมเพจ LINE ด้วย)' +
+        ' จึงอาจมากกว่าอินบ็อกซ์ใหม่ใน “รวมคนทัก” ซึ่งนับเฉพาะ' + baseScope_().replace('ของ', ''),
       src: 'Pancake statistics/customer_engagements' }) +
     retTile +
     adSpendTile(d) +
@@ -512,7 +570,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
 
   html += '<div class="sr-main">' +
     '<div class="card">' +
-      '<h3>📈 ยอดขายรายชั่วโมง</h3>' +
+      '<h3>ยอดขายรายชั่วโมง</h3>' +
       '<div class="card-sub">' + esc(rangeLabel) +
         (hourlyPrev ? ' — เส้นประ = ' + esc(prevName) + prevWin : '') + '</div>' +
       hourlyChartHtml_(hourly, hourlyPrev, prevName) +
@@ -520,17 +578,17 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     '</div>' +
     '<div class="card sr-live">' +
       '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px">' +
-        '<h3 style="margin:0">🏪 ธุรกิจวันนี้</h3>' +
+        '<h3 style="margin:0">ธุรกิจวันนี้</h3>' +
         '<span class="badge live-now">LIVE วันนี้</span>' +
       '</div>' +
-      '<div class="card-sub">ตัวเลขจริงของ<b>วันนี้</b>แบบเรียลไทม์ — <b>ไม่ขึ้นกับตัวกรอง 📅 ด้านบน</b></div>' +
+      '<div class="card-sub">ตัวเลขจริงของ<b>วันนี้</b>แบบเรียลไทม์ — <b>ไม่ขึ้นกับตัวกรองวันที่ด้านบน</b></div>' +
       '<div class="sr-green" style="font-size:26px;font-weight:800;letter-spacing:-0.5px">' + THB(today.revenue || 0) + '</div>' +
       '<div style="font-size:12px;color:var(--text-3)">' + fmtNum(today.orders || 0) + ' ออเดอร์วันนี้</div>' +
       miniBars(todayHourly) +
-      '<div class="sr-today-row"><span>📘 Facebook</span><b>' + THB(today.fb || 0) + '</b></div>' +
-      '<div class="sr-today-row"><span>🟢 LINE OA</span><b>' + THB(today.line || 0) + '</b></div>' +
-      '<div class="sr-today-row"><span>🆕 ลูกค้าใหม่</span><b>' + fmtNum(today.newCust || 0) + ' คน</b></div>' +
-      '<div class="sr-today-row"><span>⚠️ ออเดอร์ที่ต้องตรวจ</span>' +
+      '<div class="sr-today-row"><span>' + chLabelHtml_('facebook') + '</span><b>' + THB(today.fb || 0) + '</b></div>' +
+      '<div class="sr-today-row"><span>' + chLabelHtml_('line') + '</span><b>' + THB(today.line || 0) + '</b></div>' +
+      '<div class="sr-today-row"><span>ลูกค้าใหม่</span><b>' + fmtNum(today.newCust || 0) + ' คน</b></div>' +
+      '<div class="sr-today-row"><span>ออเดอร์ที่ต้องตรวจ</span>' +
         (Number(today.needCheck) > 0
           ? '<button type="button" class="sr-needcheck" data-needcheck="today"' +
             ' title="คลิกดูรายออเดอร์ที่ยังไม่ยืนยัน / รอสินค้า (ยังไม่นับเป็นยอดขาย)">' + fmtNum(today.needCheck) + '</button>'
@@ -557,7 +615,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     const unitTable = units.map(function (u: any) {
       const label = (u.mapped
         ? esc(u.product || u.u) + (u.u ? ' <span class="chip">' + esc(u.u) + '</span>' : '')
-        : '⚠️ ยังไม่จัดกลุ่ม') + noteChip_(u.note);
+        : UNMAPPED_HTML) + noteChip_(u.note);
       // ROAS ต่ำกว่า 1 = ขายได้ไม่คุ้มค่าแอด ต้องเห็นแต่ไกล
       const roasCls = u.roas === null || u.roas === undefined ? '' : (u.roas < 1 ? 'txt-bad' : (u.roas >= 3 ? 'txt-good' : ''));
       const pb = perBill_(u.revenue, u.orders);
@@ -589,11 +647,11 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     html += '<div class="sr-split">' +
       '<div class="card">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
-          '<h3>📦 สินค้าขายดี' + (prodN ? ' Top ' + fmtNum(prodN) : '') + '</h3>' +
-          '<button class="btn-mini" id="sr-drill">🔍 ดูรายละเอียด</button>' +
+          '<h3>สินค้าขายดี' + (prodN ? ' Top ' + fmtNum(prodN) : '') + '</h3>' +
+          '<button class="btn-mini" id="sr-drill">' + icon(ICON_FOR.search) + 'ดูรายละเอียด</button>' +
         '</div>' +
-        '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] +
-          ' — มูลค่า = ราคาขาย × จำนวน (ยังไม่หักส่วนลดท้ายบิล) • 👆 คลิกสินค้าเพื่อดูรายเพจ</div>' +
+        '<div class="card-sub">' + esc(rangeLabel) + ' • ' + chLabelHtml_(state.channel) +
+          ' — มูลค่า = ราคาขาย × จำนวน (ยังไม่หักส่วนลดท้ายบิล) • คลิกสินค้าเพื่อดูรายเพจ</div>' +
         // ≥6 รายการค่อยแตกเป็น 2 คอลัมน์ — น้อยกว่านั้นเรียงเดี่ยวอ่านเทียบกันง่ายกว่า
         '<div class="hbar-wide' + (prodN >= 6 ? ' hbar-cols' : '') + '">' +
           hbarRows(prodRows, { empty: 'ยังไม่มีข้อมูลสินค้าในช่วงนี้' }) + '</div>' +
@@ -603,7 +661,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       '</div>' +
       '<div class="card">' +
         '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
-          '<h3>🧩 ยอดขายตามยูนิต (สินค้า)</h3>' +
+          '<h3>ยอดขายตามยูนิต (สินค้า)</h3>' +
           '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
             // เป้าย้ายไปอยู่ชีท KPI ที่เดียว (พีสั่ง 2026-09-14) — เดิมเป็นปุ่มกรอกเป้าบนเว็บ ซึ่งไม่มีใครกรอก
             // และทำให้มีเป้า 2 ที่ไม่ตรงกัน
@@ -611,20 +669,21 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
               ? '<a class="btn-mini" href="https://docs.google.com/spreadsheets/d/' + esc(sheetId) + '"' +
                 ' target="_blank" rel="noopener noreferrer"' +
                 ' title="เป้ายอดขายแก้ที่แท็บ เป้ายอดขาย • เป้าเปอร์บิลแก้ที่แท็บ data — หน้าเว็บตามภายใน 1 ชั่วโมง">' +
-                '📄 แก้เป้าในชีท KPI</a>'
+                icon(ICON_FOR.open) + 'แก้เป้าในชีท KPI</a>'
               : '') +
-            // ทางเข้าที่ 2 ของโมดัลตั้งค่ายูนิต — อีกปุ่มอยู่บนการ์ด 🚨 ซึ่งหายไปตอนไม่มียูนิตขาดทุน
+            // ทางเข้าที่ 2 ของโมดัลตั้งค่ายูนิต — อีกปุ่มอยู่บนการ์ดยูนิตขาดทุน ซึ่งหายไปตอนไม่มียูนิตขาดทุน
             // (พอทีมทำกำไรครบทุกยูนิตจะแก้หมายเหตุไม่ได้เลย ซึ่งกลับหัวกลับหาง)
-            '<button class="btn-mini" id="sr-unitcfg" title="จุดคุ้มทุน + 📌 หมายเหตุยูนิต เช่น รอรีแบรนด์">⚙️ ตั้งค่ายูนิต</button>' +
-            (pageCount > 0 ? '<button class="btn-mini" id="sr-allpages">📋 ดูทุกเพจ (' + fmtNum(pageCount) + ')</button>' : '') +
+            '<button class="btn-mini" id="sr-unitcfg" title="จุดคุ้มทุน + หมายเหตุยูนิต เช่น รอรีแบรนด์">' +
+              icon(ICON_FOR.settings) + 'ตั้งค่ายูนิต</button>' +
+            (pageCount > 0 ? '<button class="btn-mini" id="sr-allpages">' + icon('list') + 'ดูทุกเพจ (' + fmtNum(pageCount) + ')</button>' : '') +
           '</div>' +
         '</div>' +
-        '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] +
+        '<div class="card-sub">' + esc(rangeLabel) + ' • ' + chLabelHtml_(state.channel) +
           (state.channel === 'line'
             ? ' — เพจ LINE ไม่มีค่าแอด (ค่าทักเป็น —) • %ปิด = ออเดอร์ ÷ คนทัก'
             : ' — ค่าแอดจริงจาก Meta • ค่าทัก = ค่าแอด ÷ คนทัก • %ปิด = ออเดอร์ ÷ คนทัก') +
           ' (คนทัก = ' + srcParts_() + ' ' + baseScope_() + ' จาก ' + srcName_() + adsCardNote_() + ')' +
-          ' • 👆 คลิกยูนิตเพื่อดูรายเพจ + ยอดรายสัปดาห์' +
+          ' • คลิกยูนิตเพื่อดูรายเพจ + ยอดรายสัปดาห์' +
           unitGoalNote_(d, anyTarget) + '</div>' +
         noUnitAdsBanner_(d) +
         (unitTable
@@ -648,12 +707,13 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
   const srcRows = sources.map(function (s: any) {
     const st = s.status || {};
     return '<tr>' +
-      '<td>' + esc(s.label) + '</td>' +
+      // ชื่อช่องทางจาก server มีอีโมจินำหน้า — Facebook/LINE ใช้โลโก้จริงแทน ช่องทางอื่นตัดอีโมจิทิ้ง
+      '<td>' + (s.key === 'facebook' || s.key === 'line' ? chLabelHtml_(s.key) : esc(stripEmoji_(s.label))) + '</td>' +
       '<td>' + THB(s.revenue || 0) + '</td>' +
       '<td>' + fmtNum(s.orders || 0) + '</td>' +
       '<td>' + fmtNum(s.customers || 0) + '</td>' +
       '<td>' + pct2_(s.closeRate) + '</td>' +
-      '<td><span class="badge ' + esc(st.cls || 'neutral') + '">' + esc(st.label || '—') + '</span></td>' +
+      '<td><span class="badge ' + esc(st.cls || 'neutral') + '">' + esc(stripEmoji_(st.label) || '—') + '</span></td>' +
     '</tr>';
   }).join('');
 
@@ -665,16 +725,16 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
 
   let alertsHtml;
   if (!alerts.length) {
-    alertsHtml = '<div class="empty-note">✓ วันนี้ไม่มีอะไรต้องตรวจเป็นพิเศษ</div>';
+    alertsHtml = '<div class="empty-note">วันนี้ไม่มีอะไรต้องตรวจเป็นพิเศษ</div>';
   } else {
     alertsHtml = '<div class="alert-list">' + alerts.map(function (a: any) {
       const lv = (a.level === 'red' || a.level === 'orange' || a.level === 'yellow' || a.level === 'green')
         ? a.level : 'yellow';
       return '<div class="alert-row lv-' + lv + '">' +
-        '<div class="alert-icon">' + esc(a.icon || '🔔') + '</div>' +
+        '<div class="alert-icon">' + alertIconHtml_(a.icon) + '</div>' +
         '<div class="alert-body">' +
-          '<div class="alert-title">' + esc(a.title) + '</div>' +
-          '<div class="alert-reason">' + esc(a.reason) + '</div>' +
+          '<div class="alert-title">' + esc(stripEmoji_(a.title)) + '</div>' +
+          '<div class="alert-reason">' + esc(stripEmoji_(a.reason)) + '</div>' +
           // drill = เปิด modal ในหน้าเดิม (แจ้งเตือนออเดอร์รอตรวจเคยชี้ view:'sales' = หน้าเดียวกัน กดแล้วไม่เกิดอะไร)
           (a.drill === 'needcheck'
             ? '<div style="margin-top:6px"><button class="btn-mini" data-needcheck="today">ดูรายละเอียด →</button></div>'
@@ -688,7 +748,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
 
   html += '<div class="sr-bottom">' +
     '<div class="card">' +
-      '<h3>🧭 แหล่งที่มาของคำสั่งซื้อ</h3>' +
+      '<h3>แหล่งที่มาของคำสั่งซื้อ</h3>' +
       '<div class="card-sub">รายได้ • ออเดอร์ • สถานะของแต่ละช่องทาง</div>' +
       (sources.length
         ? '<div class="table-scroll"><table class="tbl"><thead><tr>' +
@@ -702,7 +762,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       returnSummary_(d.returns) +
     '</div>' +
     '<div class="card">' +
-      '<h3>🔔 สิ่งที่ควรตรวจวันนี้</h3>' +
+      '<h3>สิ่งที่ควรตรวจวันนี้</h3>' +
       '<div class="card-sub">แจ้งเตือนจากตัวเลขจริง (สูงสุด 3 รายการ)</div>' +
       alertsHtml +
     '</div>' +
@@ -739,6 +799,10 @@ function bindEvents(container: HTMLElement): void {
   const beBtn = container.querySelector('#sr-breakeven');
   if (beBtn) beBtn.addEventListener('click', openBreakEvenEditor);
 
+  // "ดูอีก N ยูนิต" / "ย่อ" บนการ์ดยูนิตขาดทุน
+  const lossMoreBtn = container.querySelector('#sr-loss-more');
+  if (lossMoreBtn) lossMoreBtn.addEventListener('click', function () { toggleLossList_(container); });
+
   const cfgBtn = container.querySelector('#sr-unitcfg');
   if (cfgBtn) cfgBtn.addEventListener('click', openBreakEvenEditor);
 
@@ -750,7 +814,7 @@ function bindEvents(container: HTMLElement): void {
 
   const reloadBtn = container.querySelector('#sr-reload');
   if (reloadBtn) reloadBtn.addEventListener('click', function () {
-    toast('⟳ กำลังโหลดข้อมูลใหม่...');
+    toast('กำลังโหลดข้อมูลใหม่...');
     refetch(container);
   });
 
@@ -759,7 +823,7 @@ function bindEvents(container: HTMLElement): void {
       const key = btn.getAttribute('data-ch') || '';
       if (state.channel === key) return;
       state.channel = key;
-      toast('🔎 กรองช่องทาง: ' + CH_LABELS[key]);
+      toast('กรองช่องทาง: ' + CH_LABELS[key]);
       refetch(container);
     });
   });
@@ -801,9 +865,9 @@ function drillBodyHtml(chKey: string): string {
   const chs = d.channels || {};
   const c = (chKey ? chs[chKey] : chs.all) || {};
   const sum = '<div class="pill-grid" style="margin-bottom:12px">' +
-    '<span class="chip">💰 ' + THB(c.revenue || 0) + '</span>' +
-    '<span class="chip">🛒 ' + fmtNum(c.orders || 0) + ' ออเดอร์</span>' +
-    '<span class="chip">👥 ' + fmtNum(c.customers || 0) + ' ลูกค้า</span>' +
+    '<span class="chip"><span class="mini-lbl">ยอดขาย</span>' + THB(c.revenue || 0) + '</span>' +
+    '<span class="chip">' + fmtNum(c.orders || 0) + ' ออเดอร์</span>' +
+    '<span class="chip">' + fmtNum(c.customers || 0) + ' ลูกค้า</span>' +
   '</div>';
   const pages = t.pages || [];
   const products = t.products || [];
@@ -824,8 +888,8 @@ function drillBodyHtml(chKey: string): string {
       }).join('') + '</tbody></table></div>'
     : '<div class="empty-note">ยังไม่มีข้อมูลสินค้าในช่วงนี้</div>';
   return sum +
-    '<h4 style="margin:8px 0 6px">📄 Top 5 เพจ</h4>' + pageTbl +
-    '<h4 style="margin:14px 0 6px">📦 Top 5 สินค้า</h4>' + prodTbl +
+    '<h4 style="margin:8px 0 6px">Top 5 เพจ</h4>' + pageTbl +
+    '<h4 style="margin:14px 0 6px">Top 5 สินค้า</h4>' + prodTbl +
     '<div style="font-size:11px;color:var(--text-3);margin-top:10px">' +
       '*มูลค่าสินค้า = ราคาขาย × จำนวน (ยังไม่หักส่วนลดท้ายบิล — รายได้จริงดูที่ระดับออเดอร์)</div>';
 }
@@ -835,11 +899,11 @@ function openDrill(): void {
   let ch = state.channel;
   const chips = ['', 'facebook', 'line'].map(function (k) {
     return '<button class="filter-btn' + (ch === k ? ' active' : '') + '" data-drill-ch="' + k + '">' +
-      CH_LABELS[k] + '</button>';
+      chLabelHtml_(k) + '</button>';
   }).join('');
   openModal(
-    '<div class="modal-head"><h3>🔍 รายละเอียดยอดขาย — ' + esc(lastData.rangeLabel || '') + '</h3>' +
-      '<button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>รายละเอียดยอดขาย — ' + esc(lastData.rangeLabel || '') + '</h3>' +
+      closeBtn_() + '</div>' +
     '<div class="conv-filters" style="margin-bottom:12px">' + chips + '</div>' +
     '<div id="drill-body">' + drillBodyHtml(ch) + '</div>'
   );
@@ -913,15 +977,15 @@ function openBreakEvenEditor(): void {
       'value="' + esc(String(u.note || '')) + '" placeholder="เช่น รอรีแบรนด์" style="width:160px"></td></tr>';
   }).join('');
   openModal(
-    '<div class="modal-head"><h3>⚙️ ตั้งค่ายูนิต — จุดคุ้มทุน + หมายเหตุ</h3><button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>ตั้งค่ายูนิต — จุดคุ้มทุน + หมายเหตุ</h3>' + closeBtn_() + '</div>' +
     '<div class="card-sub" style="margin-bottom:10px"><b>จุดคุ้มทุน:</b> ถ้า ROAS ของวันไหน<b>ต่ำกว่า</b>ค่านี้ ระบบถือว่าวันนั้นขาดทุน • ' +
       'เว้นว่าง = ใช้ 1.0 (เกณฑ์หลวมสุด) • <b>หมายเหตุ:</b> ป้ายสถานะติดหน้ายูนิต เช่น "รอรีแบรนด์" ' +
       '— โชว์บนการ์ดแจ้งเตือน + ตารางยูนิต ลบได้โดยล้างช่องแล้วบันทึก</div>' +
     '<div class="table-scroll"><table class="tbl"><thead><tr><th>ยูนิต</th>' +
-      '<th class="num">ROAS ช่วงที่เลือก</th><th>จุดคุ้มทุน</th><th>📌 หมายเหตุ</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
+      '<th class="num">ROAS ช่วงที่เลือก</th><th>จุดคุ้มทุน</th><th>หมายเหตุ</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
     '<div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end">' +
       '<button class="btn-mini modal-close">ยกเลิก</button>' +
-      '<button class="btn-mini" id="be-save">💾 บันทึก</button></div>'
+      '<button class="btn-mini" id="be-save">' + icon(ICON_FOR.save) + 'บันทึก</button></div>'
   );
   const root = document.getElementById('modal-root');
   const saveBtn = root && root.querySelector('#be-save');
@@ -950,33 +1014,27 @@ function openBreakEvenEditor(): void {
       .then(function (res: any) {
         if (res && res.ok === false) throw new Error(res.error || 'บันทึกหมายเหตุไม่สำเร็จ');
         closeModal();
-        toast('✅ บันทึกแล้ว — ป้ายหมายเหตุขึ้นทันที ส่วนเกณฑ์ขาดทุนมีผลรอบคำนวณถัดไป (ภายใน 1 ชม.)');
+        toast('บันทึกแล้ว — ป้ายหมายเหตุขึ้นทันที ส่วนเกณฑ์ขาดทุนมีผลรอบคำนวณถัดไป (ภายใน 1 ชม.)');
         // โหลดใหม่เบื้องหลังให้ป้ายหมายเหตุโผล่เลย ไม่ต้องกดรีเฟรชเอง
         const c = document.getElementById('view-sales');
         if (c) fetchAndRender(c as HTMLElement, false);
       })
       .catch(function (e: any) {
         (saveBtn as HTMLButtonElement).disabled = false;
-        saveBtn.textContent = '💾 บันทึก';
-        toast('❌ ' + (e && e.message ? e.message : 'บันทึกไม่สำเร็จ'));
+        // ปุ่มมีไอคอนข้างใน — ต้องคืนด้วย innerHTML (textContent จะทิ้งรูปไป)
+        (saveBtn as HTMLElement).innerHTML = icon(ICON_FOR.save) + 'บันทึก';
+        // เดิมใช้อีโมจิกากบาทแดงนำหน้าบอกว่าพลาด — ตอนนี้ต้องให้คำบอกเอง (ข้อความจาก server อาจไม่มีคำว่า "ไม่สำเร็จ")
+        const why = e && e.message ? String(e.message) : '';
+        toast(!why ? 'บันทึกไม่สำเร็จ' : why.indexOf('ไม่สำเร็จ') >= 0 ? why : 'บันทึกไม่สำเร็จ: ' + why);
       });
   });
 }
 
-/**
- * แถบแจ้งเตือน "ยูนิตขาดทุน" — บนสุดของหน้า Sales
- * 🔴 ขาดทุน ≥2 วันติด = ต้องแก้ด่วนที่สุด / 🟡 1 วัน = เฝ้าระวัง
- * ตัวเลขตัดสินจากวันที่จบแล้ว (ถึงเมื่อวาน) — วันนี้ค่าแอดยังเดินอยู่ ยอดขายตามมาทีหลัง
- */
-/**
- * บรรทัดตัวเลขของการ์ดยูนิตขาดทุน
- * ยูนิตที่มีกำไรจริงจากชีท → โชว์ "ขาดทุนสะสมเดือนนี้" (รวมช่องกำไรสุทธิรายวันทั้งเดือน — บอสขอ 2026-07-31)
- * ยูนิตนอกชีท → โชว์ยอดช่วง streak + ROAS แบบเดิม
- */
-/** ป้ายหมายเหตุยูนิต เช่น "รอรีแบรนด์" — ตั้ง/ลบได้ในโมดัล ⚙️ ตั้งค่ายูนิต */
+/** ป้ายหมายเหตุยูนิต เช่น "รอรีแบรนด์" — ตั้ง/ลบได้ในโมดัล "ตั้งค่ายูนิต" */
 function noteChip_(note: unknown): string {
   const t = String(note || '').trim();
-  return t ? ' <span class="chip chip-note" title="หมายเหตุยูนิต — แก้/ลบได้ที่ปุ่ม ⚙️ ตั้งค่ายูนิต">📌 ' + esc(t) + '</span>' : '';
+  return t ? ' <span class="chip chip-note" title="หมายเหตุยูนิต — แก้/ลบได้ที่ปุ่ม “ตั้งค่ายูนิต”">' +
+    icon('pin', { size: 14 }) + esc(t) + '</span>' : '';
 }
 
 /**
@@ -1017,7 +1075,7 @@ function dsDelta_(pct: number | null | undefined): string {
   return '<div class="ds-d ' + cls + '">' + arrow + ' ' + (v > 0 ? '+' : '') + v.toFixed(1) + '%</div>';
 }
 
-/** ช่องยอดขาย 1 ช่อง: ยอด + % ใต้ยอด + สีเทียบเป้ารายวัน (เป้ามีเฉพาะแท็บ 🌐 ทั้งหมด) */
+/** ช่องยอดขาย 1 ช่อง: ยอด + % ใต้ยอด + สีเทียบเป้ารายวัน (เป้ามีเฉพาะแท็บ "ทั้งหมด") */
 function dsCell_(c: any, unitName: string, ymd: string, uCode?: string): string {
   const v = Number(c && c.v) || 0;
   const target = c && c.target ? Number(c.target) : 0;
@@ -1037,7 +1095,7 @@ function dailySalesCard_(d: any, rangeLabel: string): string {
   // ปุ่มช่วงวันชุดเดียวกับหัวหน้าเพจ (state เดียวกัน) — การ์ดนี้อยู่ล่างสุด ปุ่มบนสุดไกลเกินไป
   // id = จุดหมายของปุ่ม "ดูรายวันของ Uxx" บนหน้า 🎯 ผลงานราย Unit (เลื่อนมาที่นี่ + ไฮไลต์คอลัมน์)
   const head = '<div class="card" id="sr-daily"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
-    '<h3>📅 ยอดขายรายวัน (แยกตามยูนิต)</h3>' +
+    '<h3>ยอดขายรายวัน (แยกตามยูนิต)</h3>' +
     '<div class="pg-controls" style="margin-bottom:0">' + rangeControlsHtml(state, 'srday') + '</div></div>';
   if (ds.loadFailed) {
     return head + '<div class="card-sub">ยอดขายรายวันต่อยูนิต</div>' +
@@ -1052,7 +1110,7 @@ function dailySalesCard_(d: any, rangeLabel: string): string {
   const units = ds.units || [];
   const rows = ds.rows || [];
   if (!units.length || !rows.length) {
-    return head + '<div class="card-sub">' + esc(rangeLabel) + ' • ' + CH_LABELS[state.channel] + '</div>' +
+    return head + '<div class="card-sub">' + esc(rangeLabel) + ' • ' + chLabelHtml_(state.channel) + '</div>' +
       '<div class="empty-note">ยังไม่มีออเดอร์ในช่วงนี้</div></div>';
   }
   const todayYmd = ymdBkk_();
@@ -1061,7 +1119,8 @@ function dailySalesCard_(d: any, rangeLabel: string): string {
     const name = u.mapped ? (u.product || u.u) : 'ยังไม่จัดกลุ่ม';
     return '<th class="num ds-uth"' + (u.u ? ' data-u="' + esc(u.u) + '"' : '') + ' title="' + esc(name + (u.u ? ' (' + u.u + ')' : '') +
       ' • ยอดรวมช่วงนี้ ' + THB(u.revenue) + ' • ออเดอร์ ' + fmtNum(u.orders)) + '">' +
-      '<div class="ds-u">' + esc(u.u || '⚠️') + '</div>' +
+      // คอลัมน์เพจที่ยังไม่จัดกลุ่มไม่มีรหัสยูนิต — ใช้ไอคอนเตือนแทน (ชื่อใต้รหัสบอกอยู่แล้วว่า "ยังไม่จัดกลุ่ม")
+      '<div class="ds-u">' + (u.u ? esc(u.u) : '<span class="tx-warn">' + icon(ICON_FOR.alert, { size: 14 }) + '</span>') + '</div>' +
       '<div class="ds-uname">' + esc(name) + '</div></th>';
   }).join('');
 
@@ -1096,13 +1155,13 @@ function dailySalesCard_(d: any, rangeLabel: string): string {
     }).join('') + '</tr>';
 
   const widened = !!ds.widened;
-  const sub = esc(thaiDateShort(ds.from)) + ' – ' + esc(thaiDateShort(ds.to)) + ' • ' + CH_LABELS[state.channel] +
+  const sub = esc(thaiDateShort(ds.from)) + ' – ' + esc(thaiDateShort(ds.to)) + ' • ' + chLabelHtml_(state.channel) +
     ' — แถวละ 1 วัน (เก่าสุดอยู่บน) • ตัวเลขเล็กใต้ยอด = เทียบกับวันก่อนหน้า' +
-    ' • คอลัมน์เรียงตามรหัสยูนิต U1→U99 แล้ว UN1→UN99 ➡️ เลื่อนตารางไปทางขวาเพื่อดูยูนิตที่เหลือ (วันที่ตรึงไว้ให้)' +
+    ' • คอลัมน์เรียงตามรหัสยูนิต U1→U99 แล้ว UN1→UN99 • เลื่อนตารางไปทางขวาเพื่อดูยูนิตที่เหลือ (วันที่ตรึงไว้ให้)' +
     (widened ? ' • ช่วงที่เลือกสั้นกว่า ' + ds.minDays + ' วัน จึงย้อนให้ครบ ' + ds.minDays + ' วันเพื่อให้เทียบวันต่อวันได้' : '') +
     (ds.withTargets
       ? ' • สี = เทียบเป้ารายวันของยูนิตนั้น (เป้าเดือนในชีท KPI ÷ จำนวนวันในเดือน) — เขียว = ถึง, แดง = ไม่ถึง'
-      : ' • เป้าและสถานะดูได้ที่แท็บ 🌐 ทั้งหมด (เป้าในชีทเป็นยอดรวมทุกช่องทาง)');
+      : ' • เป้าและสถานะดูได้ที่แท็บ “ทั้งหมด” (เป้าในชีทเป็นยอดรวมทุกช่องทาง)');
 
   return head + '<div class="card-sub">' + sub + '</div>' +
     '<div class="table-scroll"><table class="tbl ds-tbl tbl-scroll-x" data-cards="off"><thead><tr>' +
@@ -1158,7 +1217,7 @@ function noUnitAdsBanner_(d: SalesData): string {
   };
   return '<div class="alert-list" style="margin:0 0 12px">' +
     '<div class="alert-row lv-red">' +
-      '<div class="alert-icon">🚧</div>' +
+      '<div class="alert-icon">' + icon('unlink', { size: 18 }) + '</div>' +
       '<div class="alert-body">' +
         '<details class="nounit-more"' + (noUnitOpen_() ? ' open' : '') + '>' +
           '<summary title="กดเพื่อดู/ซ่อนรายชื่อเพจ">' +
@@ -1167,7 +1226,7 @@ function noUnitAdsBanner_(d: SalesData): string {
               (g.base ? ' · คนทัก ' + fmtNum(g.base) : '') + '</span>' +
           '</summary>' +
           '<div>' +
-            '<div class="alert-reason">ค่าแอดก้อนนี้ไปกองที่แถว “⚠️ ยังไม่จัดกลุ่ม” ท้ายตาราง' +
+            '<div class="alert-reason">ค่าแอดก้อนนี้ไปกองที่แถว “ยังไม่จัดกลุ่ม” ท้ายตาราง' +
               ' — ยูนิตที่ควรได้เครดิตจึงมี ROAS/%ปิด ต่ำกว่าความจริง</div>' +
             (linkable.length
               ? '<div class="alert-reason" style="margin-top:6px">จับคู่ได้เลยในหน้า U Map:' +
@@ -1206,7 +1265,7 @@ function adsCardNote_(): string {
   }
   if (state.channel === 'facebook') {
     return ' — ตัวหารเดียวกับจอ ADS SUMMARY ของทีมแอด แต่จอเขานับออเดอร์ทุกช่องทาง (รวม LINE)' +
-      ' จะเทียบกับเขาให้ดูแท็บ 🌐 ทั้งหมด';
+      ' จะเทียบกับเขาให้ดูแท็บ “ทั้งหมด”';
   }
   return ' — ฐานเดียวกับจอ ADS SUMMARY ของทีมแอด';
 }
@@ -1307,7 +1366,7 @@ function perBillTip_(u: any): string {
 
 function targetTip_(u: any): string {
   if (!u.mapped) return '';
-  if (!u.target) return state.channel ? 'เป้ายอดดูได้ที่แท็บ 🌐 ทั้งหมด — เป้าในชีทเป็นยอดรวมทุกช่องทาง' : TARGET_TIP;
+  if (!u.target) return state.channel ? 'เป้ายอดดูได้ที่แท็บ “ทั้งหมด” — เป้าในชีทเป็นยอดรวมทุกช่องทาง' : TARGET_TIP;
   if (u.targetDays && u.rangeDays && u.targetDays < u.rangeDays) {
     return 'ช่วงนี้มีเป้าแค่ ' + u.targetDays + ' จาก ' + u.rangeDays + ' วัน (เดือนที่เหลือชีทไม่ได้ตั้งเป้า)' +
       ' — %บรรลุ นับเฉพาะยอดของวันที่มีเป้า';
@@ -1319,7 +1378,7 @@ function targetTip_(u: any): string {
 function unitGoalNote_(d: any, anyTarget: boolean): string {
   if (!d.unitGoal) return '';
   let s = state.channel
-    ? ' • เป้า/%บรรลุ ดูได้ที่แท็บ 🌐 ทั้งหมด (เป้าในชีทเป็นยอดรวมทุกช่องทาง)'
+    ? ' • เป้า/%บรรลุ ดูได้ที่แท็บ “ทั้งหมด” (เป้าในชีทเป็นยอดรวมทุกช่องทาง)'
     : (anyTarget ? ' • <b>เป้า = ของช่วงวันที่ที่เลือก</b> (เป้ารายเดือนจากชีท KPI เฉลี่ยเป็นรายวัน)' : '');
   if (!state.channel && anyTarget && d.unitGoal.rangeEndsToday) {
     s += ' • ช่วงนี้รวมวันนี้ซึ่งยังไม่จบวัน แต่นับเป้าวันนี้เต็มวัน %บรรลุ จึงต่ำกว่าตอนจบวัน';
@@ -1327,75 +1386,187 @@ function unitGoalNote_(d: any, anyTarget: boolean): string {
   return s + ' • สี: %ปิด ถึง ' + (d.unitGoal.closeTarget || 40) + '% และเปอร์บิลถึงเป้าตามราคาเซ็ต = เขียว, ไม่ถึง = แดง';
 }
 
-function lossReasonHtml_(x: any): string {
-  const sheetChip = ' <span class="chip" title="ตัวเลขจากแถว รวม คอลัมน์ กำไรสุทธิ (BI) แท็บสรุปยอดขาย ชีท สร. ของเดือนนี้ — เลขเดียวกับในชีทเป๊ะ (อัปเดตตามรอบ sync รายวัน)">💚 กำไรจริงจากชีท</span>';
+/* ---------------- แจ้งเตือนยูนิตขาดทุน (บนสุดหน้า Sales) ----------------
+ * ขาดทุน ≥2 วันติด = ต้องแก้ด่วนที่สุด (ป้ายแดง) / 1 วัน = เฝ้าระวัง (ป้ายส้ม)
+ * ตัวเลขตัดสินจากวันที่จบแล้ว (ถึงเมื่อวาน) — วันนี้ค่าแอดยังเดินอยู่ ยอดขายตามมาทีหลัง
+ *
+ * หน้าตาใหม่ (ตรวจ UI รอบ 2, 26 ก.ย. 69): เดิมเป็นการ์ดชมพูสูง 3 บรรทัดต่อยูนิต 14 ใบ
+ * กินจอ ~1,860px บนคอม / ~4 จอบนมือถือ ก่อนจะเห็นยอดขายตัวแรก
+ * → ตาราง 1 แถวต่อยูนิต โชว์ 5 ยูนิตที่หนักสุดก่อน ที่เหลือกด "ดูอีก N ยูนิต"
+ *   ข้อมูลครบเท่าเดิมทุกตัว + ปุ่ม/ data-* เดิมทุกตัว (data-drill-unit, #sr-breakeven)
+ *   บนมือถือ app-core (classifyTable) แปลงตาราง 7 คอลัมน์เป็นการ์ดต่อแถวให้เอง โดยใช้หัวคอลัมน์เป็นป้าย
+ */
+
+/** ทูลทิปของป้าย "กำไรจริงจากชีท" บนหัวการ์ด — บอกว่าเลขมาจากช่องไหนของชีท ให้เปิดเทียบได้เอง */
+const LOSS_SHEET_TIP = 'ตัวเลขจากแถว รวม คอลัมน์ กำไรสุทธิ (BI) แท็บสรุปยอดขาย ชีท สร. ของเดือนนี้' +
+  ' — เลขเดียวกับในชีทเป๊ะ (อัปเดตตามรอบ sync รายวัน)';
+
+/** จำนวนยูนิตที่โชว์ก่อนกด "ดูอีก" — รายการเรียงหนักสุดก่อนอยู่แล้ว (งาน sync เรียงตามวันติด แล้วตามยอดขาดทุน) */
+const LOSS_SHOW_N = 5;
+/**
+ * กางครบทุกยูนิตอยู่หรือไม่ — เก็บในหน่วยความจำอย่างเดียว ไม่ลง localStorage (เปิดหน้าใหม่ = หุบเสมอ)
+ * แต่ต้องรอดรอบรีเฟรชอัตโนมัติ 75 วิ ไม่งั้นตารางหุบกลับเองตอนกำลังไล่อ่าน
+ */
+let lossShowAll = false;
+
+/** ช่องตัวเลข: เลขหลัก + บรรทัดเล็กสีจางใต้เลข — ห่อเป็นก้อนเดียว การ์ดบนมือถือจะได้วางป้ายซ้าย/ตัวเลขขวาได้ */
+function lossNum_(mainHtml: string, subHtml?: string): string {
+  return '<div class="loss-v">' + mainHtml + (subHtml ? '<div class="loss-sub">' + subHtml + '</div>' : '') + '</div>';
+}
+
+/** ±฿ พร้อมสีตามเครื่องหมาย (ค่าเริ่มต้น: เขียว = กำไร, แดง = ขาดทุน) */
+function signedThb_(v: number, posCls = 'tx-good'): string {
+  const pos = v >= 0;
+  return '<b class="' + (pos ? posCls : 'tx-bad') + '">' + (pos ? '+' : '-') + THB(Math.abs(v)) + '</b>';
+}
+
+/**
+ * ตัวเลข 3 ช่องของยูนิตหนึ่ง (ขาย / ค่าแอด / กำไรสุทธิ) — เลือกตัวเลขตามเกณฑ์เดิมทุกกรณี เปลี่ยนแค่หน้าตา
+ * ก. มีกำไรจริงจากชีท + มียอดทั้งเดือน → ตัวเลขทั้งเดือนนี้ เช็คกับชีทตรงๆ ได้ (บอสสั่ง 2026-07-31)
+ * ข. มีชีทแต่ยังไม่มียอดทั้งเดือน → ตัวเลขเฉพาะช่วงที่ขาดทุนติดกัน (ขาดทุนจริงจากชีท)
+ * ค. ยูนิตไม่มีในชีทกำไร → ตัวเลขช่วงที่ขาดทุนติดกัน + "ประมาณจาก ROAS" (ROAS/จุดคุ้มทุนอยู่ในทูลทิปของแถว)
+ * ข./ค. ไม่ใช่ตัวเลขทั้งเดือน จึงต้องกำกับ "เฉพาะ N วันที่ขาดทุน" ไว้ใต้เลข ไม่งั้นอ่านตามหัวคอลัมน์ "เดือนนี้" ผิด
+ */
+function lossCells_(x: any): { sales: string; ads: string; profit: string; rowTip: string } {
   const isSheet = x.basis === 'profit' || x.basis === 'mixed';
-  // รูปแบบเดียวสำหรับทุกยูนิตที่มีชีท: "กำไรสุทธิ ±รวมทั้งเดือน" เขียว/แดง — เช็คกับชีทตรงๆ ได้ (บอสสั่ง 2026-07-31)
   if (isSheet && typeof x.monthProfit === 'number') {
     const pos = x.monthProfit >= 0;
-    // ทั้งเดือนกำไรแต่เพิ่งขาดทุนติดกันช่วงท้าย → บอกยอดขาดทุนช่วงนั้นด้วย ไม่งั้นหัวการ์ด ("ขาดทุน N วันติด")
+    // ทั้งเดือนกำไรแต่เพิ่งขาดทุนติดกันช่วงท้าย → บอกยอดขาดทุนช่วงนั้นด้วย ไม่งั้นช่อง "ขาดทุนติดกัน"
     // กับตัวเลขสีเขียวอ่านแล้วขัดกันเอง (ทีมทักมาจริง 2026-08-07 เคส U3)
     const streakNote = pos && x.loss > 0
-      ? ' • <b class="txt-bad">' + fmtNum(x.days) + ' วันล่าสุดขาดทุนรวม ' + THB(x.loss) + '</b>'
+      ? '<div>' + fmtNum(x.days) + ' วันล่าสุดขาดทุนรวม <span class="tx-bad">' + THB(x.loss) + '</span></div>'
       : '';
-    return 'เดือนนี้: ขาย ' + THB(x.monthSales || 0) + ' • ค่าแอด ' + THB(x.monthAds || 0) +
-      ' • <b class="' + (pos ? 'txt-good' : 'txt-bad') + '">กำไรสุทธิ ' + (pos ? '+' : '-') + THB(Math.abs(x.monthProfit)) + '</b>' +
-      ' (ขาดทุน ' + fmtNum(x.monthLossDays || 0) + ' วันตั้งแต่ต้นเดือน)' + streakNote + sheetChip;
+    return {
+      sales: lossNum_(THB(x.monthSales || 0)),
+      ads: lossNum_(THB(x.monthAds || 0)),
+      profit: lossNum_(signedThb_(x.monthProfit),
+        '<div>(ขาดทุน ' + fmtNum(x.monthLossDays || 0) + ' วันตั้งแต่ต้นเดือน)</div>' + streakNote),
+      rowTip: '',
+    };
   }
-  return 'ขาย ' + THB(x.revenue) + ' • ค่าแอด ' + THB(x.spend) +
-    ' • <b class="txt-bad">' + (isSheet ? 'ขาดทุนจริง ' : 'ติดลบ ') + THB(x.loss) + '</b>' +
-    (isSheet
-      ? sheetChip
-      : ' • ROAS ' + (x.roas === null ? '—' : x.roas.toFixed(2)) +
-        ' (จุดคุ้มทุนที่ตั้งไว้ ' + Number(x.breakEven || 1).toFixed(2) +
-        ' — ยูนิตนี้ยังไม่มีในชีทกำไร จึงใช้ ROAS โดยประมาณ)');
+  // คำกำกับอยู่ใต้ "ขาย" (คอลัมน์ตัวเลขแรก) พอ — ค่าแอดช่องถัดไปเป็นช่วงเดียวกัน ใส่ซ้ำทุกช่องแล้วรก
+  const span = 'เฉพาะ ' + fmtNum(x.days) + ' วันที่ขาดทุน';
+  if (isSheet) {
+    return {
+      sales: lossNum_(THB(x.revenue), span),
+      ads: lossNum_(THB(x.spend)),
+      profit: lossNum_('<b class="tx-bad">-' + THB(x.loss) + '</b>', span),
+      rowTip: '',
+    };
+  }
+  // loss = ค่าแอด − ยอดขาย ของช่วงนั้น (ยังไม่หักต้นทุนสินค้า) — ติดลบได้ถ้าจุดคุ้มทุนที่ตั้งไว้สูงกว่า 1
+  // กรณีนั้นโชว์เป็น + สีส้ม: ขายได้มากกว่าค่าแอด แต่ยังไม่ถึงจุดคุ้มทุน (ไม่ใช่สีเขียว "กำไร")
+  return {
+    sales: lossNum_(THB(x.revenue), span),
+    ads: lossNum_(THB(x.spend)),
+    profit: lossNum_(signedThb_(-(Number(x.loss) || 0), 'tx-warn'), 'ประมาณจาก ROAS'),
+    rowTip: 'ROAS ' + (x.roas === null || x.roas === undefined ? '—' : Number(x.roas).toFixed(2)) +
+      ' (จุดคุ้มทุนที่ตั้งไว้ ' + Number(x.breakEven || 1).toFixed(2) +
+      ' — ยูนิตนี้ยังไม่มีในชีทกำไร จึงใช้ ROAS โดยประมาณ) • ตัวเลขในแถวนี้ = ' + span,
+  };
+}
+
+/** 1 แถวของตารางยูนิตขาดทุน */
+function lossRowHtml_(x: any): string {
+  const urgent = x.level === 'urgent';
+  const c = lossCells_(x);
+  const owners = (x.owners || []).length
+    ? (x.owners as string[]).map(function (o) { return '<span class="chip">' + esc(o) + '</span>'; }).join('')
+    : '<span title="ไปจับคู่แอดมินกับยูนิตที่หน้า U Map">' + statusPill('warn', 'ยังไม่ระบุผู้รับผิดชอบ') + '</span>';
+  return '<tr class="' + (urgent ? 'loss-urgent' : 'loss-watch') + '"' + (c.rowTip ? ' title="' + esc(c.rowTip) + '"' : '') + '>' +
+    // ช่องแรก = หัวการ์ดบนมือถือ (app-core ติด class tc-title ให้เอง) + แถบสีบางๆ ทางซ้ายแทนการระบายพื้นทั้งแถว
+    '<td class="loss-u">' + esc(x.product || x.u) + ' <span class="chip">' + esc(x.u) + '</span>' + noteChip_(x.note) + '</td>' +
+    '<td title="' + (urgent ? 'แก้ด่วนที่สุด' : 'เฝ้าระวัง') + ' — ขาดทุน ' + fmtNum(x.days) + ' วันติด">' +
+      statusPill(urgent ? 'bad' : 'warn', fmtNum(x.days) + ' วัน') + '</td>' +
+    '<td class="num">' + c.sales + '</td>' +
+    '<td class="num">' + c.ads + '</td>' +
+    '<td class="num">' + c.profit + '</td>' +
+    '<td><div class="loss-who">' + owners + '</div></td>' +
+    '<td class="loss-act"><button class="btn-mini" data-drill-unit="' + esc(x.u) + '">ดูรายละเอียด →</button></td>' +
+    '</tr>';
 }
 
 function lossAlertHtml_(a: any): string {
   if (!a) return '';
   const list = (a.alerts || []) as any[];
   if (!list.length) return '';
-  const rows = list.map(function (x: any) {
-    const urgent = x.level === 'urgent';
-    const owners = (x.owners || []).length
-      ? (x.owners as string[]).map(function (o) { return '<span class="chip">' + esc(o) + '</span>'; }).join('')
-      : '<span class="chip" title="ไปจับคู่แอดมินกับยูนิตที่หน้า U Map">⚠️ ยังไม่ระบุผู้รับผิดชอบ</span>';
-    return '<div class="loss-row ' + (urgent ? 'lv-red' : 'lv-yellow') + '">' +
-      '<div class="loss-icon">' + (urgent ? '🔴' : '🟡') + '</div>' +
-      '<div class="loss-body">' +
-        '<div class="loss-title">' +
-          (urgent ? 'แก้ด่วนที่สุด — ' : 'เฝ้าระวัง — ') +
-          esc(x.product || x.u) + ' <span class="chip">' + esc(x.u) + '</span>' + noteChip_(x.note) + ' ' +
-          '<b>ขาดทุน ' + fmtNum(x.days) + ' วันติด</b>' +
-        '</div>' +
-        '<div class="loss-reason">' + lossReasonHtml_(x) + '</div>' +
-        '<div class="loss-owners">ผู้รับผิดชอบ: ' + owners + '</div>' +
-      '</div>' +
-      '<button class="btn-mini" data-drill-unit="' + esc(x.u) + '">ดูรายละเอียด →</button>' +
-      '</div>';
-  }).join('');
   const urgentN = list.filter(function (x: any) { return x.level === 'urgent'; }).length;
+  const watchN = list.length - urgentN;
+  const anySheet = list.some(function (x: any) { return x.basis === 'profit' || x.basis === 'mixed'; });
+  // หัวการ์ดบรรทัดเดียวบอกทั้งจำนวนและระดับ — ไม่ต้องไล่นับจากรายการ
+  const headline = urgentN
+    ? '<span class="tx-bad">' + fmtNum(urgentN) + ' ยูนิตขาดทุน 2 วันขึ้นไป</span>' +
+      (watchN ? ' · ' + fmtNum(watchN) + ' เฝ้าระวัง' : '')
+    : fmtNum(watchN) + ' ยูนิตเฝ้าระวัง (ขาดทุน 1 วัน)';
+  const shown = lossShowAll ? list : list.slice(0, LOSS_SHOW_N);
+  const hiddenN = list.length - LOSS_SHOW_N;
   return '<div class="card loss-card">' +
     '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
-      '<h3>🚨 ยูนิตที่ต้องแก้ด่วน (' + fmtNum(list.length) + ')</h3>' +
-      '<button class="btn-mini" id="sr-breakeven">⚙️ ตั้งค่ายูนิต</button>' +
+      '<h3>' + headline + '</h3>' +
+      '<button class="btn-mini" id="sr-breakeven">' + icon(ICON_FOR.settings) + 'ตั้งค่ายูนิต</button>' +
     '</div>' +
-    // เดิมยัดคำอธิบาย 5 เรื่องรวดเดียว ~340 ตัวอักษร กินไป 9 บรรทัดบนมือถือ ก่อนจะถึงยูนิตแรก
-    // เก็บบรรทัดที่ต้องรู้ทุกครั้งไว้ข้างนอก ส่วนนิยาม/วิธีคิดพับไว้ให้กดเปิดเมื่ออยากตรวจกับชีท
+    // ที่มาของตัวเลขบอกครั้งเดียวบนหัว (เดิมแปะป้าย "กำไรจริงจากชีท" ซ้ำทุกยูนิต)
+    // แถวที่ไม่มีในชีทจะมีคำ "ประมาณจาก ROAS" กำกับเฉพาะแถวนั้นแทน
     '<div class="card-sub">' +
-      (urgentN ? '<b class="txt-bad">' + fmtNum(urgentN) + ' ยูนิตขาดทุน 2 วันขึ้นไป</b> • ' : '') +
-      'นับถึง ' + esc(a.throughDate || '') + ' (วันที่จบแล้ว)' +
+      (anySheet
+        ? '<span class="chip" title="' + esc(LOSS_SHEET_TIP) + '">' + icon(ICON_FOR.excel, { size: 14 }) + 'กำไรจริงจากชีท</span> '
+        : '') +
+      'นับถึง ' + esc(a.throughDate ? thaiDateShort(a.throughDate) : '') + ' (วันที่จบแล้ว)' +
     '</div>' +
+    // นิยาม/วิธีคิดพับไว้ให้กดเปิดเมื่ออยากตรวจกับชีท (เดิมยัดคำอธิบาย ~340 ตัวอักษรไว้ข้างนอก กิน 9 บรรทัดบนมือถือ)
     '<details class="sub-more"><summary>ตัวเลขนี้คิดยังไง / เทียบกับชีทยังไง</summary>' +
       '<div>' +
         'วันนี้ยังไม่นับเพราะค่าแอดยังเดินอยู่ • ' +
         '<b>กำไรสุทธิ = ตัวเลขแถว "รวม" คอลัมน์กำไรสุทธิ แท็บสรุปยอดขาย ชีท สร. ของเดือนนี้</b> ' +
         '(<b class="txt-good">เขียว = กำไร</b> <b class="txt-bad">แดง = ขาดทุน</b> — เปิดชีทเทียบได้เลขเดียวกัน) • ' +
-        '"N วันติด" = จำนวนวันขาดทุนติดต่อกันล่าสุด • ยูนิตที่ไม่มีในชีทใช้ ROAS &lt; จุดคุ้มทุนแทนโดยประมาณ' +
+        '"ขาดทุนติดกัน" = จำนวนวันขาดทุนติดต่อกันล่าสุด (ป้ายแดง = 2 วันขึ้นไป แก้ด่วน, ป้ายส้ม = 1 วัน เฝ้าระวัง) • ' +
+        'ยูนิตที่ไม่มีในชีทใช้ ROAS &lt; จุดคุ้มทุนแทนโดยประมาณ' +
       '</div>' +
     '</details>' +
-    '<div class="loss-list">' + rows + '</div>' +
+    '<div class="table-scroll"><table class="tbl loss-tbl"><thead><tr>' +
+      '<th>ยูนิต</th><th>ขาดทุนติดกัน</th>' +
+      '<th class="num">ขายเดือนนี้</th><th class="num">ค่าแอด</th><th class="num">กำไรสุทธิเดือนนี้</th>' +
+      // หัวคอลัมน์ปุ่มเว้นว่าง — การ์ดบนมือถือจะไม่มีป้ายหน้าปุ่ม (ปุ่มบอกตัวเองอยู่แล้ว)
+      '<th>ผู้รับผิดชอบ</th><th aria-label="รายละเอียด"></th>' +
+    '</tr></thead><tbody>' + shown.map(lossRowHtml_).join('') + '</tbody></table></div>' +
+    (hiddenN > 0
+      ? '<div class="loss-more"><button class="btn-mini" id="sr-loss-more" aria-expanded="' + (lossShowAll ? 'true' : 'false') + '">' +
+          (lossShowAll ? icon(ICON_FOR.collapse) + 'ย่อ' : icon(ICON_FOR.expand) + 'ดูอีก ' + fmtNum(hiddenN) + ' ยูนิต') +
+        '</button></div>'
+      : '') +
   '</div>';
+}
+
+/**
+ * กด "ดูอีก N ยูนิต" / "ย่อ" — วาดใหม่เฉพาะการ์ดนี้ ไม่ render ทั้งหน้า
+ * (ทั้งหน้ามีกราฟ/ตารางรายวันหนักๆ และจะรีเซ็ตสิ่งที่คนกางค้างไว้ในการ์ดอื่น)
+ * ตารางที่เพิ่งใส่เข้าไปยังไม่มี data-cards → app-core จับได้เองแล้วแปลงเป็นการ์ดบนมือถือ
+ */
+function toggleLossList_(container: HTMLElement): void {
+  const card = container.querySelector('.loss-card');
+  if (!card || !lastData) return;
+  lossShowAll = !lossShowAll;
+  const wasOpen = !!(card.querySelector('details.sub-more') as HTMLDetailsElement | null)?.open;
+  const tmp = document.createElement('div');
+  tmp.innerHTML = lossAlertHtml_(lastData.unitAlerts);
+  const fresh = tmp.firstElementChild as HTMLElement | null;
+  if (!fresh) return;
+  card.replaceWith(fresh);
+  const det = fresh.querySelector('details.sub-more') as HTMLDetailsElement | null;
+  if (det && wasOpen) det.open = true;
+  const be = fresh.querySelector('#sr-breakeven');
+  if (be) be.addEventListener('click', openBreakEvenEditor);
+  bindDrillRows(fresh, state.channel);
+  const more = fresh.querySelector('#sr-loss-more') as HTMLElement | null;
+  if (more) {
+    more.addEventListener('click', function () { toggleLossList_(container); });
+    more.focus({ preventScroll: true });
+    // ตอน "ย่อ" ปุ่มจะกระโดดขึ้นไปหลายร้อย px — เลื่อนตามไปให้ปุ่มอยู่กลางจอ คนจะได้ไม่หลงว่าอยู่ตรงไหน
+    if (!lossShowAll) {
+      const r = more.getBoundingClientRect();
+      if (r.top < 0 || r.bottom > window.innerHeight) more.scrollIntoView({ block: 'center' });
+    }
+  }
 }
 
 /** ระดับความคืบหน้าเทียบเป้า — ถึงเป้า = good (เขียว), 50-99% = mid (ส้ม), ต่ำกว่าครึ่ง = low (แดง) */
@@ -1424,10 +1595,10 @@ function attainBarHtml_(u: any): string {
 function cancelSummary_(c: any): string {
   if (!c || !c.orders) return '';
   return '<div class="pill-grid" style="margin:12px 0 0;align-items:center">' +
-    '<span class="badge urgent">🚫 ยกเลิก/ตีกลับ ' + fmtNum(c.orders) + ' ใบ</span>' +
+    '<span class="badge urgent">ยกเลิก/ตีกลับ ' + fmtNum(c.orders) + ' ใบ</span>' +
     '<span class="chip">' + THB(c.value) + '</span>' +
     (c.rate === null ? '' : '<span class="chip">' + pctFmt(c.rate) + ' ของใบทั้งหมด</span>') +
-    '<button class="btn-mini" id="sr-cancels">📋 ดูรายคน / รายเดือน</button>' +
+    '<button class="btn-mini" id="sr-cancels">' + icon('list') + 'ดูรายคน / รายเดือน</button>' +
     '</div>';
 }
 
@@ -1439,10 +1610,10 @@ function cancelSummary_(c: any): string {
 function returnSummary_(t: any): string {
   if (!t || !t.orders) return '';
   return '<div class="pill-grid" style="margin:8px 0 0;align-items:center">' +
-    '<span class="badge urgent">📦 ตีกลับ ' + fmtNum(t.orders) + ' ใบ</span>' +
+    '<span class="badge urgent">ตีกลับ ' + fmtNum(t.orders) + ' ใบ</span>' +
     '<span class="chip">' + THB(t.value) + '</span>' +
     '<span class="chip">แอดมิน ' + fmtNum(t.adminOrders) + ' / CRM ' + fmtNum(t.crmOrders) + '</span>' +
-    '<button class="btn-mini" id="sr-returns">📋 ดูรายคน / รายสินค้า</button>' +
+    '<button class="btn-mini" id="sr-returns">' + icon('list') + 'ดูรายคน / รายสินค้า</button>' +
     '</div>';
 }
 
@@ -1460,19 +1631,19 @@ function openReturnDrill(): void {
       '</th><th class="num">ใบ</th><th class="num">มูลค่า</th></tr></thead><tbody>' + body + '</tbody></table></div>';
   };
   openModal(
-    '<div class="modal-head"><h3>📦 สินค้าตีกลับ</h3><button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>สินค้าตีกลับ</h3>' + closeBtn_() + '</div>' +
     '<div class="card-sub" style="margin-bottom:10px">' + esc((lastData && lastData.rangeLabel) || '') +
       ' — นับตาม<b>วันที่รับตีกลับ</b> (ของที่สั่งเดือนก่อนแล้วกลับมาเดือนนี้ จะอยู่ในเดือนนี้) • ' +
       'ที่มา: ชีท "สรุปตีกลับ" ที่ทีมกรอก ไม่ใช่ข้อมูลจาก Pancake</div>' +
     '<div class="pill-grid" style="margin-bottom:6px">' +
-      '<span class="chip">🧾 ' + fmtNum(t.orders) + ' ใบ</span>' +
-      '<span class="chip">💰 ' + THB(t.value) + '</span>' +
-      '<span class="chip">👤 แอดมิน ' + fmtNum(t.adminOrders) + ' ใบ / ' + THB(t.adminValue) + '</span>' +
-      '<span class="chip">🎧 CRM ' + fmtNum(t.crmOrders) + ' ใบ / ' + THB(t.crmValue) + '</span>' +
+      '<span class="chip">' + fmtNum(t.orders) + ' ใบ</span>' +
+      '<span class="chip"><span class="mini-lbl">มูลค่า</span>' + THB(t.value) + '</span>' +
+      '<span class="chip"><span class="mini-lbl">แอดมิน</span>' + fmtNum(t.adminOrders) + ' ใบ / ' + THB(t.adminValue) + '</span>' +
+      '<span class="chip"><span class="mini-lbl">CRM</span>' + fmtNum(t.crmOrders) + ' ใบ / ' + THB(t.crmValue) + '</span>' +
       '</div>' +
-    tbl('📅 แยกตามเดือน', t.byMonth || [], 'เดือน') +
-    tbl('👤 แยกตามคน (แอดมิน + CRM)', t.byStaff || [], 'ชื่อเล่น') +
-    tbl('📦 แยกตามสินค้า', t.byProduct || [], 'สินค้า')
+    tbl('แยกตามเดือน', t.byMonth || [], 'เดือน') +
+    tbl('แยกตามคน (แอดมิน + CRM)', t.byStaff || [], 'ชื่อเล่น') +
+    tbl('แยกตามสินค้า', t.byProduct || [], 'สินค้า')
   );
 }
 
@@ -1490,18 +1661,18 @@ function openCancelDrill(): void {
       '</th><th class="num">ใบ</th><th class="num">มูลค่า</th></tr></thead><tbody>' + body + '</tbody></table></div>';
   };
   openModal(
-    '<div class="modal-head"><h3>🚫 ออเดอร์ยกเลิก / ตีกลับ</h3><button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>ออเดอร์ยกเลิก / ตีกลับ</h3>' + closeBtn_() + '</div>' +
     '<div class="card-sub" style="margin-bottom:10px">' + esc((lastData && lastData.rangeLabel) || '') +
       ' — นับจาก<b>สถานะบนใบออเดอร์</b> (ยกเลิก / ตีกลับ / ตีกลับบางส่วน / ลบ) ' +
       'ไม่ใช่ใบคืนสินค้า เพราะระบบคืนสินค้าของ Pancake ยังไม่มีใบไหนถูกเปิดเลย</div>' +
     '<div class="pill-grid" style="margin-bottom:6px">' +
-      '<span class="chip">🧾 ' + fmtNum(c.orders) + ' ใบ</span>' +
-      '<span class="chip">💰 ' + THB(c.value) + '</span>' +
-      (c.rate === null ? '' : '<span class="chip">📉 ' + pctFmt(c.rate) + ' ของใบทั้งหมด</span>') +
+      '<span class="chip">' + fmtNum(c.orders) + ' ใบ</span>' +
+      '<span class="chip"><span class="mini-lbl">มูลค่า</span>' + THB(c.value) + '</span>' +
+      (c.rate === null ? '' : '<span class="chip">' + pctFmt(c.rate) + ' ของใบทั้งหมด</span>') +
       '</div>' +
-    tbl('📊 แยกตามสถานะ', c.byStatus || [], 'สถานะ') +
-    tbl('📅 แยกตามเดือน', c.byMonth || [], 'เดือน') +
-    tbl('👤 แยกตามคนขาย (สูงสุด 50 คน)', c.byPerson || [], 'คนขาย')
+    tbl('แยกตามสถานะ', c.byStatus || [], 'สถานะ') +
+    tbl('แยกตามเดือน', c.byMonth || [], 'เดือน') +
+    tbl('แยกตามคนขาย (สูงสุด 50 คน)', c.byPerson || [], 'คนขาย')
   );
 }
 
@@ -1516,7 +1687,7 @@ function weeklyBlock_(weekly: any[]): string {
       display: THB(w.revenue),
     };
   });
-  return '<h4 style="margin:6px 0">📅 ยอดขายรายสัปดาห์ (วันที่กำกับ = วันจันทร์ต้นสัปดาห์)</h4>' +
+  return '<h4 style="margin:6px 0">ยอดขายรายสัปดาห์ (วันที่กำกับ = วันจันทร์ต้นสัปดาห์)</h4>' +
     '<div class="hbar-wide" style="margin-bottom:12px">' + hbarRows(items) + '</div>';
 }
 
@@ -1525,38 +1696,38 @@ function openUnitDrill(unitKey: string, chKey: string): void {
   const unit = (top.units || []).filter(function (u: any) { return String(u.key) === String(unitKey); })[0];
   if (!unit) { toast('ไม่พบยูนิตนี้'); return; }
   const pages = unit.pages || [];
-  const title = (unit.mapped ? (esc(unit.product || unit.u) + (unit.u ? ' <span class="chip">' + esc(unit.u) + '</span>' : '')) : '⚠️ ยังไม่จัดกลุ่ม') + noteChip_(unit.note);
+  const title = (unit.mapped ? (esc(unit.product || unit.u) + (unit.u ? ' <span class="chip">' + esc(unit.u) + '</span>' : '')) : 'ยังไม่จัดกลุ่ม') + noteChip_(unit.note);
   const rows = pages.map(function (p: any, i: number) {
     return '<tr class="clickable" data-drill-page="' + esc(p.name) + '" title="คลิกดูสินค้าของเพจนี้">' +
       '<td>' + (i + 1) + '</td><td>' + esc(p.name) + '</td><td>' + THB(p.revenue) +
       '</td><td>' + fmtNum(p.orders) + '</td></tr>';
   }).join('');
   openModal(
-    '<div class="modal-head"><h3>🧩 ' + title + '</h3><button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>' + title + '</h3>' + closeBtn_() + '</div>' +
     '<div class="card-sub" style="margin-bottom:10px">' + esc((lastData && lastData.rangeLabel) || '') +
-      ' • ' + CH_LABELS[chKey] + '</div>' +
+      ' • ' + chLabelHtml_(chKey) + '</div>' +
     '<div class="pill-grid" style="margin-bottom:12px">' +
-      '<span class="chip">💰 ' + THB(unit.revenue) + '</span>' +
-      '<span class="chip">🛒 ' + fmtNum(unit.orders) + ' ออเดอร์</span>' +
+      '<span class="chip"><span class="mini-lbl">ยอดขาย</span>' + THB(unit.revenue) + '</span>' +
+      '<span class="chip">' + fmtNum(unit.orders) + ' ออเดอร์</span>' +
       (perBill_(unit.revenue, unit.orders) === null ? ''
-        : '<span class="chip" title="' + PERBILL_TIP + '">🧾 เปอร์บิล ' +
+        : '<span class="chip" title="' + PERBILL_TIP + '"><span class="mini-lbl">เปอร์บิล</span>' +
           THB(perBill_(unit.revenue, unit.orders)) + '</span>') +
-      '<span class="chip">📄 ' + fmtNum(pages.length) + ' เพจ</span>' +
-      (unit.share === null ? '' : '<span class="chip">🧮 สัดส่วน ' + pctFmt(unit.share) + '</span>') +
-      (unit.spend ? '<span class="chip">📣 ค่าแอด ' + THB(unit.spend) + '</span>' : '') +
-      (unit.roas === null ? '' : '<span class="chip">📈 ROAS ' + unit.roas.toFixed(2) + '</span>') +
-      (unit.afterAds === null ? '' : '<span class="chip">💵 หลังหักค่าแอด ' + THB(unit.afterAds) + '</span>') +
-      (unit.costPerMsg === null ? '' : '<span class="chip">💬 ค่าทัก ' + thb2_(unit.costPerMsg) + '</span>') +
+      '<span class="chip">' + fmtNum(pages.length) + ' เพจ</span>' +
+      (unit.share === null ? '' : '<span class="chip"><span class="mini-lbl">สัดส่วน</span>' + pctFmt(unit.share) + '</span>') +
+      (unit.spend ? '<span class="chip"><span class="mini-lbl">ค่าแอด</span>' + THB(unit.spend) + '</span>' : '') +
+      (unit.roas === null ? '' : '<span class="chip"><span class="mini-lbl">ROAS</span>' + unit.roas.toFixed(2) + '</span>') +
+      (unit.afterAds === null ? '' : '<span class="chip"><span class="mini-lbl">หลังหักค่าแอด</span>' + THB(unit.afterAds) + '</span>') +
+      (unit.costPerMsg === null ? '' : '<span class="chip"><span class="mini-lbl">ค่าทัก</span>' + thb2_(unit.costPerMsg) + '</span>') +
       // ตัวเดียวกับตัวหารของ %ปิด/ค่าทัก ข้างๆ (เดิมโชว์ reached = รวมเพจ LINE → U4 327 แต่ตัวหาร 315)
-      (unit.closeBase ? '<span class="chip" title="' + esc(baseTip_(unit)) + '">💬 รวมคนทัก ' +
+      (unit.closeBase ? '<span class="chip" title="' + esc(baseTip_(unit)) + '"><span class="mini-lbl">รวมคนทัก</span>' +
         fmtNum(unit.closeBase) + '</span>' : '') +
       (unit.closeRate === null || unit.closeRate === undefined ? ''
-        : '<span class="chip" title="' + esc(closeTip_(unit)) + '">🎯 %ปิด ' + pct2_(unit.closeRate) + '</span>') +
-      (unit.customers ? '<span class="chip">👥 ' + fmtNum(unit.customers) + ' ลูกค้า</span>' : '') +
+        : '<span class="chip" title="' + esc(closeTip_(unit)) + '"><span class="mini-lbl">%ปิด</span>' + pct2_(unit.closeRate) + '</span>') +
+      (unit.customers ? '<span class="chip">' + fmtNum(unit.customers) + ' ลูกค้า</span>' : '') +
       (unit.repeatRate === null ? '' : '<span class="chip" title="ลูกค้าที่ซื้อ 2 ครั้งขึ้นไปภายในช่วงที่เลือก">' +
-        '🔁 ซื้อซ้ำ ' + pctFmt(unit.repeatRate) + ' (' + fmtNum(unit.repeatCustomers) + ' คน)</span>') +
+        '<span class="mini-lbl">ซื้อซ้ำ</span>' + pctFmt(unit.repeatRate) + ' (' + fmtNum(unit.repeatCustomers) + ' คน)</span>') +
       (unit.repeatCycleDays === null ? '' : '<span class="chip" title="ค่ามัธยฐานของระยะห่างระหว่างออเดอร์ของลูกค้าคนเดียวกัน">' +
-        '⏱️ รอบซื้อ ' + unit.repeatCycleDays + ' วัน</span>') +
+        '<span class="mini-lbl">รอบซื้อ</span>' + unit.repeatCycleDays + ' วัน</span>') +
       '</div>' +
     (unit.repeatRate === null ? '' : '<div class="card-sub" style="margin:-4px 0 10px">' +
       'ซื้อซ้ำนับเฉพาะภายในช่วงที่เลือก — คนที่ซื้อครั้งแรกก่อนช่วงนี้จะยังไม่ถูกนับว่าซื้อซ้ำ ' +
@@ -1564,7 +1735,7 @@ function openUnitDrill(unitKey: string, chKey: string): void {
     (unit.mapped ? '' : '<div class="hint-box" style="margin-bottom:10px">เพจกลุ่มนี้ยังไม่ถูกจับคู่กับยูนิต — ' +
       'ไปจับคู่ได้ที่หน้า <b>U Map</b> เพื่อให้รวมยอดถูกกลุ่ม</div>') +
     weeklyBlock_(unit.weekly || []) +
-    '<h4 style="margin:6px 0">📄 เพจในยูนิตนี้ (คลิกเพจเพื่อดูสินค้าที่ขายได้)</h4>' +
+    '<h4 style="margin:6px 0">เพจในยูนิตนี้ (คลิกเพจเพื่อดูสินค้าที่ขายได้)</h4>' +
     (pages.length
       ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>#</th><th>เพจ</th><th>รายได้</th>' +
         '<th>ออเดอร์</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
@@ -1586,14 +1757,14 @@ function openProductDrill(prodName: string, chKey: string): void {
       '</td><td>' + fmtNum(p.qty) + '</td><td>' + fmtNum(p.orders) + '</td></tr>';
   }).join('');
   openModal(
-    '<div class="modal-head"><h3>📦 ' + esc(prodName) + '</h3><button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>' + esc(prodName) + '</h3>' + closeBtn_() + '</div>' +
     '<div class="card-sub" style="margin-bottom:10px">' + esc((lastData && lastData.rangeLabel) || '') +
-      ' • ' + CH_LABELS[chKey] + '</div>' +
+      ' • ' + chLabelHtml_(chKey) + '</div>' +
     '<div class="pill-grid" style="margin-bottom:12px">' +
-      '<span class="chip">💰 ' + THB(totVal) + '</span>' +
-      '<span class="chip">📦 ' + fmtNum(totQty) + ' ชิ้น</span>' +
-      '<span class="chip">🛒 ' + fmtNum(totOrd) + ' ออเดอร์</span></div>' +
-    '<h4 style="margin:6px 0">🏬 ขายได้จากเพจ (คลิกเพจเพื่อดูสินค้าอื่นของเพจนั้น)</h4>' +
+      '<span class="chip"><span class="mini-lbl">มูลค่า</span>' + THB(totVal) + '</span>' +
+      '<span class="chip">' + fmtNum(totQty) + ' ชิ้น</span>' +
+      '<span class="chip">' + fmtNum(totOrd) + ' ออเดอร์</span></div>' +
+    '<h4 style="margin:6px 0">ขายได้จากเพจ (คลิกเพจเพื่อดูสินค้าอื่นของเพจนั้น)</h4>' +
     (pages.length
       ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>#</th><th>เพจ</th><th>มูลค่า*</th>' +
         '<th>จำนวน</th><th>ออเดอร์</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
@@ -1615,13 +1786,13 @@ function openPageDrill(pageName: string, chKey: string): void {
       '</td><td>' + fmtNum(p.qty) + '</td><td>' + fmtNum(p.orders) + '</td></tr>';
   }).join('');
   openModal(
-    '<div class="modal-head"><h3>📄 ' + esc(pageName) + '</h3><button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>' + esc(pageName) + '</h3>' + closeBtn_() + '</div>' +
     '<div class="card-sub" style="margin-bottom:10px">' + esc((lastData && lastData.rangeLabel) || '') +
-      ' • ' + CH_LABELS[chKey] + '</div>' +
+      ' • ' + chLabelHtml_(chKey) + '</div>' +
     '<div class="pill-grid" style="margin-bottom:12px">' +
-      '<span class="chip">💰 ' + THB(info.revenue) + '</span>' +
-      '<span class="chip">🛒 ' + fmtNum(info.orders) + ' ออเดอร์</span></div>' +
-    '<h4 style="margin:6px 0">📦 สินค้าที่ขายได้ (คลิกสินค้าเพื่อดูว่าขายเพจไหนอีก)</h4>' +
+      '<span class="chip"><span class="mini-lbl">ยอดขาย</span>' + THB(info.revenue) + '</span>' +
+      '<span class="chip">' + fmtNum(info.orders) + ' ออเดอร์</span></div>' +
+    '<h4 style="margin:6px 0">สินค้าที่ขายได้ (คลิกสินค้าเพื่อดูว่าขายเพจไหนอีก)</h4>' +
     (prods.length
       ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>#</th><th>สินค้า</th><th>มูลค่า*</th>' +
         '<th>จำนวน</th><th>ออเดอร์</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
@@ -1641,10 +1812,10 @@ function openAllPages(chKey: string): void {
       '</td><td>' + fmtNum(p.orders) + '</td></tr>';
   }).join('');
   openModal(
-    '<div class="modal-head"><h3>📄 ทุกเพจที่มียอดขาย (' + fmtNum(pages.length) + ')</h3>' +
-      '<button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>ทุกเพจที่มียอดขาย (' + fmtNum(pages.length) + ')</h3>' +
+      closeBtn_() + '</div>' +
     '<div class="card-sub" style="margin-bottom:10px">' + esc((lastData && lastData.rangeLabel) || '') +
-      ' • ' + CH_LABELS[chKey] + ' • คลิกเพจเพื่อดูสินค้าที่ขายได้</div>' +
+      ' • ' + chLabelHtml_(chKey) + ' • คลิกเพจเพื่อดูสินค้าที่ขายได้</div>' +
     (pages.length
       ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>#</th><th>เพจ</th><th>รายได้</th>' +
         '<th>ออเดอร์</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
@@ -1657,7 +1828,7 @@ function openAllPages(chKey: string): void {
 
 /**
  * ตารางรายออเดอร์ที่ยังไม่ยืนยัน
- * scope 'range' = ตามตัวกรอง 📅 + ช่องทางด้านบน | 'today' = การ์ดธุรกิจวันนี้ (ทุกช่องทาง)
+ * scope 'range' = ตามตัวกรองวันที่ + ช่องทางด้านบน | 'today' = การ์ดธุรกิจวันนี้ (ทุกช่องทาง)
  * server ส่งมาสูงสุด 200 ใบล่าสุด — ถ้ามีมากกว่านั้นบอกไว้ท้ายตาราง
  */
 function openNeedCheckDrill(scope: 'range' | 'today'): void {
@@ -1665,10 +1836,10 @@ function openNeedCheckDrill(scope: 'range' | 'today'): void {
   const today = d.today || {};
   const list: any[] = (scope === 'today' ? today.needCheckOrders : d.needCheckOrders) || [];
   const total = Number(scope === 'today' ? today.needCheck : (d.kpis || {}).needCheck) || 0;
-  if (!total) { toast('✓ ไม่มีออเดอร์ค้างตรวจ'); return; }
+  if (!total) { toast('ไม่มีออเดอร์ค้างตรวจ'); return; }
   const where = scope === 'today'
     ? 'วันนี้ • ทุกช่องทาง'
-    : esc(d.rangeLabel || '') + ' • ' + CH_LABELS[state.channel];
+    : esc(d.rangeLabel || '') + ' • ' + chLabelHtml_(state.channel);
   const rows = list.map(function (o: any) {
     // 0 = ใหม่ (ยังไม่มีใครแตะ) | 17 = รอยืนยัน (แอดมินคีย์แล้วรอกดยืนยัน)
     const cls = Number(o.status) === 0 ? 'info' : 'admin';
@@ -1686,21 +1857,21 @@ function openNeedCheckDrill(scope: 'range' | 'today'): void {
   }).join('');
   const sumVal = list.reduce(function (s: number, o: any) { return s + (Number(o.total) || 0); }, 0);
   openModal(
-    '<div class="modal-head"><h3>⚠️ ออเดอร์ที่ต้องตรวจ (' + fmtNum(total) + ')</h3>' +
-      '<button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>ออเดอร์ที่ต้องตรวจ (' + fmtNum(total) + ')</h3>' +
+      closeBtn_() + '</div>' +
     '<div class="card-sub" style="margin-bottom:10px">' + where + '</div>' +
     '<div class="hint-box" style="margin-bottom:10px">ออเดอร์สถานะ <b>ใหม่ / รอยืนยัน</b> จาก Pancake — ' +
       '<b>ยังไม่ถูกนับเป็นรายได้</b> จนกว่าแอดมินจะกดยืนยัน (ยอดขายทุกตัวเลขบนหน้านี้นับเฉพาะ "ยืนยันแล้ว")</div>' +
     '<div class="pill-grid" style="margin-bottom:12px">' +
-      '<span class="chip">🧾 ' + fmtNum(total) + ' ใบ</span>' +
-      '<span class="chip">💰 ' + THB(sumVal) + ' (ถ้ายืนยันครบ)</span>' +
+      '<span class="chip">' + fmtNum(total) + ' ใบ</span>' +
+      '<span class="chip"><span class="mini-lbl">มูลค่า</span>' + THB(sumVal) + ' (ถ้ายืนยันครบ)</span>' +
     '</div>' +
     (list.length
       ? '<div class="table-scroll"><table class="tbl"><thead><tr>' +
           '<th>เวลา</th><th>เลขออเดอร์</th><th>ลูกค้า</th><th>เพจ</th><th>ยอด</th>' +
           '<th>ชิ้น</th><th>สถานะ</th><th>คนขาย</th>' +
         '</tr></thead><tbody>' + rows + '</tbody></table></div>'
-      : '<div class="empty-note">ไม่มีรายละเอียดออเดอร์ (ลองกด ⟳ โหลดใหม่)</div>') +
+      : '<div class="empty-note">ไม่มีรายละเอียดออเดอร์ (ลองกดปุ่มโหลดข้อมูลใหม่)</div>') +
     (total > list.length
       ? '<div style="font-size:11px;color:var(--text-3);margin-top:10px">' +
         'แสดง ' + fmtNum(list.length) + ' ใบล่าสุดจากทั้งหมด ' + fmtNum(total) + ' ใบ</div>'
@@ -1732,7 +1903,7 @@ function fetchAndRender(container: HTMLElement, blocking: boolean): void {
       hideChartTip(); // กราฟถูกแทนด้วยกล่อง error — ซ่อนทูลทิปที่อาจค้าง
       showError(container, msg, function () { refetch(container); });
     } else {
-      toast('⚠️ รีเฟรชข้อมูลไม่สำเร็จ — แสดงข้อมูลเดิมไว้ก่อน');
+      toast('รีเฟรชข้อมูลไม่สำเร็จ — แสดงข้อมูลเดิมไว้ก่อน');
     }
   });
 }
@@ -1806,12 +1977,12 @@ function buildReportRows(): unknown[][] | null {
   rows.push(['แหล่งที่มา', 'รายได้', 'ออเดอร์', 'ลูกค้า', '% ปิด', 'สถานะ']);
   (d.sources || []).forEach(function (s: any) {
     rows.push([
-      s.label || '',
+      stripEmoji_(s.label),
       Math.round(Number(s.revenue) || 0),
       Number(s.orders) || 0,
       Number(s.customers) || 0,
       (s.closeRate === null || s.closeRate === undefined) ? '-' : s.closeRate,
-      (s.status && s.status.label) || '',
+      stripEmoji_(s.status && s.status.label),
     ]);
   });
 

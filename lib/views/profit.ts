@@ -2,6 +2,10 @@
 // กำไรจริงจากชีทสรุปรายสินค้า (unit_daily) — ตาราง pivot ยูนิต × เดือน + drill รายวัน + ตีกลับรายเดือน
 
 import { serverCall, esc, fmtNum, THB, pctFmt, openModal, rebindModalClose, showError, downloadCSV, toast } from '@/lib/ui/helpers';
+import { icon, statusPill, statusDot, ICON_FOR } from '@/lib/ui/icons';
+
+/** ปุ่มปิดโมดัลแบบไอคอนล้วน — ต้องมี aria-label + title เพราะไม่มีคำบนปุ่ม */
+const MODAL_CLOSE_BTN = '<button class="modal-close" aria-label="ปิด" title="ปิด">' + icon(ICON_FOR.close, { size: 18 }) + '</button>';
 
 interface Cell { profit: number; sales: number; ads: number }
 interface UnitAge { firstSale: string; days: number; openEnded: boolean; active: boolean }
@@ -46,7 +50,7 @@ function profCell(c: Cell | null, u: string, m: string): string {
 function render(container: HTMLElement, d: ProfitData | null): void {
   if (!d) return;
   if (d.setupNeeded) {
-    container.innerHTML = '<div class="empty-note">⏳ ยังไม่มีข้อมูลกำไร — รอ sync ชีทสรุปรายสินค้า (npm run import:product-sheets)</div>';
+    container.innerHTML = '<div class="empty-note">ยังไม่มีข้อมูลกำไร — รอ sync ชีทสรุปรายสินค้า (npm run import:product-sheets)</div>';
     return;
   }
   const t = d.totals;
@@ -71,7 +75,9 @@ function render(container: HTMLElement, d: ProfitData | null): void {
     // อายุสินค้า = นับจากวันแรกที่มียอดในชีท (ข้อมูลเริ่ม ม.ค. 2026 — ตัวที่ขายมาก่อนขึ้น ≥)
     const ageTxt = x.age
       ? '<span title="' + esc('เริ่มมียอด ' + x.age.firstSale + (x.age.active ? ' • ยังขายอยู่' : ' • หยุดขายแล้ว')) + '">' +
-        (x.age.openEnded ? '≥' : '') + fmtNum(x.age.days) + ' วัน' + (x.age.active ? '' : ' ⏸️') + '</span>'
+        // หยุดขายแล้ว: เดิมเป็น ⏸️ ที่ต้องชี้เมาส์ถึงจะรู้ความหมาย — เขียนเป็นคำสีจางแทน
+        (x.age.openEnded ? '≥' : '') + fmtNum(x.age.days) + ' วัน' +
+        (x.age.active ? '' : ' <span class="tx-muted">หยุดขาย</span>') + '</span>'
       : '-';
     return '<tr><td><b>' + esc(x.u) + '</b>' +
       (x.product ? ' <span class="rank-fullname">' + esc(x.product) + '</span>' : '') + '</td>' +
@@ -90,12 +96,12 @@ function render(container: HTMLElement, d: ProfitData | null): void {
 
   const pivot = '<div class="card" style="margin-top:14px">' +
     '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-      '<h3 style="margin:0">💹 กำไรสุทธิรายยูนิต × เดือน — ปี ' + esc(d.year) + '</h3>' +
+      '<h3 style="margin:0">กำไรสุทธิรายยูนิต × เดือน — ปี ' + esc(d.year) + '</h3>' +
       '<div class="spacer" style="flex:1"></div>' +
-      '<button class="btn-mini" id="pf-csv">📄 CSV</button>' +
+      '<button class="btn-mini" id="pf-csv">' + icon(ICON_FOR.csv) + 'CSV</button>' +
     '</div>' +
     '<div class="card-sub">ตัวเลขจากชีทสรุปรายสินค้าของทีม (หักต้นทุน + สำรองตีกลับ + Fixcost + ภาษี + คอมแล้ว) • ' +
-      '👆 คลิกตัวเลขเพื่อดูกำไรรายวันของยูนิตเดือนนั้น • <b class="txt-good">เขียว = กำไร</b> <b class="txt-bad">แดง = ขาดทุน</b></div>' +
+      'คลิกตัวเลขเพื่อดูกำไรรายวันของยูนิตเดือนนั้น • <b class="txt-good">เขียว = กำไร</b> <b class="txt-bad">แดง = ขาดทุน</b></div>' +
     '<div class="table-scroll"><table class="tbl"><thead>' + head + '</thead><tbody>' + body + totRow + '</tbody></table></div></div>';
 
   // ---- ตีกลับรายเดือน คู่กำไร ----
@@ -112,7 +118,7 @@ function render(container: HTMLElement, d: ProfitData | null): void {
       '<td class="num"' + (pct !== null && pct > 5 ? ' style="color:var(--bad,#e74c3c)"' : '') + '>' + pctFmt(pct) + '</td></tr>';
   }).join('');
   const retTable = '<div class="card" style="margin-top:14px">' +
-    '<h3>↩️ กำไร vs ตีกลับ รายเดือน</h3>' +
+    '<h3>กำไร vs ตีกลับ รายเดือน</h3>' +
     '<div class="card-sub">ตีกลับจากชีทตีกลับของทีม (มูลค่า = ราคา × จำนวนชิ้น) • เกณฑ์ทีม: %ตีกลับต้อง &lt; 5% ของยอด</div>' +
     '<div class="table-scroll"><table class="tbl"><thead><tr>' +
       '<th>เดือน</th><th class="num">ยอดขาย (ชีท)</th><th class="num">กำไรสุทธิ</th>' +
@@ -122,18 +128,20 @@ function render(container: HTMLElement, d: ProfitData | null): void {
   // ---- ตีกลับรายคน (แอดมิน + CRM) ----
   const personCard = personCardHtml_(d);
 
-  // ---- สินค้าเทสประจำปี (จากแท็บ 0.ข้อมูล ของชีท KPI: ✅ ติด / ❌ ไม่ติด) ----
+  // ---- สินค้าเทสประจำปี (จากแท็บ 0.ข้อมูล ของชีท KPI: ติด / ไม่ติด) ----
+  // ผลเทสบอกด้วยป้ายสถานะ (จุด+พื้นสี) แทน ✅ ❌ ⏳ — title บอกผลเป็นคำ ไม่ต้องเดาจากสีอย่างเดียว
   const ts = d.testSummary;
   const testCard = ts && ts.total
     ? '<div class="card" style="margin-top:14px">' +
-      '<h3>🧪 สินค้าเทสประจำปี — สำเร็จ ' + (ts.pct === null ? '—' : ts.pct + '%') +
+      '<h3>สินค้าเทสประจำปี — สำเร็จ ' + (ts.pct === null ? '—' : ts.pct + '%') +
         ' (ติด ' + fmtNum(ts.ok) + ' / ตัดสินแล้ว ' + fmtNum(ts.ok + ts.fail) + ' จากทั้งหมด ' + fmtNum(ts.total) + ' ตัว)</h3>' +
-      '<div class="card-sub">จากแท็บ 0.ข้อมูล ของชีท KPI — ✅ ติด • ❌ ไม่ติด • ไม่มีเครื่องหมาย = ยังเทสอยู่/ยังไม่ตัดสิน (' + fmtNum(ts.pending) + ' ตัว)</div>' +
+      '<div class="card-sub">จากแท็บ 0.ข้อมูล ของชีท KPI — ' + statusDot('good') + ' ติด • ' + statusDot('bad') + ' ไม่ติด • ' +
+        statusDot('muted') + ' ยังเทสอยู่/ยังไม่ตัดสิน (' + fmtNum(ts.pending) + ' ตัว)</div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
         (d.testProducts || []).map(function (t) {
-          const badge = t.ok === true ? 'ai' : t.ok === false ? 'urgent' : 'neutral';
-          const mark = t.ok === true ? '✅' : t.ok === false ? '❌' : '⏳';
-          return '<span class="badge ' + badge + '">' + mark + ' ' + esc(t.u) + ' ' + esc(t.name) + '</span>';
+          const kind = t.ok === true ? 'good' : t.ok === false ? 'bad' : 'muted';
+          const word = t.ok === true ? 'ติด' : t.ok === false ? 'ไม่ติด' : 'ยังเทสอยู่';
+          return '<span title="' + word + '">' + statusPill(kind, esc(t.u) + ' ' + esc(t.name)) + '</span>';
         }).join('') +
       '</div></div>'
     : '';
@@ -182,11 +190,11 @@ function personCardHtml_(d: ProfitData): string {
     '<option value="' + v + '"' + (v === retTypeSel ? ' selected' : '') + '>' + t + '</option>').join('');
   return '<div class="card" style="margin-top:14px">' +
     '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-      '<h3 style="margin:0">👤 ตีกลับรายคน (แอดมิน + CRM)</h3>' +
+      '<h3 style="margin:0">ตีกลับรายคน (แอดมิน + CRM)</h3>' +
       '<select id="pf-ret-month" class="input">' + opts + '</select>' +
       '<select id="pf-ret-type" class="input">' + typeOpts + '</select>' +
       '<div class="spacer" style="flex:1"></div>' +
-      '<button class="btn-mini" id="pf-ret-csv">📄 CSV</button>' +
+      '<button class="btn-mini" id="pf-ret-csv">' + icon(ICON_FOR.csv) + 'CSV</button>' +
     '</div>' +
     '<div class="card-sub" id="pf-ret-sub">จากชีทตีกลับของทีม (คอลัมน์พนักงาน) • เดือน' + esc(mLabel(month)) + ': ' +
       'แอดมิน <b>' + THB(fbValue) + '</b> (' + fmtNum(fbItems) + ' รายการ) • ' +
@@ -199,8 +207,8 @@ function personCardHtml_(d: ProfitData): string {
 
 function openDaily(u: string, month: string): void {
   openModal(
-    '<div class="modal-head"><h3>💹 ' + esc(u) + ' — กำไรรายวัน ' + esc(mLabel(month)) + '</h3>' +
-    '<button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>' + esc(u) + ' — กำไรรายวัน ' + esc(mLabel(month)) + '</h3>' +
+    MODAL_CLOSE_BTN + '</div>' +
     '<div class="loading"><div class="spinner"></div>กำลังโหลด...</div>'
   );
   serverCall<any>('apiProfit', { u, month }).then(function (res) {
@@ -221,8 +229,8 @@ function openDaily(u: string, month: string): void {
       s.sales += x.sales; s.ads += x.ads; s.profit += x.profit; return s;
     }, { sales: 0, ads: 0, profit: 0 });
     modal.innerHTML =
-      '<div class="modal-head"><h3>💹 ' + esc(u) + ' — กำไรรายวัน ' + esc(mLabel(month)) + '</h3>' +
-      '<button class="modal-close">✕</button></div>' +
+      '<div class="modal-head"><h3>' + esc(u) + ' — กำไรรายวัน ' + esc(mLabel(month)) + '</h3>' +
+      MODAL_CLOSE_BTN + '</div>' +
       '<div class="card-sub" style="margin-bottom:8px">รวมเดือน: ขาย ' + THB(sum.sales) + ' • แอด ' + THB(sum.ads) +
         ' • <b class="' + (sum.profit < 0 ? 'txt-bad' : 'txt-good') + '">กำไร ' + THB(sum.profit) + '</b>' +
         ' • วันขาดทุนขึ้นแดง — ตรงกับการ์ดแจ้งเตือนหน้า Sales</div>' +
@@ -232,7 +240,7 @@ function openDaily(u: string, month: string): void {
       '</tr></thead><tbody>' + (body || '<tr><td colspan="6">ไม่มีข้อมูล</td></tr>') + '</tbody></table></div>';
     // โมดัลนี้เขียนทับเนื้อหาตัวเอง ปุ่มปิดที่ openModal ผูกไว้จึงหายไปกับของเดิม ต้องผูกใหม่
     rebindModalClose();
-  }).catch(function () { toast('⚠️ โหลดรายวันไม่สำเร็จ'); });
+  }).catch(function () { toast('โหลดรายวันไม่สำเร็จ'); });
 }
 
 function bindEvents(container: HTMLElement): void {

@@ -3,13 +3,14 @@
    หน้าอ้างอิงกันลืม สไตล์ "เกมจับคู่": คลิกเลือกแอดมินฝั่งซ้าย
    แล้วคลิกการ์ด U ฝั่งขวาเพื่อจับคู่ — ข้อมูลเก็บใน DB (sync_state)
    มี API สาธารณะ /api/public/umap ให้ระบบภายนอกดึงไปใช้
-   + โหมด 🎮 ทดสอบความจำ (ทายคู่ U ↔ ผลิตภัณฑ์) ไว้ท่องจำกันลืม
+   + โหมดทดสอบความจำ (ทายคู่ U ↔ ผลิตภัณฑ์) ไว้ท่องจำกันลืม
    ============================================================ */
 
 import {
   serverCall, esc, relTime, showError, toast, openModal, closeModal, tagColor,
 } from '@/lib/ui/helpers';
 import { umapSkel } from '@/lib/ui/skeletons';
+import { icon, brandIcon, ICON_FOR } from '@/lib/ui/icons';
 
 /* ---------------- data types (apiUMap) ---------------- */
 
@@ -48,11 +49,14 @@ function unitCountByAdmin_(units: UUnit[]): Map<string, number> {
 
 function toolbarHtml(): string {
   return '<div class="pg-controls">' +
-    '<input class="input" id="u-search" placeholder="🔎 ค้นหาแอดมิน..." value="' + esc(search) + '" style="flex:1 1 220px;max-width:100%">' +
-    '<button class="btn primary" id="u-add">➕ เพิ่ม U</button>' +
-    '<button class="btn" id="u-quiz" title="เกมทายคู่ U ↔ ผลิตภัณฑ์ ไว้ท่องจำ">🎮 ทดสอบความจำ</button>' +
+    // ขนาดช่องค้นหาตั้งที่กรอบ .search-box (แว่นขยายวาดซ้อนในกรอบ เพราะ placeholder ใส่รูปไม่ได้)
+    '<div class="search-box" style="flex:1 1 220px;max-width:100%">' + icon(ICON_FOR.search) +
+      '<input class="input" id="u-search" placeholder="ค้นหาแอดมิน..." aria-label="ค้นหาแอดมิน" value="' + esc(search) + '">' +
+    '</div>' +
+    '<button class="btn primary" id="u-add">' + icon(ICON_FOR.add) + 'เพิ่ม U</button>' +
+    '<button class="btn" id="u-quiz" title="เกมทายคู่ U ↔ ผลิตภัณฑ์ ไว้ท่องจำ">' + icon('list-checks') + 'ทดสอบความจำ</button>' +
     '<div class="spacer"></div>' +
-    '<button class="btn" id="u-api" title="API สาธารณะสำหรับระบบภายนอก (GET, ไม่ต้องใส่รหัสทีม)">🔗 คัดลอกลิงก์ API</button>' +
+    '<button class="btn" id="u-api" title="API สาธารณะสำหรับระบบภายนอก (GET, ไม่ต้องใส่รหัสทีม)">' + icon(ICON_FOR.link) + 'คัดลอกลิงก์ API</button>' +
     '</div>';
 }
 
@@ -83,9 +87,9 @@ function statsHtml(units: UUnit[], roster: UMember[]): string {
 
 function hintHtml(): string {
   if (!selected) return '';
-  return '<div class="umap-hint">🎯 กำลังจับคู่: <b>' + esc(selected.name) + '</b>' +
+  return '<div class="umap-hint">' + icon('mouse-pointer-click') + ' กำลังจับคู่: <b>' + esc(selected.name) + '</b>' +
     ' — คลิกการ์ด U ฝั่งขวาเพื่อวางลง (คลิกได้หลายการ์ดติดกัน)' +
-    '<button class="btn-mini" id="u-cancel-sel" style="margin-left:10px">✕ เลิกเลือก</button></div>';
+    '<button class="btn-mini" id="u-cancel-sel" style="margin-left:10px">' + icon(ICON_FOR.close) + 'เลิกเลือก</button></div>';
 }
 
 function adminListHtml(units: UUnit[], roster: UMember[]): string {
@@ -108,11 +112,14 @@ function adminListHtml(units: UUnit[], roster: UMember[]): string {
 }
 
 function memberChip_(u: string, m: UMember, ghost: boolean): string {
-  return '<span class="u-member' + (ghost ? ' ghost" title="ไม่อยู่ในรายชื่อแอดมินแล้ว (ถูกปิดใช้งาน/ออก) — กด ✕ เพื่อเอาออก' : '') + '">' +
+  // กากบาทเป็นไอคอนล้วน — ใส่ label ที่ตัวไอคอน (role=img) ให้โปรแกรมอ่านหน้าจออ่านว่า "เอา … ออกจาก …"
+  // (icon() escape ค่า label เอง จึงส่งชื่อดิบ ไม่ต้อง esc ซ้ำ)
+  return '<span class="u-member' + (ghost ? ' ghost" title="ไม่อยู่ในรายชื่อแอดมินแล้ว (ถูกปิดใช้งาน/ออก) — กดกากบาทเพื่อเอาออก' : '') + '">' +
     '<span class="pdot" style="background:' + tagColor(m.name) + '"></span>' +
-    (ghost ? '⛔ ' : '') + esc(m.name) +
+    (ghost ? '<span class="tx-bad">' + icon('ban', { size: 12, label: 'ออกแล้ว' }) + '</span> ' : '') + esc(m.name) +
     '<span class="x" data-u="' + esc(u) + '" data-id="' + esc(m.id) + '" title="เอา ' +
-      esc(m.name) + ' ออกจาก ' + esc(u) + '">✕</span>' +
+      esc(m.name) + ' ออกจาก ' + esc(u) + '">' +
+      icon(ICON_FOR.close, { size: 12, label: 'เอา ' + m.name + ' ออกจาก ' + u }) + '</span>' +
     '</span>';
 }
 
@@ -123,22 +130,25 @@ function uCardHtml(x: UUnit, ids: Set<string>, hasRoster: boolean): string {
     : '<span class="u-empty">ยังว่าง — ไม่มีแอดมินประจำ</span>';
   const nPages = (x.pages || []).length;
   return '<div class="u-card' + (droppable ? ' droppable' : '') + '" data-u="' + esc(x.u) + '">' +
+    // ปุ่มมุมการ์ดมีแต่ไอคอน (ใส่คำไม่พอที่ — จะไปทับรหัส U ตัวใหญ่) จึงต้องมี aria-label + title ครบ
     '<div class="u-tools">' +
-      '<button class="u-tool-btn" data-act="edit" data-u="' + esc(x.u) + '" title="แก้ชื่อผลิตภัณฑ์">✏️</button>' +
-      '<button class="u-tool-btn" data-act="del" data-u="' + esc(x.u) + '" title="ลบ U นี้">🗑️</button>' +
+      '<button class="u-tool-btn btn-icon" data-act="edit" data-u="' + esc(x.u) + '" aria-label="แก้ชื่อผลิตภัณฑ์ของ ' + esc(x.u) +
+        '" title="แก้ชื่อผลิตภัณฑ์">' + icon(ICON_FOR.edit, { size: 14 }) + '</button>' +
+      '<button class="u-tool-btn btn-icon danger" data-act="del" data-u="' + esc(x.u) + '" aria-label="ลบ ' + esc(x.u) +
+        '" title="ลบ U นี้">' + icon(ICON_FOR.delete, { size: 14 }) + '</button>' +
     '</div>' +
     '<div class="u-code">' + esc(x.u) + '</div>' +
     '<div class="u-product">' + esc(x.product || '—') + '</div>' +
     '<div class="u-members">' + members + '</div>' +
     '<button class="u-pages-btn" data-act="pages" data-u="' + esc(x.u) + '" title="จับคู่เพจของยูนิตนี้ (ใช้จัดกลุ่มยอดขาย)">' +
-      '📄 ' + (nPages ? nPages + ' เพจ' : 'ยังไม่จับคู่เพจ') + ' • จัดการ' +
+      icon(ICON_FOR.page, { size: 14 }) + ' ' + (nPages ? nPages + ' เพจ' : 'ยังไม่จับคู่เพจ') + ' • จัดการ' +
     '</button>' +
     '</div>';
 }
 
 function boardHtml(units: UUnit[], roster: UMember[]): string {
   if (!units.length) {
-    return '<div class="card"><div class="empty-note">ยังไม่มี U — กด ➕ เพิ่ม U เพื่อเริ่มต้น</div></div>';
+    return '<div class="card"><div class="empty-note">ยังไม่มี U — กดปุ่ม “เพิ่ม U” ด้านบนเพื่อเริ่มต้น</div></div>';
   }
   const ids = rosterIds_(roster);
   return '<div class="u-grid">' +
@@ -153,7 +163,7 @@ function bodyHtml(data: UMapData): string {
     hintHtml() +
     '<div class="umap-layout">' +
       '<div class="card umap-side">' +
-        '<h3>👥 แอดมิน (' + roster.length + ')</h3>' +
+        '<h3>แอดมิน (' + roster.length + ')</h3>' +
         '<div class="card-sub">คลิกเลือกแอดมิน แล้วคลิกการ์ด U ฝั่งขวาเพื่อจับคู่</div>' +
         '<div id="u-admin-list" class="u-admin-list">' + adminListHtml(units, roster) + '</div>' +
         '<div class="umap-upd">อัปเดตล่าสุด ' + esc(relTime(data.updatedAt)) + '</div>' +
@@ -179,7 +189,7 @@ function drainQueue_(container: HTMLElement): void {
   saving = true;
   serverCall<UMapData>('apiUMap', next.params).then((res) => {
     if (!res || res.ok === false) {
-      toast('⚠️ ' + ((res && res.error) || 'บันทึกไม่สำเร็จ'));
+      toast((res && res.error) || 'บันทึกไม่สำเร็จ');
     } else {
       reqSeq++; // ตัด read เก่าที่ค้างกลางอากาศทิ้ง — กันข้อมูล stale มาทับผลที่เพิ่งบันทึก
       if (lastData) {
@@ -191,16 +201,19 @@ function drainQueue_(container: HTMLElement): void {
     }
     drainQueue_(container);
   }).catch((err) => {
-    toast('⚠️ บันทึกไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
+    toast('บันทึกไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
     drainQueue_(container);
   });
 }
 
 /* ---------------- modals: เพิ่ม / แก้ / ลบ U ---------------- */
 
+/** ปุ่มกากบาทมุมบนของ modal — มีแต่ไอคอน จึงต้องมี aria-label + title ให้โปรแกรมอ่านหน้าจอ/คนชี้เมาส์รู้ว่าคือ "ปิด" */
+const CLOSE_BTN = '<button class="modal-close btn-icon" aria-label="ปิด" title="ปิด">' + icon(ICON_FOR.close) + '</button>';
+
 function openAddUnit(container: HTMLElement): void {
   openModal(
-    '<div class="modal-head"><h3>➕ เพิ่ม U ใหม่</h3><button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>เพิ่ม U ใหม่</h3>' + CLOSE_BTN + '</div>' +
     '<div style="display:flex;flex-direction:column;gap:10px">' +
       '<label style="font-size:12.5px;color:var(--text-2)">รหัส U (เช่น U27, UN12)' +
         '<input class="input" id="uadd-code" maxlength="12" placeholder="U27" style="width:100%;margin-top:5px"></label>' +
@@ -209,7 +222,7 @@ function openAddUnit(container: HTMLElement): void {
     '</div>' +
     '<div class="modal-actions">' +
       '<button class="btn" id="uadd-cancel">ยกเลิก</button>' +
-      '<button class="btn primary" id="uadd-save">💾 เพิ่ม</button>' +
+      '<button class="btn primary" id="uadd-save">' + icon(ICON_FOR.add) + 'เพิ่ม</button>' +
     '</div>'
   );
   const root = document.getElementById('modal-root')!;
@@ -221,10 +234,10 @@ function openAddUnit(container: HTMLElement): void {
   if (save) save.addEventListener('click', () => {
     const u = ((root.querySelector('#uadd-code') as HTMLInputElement | null)?.value || '').trim().toUpperCase();
     const product = ((root.querySelector('#uadd-product') as HTMLInputElement | null)?.value || '').trim();
-    if (!/^[A-Z0-9-]{1,12}$/.test(u)) { toast('⚠️ รหัส U ใช้ได้เฉพาะตัวอักษร/ตัวเลข เช่น U27, UN12'); return; }
-    if (!product) { toast('⚠️ กรอกชื่อผลิตภัณฑ์ด้วย'); return; }
+    if (!/^[A-Z0-9-]{1,12}$/.test(u)) { toast('รหัส U ใช้ได้เฉพาะตัวอักษร/ตัวเลข เช่น U27, UN12'); return; }
+    if (!product) { toast('กรอกชื่อผลิตภัณฑ์ด้วย'); return; }
     closeModal();
-    mutate(container, { action: 'addUnit', u, product }, '➕ เพิ่ม ' + u + ' — ' + product + ' แล้ว');
+    mutate(container, { action: 'addUnit', u, product }, 'เพิ่ม ' + u + ' — ' + product + ' แล้ว');
   });
 }
 
@@ -232,11 +245,11 @@ function openEditUnit(container: HTMLElement, u: string): void {
   const unit = (lastData && lastData.units || []).find((x) => x.u === u);
   if (!unit) return;
   openModal(
-    '<div class="modal-head"><h3>✏️ แก้ชื่อผลิตภัณฑ์ของ ' + esc(u) + '</h3><button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>แก้ชื่อผลิตภัณฑ์ของ ' + esc(u) + '</h3>' + CLOSE_BTN + '</div>' +
     '<input class="input" id="uedit-product" maxlength="120" value="' + esc(unit.product) + '" style="width:100%">' +
     '<div class="modal-actions">' +
       '<button class="btn" id="uedit-cancel">ยกเลิก</button>' +
-      '<button class="btn primary" id="uedit-save">💾 บันทึก</button>' +
+      '<button class="btn primary" id="uedit-save">' + icon(ICON_FOR.save) + 'บันทึก</button>' +
     '</div>'
   );
   const root = document.getElementById('modal-root')!;
@@ -245,9 +258,9 @@ function openEditUnit(container: HTMLElement, u: string): void {
   const save = root.querySelector('#uedit-save') as HTMLButtonElement | null;
   if (save) save.addEventListener('click', () => {
     const product = ((root.querySelector('#uedit-product') as HTMLInputElement | null)?.value || '').trim();
-    if (!product) { toast('⚠️ กรอกชื่อผลิตภัณฑ์ด้วย'); return; }
+    if (!product) { toast('กรอกชื่อผลิตภัณฑ์ด้วย'); return; }
     closeModal();
-    mutate(container, { action: 'editUnit', u, product }, '✏️ แก้ ' + u + ' เป็น "' + product + '" แล้ว');
+    mutate(container, { action: 'editUnit', u, product }, 'แก้ ' + u + ' เป็น "' + product + '" แล้ว');
   });
 }
 
@@ -255,15 +268,15 @@ function openRemoveUnit(container: HTMLElement, u: string): void {
   const unit = (lastData && lastData.units || []).find((x) => x.u === u);
   if (!unit) return;
   const warn = unit.admins.length
-    ? '<div style="font-size:12.5px;color:var(--amber);margin-top:8px">⚠️ มีแอดมินประจำอยู่ ' +
+    ? '<div style="font-size:12.5px;color:var(--amber);margin-top:8px">' + icon(ICON_FOR.alert, { size: 14 }) + ' มีแอดมินประจำอยู่ ' +
       unit.admins.length + ' คน — การจับคู่ของ U นี้จะหายไปด้วย</div>'
     : '';
   openModal(
-    '<div class="modal-head"><h3>🗑️ ลบ ' + esc(u) + '?</h3><button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>ลบ ' + esc(u) + '?</h3>' + CLOSE_BTN + '</div>' +
     '<div style="font-size:13px">' + esc(u) + ' — ' + esc(unit.product || '(ไม่มีชื่อผลิตภัณฑ์)') + '</div>' + warn +
     '<div class="modal-actions">' +
       '<button class="btn" id="udel-cancel">ยกเลิก</button>' +
-      '<button class="btn primary" id="udel-yes" style="background:var(--red);border-color:var(--red)">🗑️ ลบเลย</button>' +
+      '<button class="btn primary danger" id="udel-yes" style="background:var(--red);border-color:var(--red)">' + icon(ICON_FOR.delete) + 'ลบเลย</button>' +
     '</div>'
   );
   const root = document.getElementById('modal-root')!;
@@ -272,7 +285,7 @@ function openRemoveUnit(container: HTMLElement, u: string): void {
   const yes = root.querySelector('#udel-yes');
   if (yes) yes.addEventListener('click', () => {
     closeModal();
-    mutate(container, { action: 'removeUnit', u }, '🗑️ ลบ ' + u + ' แล้ว');
+    mutate(container, { action: 'removeUnit', u }, 'ลบ ' + u + ' แล้ว');
   });
 }
 
@@ -302,7 +315,7 @@ let pageSearch = '';
 function openPageManager(container: HTMLElement, u: string): void {
   pageSearch = '';
   openModal(
-    '<div class="modal-head"><h3>📄 จับคู่เพจ — ' + esc(u) + '</h3><button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>จับคู่เพจ — ' + esc(u) + '</h3>' + CLOSE_BTN + '</div>' +
     '<div id="pm-body"></div>'
   );
   const root = document.getElementById('modal-root')!;
@@ -327,10 +340,15 @@ function openPageManager(container: HTMLElement, u: string): void {
       const cur = lookup[p.id];
       const here = cur === u;
       const other = (cur && cur !== u) ? cur : '';
+      // วงติ๊ก = อยู่ในยูนิตนี้แล้ว · วงเปล่า = ยังไม่อยู่ — aria-pressed บอกสถานะเดียวกันให้โปรแกรมอ่านหน้าจอ
+      // โลโก้ LINE อยู่นอกช่องชื่อ ไม่งั้นชื่อเพจยาวจะตัด "…" ทับโลโก้หายไป
       return '<button class="page-pick' + (here ? ' selected' : '') + '" data-pid="' + esc(p.id) +
-        '" data-name="' + esc(p.name) + '">' +
-        '<span class="chk">' + (here ? '✅' : '⬜') + '</span>' +
-        '<span class="nm">' + esc(p.name) + (p.platform === 'line' ? ' 🟢' : '') + '</span>' +
+        '" data-name="' + esc(p.name) + '" aria-pressed="' + (here ? 'true' : 'false') + '">' +
+        (here
+          ? '<span class="chk tx-brand">' + icon(ICON_FOR.ok, { size: 18 }) + '</span>'
+          : '<span class="chk tx-muted">' + icon('circle', { size: 18 }) + '</span>') +
+        '<span class="nm">' + esc(p.name) + '</span>' +
+        (p.platform === 'line' ? brandIcon('line', { size: 14, label: true }) : '') +
         (other ? '<span class="cnt">อยู่ ' + esc(other) + '</span>' : '') +
         '</button>';
     }).join('');
@@ -344,8 +362,9 @@ function openPageManager(container: HTMLElement, u: string): void {
       '<div class="card-sub" style="margin-bottom:8px">คลิกเพจเพื่อจับคู่/เอาออกจาก <b>' + esc(u) +
         '</b>' + (unit && unit.product ? ' — ' + esc(unit.product) : '') + ' • ตอนนี้ ' + n + ' เพจ • ' +
         '1 เพจอยู่ได้ยูนิตเดียว (จับที่นี่จะย้ายออกจากยูนิตเดิมให้)</div>' +
-      '<input class="input" id="pm-search" placeholder="🔎 ค้นหาเพจ..." value="' + esc(pageSearch) +
-        '" style="width:100%;margin-bottom:8px">' +
+      '<div class="search-box" style="margin-bottom:var(--sp-2)">' + icon(ICON_FOR.search) +
+        '<input class="input" id="pm-search" placeholder="ค้นหาเพจ..." aria-label="ค้นหาเพจ" value="' + esc(pageSearch) + '">' +
+      '</div>' +
       '<div class="page-pick-list">' + listHtml() + '</div>';
     const s = body!.querySelector('#pm-search') as HTMLInputElement | null;
     if (s) s.addEventListener('input', () => {
@@ -374,7 +393,7 @@ function openPageManager(container: HTMLElement, u: string): void {
   renderBody();
 }
 
-/* ---------------- 🎮 เกมทดสอบความจำ (client-only, ไม่แตะ DB) ---------------- */
+/* ---------------- เกมทดสอบความจำ (client-only, ไม่แตะ DB) ---------------- */
 
 function shuffle_<T>(arr: T[]): T[] {
   const a = arr.slice();
@@ -387,14 +406,14 @@ function shuffle_<T>(arr: T[]): T[] {
 
 function openQuiz(): void {
   const pool = ((lastData && lastData.units) || []).filter((x) => x.product);
-  if (pool.length < 4) { toast('⚠️ ต้องมี U ที่มีชื่อผลิตภัณฑ์อย่างน้อย 4 ตัวถึงจะเล่นได้'); return; }
+  if (pool.length < 4) { toast('ต้องมี U ที่มีชื่อผลิตภัณฑ์อย่างน้อย 4 ตัวถึงจะเล่นได้'); return; }
   const total = Math.min(10, pool.length);
   const qs = shuffle_(pool).slice(0, total);
   let idx = 0;
   let score = 0;
 
   openModal(
-    '<div class="modal-head"><h3>🎮 ทดสอบความจำ U</h3><button class="modal-close">✕</button></div>' +
+    '<div class="modal-head"><h3>ทดสอบความจำ U</h3>' + CLOSE_BTN + '</div>' +
     '<div id="quiz-body"></div>'
   );
   const root = document.getElementById('modal-root')!;
@@ -403,17 +422,17 @@ function openQuiz(): void {
 
   function renderEnd(): void {
     const pct = Math.round((score / total) * 100);
-    const emoji = pct >= 90 ? '🏆 สุดยอด จำแม่นมาก!' :
-      pct >= 70 ? '👍 เก่งมาก เกือบครบแล้ว' :
-      pct >= 50 ? '🙂 ครึ่งๆ — เล่นอีกรอบให้จำขึ้นใจ' : '📚 ยังจำสลับอยู่ ลองอีกรอบ!';
+    const verdict = pct >= 90 ? 'สุดยอด จำแม่นมาก!' :
+      pct >= 70 ? 'เก่งมาก เกือบครบแล้ว' :
+      pct >= 50 ? 'ครึ่งๆ — เล่นอีกรอบให้จำขึ้นใจ' : 'ยังจำสลับอยู่ ลองอีกรอบ!';
     body!.innerHTML =
       '<div style="text-align:center;padding:18px 6px">' +
         '<div style="font-size:38px;font-weight:800">' + score + ' / ' + total + '</div>' +
-        '<div style="font-size:13px;color:var(--text-2);margin-top:8px">' + emoji + '</div>' +
+        '<div style="font-size:13px;color:var(--text-2);margin-top:8px">' + verdict + '</div>' +
       '</div>' +
       '<div class="modal-actions">' +
         '<button class="btn" id="quiz-close">ปิด</button>' +
-        '<button class="btn primary" id="quiz-again">🔁 เล่นอีกรอบ</button>' +
+        '<button class="btn primary" id="quiz-again">' + icon('rotate-ccw') + 'เล่นอีกรอบ</button>' +
       '</div>';
     const c = body!.querySelector('#quiz-close');
     if (c) c.addEventListener('click', closeModal);
@@ -480,7 +499,7 @@ function copyApiLink(): void {
   const fallback = () => { window.prompt('คัดลอกลิงก์ API (Ctrl+C):', url); };
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(url)
-      .then(() => toast('📋 คัดลอกแล้ว — GET ' + url + note))
+      .then(() => toast('คัดลอกแล้ว — GET ' + url + note))
       .catch(fallback);
   } else fallback();
 }
@@ -514,7 +533,7 @@ function bindEvents(container: HTMLElement): void {
     const x = t.closest('.x') as HTMLElement | null;
     if (x) {
       mutate(container, { action: 'unassign', u: x.getAttribute('data-u'), userId: x.getAttribute('data-id') },
-        '✂️ เอาออกจาก ' + (x.getAttribute('data-u') || '') + ' แล้ว');
+        'เอาออกจาก ' + (x.getAttribute('data-u') || '') + ' แล้ว');
       return;
     }
     const tool = t.closest('.u-tool-btn') as HTMLElement | null;
@@ -533,14 +552,14 @@ function bindEvents(container: HTMLElement): void {
     const card = t.closest('.u-card') as HTMLElement | null;
     if (!card) return;
     const u = card.getAttribute('data-u') || '';
-    if (!selected) { toast('👈 เลือกแอดมินฝั่งซ้ายก่อน แล้วค่อยคลิกการ์ด U'); return; }
+    if (!selected) { toast('เลือกแอดมินฝั่งซ้ายก่อน แล้วค่อยคลิกการ์ด U'); return; }
     const unit = (lastData && lastData.units || []).find((it) => it.u === u);
     if (unit && unit.admins.some((m) => m.id === selected!.id)) {
-      toast('ℹ️ ' + selected.name + ' อยู่ใน ' + u + ' อยู่แล้ว');
+      toast(selected.name + ' อยู่ใน ' + u + ' อยู่แล้ว');
       return;
     }
     mutate(container, { action: 'assign', u, userId: selected.id },
-      '🔗 จับคู่ ' + selected.name + ' ↔ ' + u + ' แล้ว');
+      'จับคู่ ' + selected.name + ' ↔ ' + u + ' แล้ว');
   });
 
   const cancelSel = container.querySelector('#u-cancel-sel');
@@ -578,7 +597,7 @@ function fetchAndRender(container: HTMLElement): void {
   }).catch((err) => {
     if (seq !== reqSeq) return;
     if (lastData) {
-      toast('⚠️ โหลดข้อมูลใหม่ไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
+      toast('โหลดข้อมูลใหม่ไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
     } else {
       showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', () => {
         umap.load(container, true);
