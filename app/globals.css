@@ -32,6 +32,7 @@
   /* ตัวอักษร/ไอคอนสีม่วงหลักบนพื้นม่วงอ่อน — #6c5ce7 ตรงๆ จมในธีมมืด จึงยกให้สว่างขึ้น */
   --primary-ink: #a99cff;
   --row-line: rgba(38, 51, 82, 0.5);        /* เส้นคั่นแถวตาราง */
+  --scroll-thumb: rgba(255, 255, 255, 0.18); --scroll-thumb-hover: rgba(255, 255, 255, 0.32);
   /* สีหมวดของไอคอนนำหน้าตัวเลข (statIcon ใน lib/ui/icons.ts) — แยกกลุ่มให้ตาจับได้เร็ว ไม่ได้แปลว่าดี/แย่ */
   --cat-money: #fbbf24; --cat-order: #60a5fa; --cat-cust: #22d3ee;
   --cat-ads: #fb923c; --cat-chat: #c084fc; --cat-misc: var(--text-3);
@@ -92,6 +93,7 @@
 
 /* ---------- โหมดสว่าง (Light) — เนื้อหาหลักสว่าง, sidebar คงสีเข้มเป็นแถบเมนู ---------- */
 :root[data-theme="light"] {
+  color-scheme: light;
   --bg: #eef1f7;
   --surface: #ffffff;
   --surface-2: #f1f4fa;
@@ -122,6 +124,7 @@
   --bronze: #a86a2e;                        /* 4.00:1 (เดิม #c47f3d = 2.96:1 ตกบนพื้นรอง) */
   --primary-ink: #5b4bd6;                   /* 6.1:1 บนขาว */
   --row-line: var(--border);
+  --scroll-thumb: rgba(15, 23, 42, 0.22); --scroll-thumb-hover: rgba(15, 23, 42, 0.4);
   /* สีหมวดโหมดสว่าง: เข้มขึ้นให้เส้นไอคอนบางๆ ยังชัดบนพื้นขาว/เทาอ่อน (≥4.5:1 บน --surface-2) */
   --cat-money: #a15c07; --cat-order: #1d4ed8; --cat-cust: #0e7490;
   --cat-ads: #c2410c; --cat-chat: #7e22ce;
@@ -157,6 +160,31 @@
    ============================================================ */
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ---------- แถบเลื่อน (scrollbar) ----------
+   เดิมเป็นแถบของระบบ (Windows = รางเทากว้าง มีปุ่มลูกศรหัวท้าย) ตรงแถบเมนูซ้ายโหมดสว่างจะเป็นรางเทาอ่อน
+   โดดอยู่ข้างแถบเมนูสีเข้ม (พีขอ 26 ก.ย. 69 "ให้ดู modern") → แถบบาง ไม่มีราง ไม่มีลูกศร สีตามธีม
+   ใช้ค่ามาตรฐาน scrollbar-width/color (Chrome 121+, Firefox, Edge) · Safari ยังไม่รองรับ จึงมี ::-webkit-scrollbar สำรอง
+   ⚠️ Chrome จะเมิน ::-webkit-scrollbar ถ้าเจอค่ามาตรฐาน — สองชุดนี้ไม่ตีกัน */
+:root { color-scheme: dark; }
+* { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
+*:hover { scrollbar-color: var(--scroll-thumb-hover) transparent; }
+/* แถบเมนูเข้มทั้ง 2 ธีม — แถบเลื่อนโปร่งแสงสีขาวเสมอ และซ่อนไว้จนกว่าจะชี้เมาส์ (ลดของรกตาข้างเมนู) */
+.sidebar { color-scheme: dark; scrollbar-color: rgba(255, 255, 255, 0.22) transparent; }
+@media (hover: hover) {   /* จอสัมผัสไม่มี "ชี้" — ซ่อนเฉพาะเครื่องที่ใช้เมาส์ ไม่งั้นมือถือไม่เห็นว่าเมนูเลื่อนได้ */
+  .sidebar:not(:hover):not(:focus-within) { scrollbar-color: transparent transparent; }
+}
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+  ::-webkit-scrollbar-button { display: none; }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--scroll-thumb); border-radius: 99px;
+    border: 3px solid transparent; background-clip: padding-box;   /* เว้นขอบ = แท่งดูบางลอยกลางราง */
+  }
+  ::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-thumb-hover); }
+  .sidebar::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.22); }
+}
 html, body { height: 100%; }
 body {
   font-family: 'Segoe UI', 'Leelawadee UI', 'Noto Sans Thai', sans-serif;
