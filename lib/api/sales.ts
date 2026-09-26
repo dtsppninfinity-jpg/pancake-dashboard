@@ -958,26 +958,34 @@ interface UnitGoalInput {
  * ด่าน 2 — **ฐาน Meta ต้องไม่เล็กกว่า Pancake ผิดปกติ** กันกรณีที่ด่าน 1 จับไม่ได้:
  *   งานดึง Meta ล้มเป็นราย "บัญชีโฆษณา" (เจอจริงตอน backfill: 5/165 บัญชีคืน "Service temporarily unavailable")
  *   วันนั้นบัญชีอื่นยังมีเลข ด่าน 1 จึงผ่าน แต่ยูนิตที่อยู่บัญชีที่ล้มจะได้ตัวหาร 0 แล้ว %ปิด กลายเป็น 0.00%
- *   วัดจริง 17-26 ก.ย.: Meta/Pancake = 0.98-1.01 ทุกวัน (Pancake สูงกว่านิดเพราะนับคนทักออร์แกนิกด้วย)
+ *   วัดจริงหลัง backfill (ส.ค.-ก.ย.): Meta/Pancake = 0.94-1.01 (Pancake สูงกว่านิดเพราะนับคนทักออร์แกนิกด้วย)
  *   ตั้งพื้นไว้ 0.70 — หลุดเมื่อไหร่แปลว่าหายไปเป็นก้อน ไม่ใช่ความต่างตามธรรมชาติ
+ *   ⚠️ **ต้องตรวจรายวันด้วย ไม่ใช่แค่ทั้งช่วง** — วันดีเจือจางวันเสียได้: ก.ค. 69 ทั้งเดือนได้ 0.806 (ผ่าน)
+ *      ทั้งที่ข้างในมี 16 วัน (27 มิ.ย.-14 ก.ค.) ต่ำถึง 0.56 เพราะบัญชีใหญ่ดึงไม่มา (เจอตอนตรวจซ้ำ 26 ก.ย.)
+ *   ข้ามวันที่ฐาน Pancake ยังน้อยกว่า META_DAY_MIN_BASE (ต้นวัน) — ตัวเลขหลักสิบ รอบ sync ห่างกัน 15 นาที
+ *   ก็ทำอัตราส่วนแกว่งเกิน 0.70 ได้แล้ว ทั้งช่วงจะสลับไปมาระหว่าง Meta กับ Pancake ทุกเช้า
  *
  * ⚠️ ห้ามตัดสินรายวันแล้วสลับไปมาในช่วงเดียว — ตัวหารจะมาจากคนละแหล่งในเลขก้อนเดียว
  */
 const META_BASE_MIN_RATIO = 0.70;
+const META_DAY_MIN_BASE = 200;   // ~5% ของคนทักทั้งวัน (บริษัทได้ 3,000-5,000/วัน)
 
 function metaBaseComplete_(days: Record<string, { spend: number; metaBase: number; pancakeBase: number }>): boolean {
   const keys = Object.keys(days);
   if (!keys.length) return false;
   let spentDays = 0, meta = 0, pancake = 0;
   for (const d of keys) {
-    meta += days[d].metaBase;
-    pancake += days[d].pancakeBase;
-    if (days[d].spend <= 0) continue;     // วันที่ไม่ได้ยิงแอด ไม่มีอะไรให้ Meta รายงาน
+    const x = days[d];
+    meta += x.metaBase;
+    pancake += x.pancakeBase;
+    if (x.spend <= 0) continue;           // วันที่ไม่ได้ยิงแอด ไม่มีอะไรให้ Meta รายงาน
     spentDays++;
-    if (days[d].metaBase <= 0) return false;
+    if (x.metaBase <= 0) return false;                                   // ด่าน 1
+    if (x.pancakeBase >= META_DAY_MIN_BASE &&
+        x.metaBase / x.pancakeBase < META_BASE_MIN_RATIO) return false;  // ด่าน 2 รายวัน
   }
   if (!spentDays) return false;
-  if (pancake > 0 && meta / pancake < META_BASE_MIN_RATIO) return false;
+  if (pancake > 0 && meta / pancake < META_BASE_MIN_RATIO) return false; // ด่าน 2 ทั้งช่วง
   return true;
 }
 
@@ -989,7 +997,7 @@ function metaBaseComplete_(days: Record<string, { spend: number; metaBase: numbe
  *   ต้นวันตัวหารจึงต่ำกว่าจริง แล้ว %ปิด เด้งสูงเกิน) · จอ ADS SUMMARY ของเขาก็ใช้ Meta แล้ว
  *   พิสูจน์ 23 ก.ย.: U10 จอเขา ทัก 107 + คอมเมนต์ 16 = คอลัมน์ meta_* ของเราเป๊ะทั้งคู่
  * ฐาน Pancake (customer_engagements new_inbox + comment) ยังคำนวณคู่ไว้เสมอ — ใช้เมื่อ
- *   (ก) ช่วงที่เลือกเก่ากว่า META_BASE_FROM  (ข) แท็บ LINE (เพจ LINE ไม่มีแอด Meta)
+ *   (ก) ข้อมูล Meta ในช่วงที่เลือกยังไม่ครบ (ดู metaBaseComplete_)  (ข) แท็บ LINE (เพจ LINE ไม่มีแอด Meta)
  *   และโชว์ใน tooltip ไว้เทียบทุกกรณี
  *
  * ⚠️ ห้ามผสมสองฐานในตารางเดียว — ยูนิตที่ไม่มีแอดเลยให้เป็น null ("—") ไม่ใช่ถอยไปหยิบเลข Pancake
@@ -1089,7 +1097,7 @@ function unitRows_(
         closeMetaInq: cl.metaInq,
         closeMetaComment: cl.metaComment,
         closeRateMeta: cl.metaRate,
-        // ฐาน Pancake (customer_engagements) — เก็บไว้เทียบใน tooltip + ใช้จริงเมื่อช่วงเก่ากว่า META_BASE_FROM
+        // ฐาน Pancake (customer_engagements) — เก็บไว้เทียบใน tooltip + ใช้จริงเมื่อ Meta ในช่วงนั้นไม่ครบ
         closePancakeInq: cl.pancakeInq,
         closePancakeComment: cl.pancakeComment,
         closePancakeBase: cl.pancakeBase,
@@ -1546,10 +1554,11 @@ export async function apiSales(params: any) {
    * ⚠️ ผูกการ์ดบน/กล่องช่องทางกับตารางยูนิตไว้ที่นี่จุดเดียว — บทเรียนจาก 17 ส.ค. ที่แก้สูตร
    *    เฉพาะตารางยูนิต แล้วหน้าเดียวกันโชว์ %ปิด สองค่า (35.0% กับ 27.7%) อยู่เดือนนึง
    */
-  const closeFromUnits_ = (units: any[]) => {
+  const closeFromUnits_ = (units: any[], chanKey = '') => {
     let orders = 0, base = 0, missing = 0, missingOrders = 0, inq = 0, comment = 0;
     let metaBase = 0, pancakeBase = 0;
-    let src: 'meta' | 'pancake' = metaBaseOk ? 'meta' : 'pancake';
+    // ค่าเริ่มต้นตอนแท็บนั้นไม่มียูนิตเลย — ต้องตรงกับกติกาเดียวกับ unitRows_ (LINE = Pancake เสมอ)
+    let src: 'meta' | 'pancake' = metaBaseOk && chanKey !== 'line' ? 'meta' : 'pancake';
     (units || []).forEach((u) => {
       orders += u.closeOrders || 0;
       metaBase += (u.closeMetaInq || 0) + (u.closeMetaComment || 0);
@@ -1570,13 +1579,13 @@ export async function apiSales(params: any) {
       pancakeBase, pancakeRate: r_(pancakeBase),
     };
   };
-  const closeAds = closeFromUnits_(((top as any)[channel || 'all'] || {}).units || []);
+  const closeAds = closeFromUnits_(((top as any)[channel || 'all'] || {}).units || [], channel || 'all');
 
   // กล่อง "แหล่งที่มา" ใช้สูตรเดียวกัน — LINE/อื่นๆ ไม่มีค่าแอดจึงเป็น null แล้วโชว์ "—"
   // เกณฑ์ป้ายสถานะขยับตามสเกลใหม่ (เป้า 40%): ≥40 ดี · <20 ต้องปรับ
   sources.forEach((row: any) => {
     const t = (top as any)[row.key];
-    const c = t ? closeFromUnits_(t.units || []) : { rate: null };
+    const c = t ? closeFromUnits_(t.units || [], row.key) : { rate: null };
     row.closeRate = c.rate;
     row.status = !row.orders ? { label: '—', cls: 'neutral' }
       : c.rate === null ? { label: '👀 เฝ้าดู', cls: 'info' }

@@ -215,16 +215,20 @@ export async function apiUnitPerf(params: any) {
    *   (ด่าน 2 กันกรณีงานดึง Meta ล้มเป็นราย "บัญชีโฆษณา" ซึ่งด่าน 1 จับไม่ได้ — ดูคำอธิบายเต็มใน sales.ts)
    * (เดือนที่คาบวันก่อน backfill จะมีวันที่จ่ายเงินแต่ Meta = 0 → ทั้งเดือนใช้ Pancake) */
   const META_BASE_MIN_RATIO = 0.70;
+  const META_DAY_MIN_BASE = 200;   // ต้นวันตัวเลขยังน้อย อัตราส่วนแกว่ง — ข้ามด่านรายวัน (เหมือน sales.ts)
   const metaOk = (() => {
     const ds = Object.keys(dayTot);
     if (!ds.length) return false;
     let spentDays = 0, meta = 0, pancake = 0;
     for (const d of ds) {
-      meta += dayTot[d].metaBase;
-      pancake += dayTot[d].pancakeBase;
-      if (dayTot[d].spend <= 0) continue;
+      const x = dayTot[d];
+      meta += x.metaBase;
+      pancake += x.pancakeBase;
+      if (x.spend <= 0) continue;
       spentDays++;
-      if (dayTot[d].metaBase <= 0) return false;
+      if (x.metaBase <= 0) return false;
+      // ด่านรายวัน — วันดีเจือจางวันเสียได้ (ก.ค. 69 ทั้งเดือน 0.806 แต่ข้างในมีวันต่ำถึง 0.56)
+      if (x.pancakeBase >= META_DAY_MIN_BASE && x.metaBase / x.pancakeBase < META_BASE_MIN_RATIO) return false;
     }
     if (!spentDays) return false;
     if (pancake > 0 && meta / pancake < META_BASE_MIN_RATIO) return false;

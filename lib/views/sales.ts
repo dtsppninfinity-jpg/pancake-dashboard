@@ -98,13 +98,17 @@ const state: SalesState = { preset: 'today', from: '', to: '', channel: 'faceboo
 
 const CH_LABELS: Record<string, string> = { '': '🌐 ทั้งหมด', 'facebook': '📘 Facebook', 'line': '🟢 LINE OA' };
 
-/* ---- "รวมคนทัก" รอบนี้มาจากฐานไหน (API ตัดสินให้ตามช่วงวันที่ + ช่องทาง — ดู closeRateOf_) ----
+/* ---- "รวมคนทัก" รอบนี้มาจากฐานไหน (API ตัดสินให้ตามข้อมูลจริง + ช่องทาง — ดู metaBaseComplete_) ----
  * ตั้งแต่ 26 ก.ย. 69 ฐานหลักคือ Meta (พีสั่ง หลังทีมแอดยืนยันว่า Meta อัปเดตเร็วกว่า Pancake)
- * ทุกข้อความบนจอต้องอ่านค่านี้ ห้าม hardcode ชื่อแหล่ง — ช่วงเก่ากว่า 17 ก.ย. ระบบถอยไป Pancake เอง */
+ * ทุกข้อความบนจอต้องอ่านค่านี้ ห้าม hardcode ชื่อแหล่ง — ช่วงที่ข้อมูล Meta ไม่ครบ / แท็บ LINE ระบบถอยไป Pancake เอง */
 let closeSrc_: 'meta' | 'pancake' = 'meta';
 const srcName_ = (): string => (closeSrc_ === 'meta' ? 'Meta' : 'Pancake');
 const srcParts_ = (): string => (closeSrc_ === 'meta' ? 'ทัก + คอมเมนต์' : 'อินบ็อกซ์ใหม่ + คอมเมนต์');
 const srcOtherName_ = (): string => (closeSrc_ === 'meta' ? 'Pancake' : 'Meta');
+// ชื่อก้อนแรกของตัวหาร — Meta เรียก "ทัก" (messaging_first_reply) · Pancake เรียก "อินบ็อกซ์ใหม่" (new_inbox)
+// คนละตัวแปรกันจริง ห้ามเรียกชื่อเดียวกัน ไม่งั้นทีมเอาไปเทียบกับจอ ADS SUMMARY ผิดคอลัมน์
+const inqLabel_ = (): string => (closeSrc_ === 'meta' ? 'ทัก' : 'อินบ็อกซ์ใหม่');
+const otherInqLabel_ = (): string => (closeSrc_ === 'meta' ? 'อินบ็อกซ์ใหม่' : 'ทัก');
 
 /* ---------------- data helpers ---------------- */
 
@@ -363,7 +367,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     if (kk.closeBase === null || kk.closeBase === undefined)
       return 'ยังไม่มีข้อมูลคนทักในช่วงที่เลือก (ตาราง chat_engagement_daily)';
     const bits = ['ออเดอร์ ' + fmtNum(kk.closeOrders || 0) + ' ÷ รวมคนทัก ' + fmtNum(kk.closeBase || 0) +
-      ' (ทัก ' + fmtNum(kk.closeBaseInbox || 0) + ' + คอมเมนต์ ' + fmtNum(kk.closeBaseComment || 0) +
+      ' (' + inqLabel_() + ' ' + fmtNum(kk.closeBaseInbox || 0) + ' + คอมเมนต์ ' + fmtNum(kk.closeBaseComment || 0) +
       ' จาก ' + srcName_() +
       ' ' + baseScope_() + ')' + adsCardNote_()];
     if (kk.closeUnitsNoData) {
@@ -472,7 +476,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       body: (state.channel === 'line'
           ? 'ตัวหารของ %ปิดการขาย (เพจ LINE ไม่มีค่าแอด จึงไม่มีค่าทัก)'
           : 'ตัวหารของ %ปิดการขายและค่าทัก') +
-        ' = ทัก ' + fmtNum(k.closeBaseInbox || 0) + ' + คอมเมนต์ ' + fmtNum(k.closeBaseComment || 0) +
+        ' = ' + inqLabel_() + ' ' + fmtNum(k.closeBaseInbox || 0) + ' + คอมเมนต์ ' + fmtNum(k.closeBaseComment || 0) +
         (state.channel === 'line' ? ''
           : ' • ตัวเลขของ ' + srcOtherName_() + ' = ' +
             fmtNum((closeSrc_ === 'meta' ? k.closePancakeBase : k.closeMetaBase) || 0)) +
@@ -1143,6 +1147,9 @@ function noUnitSetOpen_(v: boolean): void {
 function noUnitAdsBanner_(d: SalesData): string {
   const g = d.noUnitAds;
   if (!g || !g.pages || !g.pages.length) return '';
+  // แท็บ LINE: ค่าแอดก้อนนี้เป็นของเพจ Facebook ไม่ได้อยู่ในแถว "ยังไม่จัดกลุ่ม" ของแท็บนี้
+  // ถ้าโชว์ แถบจะบอกว่าเงินไปกองท้ายตาราง แต่แถวท้ายตารางไม่มีเลขนั้น = ขัดกันเองบนจอเดียว
+  if (state.channel === 'line') return '';
   const linkable = g.pages.filter(function (x) { return x.inPancake; });
   const orphan = g.pages.filter(function (x) { return !x.inPancake; });
   const row = function (x: any) {
@@ -1194,8 +1201,8 @@ function adsCardNote_(): string {
   if (state.channel === 'line') return '';
   // ฐาน Pancake ไม่ตรงกับจอเขาอีกแล้ว (เขาย้ายไป Meta) — ห้ามอ้างว่าเท่ากันตอนถอยไปใช้ Pancake
   if (closeSrc_ !== 'meta') {
-    return ' — ช่วงนี้เก่ากว่าวันที่ Meta เริ่มมีข้อมูล (17 ก.ย. 69) ระบบจึงถอยไปใช้ตัวเลข Pancake' +
-      ' ซึ่งจะไม่ตรงกับจอ ADS SUMMARY ของทีมแอด';
+    return ' — ข้อมูลคนทักจาก Meta ในช่วงนี้ยังไม่ครบบางวัน ระบบจึงถอยไปใช้ตัวเลข Pancake ทั้งช่วง' +
+      ' (ไม่ผสมสองแหล่งในเลขเดียว) ซึ่งจะไม่ตรงกับจอ ADS SUMMARY ของทีมแอด';
   }
   if (state.channel === 'facebook') {
     return ' — ตัวหารเดียวกับจอ ADS SUMMARY ของทีมแอด แต่จอเขานับออเดอร์ทุกช่องทาง (รวม LINE)' +
@@ -1228,7 +1235,7 @@ function baseTip_(u: any): string {
     return 'คนทัก ' + baseScope_() + ' จาก ' + srcName_() +
       ' • ยูนิตนี้ไม่มีคนทักและไม่มีค่าแอดในช่วงที่เลือก จึงไม่มีตัวหาร';
   }
-  const parts = ['ทัก ' + fmtNum(u.closeInq || 0) + ' + คอมเมนต์ ' + fmtNum(u.closeComment || 0) +
+  const parts = [inqLabel_() + ' ' + fmtNum(u.closeInq || 0) + ' + คอมเมนต์ ' + fmtNum(u.closeComment || 0) +
     ' = ' + fmtNum(u.closeBase) + ' (' + srcName_() + ' ' + baseScope_() + ')'];
   const alt = closeSrc_ === 'meta' ? u.closePancakeBase : (u.closeMetaInq || 0) + (u.closeMetaComment || 0);
   if (alt !== null && alt !== undefined) parts.push('ฝั่ง ' + srcOtherName_() + ' ได้ ' + fmtNum(alt));
@@ -1249,14 +1256,14 @@ function closeTip_(u: any): string {
       ' ในช่วงที่เลือก จึงคิดไม่ได้' + (u.orders ? ' (ออเดอร์ ' + fmtNum(u.orders) + ' ใบยังนับในยอดรวมบนการ์ด)' : '');
   }
   const parts = ['ออเดอร์ ' + fmtNum(u.closeOrders || 0) + ' ÷ คนทัก ' + fmtNum(u.closeBase || 0) +
-    ' (ทัก ' + fmtNum(u.closeInq || 0) + ' + คอมเมนต์ ' + fmtNum(u.closeComment || 0) +
+    ' (' + inqLabel_() + ' ' + fmtNum(u.closeInq || 0) + ' + คอมเมนต์ ' + fmtNum(u.closeComment || 0) +
     ' ' + baseScope_() + ' จาก ' + srcName_() + ')'];
   if (u.closeTarget) parts.push('เป้า ' + u.closeTarget + '% ขึ้นไป');
   const altRate = closeSrc_ === 'meta' ? u.closeRatePancake : u.closeRateMeta;
   const altInq = closeSrc_ === 'meta' ? u.closePancakeInq : u.closeMetaInq;
   const altCm = closeSrc_ === 'meta' ? u.closePancakeComment : u.closeMetaComment;
   if (altRate !== null && altRate !== undefined) {
-    parts.push('ถ้าใช้ตัวเลขของ ' + srcOtherName_() + ' (ทัก ' + fmtNum(altInq || 0) + ' + คอมเมนต์ ' +
+    parts.push('ถ้าใช้ตัวเลขของ ' + srcOtherName_() + ' (' + otherInqLabel_() + ' ' + fmtNum(altInq || 0) + ' + คอมเมนต์ ' +
       fmtNum(altCm || 0) + ') = ' + pct2_(altRate));
   }
   return parts.join(' • ');
@@ -1768,7 +1775,7 @@ function buildReportRows(): unknown[][] | null {
   rows.push(['เฉลี่ย/ออเดอร์', Math.round(Number(k.avgOrder) || 0)]);
   rows.push(['%ปิดการขาย (ออเดอร์ ÷ รวมคนทัก)', (k.closeRate === null || k.closeRate === undefined) ? '-' : k.closeRate]);
   rows.push(['รวมคนทัก (' + srcParts_() + ' ' + baseScope_() + ' จาก ' + srcName_() + ')', (k.closeBase === null || k.closeBase === undefined) ? '-' : Number(k.closeBase)]);
-  rows.push(['— ทัก', (k.closeBaseInbox === null || k.closeBaseInbox === undefined) ? '-' : Number(k.closeBaseInbox)]);
+  rows.push(['— ' + inqLabel_(), (k.closeBaseInbox === null || k.closeBaseInbox === undefined) ? '-' : Number(k.closeBaseInbox)]);
   rows.push(['— คอมเมนต์', (k.closeBaseComment === null || k.closeBaseComment === undefined) ? '-' : Number(k.closeBaseComment)]);
   rows.push(['ลูกค้าที่คุยทั้งหมด (อ้างอิง)', (k.engTotal === null || k.engTotal === undefined) ? '-' : Number(k.engTotal)]);
   rows.push(['ยอดขายจากแอด', Math.round(Number(k.adRevenue) || 0)]);
