@@ -488,12 +488,21 @@ async function loadUnitCost_(
   pageUnit: Record<string, { u: string; product: string }>,
   pagePlatform: Record<string, string>,
   unmappedKey: string
-): Promise<{ byChannel: UnitCostByChannel; days: Record<string, { spend: number; metaBase: number; pancakeBase: number }> }> {
+): Promise<{
+  byChannel: UnitCostByChannel;
+  days: Record<string, { spend: number; metaBase: number; pancakeBase: number }>;
+  noUnitPages: Record<string, { spend: number; metaBase: number; pancakeBase: number }>;
+}> {
   const from = fmtDateBkk(r.start), to = fmtDateBkk(r.end);
   const out: UnitCostByChannel = { all: {}, facebook: {}, line: {} };
   // ค่าแอด + ตัวเลข Meta + ตัวเลข Pancake แยกรายวัน — ใช้ตัดสินว่าฐาน Meta ครบทั้งช่วงไหม (ดู metaBaseComplete_)
   const days: Record<string, { spend: number; metaBase: number; pancakeBase: number }> = {};
   const touchDay_ = (ymd: string) => (days[ymd] = days[ymd] || { spend: 0, metaBase: 0, pancakeBase: 0 });
+  /* เพจที่ "จ่ายค่าแอดจริง แต่ยังไม่ได้จับเข้ายูนิตใน U Map"
+   * ทีมเปิดเพจใหม่เรื่อยๆ (18/23/26 ก.ย. เจอ 2/3/4 เพจ) ถ้าไม่เตือน เงินกับออเดอร์จะไหลไปกอง
+   * ที่แถว "ยังไม่จัดกลุ่ม" เงียบๆ แล้ว ROAS/%ปิด ของยูนิตที่ควรได้เครดิตจะดูแย่กว่าความจริง */
+  const noUnitPages: Record<string, { spend: number; metaBase: number; pancakeBase: number }> = {};
+  const touchNoUnit_ = (pid: string) => (noUnitPages[pid] = noUnitPages[pid] || { spend: 0, metaBase: 0, pancakeBase: 0 });
   const bump = (pageId: string, patch: Partial<UnitCost>) => {
     const um = pageUnit[pageId];
     const key = um ? um.u : unmappedKey;
@@ -534,6 +543,7 @@ async function loadUnitCost_(
       const mBase = toNum_(a.meta_first_replies) + toNum_(a.meta_comments);
       const ymd = String(a.date || '').slice(0, 10);
       if (ymd) { const dd = touchDay_(ymd); dd.spend += spend; dd.metaBase += mBase; }
+      if (!pageUnit[pid]) { const np = touchNoUnit_(pid); np.spend += spend; np.metaBase += mBase; }
       bump(pid, {
         spend, msgs: toNum_(a.msgs_started),
         adInq: toNum_(a.meta_first_replies), adComment: toNum_(a.meta_comments),
@@ -554,13 +564,16 @@ async function loadUnitCost_(
       if (ymd && platformChannel_(pagePlatform[pid] || '') === 'facebook') {
         touchDay_(ymd).pancakeBase += toNum_(e.new_inbox) + toNum_(e.comment);
       }
+      if (!pageUnit[pid] && noUnitPages[pid]) {
+        noUnitPages[pid].pancakeBase += toNum_(e.new_inbox) + toNum_(e.comment);
+      }
       bump(pid, { reached: toNum_(e.new_inbox) + toNum_(e.comment), engOrders: toNum_(e.order_count),
         engOldOrders: toNum_((e as any).old_order_count),
         engNewInbox: toNum_(e.new_inbox), engComment: toNum_(e.comment) });
     });
   } catch { /* ยังไม่มีตาราง chat_engagement_daily */ }
 
-  return { byChannel: out, days };
+  return { byChannel: out, days, noUnitPages };
 }
 
 /**
@@ -1397,6 +1410,29 @@ export async function apiSales(params: any) {
    * ถ้าขาดแม้วันเดียว ตัวหารจะหายเงียบๆ แล้ว %ปิด พุ่งเกินจริง → ถอยไปใช้ Pancake ทั้งช่วง */
   const metaBaseOk = metaBaseComplete_(unitCostRes.days);
 
+  /* ---- เพจที่ยิงแอดแต่ยังไม่มียูนิต — ส่งให้หน้าเว็บขึ้นแถบเตือนเหนือตารางยูนิต ----
+   * เรียงตามเงินที่จ่ายไป มาก→น้อย · เพจที่ไม่มีในตาราง pages = ยังไม่ได้ต่อเข้า Pancake
+   * (จับใน U Map ไม่ได้ ต้องให้ทีมต่อเพจก่อน) ต้องบอกให้ชัด ไม่งั้นพีหาในหน้า U Map ไม่เจอแล้วงง */
+  const noUnitAdPages = Object.keys(unitCostRes.noUnitPages)
+    .map((pid) => {
+      const v = unitCostRes.noUnitPages[pid];
+      return {
+        pageId: pid,
+        name: pageNames[pid] || '',
+        inPancake: !!pageNames[pid],
+        spend: Math.round(v.spend),
+        base: Math.round(metaBaseOk ? v.metaBase : v.pancakeBase),
+      };
+    })
+    .filter((x) => x.spend > 0)
+    .sort((a, b) => b.spend - a.spend);
+  const noUnitAds = {
+    pages: noUnitAdPages,
+    spend: noUnitAdPages.reduce((t, x) => t + x.spend, 0),
+    base: noUnitAdPages.reduce((t, x) => t + x.base, 0),
+    linkable: noUnitAdPages.filter((x) => x.inPancake).length,
+  };
+
   function topAgg(list: Row[], chanKey: 'all' | 'facebook' | 'line' = 'all') {
     const pages: Record<string, { revenue: number; orders: number }> = {};
     const products: Record<string, { qty: number; value: number; orders: number }> = {};
@@ -1880,5 +1916,6 @@ export async function apiSales(params: any) {
       })
       .sort((a, b) => b.count - a.count),
     alerts: alerts.slice(0, 3),
+    noUnitAds,
   };
 }

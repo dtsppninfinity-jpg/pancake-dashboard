@@ -83,6 +83,10 @@ interface SalesData {
     roasNew?: number | null; roasAll?: number | null; adPagesRev?: number;
   } | null;
   salesBreak?: { total: number; fb: number; line: number };
+  noUnitAds?: {
+    pages: Array<{ pageId: string; name: string; inPancake: boolean; spend: number; base: number }>;
+    spend: number; base: number; linkable: number;
+  } | null;
 }
 
 let lastData: SalesData | null = null;
@@ -618,6 +622,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
           ' (คนทัก = ' + srcParts_() + ' ' + baseScope_() + ' จาก ' + srcName_() + adsCardNote_() + ')' +
           ' • 👆 คลิกยูนิตเพื่อดูรายเพจ + ยอดรายสัปดาห์' +
           unitGoalNote_(d, anyTarget) + '</div>' +
+        noUnitAdsBanner_(d) +
         (unitTable
           ? '<div class="table-scroll"><table class="tbl"><thead><tr><th>ยูนิต</th><th class="num">ยอดขาย</th>' +
             '<th class="num">สัดส่วน</th><th class="num">ค่าแอด</th><th class="num">ROAS</th>' +
@@ -1107,6 +1112,50 @@ function ymdBkk_(): string {
 function pct2_(n: unknown): string {
   const v = Number(n);
   return (n === null || n === undefined || isNaN(v)) ? '—' : v.toFixed(2) + '%';
+}
+
+/**
+ * แถบเตือน "เพจยิงแอดอยู่ แต่ยังไม่ได้จับเข้ายูนิต" — วางเหนือตารางยูนิต (พีสั่ง 26 ก.ย. 69)
+ *
+ * ทำไมต้องมี: ทีมเปิดเพจใหม่เรื่อยๆ แล้วไม่มีใครรู้ว่าต้องมาจับคู่ใน U Map
+ * (18/23/26 ก.ย. เจอ 2/3/4 เพจ) ค่าแอดกับออเดอร์จะไหลไปกองที่แถว "ยังไม่จัดกลุ่ม" เงียบๆ
+ * แล้ว ROAS/%ปิด ของยูนิตที่ควรได้เครดิตดูแย่กว่าความจริง — ตารางเดิมบอกแค่ยอดรวม ไม่บอกว่าเพจไหน
+ *
+ * แยก 2 กลุ่มเสมอ: จับได้เองในหน้า U Map / ยังไม่ได้ต่อเข้า Pancake (จับไม่ได้ ต้องให้ทีมต่อเพจก่อน)
+ * — ไม่งั้นคนไปหาในหน้า U Map แล้วไม่เจอ นึกว่าเว็บพัง
+ */
+function noUnitAdsBanner_(d: SalesData): string {
+  const g = d.noUnitAds;
+  if (!g || !g.pages || !g.pages.length) return '';
+  const linkable = g.pages.filter(function (x) { return x.inPancake; });
+  const orphan = g.pages.filter(function (x) { return !x.inPancake; });
+  const row = function (x: any) {
+    return '<li>' + esc(x.name || ('รหัสเพจ ' + x.pageId)) + ' — <b>' + THB(x.spend) + '</b>' +
+      (x.base ? ' · คนทัก ' + fmtNum(x.base) : '') + '</li>';
+  };
+  return '<div class="alert-list" style="margin:0 0 12px">' +
+    '<div class="alert-row lv-red">' +
+      '<div class="alert-icon">🚧</div>' +
+      '<div class="alert-body">' +
+        '<div class="alert-title">มีเพจยิงแอดอยู่ ' + fmtNum(g.pages.length) + ' เพจ ที่ยังไม่ได้จับเข้ายูนิต</div>' +
+        '<div class="alert-reason">ค่าแอด <b>' + THB(g.spend) + '</b>' +
+          (g.base ? ' และคนทัก ' + fmtNum(g.base) + ' คน' : '') +
+          ' ในช่วงที่เลือก ไปกองที่แถว “⚠️ ยังไม่จัดกลุ่ม” ท้ายตาราง' +
+          ' — ยูนิตที่ควรได้เครดิตจึงมี ROAS/%ปิด ต่ำกว่าความจริง</div>' +
+        (linkable.length
+          ? '<div class="alert-reason" style="margin-top:6px">จับคู่ได้เลยในหน้า U Map:' +
+            '<ul style="margin:4px 0 0 18px">' + linkable.map(row).join('') + '</ul></div>'
+          : '') +
+        (orphan.length
+          ? '<div class="alert-reason" style="margin-top:6px">ยังต่อเข้า Pancake ไม่ได้ จับคู่ไม่ได้จนกว่าทีมจะต่อเพจ:' +
+            '<ul style="margin:4px 0 0 18px">' + orphan.map(row).join('') + '</ul></div>'
+          : '') +
+        (linkable.length
+          ? '<div style="margin-top:8px"><button class="btn-mini" data-goview="umap">ไปหน้า U Map →</button></div>'
+          : '') +
+      '</div>' +
+    '</div>' +
+  '</div>';
 }
 
 const PERBILL_TIP = 'เปอร์บิล = ยอดขาย ÷ จำนวนออเดอร์ ในช่วงเวลาที่เลือก';
