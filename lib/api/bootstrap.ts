@@ -78,6 +78,8 @@ export async function apiBootstrap(_params?: unknown) {
     // รายวัน (default 26 ชม. อยู่แล้ว — ระบุเฉพาะที่อยากตึงกว่า)
   };
   const nowMs = Date.now();
+  // ตัดข้อความยาวให้มี … บอกว่าถูกตัด — ข้อความนี้โชว์เป็นเนื้อหาในหน้าต่างของผู้ดูแลระบบ ตัดกลางคำเฉยๆ ดูเหมือนบั๊ก
+  const clip = (m: string, n: number) => (m.length > n ? m.slice(0, n - 1) + '…' : m);
 
   // ใบรายงานผลรอบล่าสุดของแต่ละงาน (เขียนโดย scripts/sync/index.ts) — ใช้แทนการ regex ข้อความ
   const jobStats: Record<string, StoredJobStat> = {};
@@ -122,7 +124,7 @@ export async function apiBootstrap(_params?: unknown) {
     // ตัวตรวจความสมเหตุสมผล: ล้มครั้งแรกก็ต้องฟ้องทันที — มันไม่ได้ล้มเพราะเน็ตสะดุด
     // แต่เพราะ "ตัวเลขที่ได้เป็นไปไม่ได้" ซึ่งแปลว่าหน้าเว็บกำลังโชว์ของผิดอยู่ตอนนี้
     if (k === 'invariants') {
-      if (!l.ok) syncHealth.push({ job: k, kind: 'invariant', ageMins, message: l.message.slice(0, 300) });
+      if (!l.ok) syncHealth.push({ job: k, kind: 'invariant', ageMins, message: clip(l.message, 300) });
       else if (ageMins > maxAge) {
         syncHealth.push({ job: k, kind: 'stale', ageMins, message: 'ไม่ได้ตรวจความถูกต้องของข้อมูลมา ' + Math.round(ageMins / 60) + ' ชม.' });
       }
@@ -131,15 +133,19 @@ export async function apiBootstrap(_params?: unknown) {
     // งานที่ "ไม่ได้ทำงาน" (ขาด env / ยังไม่ได้รัน migration) — บอกเหตุผลตรงๆ ไม่ใช่ 'ล้มเหลว'
     const stat = jobStats[k];
     if (stat && stat.skipped) {
-      syncHealth.push({ job: k, kind: 'skip', ageMins, message: stat.skipped + ' — ' + l.message.slice(0, 100) });
+      syncHealth.push({ job: k, kind: 'skip', ageMins, message: stat.skipped + ' — ' + clip(l.message, 100) });
       return;
     }
     if (!l.ok && streak >= 2) {
-      syncHealth.push({ job: k, kind: 'fail', ageMins, message: 'ล้มติดกัน ' + streak + ' รอบ — ' + l.message.slice(0, 110) });
+      syncHealth.push({ job: k, kind: 'fail', ageMins, message: 'ล้มติดกัน ' + streak + ' รอบ — ' + clip(l.message, 110) });
     } else if (!l.ok && ageMins > maxAge) {
-      syncHealth.push({ job: k, kind: 'fail', ageMins, message: 'ล้มและยังไม่สำเร็จอีกเลย — ' + l.message.slice(0, 100) });
+      syncHealth.push({ job: k, kind: 'fail', ageMins, message: 'ล้มและยังไม่สำเร็จอีกเลย — ' + clip(l.message, 100) });
     } else if (l.ok && /^ข้าม/.test(l.message)) {
-      syncHealth.push({ job: k, kind: 'skip', ageMins, message: l.message.slice(0, 120) });
+      syncHealth.push({ job: k, kind: 'skip', ageMins, message: clip(l.message, 120) });
+    } else if (l.ok && ageMins > maxAge) {
+      // สำเร็จรอบล่าสุด แต่เงียบเกินรอบที่ควรรัน (pinger ตาย / cron หยุด) — เดิมกิ่งนี้อยู่ท้ายสุด
+      // หลัง "else if (l.ok)" ซึ่งดักงานที่สำเร็จไว้หมด จึงไม่เคยทำงานเลย ผู้ตรวจอิสระจับได้ 26 ก.ย. 69
+      syncHealth.push({ job: k, kind: 'stale', ageMins, message: 'เงียบมา ' + Math.round(ageMins / 60) + ' ชม. (ควรรันทุก ' + Math.round(maxAge / 60) + ' ชม.)' });
     } else if (l.ok) {
       // ⚠️ จุดบอดที่ทำให้เรื่อง %ปิดการขายเพี้ยนหลุดไป 1 สัปดาห์: งานคืน ok=true พร้อมหมายเหตุ
       // "ผิดพลาด N เพจ" — ไม่ล้ม ไม่ข้าม ไม่ค้าง จึงไม่มีใครเตือน ทั้งที่ข้อมูลหายเกินครึ่ง
@@ -147,7 +153,6 @@ export async function apiBootstrap(_params?: unknown) {
       const problem = stat ? coverageProblem(stat) : '';
       if (problem) syncHealth.push({ job: k, kind: 'partial', ageMins, message: problem });
     }
-    else if (ageMins > maxAge) syncHealth.push({ job: k, kind: 'stale', ageMins, message: 'เงียบมา ' + Math.round(ageMins / 60) + ' ชม. (ควรรันทุก ' + Math.round(maxAge / 60) + ' ชม.)' });
   });
 
   return {

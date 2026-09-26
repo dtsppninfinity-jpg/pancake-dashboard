@@ -97,11 +97,16 @@ function plainText(t: Element): string {
     .filter(Boolean).join('. ');
 }
 
-/** ย้าย title → data-tip ครั้งแรกที่เจอ (กัน tooltip พื้นฐานของเบราว์เซอร์เด้งซ้อน) */
+/** ย้าย title → data-tip (กัน tooltip พื้นฐานของเบราว์เซอร์เด้งซ้อน)
+ *  data-tip ที่ "ได้มาจาก title" (data-tip-auto) ต้องอัปเดตเมื่อโค้ดตั้ง title ใหม่ — เช่นปุ่มธีมที่เปลี่ยนคำทุกครั้งที่กด
+ *  เดิมย้ายครั้งเดียว: สลับเป็นโหมดสว่างแล้วกรอบยังบอก "เปลี่ยนเป็นโหมดสว่าง" + tooltip เบราว์เซอร์บอกอีกคำ ขึ้นซ้อน 2 อัน
+ *  ส่วน data-tip ที่ view เขียนเอง (ไม่มี data-tip-auto) ไม่ทับ — title ตัวนั้นเป็นแค่ของสำรอง */
 function migrateTitle(t: Element): void {
   const title = t.getAttribute('title');
-  if (title && !t.getAttribute('data-tip')) {
+  if (!title) return;
+  if (!t.getAttribute('data-tip') || t.hasAttribute('data-tip-auto')) {
     t.setAttribute('data-tip', title);
+    t.setAttribute('data-tip-auto', '');
     t.removeAttribute('title');
   }
 }

@@ -82,7 +82,11 @@ export default function LoginPage() {
       if (r.ok && d.ok) {
         const next = new URLSearchParams(window.location.search).get('next') || '/';
         // รับเฉพาะ path ภายในเว็บ — กัน open redirect ไปเว็บนอก
-        window.location.href = next.startsWith('/') && !next.startsWith('//') ? next : '/';
+        // # ของหน้า (เช่น /#sales จากลิงก์ที่ส่งต่อกัน) เบราว์เซอร์พามาถึงหน้า login ด้วย แต่ ?next= ไม่มี
+        // → ต่อท้ายให้ ไม่งั้นล็อกอินเสร็จแล้วไปโผล่หน้าแรกแทนหน้าที่ลิงก์ชี้ (next เป็น path ในเว็บเสมอ จึงต่อ # ได้ปลอดภัย)
+        const safe = next.startsWith('/') && !next.startsWith('//') ? next : '/';
+        const hash = /^#[a-z]+$/.test(window.location.hash) && safe.indexOf('#') < 0 ? window.location.hash : '';
+        window.location.href = safe + hash;
         return;
       }
       if (d.mustChangePw) setMustChange(true);

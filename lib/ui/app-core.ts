@@ -46,6 +46,7 @@ function healthKindTh(h: SyncHealthItem): string {
   if (h.kind === 'skip') return 'ถูกข้าม';
   if (h.kind === 'partial') return 'ข้อมูลไม่ครบ';
   if (h.kind === 'invariant') return 'ตัวเลขผิดปกติ';
+  if (!isFinite(h.ageMins) || h.ageMins >= 999999) return 'ไม่เคยสำเร็จ';
   return 'เงียบ ' + Math.round(h.ageMins / 60) + ' ชม.';
 }
 
@@ -94,6 +95,9 @@ const isDataJob = (job: string) => NOT_DATA_JOB.indexOf(job) < 0 && job.indexOf(
 /** เวลาที่ถือว่าข้อมูล "ค้าง" สำหรับทีม — งานหลักรันทุก 15 นาที เกิน 60 นาที = พลาดไปแล้ว ~4 รอบ */
 const STALE_MINS = 60;
 
+/** งานหลักรอบ 15 นาที = ที่มาของตัวเลขหน้า ยอดขาย / ภาพรวมแชท / ค่าแอด (ชื่อตาม scripts/sync/index.ts runFast) */
+const CORE_JOBS = ['orders', 'chat-today', 'conversations', 'engagements-today', 'meta-ads-recent'];
+
 /** ts จาก apiBootstrap = 'YYYY-MM-DDTHH:mm:ss' เป็นเวลาไทยแต่ไม่มีโซนเวลาติดมา
     ต้องเติม +07:00 เอง ไม่งั้นเครื่องที่ตั้งโซนเวลาอื่นจะคลาดเป็นชั่วโมง */
 const bkkIso = (ts: string) => String(ts || '').replace(' ', 'T').slice(0, 19) + '+07:00';
@@ -115,13 +119,26 @@ function agoText(mins: number): string {
   return Math.round(mins / 1440) + ' วันที่แล้ว';
 }
 
+/** เวลาอัปเดตในลิ้นชักเมนู (มือถือ) — ป้ายบนหัวเว็บซ่อนบนจอแคบเพื่อเว้นที่ให้ชื่อหน้า
+    ทีมที่ใช้มือถือเลยไม่มีที่ดูว่าข้อมูลสดถึงไหน (เดิมอยู่ใต้เมนู) → กลับมาโชว์ในลิ้นชัก CSS ซ่อนเองตั้งแต่ 900px */
+function renderSideStamp(at: string, late: boolean): void {
+  const el = document.getElementById('sync-side');
+  if (!el) return;
+  el.classList.toggle('is-late', late);
+  el.innerHTML = !at ? ''
+    : icon(late ? ICON_FOR.time : 'refresh-cw', { size: 12 }) + '<span>' +
+      (late ? 'ตัวเลขบางส่วนอาจยังไม่อัปเดต · ล่าสุด ' : 'ข้อมูลอัปเดตล่าสุด ') + esc(at) + '</span>';
+}
+
 /** หน้าต่างรายละเอียด "ข้อมูลส่วนไหนไม่อัปเดต" — เปิดได้เฉพาะผู้ดูแลระบบ */
 function openSyncProblems(b: Bootstrap): void {
   const byJob: Record<string, SyncLogEntry> = {};
   (b.lastSync || []).forEach(function (l) { byJob[l.job] = l; });
   const items = ((b.syncHealth || []) as SyncHealthItem[]).map(function (h) {
-    const last = byJob[h.job];
     // บอก "ครั้งล่าสุดที่ทำงาน" จากแถวล่าสุดใน log — ถ้าแถวนั้นล้ม ก็บอกตรงๆ ว่ารอบล่าสุดไม่สำเร็จ
+    // ยกเว้นอาการ "เงียบ" และยอดสดรายนาที (orders-delta ลง log เฉพาะตอนล้ม) — แถวล้มเก่าเมื่อวาน
+    // จะขัดกับข้อความในการ์ดเดียวกันที่บอกว่าสำเร็จล่าสุดไม่ถึงชั่วโมง → ใช้อายุจาก syncHealth แทน
+    const last = h.kind === 'stale' || h.job === 'orders-delta' ? undefined : byJob[h.job];
     const when = last && last.ts
       ? (last.ok ? 'ทำงานสำเร็จล่าสุด ' : 'ทำงานล่าสุด (ไม่สำเร็จ) ') + stampText(last.ts) +
         ' · ' + relTime(bkkIso(last.ts))
@@ -458,6 +475,11 @@ function sxObs(): ResizeObserver | null {
 }
 
 function pinSecondColumn(tbl: HTMLTableElement, firstTh: HTMLElement): void {
+  // ช่องที่ 2 เป็น "ก้อนเนื้อหา" (รูปย่อ + ชื่อ + บรรทัดรอง เช่นตารางสื่อรายเพจหน้าโฆษณา) — ตรึงแล้วถูกบีบเหลือ 40% ของจอ
+  // ข้อความข้างในโดนตัดกลางคำ และเพราะมันตรึงอยู่ เลื่อนไปดูส่วนที่เหลือก็ไม่ได้ (ผู้ตรวจอิสระวัด: เห็น 111 จาก 390px)
+  // → ไม่ตรึง ปล่อยเลื่อนตามปกติ · view สั่งปิดเองได้ด้วย data-pin2="off"
+  if (tbl.getAttribute('data-pin2') === 'off') return;
+  if (tbl.querySelector(':scope > tbody > tr > td:nth-child(2) :is(img, div, table, ul, ol)')) return;
   tbl.classList.add('tbl-pin2');
   const w = Math.round(firstTh.getBoundingClientRect().width);
   if (w > 0) tbl.style.setProperty('--pin1-w', w + 'px');
@@ -545,6 +567,14 @@ function queueTableScan(): void {
     document.querySelectorAll('table.tbl:not([data-cards])').forEach(function (t) {
       try { classifyTable(t as HTMLTableElement); }
       catch (e) { t.setAttribute('data-cards', 'off'); } // ตารางแปลกๆ ต้องไม่ทำให้ทั้งหน้าพัง
+      t.setAttribute('data-sxc', '1');
+    });
+    // ตารางที่ view ตั้ง data-cards="off" มาเอง (ตารางรายวันหน้ายอดขาย 21 คอลัมน์, ตารางผลงานรายยูนิต)
+    // ไม่ผ่าน classifyTable จึงไม่เคยได้ขอบจาง + ลูกศร "ขวามือยังมีอีก" ทั้งที่เป็นตารางที่กว้างที่สุดในเว็บ
+    // (data-sxc = ตรวจแล้ว — กันเรียก getComputedStyle ซ้ำทุกเฟรมที่หน้าเปลี่ยน)
+    document.querySelectorAll('table.tbl[data-cards="off"]:not([data-sxc])').forEach(function (t) {
+      t.setAttribute('data-sxc', '1');
+      try { bindScrollHint(t as HTMLTableElement); } catch (e) { /* ไม่มีสัญญาณ ก็ยังใช้ตารางได้ */ }
     });
     // ตารางที่เป็นการ์ดอยู่แล้วแต่มีแถวงอกมาทีหลัง (ปุ่มกางลูกทีม / โหลดเพิ่ม) ต้องได้ป้ายด้วย
     document.querySelectorAll('table.tbl[data-cards="on"]').forEach(function (t) {
@@ -879,7 +909,7 @@ const App = {
     serverCall<Bootstrap>('apiBootstrap').then(function (b) {
       self.state.bootstrap = b;
       self.renderSyncInfo(b);
-    }).catch(function () {});
+    }).catch(function () { self.renderSyncInfo(null); });
     // หน้าแรก: # ในลิงก์ (รีเฟรช/ลิงก์ที่ส่งต่อกัน) ถ้าสิทธิ์นี้เปิดได้ — ไม่งั้นหน้าแรกของสิทธิ์
     // (page.tsx บอกมาทาง data-first-view · ระดับแอดมินเริ่มที่ "ผลงานของฉัน")
     // # ของหน้าที่เปิดไม่ได้ → เขียน # ใหม่เป็นหน้าแรกของเขา (replace — ไม่เพิ่มประวัติ)
@@ -899,7 +929,11 @@ const App = {
       serverCall<Bootstrap>('apiBootstrap').then(function (b) {
         self.state.bootstrap = b;
         self.renderSyncInfo(b);
-      }).catch(function () {});
+      }).catch(function () {
+        // ดึงสถานะไม่ได้ (ฐานข้อมูลล่ม/เกินโควตา) — วาดใหม่จากข้อมูลรอบก่อน ให้อายุถูกตรวจกับเวลาปัจจุบัน
+        // ไม่งั้นป้ายเทา "อัปเดตล่าสุด 14:59" จะค้างไปตลอดโดยไม่เคยกลายเป็นส้ม
+        self.renderSyncInfo(self.state.bootstrap as Bootstrap | null);
+      });
     }, 5 * 60 * 1000);
   },
 
@@ -918,26 +952,53 @@ const App = {
     const logs = (b && b.lastSync) || [];
     const health = ((b && b.syncHealth) || []) as SyncHealthItem[];
 
-    // งานดึงข้อมูลที่ "สำเร็จ" ล่าสุด = ข้อมูลบนจอสดถึงเวลานี้ (ไม่นับงานตรวจ/ล้างข้อมูล)
+    // ข้อมูลบนจอสดถึงเวลาไหน = งานหลักตัวที่ "เก่าสุด" (สำเร็จรอบล่าสุด)
+    // เดิมเอางานที่สำเร็จล่าสุดของทุกงาน → งานรายชั่วโมงอย่างชีท KPI ทำให้ป้ายขึ้นเวลาสดตลอด
+    // ทั้งที่ออเดอร์/แชทค้างมาหลายชั่วโมง ทีมเลยไม่รู้ว่าตัวเลขเก่า (ผู้ตรวจอิสระจับได้)
+    // งานหลักที่รอบล่าสุดล้ม ไม่นับในเวลา (รอบก่อนหน้ายังสดอยู่) — ถ้าล้มติดกันจริง syncHealth จะฟ้องเอง
     let latest: SyncLogEntry | null = null;
-    let latestMs = 0;
+    let latestMs = Infinity;
     logs.forEach(function (l) {
       const ms = bkkMs(l.ts);
-      if (!l.ok || !isDataJob(l.job) || !(ms > 0) || ms <= latestMs) return;
+      if (!l.ok || CORE_JOBS.indexOf(l.job) < 0 || !(ms > 0) || ms >= latestMs) return;
       latest = l;
       latestMs = ms;
     });
-    const ageMins = latestMs ? (Date.now() - latestMs) / 60000 : Infinity;
+    // ยังไม่มีงานหลักใน log เลย (เครื่องใหม่/ย้ายระบบ) — ถอยไปใช้งานดึงข้อมูลที่สำเร็จล่าสุดแบบเดิม
+    if (!latest) {
+      latestMs = 0;
+      logs.forEach(function (l) {
+        const ms = bkkMs(l.ts);
+        if (!l.ok || !isDataJob(l.job) || !(ms > 0) || ms <= latestMs) return;
+        latest = l;
+        latestMs = ms;
+      });
+    }
+    const ageMins = latest ? (Date.now() - latestMs) / 60000 : Infinity;
+    // งานหลักล้มติดกัน/เงียบเกินรอบ (เกณฑ์จาก bootstrap.ts) = ตัวเลขบางส่วนค้าง แม้งานอื่นจะเพิ่งเสร็จ
+    const coreProblem = health.some(function (h) {
+      return CORE_JOBS.indexOf(h.job) >= 0 && (h.kind === 'fail' || h.kind === 'stale');
+    });
 
     chip.className = 'sync-chip';
+    // ล้างทั้ง title และ data-tip เดิม — infotip ย้าย title ไป data-tip ตอน hover ครั้งแรก
+    // ถ้าไม่ล้าง กรอบอธิบายจะค้างข้อความของสถานะก่อนหน้า (เช่น "สดอยู่" ทั้งที่ตอนนี้ค้างแล้ว)
     chip.removeAttribute('title');
+    chip.removeAttribute('data-tip');
+    hideInfoTip();
+    renderSideStamp(latest ? stampText((latest as SyncLogEntry).ts) : '', ageMins > STALE_MINS || coreProblem);
 
     if (role === 'superadmin' && b && health.length) {
       chip.classList.add('is-alert');
       // จอแคบซ่อนคำหน้า (.chip-long) เหลือ "ไม่อัปเดต (N)" — ยังอ่านรู้เรื่อง ไม่ใช่ตัวเลขลอยๆ
+      // จอแคบ (<600) เหลือไอคอน + ตัวเลข — คำเต็มกิน 112px จนชื่อหน้าเหลือ "Dashb…" (ผู้ตรวจอิสระวัดได้)
+      // ≥600 "ไม่อัปเดต (N)" · ≥900 "ข้อมูลบางส่วนไม่อัปเดต (N)" · คำเต็มอยู่ใน aria-label เสมอ
+      const n = health.length;
       chip.innerHTML = '<button type="button" class="chip chip-btn sync-alert" aria-haspopup="dialog"' +
+        ' aria-label="ข้อมูลบางส่วนไม่อัปเดต ' + n + ' รายการ — กดดูรายละเอียด"' +
         ' title="กดดูว่าข้อมูลส่วนไหนไม่อัปเดต">' + icon(ICON_FOR.alert, { size: 14 }) +
-        '<span><span class="chip-long">ข้อมูลบางส่วน</span>ไม่อัปเดต (' + health.length + ')</span></button>';
+        '<span aria-hidden="true"><span class="chip-mid"><span class="chip-long">ข้อมูลบางส่วน</span>ไม่อัปเดต (</span>' +
+        n + '<span class="chip-mid">)</span></span></button>';
       const btn = chip.querySelector('button');
       const snap = b;
       if (btn) btn.addEventListener('click', function () { openSyncProblems(snap); });
@@ -950,11 +1011,13 @@ const App = {
     }
     const ts = (latest as SyncLogEntry).ts;
     const at = stampText(ts);
-    if (ageMins > STALE_MINS) {
+    if (ageMins > STALE_MINS || coreProblem) {
       chip.classList.add('is-alert');
       chip.innerHTML = '<span class="sync-stamp sync-late">' + icon(ICON_FOR.time, { size: 14 }) +
         '<span><span class="chip-long">ตัวเลขบางส่วนอาจ</span>ยังไม่อัปเดต</span></span>';
-      chip.title = 'อัปเดตล่าสุด ' + at + ' (' + relTime(bkkIso(ts)) + ') — ปกติระบบดึงข้อมูลใหม่ทุก 15 นาที';
+      chip.title = ageMins > STALE_MINS
+        ? 'อัปเดตล่าสุด ' + at + ' (' + relTime(bkkIso(ts)) + ') — ปกติระบบดึงข้อมูลใหม่ทุก 15 นาที'
+        : 'ข้อมูลบางส่วนดึงไม่สำเร็จ ระบบกำลังลองใหม่ทุก 15 นาที — ตัวเลขบางช่องอาจยังเป็นของรอบก่อน';
       return;
     }
     chip.innerHTML = '<span class="sync-stamp">อัปเดตล่าสุด ' + esc(at) + '</span>';

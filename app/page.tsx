@@ -115,7 +115,7 @@ export default async function Page() {
             <div className="brand-logo" dangerouslySetInnerHTML={{ __html: logoMark(38) }} />
             <div className="brand-text">
               <div className="brand-name">PN Infinity</div>
-              <div className="brand-sub">Pancake POS Dashboard</div>
+              <div className="brand-sub">แดชบอร์ดทีมขาย</div>
             </div>
           </div>
 
@@ -154,7 +154,9 @@ export default async function Page() {
                 dangerouslySetInnerHTML={{ __html: icon(ICON_FOR.logout, { size: 14 }) + 'ออกจากระบบ' }} />
             </div>
             {/* สถานะงานดึงข้อมูลเบื้องหลัง (ชื่องาน/เวลาทีละงาน) ย้ายออกจากตรงนี้แล้ว — เป็นศัพท์ช่าง ทีมขายอ่านแล้วตกใจ
-                ตอนนี้โชว์บนหัวเว็บเป็น "อัปเดตล่าสุด HH:MM" แทน ส่วนรายละเอียดงานที่มีปัญหาเห็นเฉพาะผู้ดูแลระบบ (ดู renderSyncInfo) */}
+                ตอนนี้โชว์บนหัวเว็บเป็น "อัปเดตล่าสุด HH:MM" แทน ส่วนรายละเอียดงานที่มีปัญหาเห็นเฉพาะผู้ดูแลระบบ (ดู renderSyncInfo)
+                บรรทัดนี้ = เวลาเดียวกันสำหรับมือถือ (ป้ายบนหัวเว็บซ่อนบนจอแคบ) — ซ่อนเองตั้งแต่ 900px */}
+            <div id="sync-side" className="sync-side"></div>
           </div>
         </aside>
 

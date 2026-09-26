@@ -612,8 +612,12 @@ h4 { font-size: var(--fs-body); font-weight: 700; line-height: 1.4; }
 }
 :is(.btn, .btn-mini, .filter-btn, .chip, .badge, .kpi-tab):has(> .ic) > .ic { vertical-align: 0; }
 /* ปุ่มที่มีแต่ไอคอน (ไม่มีคำ) — ต้องมี aria-label + title ที่ตัวปุ่มเสมอ */
-.btn-icon { padding-left: var(--sp-2); padding-right: var(--sp-2); min-width: 44px; }
-@media (min-width: 900px) { .btn-icon { min-width: 36px; } }   /* จอกว้างใช้เมาส์ หดได้ */
+/* เขียน .btn.btn-icon ด้วย — .btn ประกาศทีหลังด้วยน้ำหนักเท่ากัน เคยทับ padding แคบจนปุ่มธีมกว้าง 52px
+   (บนมือถือกินที่ชื่อหน้าไปอีก 8px) */
+.btn-icon, .btn.btn-icon { padding-left: var(--sp-2); padding-right: var(--sp-2); min-width: 44px; }
+@media (min-width: 900px) { .btn-icon, .btn.btn-icon { min-width: 36px; } }   /* จอกว้างใช้เมาส์ หดได้ */
+/* ไอคอนในปุ่มเล็ก 14px — ปุ่มเล็กตัวหนังสือ 12-13px ไอคอน 16px ดูหนักกว่าคำ */
+.btn-mini > .ic { width: 14px; height: 14px; }
 
 /* ป้ายสถานะ = จุดสี + คำ บนพื้นอ่อนสีเดียวกัน (แทน 🟢🟡🔴⚪ ✅ ❌ ⚠️)
    สีมาจากชุดสีกลางผ่าน --st / --st-soft เท่านั้น */
@@ -621,7 +625,7 @@ h4 { font-size: var(--fs-body); font-weight: 700; line-height: 1.4; }
 .st-warn  { --st: var(--amber); --st-soft: var(--amber-soft); }
 .st-bad   { --st: var(--red);   --st-soft: var(--red-soft); }
 .st-info  { --st: var(--blue);  --st-soft: var(--blue-soft); }
-.st-muted { --st: var(--text-3); --st-soft: var(--track); }
+.st-muted { --st: var(--text-2); --st-soft: var(--track); }   /* --text-3 ได้แค่ 4.06:1 บนการ์ด — ต่ำกว่าเกณฑ์อ่านออก 4.5 */
 .st-brand { --st: var(--primary-ink); --st-soft: var(--primary-soft); }
 .st {
   display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
@@ -687,7 +691,9 @@ h4 { font-size: var(--fs-body); font-weight: 700; line-height: 1.4; }
 .tx-muted { color: var(--text-3); }
 .tx-brand { color: var(--primary-ink); }
 /* ป้ายคำสั้นสีจางนำหน้าตัวเลข (แทนอีโมจิที่เคยบอกความหมาย เช่น 🔥 = ROAS) */
-.mini-lbl { color: var(--text-3); font-weight: 600; font-size: .92em; margin-right: 3px; }
+/* max(…, 11px): ในกล่อง 11px (อันดับแอดมิน) .92em เหลือ 10.12px ต่ำกว่ากติกาตัวไทย ≥11px
+   หนา 500 ไม่ใช่ 600 — ป้ายต้องเบากว่าตัวเลขข้างๆ (เดิมป้ายหนากว่าตัวเลข) */
+.mini-lbl { color: var(--text-3); font-weight: 500; font-size: max(.92em, 11px); margin-right: 3px; }
 
 /* ช่องค้นหาที่มีแว่นขยายอยู่ในกรอบ (placeholder ใส่รูปไม่ได้ จึงวาดไอคอนซ้อนทางซ้าย)
    ขนาด/flex ของช่องค้นหาให้ตั้งที่ .search-box แทนตัว input */
@@ -913,7 +919,7 @@ table.tbl.up-tbl tr.up-open td { background-color: var(--row-hover); }
   min-height: 44px; margin: calc(var(--sp-2) * -1) 0; padding: var(--sp-2) 0;
   background: none; border: 0; color: inherit; font: inherit; cursor: pointer;
 }
-.up-name:hover .up-code { color: var(--primary); }
+@media (hover: hover) { .up-name:hover .up-code { color: var(--primary-ink); } }
 @media (min-width: 900px) { .up-name { min-height: 0; } }
 .up-sort i { display: inline-flex; }       /* ลูกศรเรียงคอลัมน์เป็น svg แล้ว — ให้อยู่แนวเดียวกับคำ */
 .up-sig::before { width: 8px; height: 8px; }   /* จุดสัญญาณขนาดเดียวกับป้ายสถานะกลาง .st */
@@ -1189,7 +1195,7 @@ table.tbl.ds-tbl tbody tr:hover td {
   border-radius: 12px; padding: var(--sp-3);
 }
 .ca-rank { font-size: var(--fs-7); font-weight: 700; color: var(--text-3); width: 34px; text-align: center; flex-shrink: 0; }
-.ca-id { font-weight: 700; font-size: var(--fs-3); }
+.ca-id { font-weight: 700; font-size: var(--fs-3); overflow-wrap: anywhere; min-width: 0; }
 .ca-sub { font-size: var(--fs-2); color: var(--text-3); margin-top: var(--sp-1); }
 /* ⚠️ ต้องมีฐาน 180px ไม่ใช่ flex:1 เปล่าๆ — flex:1 คือ basis 0 แปลว่า "ขอเฉพาะที่เหลือ"
    พอ .ca-nums (8 ตัวเลข = 542px) กินไปหมด ช่องชื่อก็เหลือ 0px จริงๆ แล้วชื่อไทยตัดทีละตัวอักษร
@@ -1294,7 +1300,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
   overflow-wrap: anywhere;
 }
 .ca-media-actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
-.ca-media-actions a.btn-mini { text-decoration: none; display: inline-block; }
+.ca-media-actions a.btn-mini { text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
 .ca-media-note { font-size: var(--fs-1); color: var(--text-3); margin-top: var(--sp-2); line-height: 1.5; }
 
 /* ---------- admin management ---------- */
@@ -1372,7 +1378,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .top3-card .nm { font-weight: 700; font-size: var(--fs-3); }
 .top3-card .val { font-size: var(--fs-6); font-weight: 700; color: var(--green); margin: var(--sp-1) 0; }
 .top3-card.first .val { font-size: var(--fs-7); }
-.top3-card .sub { font-size: var(--fs-1); color: var(--text-3); }
+.top3-card .sub { font-size: var(--fs-1); color: var(--text-2); }
 /* ---------- สลับหัวลิสต์: ท็อป 3 / ต่ำสุด 5 (ทีมขอ 2026-08-10 — โชว์ทีละอัน ไม่กินที่) ----------
    = สลับมุมมอง จึงใช้หน้าตาแท็บกลาง (.tab — ตัวหนังสือ + เส้นใต้ม่วง) เดิมแท็บ "ต่ำสุด 5" เป็นพื้นแดง
    ซึ่งกินงบสีแดง (B3) ทั้งที่มันแค่ปุ่มสลับ ไม่ใช่เรื่องด่วน */
@@ -1415,7 +1421,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .b5-unit.none { color: var(--text-3); font-weight: 500; font-style: italic; }
 /* ยูนิตที่ "เดา" จากเพจที่ขาย — เส้นประบอกว่าไม่ใช่ข้อมูลที่ทีมประกาศไว้ */
 .b5-unit.guess { border-style: dashed; color: var(--text-3); font-weight: 600; }
-.b5-stats { font-size: var(--fs-1); color: var(--text-3); margin-top: var(--sp-1); line-height: 1.6; }
+.b5-stats { font-size: var(--fs-1); color: var(--text-2); margin-top: var(--sp-1); line-height: 1.6; }
 /* มือถือ: ค่าตกลงมาเต็มบรรทัดแต่ชิดขวา — ลอยอยู่ซ้ายล่างจะดูหลุดจากการ์ด */
 .b5-val { font-size: var(--fs-5); font-weight: 700; color: var(--red); width: 100%; text-align: right; }
 
@@ -1442,7 +1448,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .rank-right { text-align: left; width: 100%; flex-shrink: 0; }
 .rank-big { font-size: var(--fs-5); font-weight: 700; color: var(--green); }
 .rank-big .rank-big-u { font-size: var(--fs-1); font-weight: 600; color: var(--text-3); }
-.rank-mini { font-size: var(--fs-1); color: var(--text-3); margin-top: var(--sp-1); }
+.rank-mini { font-size: var(--fs-1); color: var(--text-2); margin-top: var(--sp-1); }
 
 /* ---------- admin performance: dynamic scoring (Overall) ---------- */
 .score-badge {
@@ -1596,9 +1602,10 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .modal-close:has(> .ic):hover { color: var(--text); background: var(--surface-2); }
 /* ปุ่ม "ยกเลิก/ปิด" ท้ายฟอร์มที่ใส่ class modal-close ร่วม (ให้ openModal ผูกปิดให้) ต้องหน้าตาเป็นปุ่มปกติ
    เดิมโดนกฎของกากบาทด้านบนทับ: พื้น/กรอบหาย และบนมือถือตัวหนังสือโตเป็น 21px เท่ากากบาท */
-.btn.modal-close, .btn-mini.modal-close {
-  background: var(--surface-2); border: 1px solid var(--border); color: var(--text); margin-top: 0; font-size: var(--fs-3);
+.btn.modal-close:not(.primary), .btn-mini.modal-close:not(.primary) {
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
 }
+.btn.modal-close, .btn-mini.modal-close { margin-top: 0; font-size: var(--fs-3); }
 /* ปุ่มยืนยัน/ยกเลิกเรียงลงมาเต็มความกว้าง นิ้วโป้งเอื้อมถึงทั้งคู่
    column-reverse = ปุ่มหลักอยู่บน (ใกล้นิ้วที่สุด) แต่ลำดับใน DOM/คีย์บอร์ดยังเป็นยกเลิก→ยืนยันตามเดิม */
 .modal-actions {
@@ -1831,8 +1838,9 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 .info-tip .it-body b { color: var(--text); font-weight: 700; }
 .info-tip .it-src {
   margin-top: var(--sp-2); font-size: var(--fs-1); color: var(--text-3);
-  display: flex; align-items: center; gap: var(--sp-1);
+  display: flex; align-items: flex-start; gap: var(--sp-1);
 }
+.info-tip .it-src > .ic { margin-top: 2px; }
 .info-tip .it-caret {
   position: absolute; left: var(--caret-x, 18px); margin-left: -5px;
   width: 9px; height: 9px; background: var(--surface); transform: rotate(45deg);
@@ -2152,10 +2160,21 @@ tr.row-off { opacity: .55; }
 /* ผู้ดูแลระบบ: มีงานเบื้องหลังที่มีปัญหา → ชิปส้มกดเปิดรายละเอียดได้ */
 .chip.sync-alert {
   background: var(--amber-soft); border-color: var(--amber); color: var(--amber);
-  font-weight: 700; white-space: nowrap; min-height: 44px; padding: var(--sp-1) var(--sp-3);
+  font-weight: 700; white-space: nowrap; min-height: 44px; min-width: 44px; padding: var(--sp-1) var(--sp-2);
+  justify-content: center;
 }
 .chip.sync-alert:hover { border-color: var(--amber); color: var(--amber); background: var(--amber-soft); filter: brightness(1.08); }
-.chip-long { display: none; }            /* จอแคบเหลือคำสั้น เช่น "ไม่อัปเดต (2)" — ข้อความเต็มโผล่ที่ ≥900 */
+.chip-long { display: none; }            /* ข้อความเต็มโผล่ที่ ≥900 */
+/* จอแคบ (<600) ชิปผู้ดูแลระบบเหลือไอคอน + ตัวเลข ("⚠ 2" ~52px) — คำ "ไม่อัปเดต (2)" กว้าง 112px
+   จนชื่อหน้าเหลือ "Dashb…" และ 2 หน้าแอดมินขึ้น "Admin …" เหมือนกัน · คำเต็มอยู่ใน aria-label */
+.chip-mid { display: none; }
+/* เวลาอัปเดตในลิ้นชักเมนู — มือถือเท่านั้น (จอคอมมีป้ายบนหัวเว็บอยู่แล้ว) */
+.sync-side:empty { display: none; }
+.sync-side {
+  display: flex; align-items: center; gap: var(--sp-1);
+  margin-top: var(--sp-2); font-size: var(--fs-1); color: var(--sb-sub);
+}
+.sync-side.is-late { color: var(--amber); font-weight: 600; }
 /* ปุ่มรีเฟรชบนมือถือเหลือแต่ไอคอน (ชื่อปุ่มยังอยู่ใน aria-label/title) · ปุ่มธีมเป็นไอคอนล้วนอยู่แล้ว */
 #btn-refresh { min-width: 44px; }
 #btn-refresh .btn-word { display: none; }
@@ -2237,8 +2256,9 @@ table.tbl.tbl-scroll-x.tbl-pin2 td:nth-child(2) {
   position: sticky; left: var(--pin1-w, 40px); z-index: 1;
   background: var(--surface);
   box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px var(--pin-shadow);
-  /* ชื่อยาวบรรทัดเดียว ตัดด้วย … ไม่เกิน 40% ของจอ — ไม่งั้นคอลัมน์ที่ตรึงกินจอจนไม่เหลือที่ให้ตัวเลข */
-  max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* กว้างไม่เกิน 40% ของจอ — ไม่งั้นคอลัมน์ที่ตรึงกินจอจนไม่เหลือที่ให้ตัวเลข
+     ชื่อยาวขึ้นบรรทัดใหม่ ไม่ตัดด้วย … (ชื่อเต็มเคยอยู่แค่ใน title ซึ่งแตะดูบนมือถือไม่ได้) */
+  max-width: 40vw; white-space: normal; overflow-wrap: anywhere;
 }
 table.tbl.tbl-scroll-x.tbl-pin2 thead th:nth-child(2) { z-index: 2; }
 table.tbl.tbl-scroll-x.tbl-pin2 tr.clickable:hover td:nth-child(2) {
@@ -2264,10 +2284,10 @@ table.tbl.tbl-scroll-x.tbl-pin2 tr > td:first-child[colspan] {
   mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
 }
 /* ลูกศร › อยู่ในกรอบที่ห่อกล่องเลื่อน (ไม่ใช่ในกล่องเลื่อน ไม่งั้นมันเลื่อนหนีไปกับตาราง)
-   ตารางสั้น = กลางความสูง · ตารางยาว = ค้างไว้แถวบนๆ (96px) ให้เห็นตั้งแต่เปิดหน้า */
+   วางในแถบหัวตาราง — เดิมอยู่ 96px ลงไปในเนื้อตาราง ทับตัวเลข/ปุ่มของแถวบนๆ */
 .sx-frame { position: relative; min-width: 0; }
 .sx-frame::after {
-  content: '›'; position: absolute; right: var(--sp-1); top: min(50%, 96px); z-index: 2;
+  content: '›'; position: absolute; right: var(--sp-1); top: 22px; z-index: 2;
   width: 26px; height: 26px; margin-top: -13px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center; padding-bottom: 2px;
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2);
@@ -2883,6 +2903,8 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
 :root[data-theme="light"] .dp-day.dp-in { background: var(--row-hover-strong); }
 
 @media (min-width: 600px) {
+  .chip-mid { display: inline; }
+  .chip.sync-alert { padding: var(--sp-1) var(--sp-3); }
   /* ปฏิทิน: จอ ≥600px กางเป็น 2 เดือน */
   /* จอ ≥600px: กาง 2 เดือนคู่กัน คอลัมน์กว้างตายตัว —
      ถ้าใช้ minmax(0, …) กล่องที่ position:absolute จะหดจนเลขวันทับกัน */
@@ -2965,6 +2987,7 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
   .sync-chip { display: inline-flex; }
   .chip.sync-alert { min-height: 32px; }
   .chip-long { display: inline; }
+  .sync-side { display: none; }
   #btn-refresh { min-width: 0; }
   #btn-refresh .btn-word { display: inline; }
   #btn-theme { min-width: 36px; }
@@ -2982,6 +3005,7 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
   .u-member .x { padding: 0 1px; margin: 0; }
   .btn-mini { padding: var(--sp-1) var(--sp-3); font-size: var(--fs-2); }
   .modal-close { min-width: 0; min-height: 0; font-size: var(--fs-6); }
+  .modal-close:has(> .ic) { min-width: 32px; min-height: 32px; }
   .btn-mini.modal-close { font-size: var(--fs-2); }
   .u-tool-btn { min-width: 0; min-height: 0; }
   .up-more { min-height: 32px; min-width: 0; }
