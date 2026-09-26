@@ -508,6 +508,22 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 /* โลโก้แบรนด์ (Facebook / LINE) — สีแบรนด์จริงฝังใน fill แล้ว ห้ามทับสี */
 .brand-ic { vertical-align: -0.16em; }
 
+/* สีตัวอักษรตามความหมาย (ใช้กับไอคอน/คำเตือนสั้นๆ ในประโยค) */
+.tx-good { color: var(--green); }
+.tx-warn { color: var(--amber); }
+.tx-bad { color: var(--red); }
+.tx-info { color: var(--blue); }
+.tx-muted { color: var(--text-3); }
+.tx-brand { color: var(--primary-ink); }
+/* ป้ายคำสั้นสีจางนำหน้าตัวเลข (แทนอีโมจิที่เคยบอกความหมาย เช่น 🔥 = ROAS) */
+.mini-lbl { color: var(--text-3); font-weight: 600; font-size: .92em; margin-right: 3px; }
+
+/* ช่องค้นหาที่มีแว่นขยายอยู่ในกรอบ (placeholder ใส่รูปไม่ได้ จึงวาดไอคอนซ้อนทางซ้าย)
+   ขนาด/flex ของช่องค้นหาให้ตั้งที่ .search-box แทนตัว input */
+.search-box { position: relative; display: flex; align-items: center; min-width: 0; }
+.search-box > .ic { position: absolute; left: var(--sp-3); color: var(--text-3); pointer-events: none; }
+.search-box > input, .search-box > .input { width: 100%; padding-left: 36px; }
+
 /* กรอบไอคอนของกล่องตัวเลขใหญ่: ไอคอนสีเดียวกับกรอบ */
 .stat-icon .ic, .kpi-ico .ic { width: 22px; height: 22px; }
 .stat-icon.purple, .kpi-ico { color: var(--primary-ink); }
