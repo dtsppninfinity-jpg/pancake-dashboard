@@ -488,9 +488,11 @@ async function loadUnitCost_(
   pageUnit: Record<string, { u: string; product: string }>,
   pagePlatform: Record<string, string>,
   unmappedKey: string
-): Promise<UnitCostByChannel> {
+): Promise<{ byChannel: UnitCostByChannel; days: Record<string, { spend: number; metaBase: number }> }> {
   const from = fmtDateBkk(r.start), to = fmtDateBkk(r.end);
   const out: UnitCostByChannel = { all: {}, facebook: {}, line: {} };
+  // ค่าแอด + ตัวเลข Meta แยกรายวัน — ใช้ตัดสินว่าฐาน Meta ครบทั้งช่วงไหม (ดู metaBaseComplete_)
+  const days: Record<string, { spend: number; metaBase: number }> = {};
   const bump = (pageId: string, patch: Partial<UnitCost>) => {
     const um = pageUnit[pageId];
     const key = um ? um.u : unmappedKey;
@@ -527,8 +529,15 @@ async function loadUnitCost_(
     ads.forEach((a) => {
       const pid = String(a.page_id || '');
       if (!pid) return;   // แอดที่ Pancake ยังไม่ผูกเพจ — ยัดเข้ายูนิตไหนก็มั่ว ทิ้งดีกว่าเดา
+      const spend = toNum_(a.spend);
+      const mBase = toNum_(a.meta_first_replies) + toNum_(a.meta_comments);
+      const ymd = String(a.date || '').slice(0, 10);
+      if (ymd) {
+        if (!days[ymd]) days[ymd] = { spend: 0, metaBase: 0 };
+        days[ymd].spend += spend; days[ymd].metaBase += mBase;
+      }
       bump(pid, {
-        spend: toNum_(a.spend), msgs: toNum_(a.msgs_started),
+        spend, msgs: toNum_(a.msgs_started),
         adInq: toNum_(a.meta_first_replies), adComment: toNum_(a.meta_comments),
         adInqPancake: toNum_(a.first_replies),
       });
@@ -548,7 +557,7 @@ async function loadUnitCost_(
     });
   } catch { /* ยังไม่มีตาราง chat_engagement_daily */ }
 
-  return out;
+  return { byChannel: out, days };
 }
 
 /**
@@ -921,13 +930,29 @@ interface UnitGoalInput {
  * ไม่มีทั้งคนทักและค่าแอด → null ให้โชว์ "—" (สเปกข้อ "ดึงไม่ได้ ห้ามใส่ 0") · ตัวหาร 0 แต่มีค่าแอด → 0.00%
  */
 /**
- * วันแรกที่ ad_daily มี meta_first_replies / meta_comments ครบ
- * — งาน meta-ads เริ่มเขียน 2 คอลัมน์นี้ตอน deploy 18 ก.ย. ซึ่งครอบคลุมย้อนไปถึง 17 ก.ย.
- *   วัดจากฐานจริง 26 ก.ย.: 16 ก.ย. ลงไป = 0 ทุกวัน · 17 ก.ย. ขึ้นมา = 4,400-5,100/วัน (ใกล้ Pancake ±2%)
- * ⚠️ ถ้าช่วงที่เลือกคาบวันก่อนหน้านี้ ตัวหาร Meta จะขาดหายเงียบๆ แล้ว %ปิด พุ่ง — ต้องถอยไปใช้ Pancake
- *   จะยกเลิกค่านี้ได้ก็ต่อเมื่อ backfill Meta ย้อนหลังครบแล้ว (npx tsx scripts/setup/backfill-meta-ads.ts <วัน>)
+ * ช่วงที่เลือกนี้ "ใช้ฐาน Meta ได้ครบทุกวัน" หรือยัง
+ *
+ * ทำไมต้องตรวจจากข้อมูลจริง ไม่ใช่ hardcode วันที่: คอลัมน์ meta_first_replies/meta_comments
+ * เพิ่งเริ่มเก็บ 17 ก.ย. 69 และกำลังทยอย backfill ย้อนหลัง — ถ้าฝังวันที่ไว้ในโค้ด
+ * พอ backfill เสร็จก็ต้องกลับมาแก้โค้ดอีก (และถ้าลืมแก้ = ใช้ Pancake ต่อไปเงียบๆ)
+ *
+ * เกณฑ์: **ทุกวันที่มีค่าแอด ต้องมีตัวเลข Meta ด้วย** ถ้ามีสักวันที่จ่ายเงินแล้วตัวเลข Meta เป็น 0
+ * แปลว่าข้อมูลวันนั้นยังไม่มา → ถอยไปใช้ Pancake ทั้งช่วง
+ * (ทั้งบริษัทยิงแอดวันละ ~฿300k ได้คนทัก ~4,500 — วันที่จ่ายเงินแล้วได้ 0 คน คือข้อมูลขาด ไม่ใช่ของจริง)
+ *
+ * ⚠️ ห้ามตัดสินรายวันแล้วสลับไปมาในช่วงเดียว — ตัวหารจะมาจากคนละแหล่งในเลขก้อนเดียว
  */
-const META_BASE_FROM = '2026-09-17';
+function metaBaseComplete_(days: Record<string, { spend: number; metaBase: number }>): boolean {
+  const keys = Object.keys(days);
+  if (!keys.length) return false;
+  let spentDays = 0;
+  for (const d of keys) {
+    if (days[d].spend <= 0) continue;     // วันที่ไม่ได้ยิงแอด ไม่มีอะไรให้ Meta รายงาน
+    spentDays++;
+    if (days[d].metaBase <= 0) return false;
+  }
+  return spentDays > 0;
+}
 
 /**
  * %ปิด + ตัวหาร "รวมคนทัก" ของหนึ่งยูนิต
@@ -1319,7 +1344,8 @@ export async function apiSales(params: any) {
   try { pageUnit = await getPageUnitMap(); } catch { pageUnit = {}; }
   const UNMAPPED = '__none__';
   // ค่าแอด/คนทัก รายยูนิต — โหลดครั้งเดียว ใช้ร่วมกันทั้ง 3 แท็บช่องทาง
-  const unitCost = await loadUnitCost_(r, pageUnit, pagePlatform, UNMAPPED);
+  const unitCostRes = await loadUnitCost_(r, pageUnit, pagePlatform, UNMAPPED);
+  const unitCost = unitCostRes.byChannel;
   mark_('unitCost');
 
   // เป้าของช่วงที่เลือก + ยอดของ "วันที่มีเป้า" ต่อยูนิต (ตัวตั้งของ %บรรลุ)
@@ -1353,10 +1379,9 @@ export async function apiSales(params: any) {
     productOf,
   });
 
-  /* ฐาน "รวมคนทัก" ของช่วงที่เลือก — Meta ใช้ได้ต่อเมื่อ "ทุกวันในช่วง" มีข้อมูล Meta
-   * ถ้าช่วงคาบวันเก่ากว่านั้นแม้วันเดียว ตัวหารจะขาดเงียบๆ (วันเก่า = 0) แล้ว %ปิด พุ่งเกินจริง
-   * — กรณีนั้นถอยไปใช้ Pancake ทั้งช่วง ดีกว่าผสมสองฐานในตัวเลขเดียว */
-  const metaBaseOk = fmtDateBkk(r.start) >= META_BASE_FROM;
+  /* ฐาน "รวมคนทัก" ของช่วงที่เลือก — Meta ใช้ได้ต่อเมื่อ "ทุกวันที่ยิงแอด" มีตัวเลข Meta
+   * ถ้าขาดแม้วันเดียว ตัวหารจะหายเงียบๆ แล้ว %ปิด พุ่งเกินจริง → ถอยไปใช้ Pancake ทั้งช่วง */
+  const metaBaseOk = metaBaseComplete_(unitCostRes.days);
 
   function topAgg(list: Row[], chanKey: 'all' | 'facebook' | 'line' = 'all') {
     const pages: Record<string, { revenue: number; orders: number }> = {};

@@ -22,6 +22,7 @@ interface UnitRow {
   target: number | null; attain: number | null;
   projected: number | null; projAttain: number | null; gap: number | null;
   closeRate: number | null; roas: number | null; costPerMsg: number | null; perBill: number | null;
+  closeBaseSrc?: 'meta' | 'pancake';
   breakEven: number; breakEvenSet: boolean; lossStreak: number; closeStreak: number;
   signals: Signal[]; level: 'urgent' | 'watch' | 'ok';
 }
@@ -109,7 +110,9 @@ const COLS: Col[] = [
   { key: 'attain', label: 'ยอด vs เป้าเดือน', val: (u) => u.attain, dir: 'desc',
     tip: 'ยอดจริง / เป้าเดือน • แถบ: ทึบ = ยอดจริง • จาง = ส่วนที่คาดว่าจะได้เพิ่ม • ขีด = ผ่านไปกี่ % ของเดือน' },
   { key: 'proj', label: 'คาดสิ้นเดือน', r: true, val: (u, d) => headPct(u, d), dir: 'asc', tip: 'ยอดเฉลี่ยของวันที่จบแล้ว × จำนวนวันทั้งเดือน (ไม่รวมวันนี้ที่ยังไม่จบ)' },
-  { key: 'close', label: '%ปิด', r: true, val: (u) => u.closeRate, dir: 'asc', tip: 'ออเดอร์ ÷ รวมคนทัก (อินบ็อกซ์ใหม่ + คอมเมนต์ ของเพจ Facebook)' },
+  { key: 'close', label: '%ปิด', r: true, val: (u) => u.closeRate, dir: 'asc',
+    tip: 'ออเดอร์ ÷ รวมคนทัก ของเพจ Facebook — ฐานเดียวกับหน้า Sales' +
+      ' (Meta: ทัก + คอมเมนต์ · ถอยไปใช้ Pancake ถ้าเดือนนั้นข้อมูล Meta ยังไม่ครบ)' },
   { key: 'roas', label: 'ROAS', r: true, val: (u) => u.roas, dir: 'asc', tip: 'ยอดขาย ÷ ค่าแอด • สีขึ้นเฉพาะยูนิตที่ตั้งจุดคุ้มทุนไว้แล้ว' },
   { key: 'spend', label: 'ค่าแอด', r: true, val: (u) => u.spend, dir: 'desc', tip: 'ค่าแอดจริงจาก Meta ทั้งเดือน' },
   { key: 'profit', label: 'กำไร', r: true, val: (u) => u.profit, dir: 'asc', tip: 'กำไรสุทธิสะสมเดือนนี้ จากชีทสรุปรายสินค้า' },

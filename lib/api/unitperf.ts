@@ -5,7 +5,8 @@
 // ที่มาของตัวเลข (ทุกก้อนรวมมาแล้วฝั่ง Postgres หรือเป็นตารางเล็ก — หน้านี้อ่านทั้งเดือน)
 //   ยอดขาย/ออเดอร์  RPC sales_daily_by_page  (กติกาเดียวกับหน้า Sales เป๊ะ — ดู db/migrations/2026-09-21-sales-daily-by-page.sql)
 //   ค่าแอด          RPC ads_daily_by_page    (ad_daily ทั้งเดือน = ~110,000 แถว ห้ามลากดิบ)
-//   คนทัก           chat_engagement_daily ของเพจ Facebook (ตัวหารเดียวกับ %ปิด หน้า Sales)
+//   คนทัก           ฐาน Meta จาก ads_daily_by_page (ถอยไป chat_engagement_daily ถ้า Meta ไม่ครบ)
+//                   — ตัวหารเดียวกับ %ปิด หน้า Sales เสมอ ห้ามให้สองหน้าใช้คนละฐาน
 //   กำไร            unit_daily.profit จากชีทสรุปรายสินค้า (แหล่งเดียวกับหน้า กำไร & ตีกลับ)
 //   ขาดทุนต่อเนื่อง  sync_state 'unit_loss_alerts' (งาน sync คำนวณวันละครั้ง — กติกาเดียวกับการ์ด 🚨 หน้า Sales)
 //   เป้าเดือน        sync_state 'unit_goals' (ชีท KPI แท็บ เป้ายอดขาย)
@@ -65,9 +66,11 @@ async function rpcAll_(fn: string, args: any, orderCols: string[]): Promise<RpcR
   return { rows: out, failed: null };
 }
 
-interface Daily { rev: number; orders: number; spend: number; base: number; profit: number | null }
+// pBase = คนทักฝั่ง Pancake (customer_engagements) · mBase = ฝั่ง Meta (first_reply + comment)
+// เก็บทั้งคู่เสมอ แล้วค่อยเลือกตอนรวมยอด — ดู metaOk ด้านล่าง (กติกาเดียวกับหน้า Sales)
+interface Daily { rev: number; orders: number; spend: number; pBase: number; mBase: number; profit: number | null }
 
-const emptyDay_ = (): Daily => ({ rev: 0, orders: 0, spend: 0, base: 0, profit: null });
+const emptyDay_ = (): Daily => ({ rev: 0, orders: 0, spend: 0, pBase: 0, mBase: 0, profit: null });
 
 export async function apiUnitPerf(params: any) {
   const p = params || {};
@@ -182,18 +185,43 @@ export async function apiUnitPerf(params: any) {
     c.rev += money_(r.revenue);
     c.orders += num_(r.orders);
   });
+  // ตัวเลข Meta รายวันทั้งบริษัท — ใช้ตัดสินว่าเดือนนี้มีข้อมูล Meta ครบทุกวันที่ยิงแอดไหม
+  const dayTot: Record<string, { spend: number; metaBase: number }> = {};
   (adsRows || []).forEach((r) => {
     const ymd = String(r.d || '').slice(0, 10);
     if (!ymd) return;
-    touch(unitOfPage(r.page_id), ymd).spend += num_(r.spend);   // ad_daily.spend เป็นบาทจริง ห้ามหาร 100
+    const spend = num_(r.spend);
+    // RPC รุ่นเก่ายังไม่คืน 2 คอลัมน์นี้ (ต้องรัน migration 2026-09-26) → undefined = 0 = ถอยไป Pancake เอง
+    const mBase = num_((r as any).meta_first_replies) + num_((r as any).meta_comments);
+    const c = touch(unitOfPage(r.page_id), ymd);
+    c.spend += spend;                                           // ad_daily.spend เป็นบาทจริง ห้ามหาร 100
+    c.mBase += mBase;
+    if (!dayTot[ymd]) dayTot[ymd] = { spend: 0, metaBase: 0 };
+    dayTot[ymd].spend += spend; dayTot[ymd].metaBase += mBase;
   });
   engRows.forEach((r) => {
     const pid = String(r.page_id || '');
     if (platformOf[pid] === 'line') return;                     // ตัวหาร %ปิด นับเฉพาะเพจ Facebook
     const ymd = String(r.date || '').slice(0, 10);
     if (!ymd) return;
-    touch(unitOfPage(pid), ymd).base += num_(r.new_inbox) + num_(r.comment);
+    touch(unitOfPage(pid), ymd).pBase += num_(r.new_inbox) + num_(r.comment);
   });
+
+  /* ---- เลือกฐานตัวหาร: Meta ถ้าครบทุกวันที่ยิงแอด ไม่งั้นถอยไป Pancake ----
+   * กติกาเดียวกับ metaBaseComplete_ ใน lib/api/sales.ts — สองหน้าต้องตอบเลขเดียวกันเสมอ
+   * (เดือนที่คาบวันก่อน backfill จะมีวันที่จ่ายเงินแต่ Meta = 0 → ทั้งเดือนใช้ Pancake) */
+  const metaOk = (() => {
+    const ds = Object.keys(dayTot);
+    if (!ds.length) return false;
+    let spentDays = 0;
+    for (const d of ds) {
+      if (dayTot[d].spend <= 0) continue;
+      spentDays++;
+      if (dayTot[d].metaBase <= 0) return false;
+    }
+    return spentDays > 0;
+  })();
+  const baseOf_ = (c: Daily): number => (metaOk ? c.mBase : c.pBase);
   profitRows.forEach((r) => {
     const u = String(r.u || '');
     const ymd = String(r.date || '').slice(0, 10);
@@ -216,7 +244,7 @@ export async function apiUnitPerf(params: any) {
     let rev = 0, orders = 0, spend = 0, base = 0, profit = 0, hasProfit = false, revDone = 0;
     Object.keys(days).forEach((ymd) => {
       const c = days[ymd];
-      rev += c.rev; orders += c.orders; spend += c.spend; base += c.base;
+      rev += c.rev; orders += c.orders; spend += c.spend; base += baseOf_(c);
       if (ymd <= lastDoneYmd) revDone += c.rev;          // คาดการณ์ใช้เฉพาะวันที่จบแล้ว
       if (c.profit !== null) { profit += c.profit; hasProfit = true; }
     });
@@ -233,8 +261,8 @@ export async function apiUnitPerf(params: any) {
     let closeStreak = 0;
     for (let d = lastDoneYmd; d >= monthStart; d = ymdShift_(d, -1)) {
       const c = days[d];
-      if (!c || c.base <= 0) break;                    // ไม่มีคนทัก = ตัดสินไม่ได้ streak ขาด
-      const rate = (c.orders / c.base) * 100;
+      if (!c || baseOf_(c) <= 0) break;                // ไม่มีคนทัก = ตัดสินไม่ได้ streak ขาด
+      const rate = (c.orders / baseOf_(c)) * 100;
       if (rate >= UNIT_CLOSE_TARGET) break;
       closeStreak++;
     }
@@ -291,6 +319,7 @@ export async function apiUnitPerf(params: any) {
       orders,
       spend: Math.round(spend),
       base,
+      closeBaseSrc: metaOk ? 'meta' : 'pancake',
       profit: hasProfit ? Math.round(profit) : null,
       target: target > 0 ? Math.round(target) : null,
       attain,
