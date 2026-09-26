@@ -943,6 +943,62 @@ export function downloadXLS(rows: unknown[][], filename?: string, sheetName?: st
   toast('Export Excel แล้ว', 'ok');
 }
 
+/**
+ * C4 ปุ่มดาวน์โหลดปุ่มเดียวทุกหน้า (ขวาสุดของ .toolbar)
+ * มีแค่ CSV → ปุ่ม "ดาวน์โหลด" กดแล้วได้ไฟล์เลย · มี Excel ด้วย → "ดาวน์โหลด ▾" เปิดเมนูเลือก CSV / Excel
+ * ต้องเรียก bindDownloadMenu(root, id, …) หลัง render ทุกครั้ง (หน้า re-render ทั้งก้อน)
+ */
+export function downloadMenuHtml(id: string, opts: { excel?: boolean; label?: string } = {}): string {
+  const label = esc(opts.label || 'ดาวน์โหลด');
+  if (!opts.excel) {
+    return '<button type="button" class="btn" id="' + esc(id) + '">' + icon('download', { size: 16 }) + label + '</button>';
+  }
+  return '<div class="menu-wrap">' +
+    '<button type="button" class="btn" id="' + esc(id) + '" aria-haspopup="menu" aria-expanded="false" aria-controls="' + esc(id) + '-pop">' +
+      icon('download', { size: 16 }) + label + icon('chevron-down', { size: 14 }) + '</button>' +
+    '<div class="menu-pop" id="' + esc(id) + '-pop" role="menu" hidden>' +
+      '<button type="button" class="menu-item" role="menuitem" data-dl="csv">' + icon('file-text', { size: 16 }) + 'CSV<small>ไฟล์ตาราง</small></button>' +
+      '<button type="button" class="menu-item" role="menuitem" data-dl="xls">' + icon('file-spreadsheet', { size: 16 }) + 'Excel<small>ภาษาไทยไม่เพี้ยน</small></button>' +
+    '</div></div>';
+}
+
+export function bindDownloadMenu(
+  root: ParentNode, id: string, handlers: { csv: () => void; xls?: () => void },
+): void {
+  const btn = root.querySelector<HTMLButtonElement>('#' + id);
+  if (!btn) return;
+  const pop = root.querySelector<HTMLElement>('#' + id + '-pop');
+  if (!pop || !handlers.xls) {
+    btn.addEventListener('click', () => handlers.csv());
+    return;
+  }
+  const close = (focusBtn: boolean) => {
+    pop.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
+    document.removeEventListener('pointerdown', onOutside, true);
+    document.removeEventListener('keydown', onKey, true);
+    if (focusBtn) btn.focus();
+  };
+  // ปิดเมื่อแตะที่อื่น / กด Esc (capture — ไม่ให้ Esc ไปปิดหน้าต่างข้างหลังด้วย)
+  const onOutside = (e: Event) => { if (!pop.contains(e.target as Node) && e.target !== btn && !btn.contains(e.target as Node)) close(false); };
+  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true); } };
+  btn.addEventListener('click', () => {
+    if (!pop.hidden) { close(false); return; }
+    pop.hidden = false;
+    btn.setAttribute('aria-expanded', 'true');
+    document.addEventListener('pointerdown', onOutside, true);
+    document.addEventListener('keydown', onKey, true);
+    const first = pop.querySelector<HTMLElement>('.menu-item');
+    if (first) first.focus();
+  });
+  pop.addEventListener('click', (e) => {
+    const it = (e.target as HTMLElement).closest<HTMLElement>('[data-dl]');
+    if (!it) return;
+    close(true);
+    if (it.dataset.dl === 'xls' && handlers.xls) handlers.xls(); else handlers.csv();
+  });
+}
+
 /** สีประจำแท็ก/ชื่อ — hash ชื่อ → HSL คงที่ (ชื่อเดิมได้สีเดิมเสมอ ทุกหน้า) */
 export function tagColor(name: unknown): string {
   const s = String(name || '');
