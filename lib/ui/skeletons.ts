@@ -74,6 +74,15 @@ function chips(widths: number[], h = '33px'): string {
   return '<div class="conv-filters">' + widths.map((w) => pill(w + 'px', h)).join('') + '</div>';
 }
 
+/** ตัวเลือกช่วงเวลา (F1) — มือถือเป็นปุ่มเดียว "ช่วงเวลา: วันนี้" จอ ≥600 เป็นแถว 7 ปุ่ม
+ *  ใช้คลาส .range-mobile / .range-full ชุดเดียวกับของจริง การซ่อน/แสดงตามจอจึงตรงกันเสมอ (หน้าไม่กระโดดตอนข้อมูลมา) */
+function rangeSk(): string {
+  return '<div class="range-mobile skel" style="width:200px;border-color:transparent"></div>' +
+    '<div class="conv-filters range-full" style="margin-bottom:0">' +
+      [60, 96, 108, 96, 104, 84, 84].map((w) => pill(w + 'px', '32px')).join('') +
+    '</div>';
+}
+
 function controlsBar(inputs: string): string {
   return '<div class="pg-controls">' + inputs + '</div>';
 }
@@ -146,7 +155,7 @@ function tableRows(n: number): string {
   h += '<div style="display:flex;gap:12px;padding:8px 10px;border-bottom:1px solid var(--border)">' +
     line('20%', '10px') + line('16%', '10px') + line('14%', '10px') + line('14%', '10px') + line('12%', '10px') + line('16%', '10px') + '</div>';
   for (let i = 0; i < n; i++) {
-    h += '<div style="display:flex;gap:12px;padding:11px 10px;border-bottom:1px solid rgba(128,128,128,.12)">' +
+    h += '<div style="display:flex;gap:12px;padding:11px 10px;border-bottom:1px solid var(--border)">' +
       line('20%', '11px') + line('16%', '11px') + line('14%', '11px') + line('14%', '11px') + line('12%', '11px') + line('16%', '11px') + '</div>';
   }
   return h + '</div>';
@@ -166,7 +175,7 @@ export function salesSkel(): string {
   let h = '<div class="sr-head">' +
     '<div>' + line('180px', '16px') + line('240px', '11px', '8px') + '</div>' +
     '<div class="pg-controls" style="margin-bottom:0">' +
-      chips([60, 96, 108, 84, 96], '30px') + inputSk('150px') + inputSk('80px') +
+      rangeSk() + inputSk('150px') + inputSk('80px') +
     '</div>' +
   '</div>';
   h += '<div class="sr-cards">' + srCard() + srCard() + '</div>';   // 2 การ์ด (คำสั่งซื้อ / %ปิดการขาย)
@@ -187,10 +196,12 @@ export function salesSkel(): string {
  * 3) ADMIN MANAGEMENT
  * ================================================================ */
 
+/** กล่องตัวเลขสรุป — ลำดับใน HTML = เลข แล้วป้าย (เหมือนของจริง) ซึ่ง CSS กลับด้านให้ป้ายขึ้นบน ชิดซ้าย (C3)
+ *  เดิมจัดกลาง (margin auto) ตามหน้าตาเก่า พอกล่องจริงชิดซ้ายแล้วโครงร่างต้องชิดซ้ายตาม ไม่งั้นหน้ากระโดดตอนข้อมูลมา */
 function pgsItem(): string {
   return '<div class="pgs-item">' +
-    b('width:44px;height:22px;border-radius:6px;margin:0 auto') +
-    b('width:70%;height:9px;border-radius:6px;margin:7px auto 0') +
+    b('width:48%;height:24px;border-radius:6px') +
+    b('width:70%;height:11px;border-radius:6px') +
     '</div>';
 }
 function statCell(): string {
@@ -248,7 +259,7 @@ function rankCard(): string {
 }
 
 export function adminperfSkel(): string {
-  let h = controlsBar(chips([60, 96, 108, 84, 96], '30px') + inputSk('130px') + '<div class="spacer"></div>' + inputSk('80px'));
+  let h = controlsBar(rangeSk() + inputSk('130px') + '<div class="spacer"></div>' + inputSk('80px'));
   // 5 ปุ่มโหมด (เท่า/Overall/ยอดขาย/%ปิด/ตอบเร็ว) + แถบอธิบายลำดับเงื่อนไข
   h += controlsBar(pill('120px', '28px') + pill('110px', '28px') + pill('150px', '28px') + pill('140px', '28px') +
     pill('110px', '28px') + pill('210px', '28px') + '<div class="spacer"></div>' + inputSk('160px'));
@@ -322,4 +333,76 @@ export function contentadsSkel(): string {
   for (let i = 0; i < 5; i++) cards += caCard();
   h += '<div class="ca-list">' + cards + '</div>';
   return h;
+}
+
+/* ================================================================
+ * หน้าที่เคยขึ้นแค่วงหมุน "กำลังโหลด..." (ตรวจ UI ข้อ D3 — 4 หน้าที่ยังไม่มีโครงร่าง + ผลงานของฉัน/ผู้ใช้)
+ * โครงร่างที่หน้าตาใกล้หน้าจริง ทำให้รู้ว่ากำลังจะเห็นอะไร และหน้าไม่กระโดดตอนข้อมูลมา
+ * ⚠️ ความกว้างใช้ % หรือ px ที่ไม่เกิน ~240 — บนจอ 360px ต้องไม่ดันหน้าให้เลื่อนซ้ายขวา
+ * ================================================================ */
+
+/** แถวตัวเลขสรุปแบบ .pg-summary (ใช้ .pgs-item ชุดเดียวกับหน้าแอดมิน) */
+function summaryRow(n: number): string {
+  let h = '<div class="pg-summary">';
+  for (let i = 0; i < n; i++) h += pgsItem();
+  return h + '</div>';
+}
+
+/** การ์ดที่มีหัว + ตาราง */
+function tableCard(rows: number, mt = '0'): string {
+  return '<div class="card" style="margin-top:' + mt + '">' + head() + tableRows(rows) + '</div>';
+}
+
+/* ---------- ผลงานรายยูนิต (unitperf) ---------- */
+export function unitperfSkel(): string {
+  return '<div class="sr-head"><div style="flex:1;min-width:0">' + line('70%', '16px') + line('85%', '11px', '8px') + '</div></div>' +
+    '<div class="up-toolbar">' +
+      '<div class="up-controls">' + inputSk('min(240px, 100%)') + inputSk('110px') + '</div>' +
+      '<div class="up-chips">' + pill('84px', '32px') + pill('120px', '32px') + pill('96px', '32px') + pill('72px', '32px') + '</div>' +
+    '</div>' +
+    summaryRow(4) +
+    '<div class="card" style="padding:0;overflow:hidden">' + tableRows(10) + '</div>';
+}
+
+/* ---------- KPI ทีมขาย ---------- */
+function kpiCardSkel(): string {
+  return '<div class="card kpi-card">' +
+    circle('44px') +
+    '<div style="flex:1;min-width:0">' + line('50%', '22px') + line('75%', '11px', '9px') + '</div>' +
+  '</div>';
+}
+export function kpiSkel(): string {
+  return controlsBar(chips([48, 48, 48, 48, 48, 48], '32px') + '<div class="spacer"></div>' + pill('96px', '26px')) +
+    '<div class="kpi-tabbar">' + pill('130px', '36px') + pill('150px', '36px') + pill('160px', '36px') + '</div>' +
+    '<div class="kpi-cards">' + kpiCardSkel() + kpiCardSkel() + kpiCardSkel() + kpiCardSkel() + '</div>' +
+    tableCard(8, '14px');
+}
+
+/* ---------- กำไร & ตีกลับ ---------- */
+export function profitSkel(): string {
+  return summaryRow(4) + tableCard(9) + tableCard(6, '14px');
+}
+
+/* ---------- รายงานการตลาด ---------- */
+export function reportSkel(): string {
+  return controlsBar(chips([48, 48, 48, 48, 48, 48, 48, 48, 48], '32px')) +
+    tableCard(8) + tableCard(6, '14px') +
+    '<div class="card" style="margin-top:14px">' + head() + hbars(5) + '</div>';
+}
+
+/* ---------- ผลงานของฉัน (me) ---------- */
+function meCardSkel(): string {
+  return '<div class="card me-card">' + line('45%', '11px') + line('60%', '24px', '9px') + line('70%', '10px', '9px') + '</div>';
+}
+export function meSkel(): string {
+  let cards = '';
+  for (let i = 0; i < 8; i++) cards += meCardSkel();
+  return controlsBar(rangeSk()) +
+    '<div class="card me-hero">' + line('45%', '20px') + line('65%', '11px', '9px') + '</div>' +
+    '<div class="me-grid">' + cards + '</div>';
+}
+
+/* ---------- จัดการผู้ใช้ (users) ---------- */
+export function usersSkel(): string {
+  return tableCard(7);
 }

@@ -86,9 +86,64 @@
   --fs-7: 21px;    /* ตัวเลขเด่น */
   --fs-8: 26px;    /* ตัวเลขใหญ่สุดบนการ์ดสรุป */
 
-  /* ความสูงจริงของหัวเว็บบนจอเดสก์ท็อป (ชื่อหน้า + บรรทัดรอง + ระยะขอบ)
-     ใช้คำนวณ offset ของ element ที่ sticky อยู่ใต้มัน เช่น .umap-side */
-  --topbar-h: 78px;
+  /* ---------- บทบาทตัวอักษร 5 ชั้น (ตรวจ UI รอบ 3 ข้อ C1) ----------
+     สเกล --fs-1..8 บอกแค่ "ขนาด" — บทบาทบอกว่า "ข้อความนี้คืออะไร" หน้าใหม่ให้เลือกจากบทบาทก่อน
+     เดิมหัวการ์ด 14px เท่าเนื้อความ และตัวเลขเด่นหนา 800 ปน 700 → ลำดับความสำคัญพร่า
+     น้ำหนัก: ชื่อหน้า/หัวข้อ/ตัวเลข 700 · เนื้อความ 400 · ป้ายกำกับ 500 สีจาง (เลิกใช้ 800 ทั้งไฟล์) */
+  --fs-page: 22px;     /* ชื่อหน้า (หัวเว็บ) */
+  --fs-section: 16px;  /* หัวข้อส่วน / หัวการ์ด / หัวหน้าต่าง */
+  --fs-body: 14px;     /* เนื้อความ */
+  --fs-label: 12px;    /* ป้ายกำกับ / หน่วย */
+  --fs-num: 26px;      /* ตัวเลขเด่นในกล่องตัวเลข */
+  --fs-num-sm: 20px;   /* ตัวเลขในกล่องแน่นๆ (แถวตัวเลขรองหน้า Sales / U Map) */
+  --gap-section: var(--sp-4);   /* ระยะห่างระหว่างการ์ด/ส่วน = ค่าเดียวทั้งเว็บ */
+
+  /* ---------- สีที่เคยฝังเป็นเลขลอยๆ ในกฎต่างๆ (ย้ายมาเป็น token ให้เปลี่ยนตามธีมได้) ---------- */
+  --on-primary: #fff;                           /* ตัวอักษรบนปุ่มม่วงทึบ 4.9:1 */
+  --danger-solid: #d63031;                      /* ปุ่มแดงทึบ (ยืนยันลบ) — ตัวขาว 4.85:1 · --red ของโหมดมืดเป็นชมพูสว่าง ตัวขาวได้แค่ 3:1 */
+  --on-danger: #fff;
+  --row-hover: rgba(108, 92, 231, 0.05);        /* แถวตารางตอนเอาเมาส์ชี้ */
+  --hover-tint: rgba(108, 92, 231, 0.10);       /* แถว/ปุ่มที่กดได้ตอนชี้ (เข้มกว่าแถวธรรมดา) */
+  --row-hover-strong: rgba(108, 92, 231, 0.12); /* แถวที่กดเปิดรายละเอียดได้ */
+  --row-sub: rgba(128, 128, 128, 0.05);         /* แถวรองหัวหน้า (ตาราง KPI) */
+  --pin-shadow: rgba(0, 0, 0, 0.28);            /* เงาขอบคอลัมน์ที่ตรึงไว้ตอนเลื่อนตารางแนวนอน */
+  --overlay: rgba(5, 8, 18, 0.7);               /* ฉากหลังโมดัล */
+  --backdrop: rgba(0, 0, 0, 0.5);               /* ฉากหลังลิ้นชักเมนู */
+  --drawer-shadow: 4px 0 24px rgba(0, 0, 0, 0.32);
+  --shadow-pop: 0 10px 28px -8px rgba(3, 7, 18, 0.6), 0 2px 6px -2px rgba(3, 7, 18, 0.45);  /* ของที่ลอย: ทูลทิป/เมนู/ข้อความเด้ง */
+  --media-overlay: rgba(0, 0, 0, 0.58); --on-media: #fff;   /* ป้ายวิดีโอบนรูปครีเอทีฟ */
+  --yellow: #e8d44d;                            /* แถบระดับ "เหลือง" ของแจ้งเตือนคอนเทนต์ */
+  --online: #22c55e; --offline: #94a3b8;        /* จุดสถานะออนไลน์บนรูปโปรไฟล์ */
+  --chart-area: rgba(108, 92, 231, 0.10);       /* พื้นใต้เส้นกราฟ */
+  --chart-prev: #5b6478;                        /* เส้นประ "ช่วงก่อนหน้า" */
+  /* สีพื้นช่องตาราง (heat) — ชุดเดียวกับตารางรายวันหน้า Sales · ความทึบต่ำพอให้ตัวเลขยังอ่านออก */
+  --tint-up-1: rgba(45, 212, 160, 0.06); --tint-up-2: rgba(45, 212, 160, 0.10); --tint-up-3: rgba(45, 212, 160, 0.15);
+  --tint-dn-1: rgba(255, 93, 122, 0.06); --tint-dn-2: rgba(255, 93, 122, 0.10); --tint-dn-3: rgba(255, 93, 122, 0.15);
+  /* แท่งกราฟนอน (hbar) — ไล่สีเหมือนกันทั้ง 2 ธีม */
+  --bar-brand: linear-gradient(90deg, #7d6cf0, #a55eea);
+  --bar-green: linear-gradient(90deg, #16a06b, #2dd4bf);
+  --bar-blue: linear-gradient(90deg, #1877f2, #38bdf8);
+  --bar-amber: linear-gradient(90deg, #d97706, #fbbf24);
+  --bar-red: linear-gradient(90deg, #dc2f4c, #fb7185);
+  --bar-unmapped: linear-gradient(90deg, #e8a13a, #e17055);
+  --bar-mini: linear-gradient(180deg, #7d6cf0, #6c5ce7);
+  /* แถบเมนู (เข้มทั้ง 2 ธีม — ⚠️ ห้ามเขียนทับในบล็อกโหมดสว่าง) */
+  --sb-text-strong: #fff;
+  --sb-hover: rgba(255, 255, 255, 0.06);
+  --sb-sub: rgba(169, 165, 208, 0.75);
+  --sb-active-sub: rgba(255, 255, 255, 0.75);
+  --sb-active-ic: rgba(255, 255, 255, 0.18);
+  --sb-divider: rgba(255, 255, 255, 0.12);
+  /* ป้ายบนเมนูแบบ "เรื่องที่ควรดู" (ไม่ด่วน) — ส้มอ่อน ตัวเข้ม 9.9:1 · แดงทึบ --sb-bad เก็บไว้ให้เรื่องด่วนจริง */
+  --sb-soft-bg: #f6d49a; --sb-soft-fg: #3d2500;
+  /* รูปเครื่องหมายถูกสำหรับ mask (สีมาจาก background-color ของตัวที่ใช้ — ตัว SVG เป็นแค่รูปทรง) */
+  --ic-check: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+
+  /* ความสูงจริงของหัวเว็บ (ชื่อหน้า + บรรทัดรอง + ระยะขอบ) — ค่านี้ของจอ ≥900 วัดจากของจริง
+     ใช้คำนวณ offset ของ element ที่ sticky อยู่ใต้มัน เช่น .umap-side และหัวตาราง .tbl-sticky
+     วัดจริง 26 ก.ย. 69 = 84.2px (ชื่อหน้า 22px + บรรทัดรอง 1 บรรทัด) — ปัดลงให้ของที่ sticky มุดใต้หัวเว็บนิดเดียว
+     ดีกว่าปัดขึ้นแล้วเห็นเนื้อหาลอดช่อง 1px · บรรทัดรองถูกบังคับบรรทัดเดียว (.topbar-sub) ความสูงจึงคงที่ */
+  --topbar-h: 84px;
 }
 
 /* ---------- โหมดสว่าง (Light) — เนื้อหาหลักสว่าง, sidebar คงสีเข้มเป็นแถบเมนู ---------- */
@@ -131,14 +186,18 @@
   --rank1-bg: #f7c948; --rank1-fg: #3b2a00;
   --rank2-bg: #d5dbe3; --rank2-fg: #1b2233;
   --rank3-bg: #e5ae7c; --rank3-fg: #3a1f05;
+  --danger-solid: #c2183e;                  /* ตัวขาว 6.0:1 */
+  --row-sub: rgba(15, 23, 42, 0.045);
+  --shadow-pop: 0 10px 28px -8px rgba(15, 23, 42, 0.18), 0 2px 6px -2px rgba(15, 23, 42, 0.10);
+  --yellow: #b08d00;                        /* เหลืองเดิมจมบนพื้นขาว — 3.2:1 (เกณฑ์เส้น/แถบ 3:1) */
+  --chart-area: rgba(108, 92, 231, 0.08);
+  --chart-prev: #94a3b8;
+  /* ตาราง heat โหมดสว่าง — ใช้เขียว/แดงเข้มของโหมดสว่าง ความทึบลดลงนิดให้ตัวเลขดำยังคม */
+  --tint-up-1: rgba(4, 120, 87, 0.05); --tint-up-2: rgba(4, 120, 87, 0.09); --tint-up-3: rgba(4, 120, 87, 0.13);
+  --tint-dn-1: rgba(194, 24, 62, 0.05); --tint-dn-2: rgba(194, 24, 62, 0.09); --tint-dn-3: rgba(194, 24, 62, 0.13);
 }
-/* ปรับสีที่ฝังไว้สำหรับพื้นเข้ม ให้เข้ากับพื้นสว่าง */
-:root[data-theme="light"] .badge.neutral { background: rgba(15,23,42,.07); }
-:root[data-theme="light"] .sr-trend.flat { background: rgba(15,23,42,.07); color: var(--text-3); }
-:root[data-theme="light"] .badge.brand,
-:root[data-theme="light"] .alert-recommend,
-:root[data-theme="light"] .tag-cloud .chip { color: var(--primary); }
-:root[data-theme="light"] .sr-today-row { border-bottom-color: var(--border); }
+/* (ของเดิม: กฎทับสีรายตัวสำหรับโหมดสว่างตรงนี้ถูกย้ายไปใช้ token แล้ว — .badge.neutral/.sr-trend.flat ใช้ --track,
+   .badge.brand/.alert-recommend/.tag-cloud ใช้ --primary-ink, .sr-today-row ใช้ --row-line) */
 
 /* ============================================================
    📱 กติกาของไฟล์นี้ #1 — MOBILE FIRST
@@ -170,7 +229,7 @@
 * { scrollbar-width: thin; scrollbar-color: var(--scroll-thumb) transparent; }
 *:hover { scrollbar-color: var(--scroll-thumb-hover) transparent; }
 /* แถบเมนูเข้มทั้ง 2 ธีม — แถบเลื่อนโปร่งแสงสีขาวเสมอ และซ่อนไว้จนกว่าจะชี้เมาส์ (ลดของรกตาข้างเมนู) */
-.sidebar { color-scheme: dark; scrollbar-color: rgba(255, 255, 255, 0.22) transparent; }
+.sidebar { color-scheme: dark; scrollbar-color: var(--sb-line) transparent; }
 @media (hover: hover) {   /* จอสัมผัสไม่มี "ชี้" — ซ่อนเฉพาะเครื่องที่ใช้เมาส์ ไม่งั้นมือถือไม่เห็นว่าเมนูเลื่อนได้ */
   .sidebar:not(:hover):not(:focus-within) { scrollbar-color: transparent transparent; }
 }
@@ -183,11 +242,14 @@
     border: 3px solid transparent; background-clip: padding-box;   /* เว้นขอบ = แท่งดูบางลอยกลางราง */
   }
   ::-webkit-scrollbar-thumb:hover { background-color: var(--scroll-thumb-hover); }
-  .sidebar::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.22); }
+  .sidebar::-webkit-scrollbar-thumb { background-color: var(--sb-line); }
 }
 html, body { height: 100%; }
 body {
-  font-family: 'Segoe UI', 'Leelawadee UI', 'Noto Sans Thai', sans-serif;
+  /* C7: ฟอนต์ที่ฝังมากับเว็บเอง (next/font ตั้ง --font-body ไว้ที่ <html>) ทุกเครื่องเห็นตัวอักษรหน้าตาเดียวกัน
+     ⚠️ ต้องมีค่าสำรองใน var() — ถ้า --font-body ไม่ถูกตั้ง ทั้งบรรทัดจะใช้ไม่ได้แล้วตกไปเป็นฟอนต์มีหัวของเบราว์เซอร์
+     ระหว่างที่ฟอนต์ยังโหลดไม่เสร็จ เบราว์เซอร์ใช้ตัวถัดไปในรายการก่อน (หน้าไม่ขาวโล่ง) */
+  font-family: var(--font-body, 'Segoe UI'), 'Segoe UI', 'Leelawadee UI', 'Noto Sans Thai', sans-serif;
   background: var(--bg);
   color: var(--text);
   font-size: var(--fs-4);
@@ -236,14 +298,14 @@ body.nav-locked { overflow: hidden; }
 #app.nav-open .sidebar {
   transform: translateX(0);
   visibility: visible; transition-delay: 0s;
-  box-shadow: 4px 0 24px rgba(0,0,0,.32);
+  box-shadow: var(--drawer-shadow);
 }
 .brand { display: flex; gap: var(--sp-3); align-items: center; padding: var(--sp-4) var(--sp-4) var(--sp-4); }
 /* โลโก้ = <svg> จาก logoMark() (lib/ui/helpers.ts) วาดตัวอักษรเป็นรูปทรงล้วน — เดิมพิมพ์ "PN" ด้วยฟอนต์
    ซึ่งหน้าตาต่างกันไปตามเครื่อง สีพื้นกับมุมมนอยู่ใน SVG แล้ว กล่องนี้แค่จองขนาด */
 .brand-logo { width: 38px; height: 38px; flex: none; display: flex; }
 .logo-mark { display: block; flex: none; }
-.brand-name { font-weight: 700; color: #fff; font-size: var(--fs-4); }
+.brand-name { font-weight: 700; color: var(--sb-text-strong); font-size: var(--fs-4); }
 .brand-sub { font-size: var(--fs-1); opacity: .7; }
 .nav { flex: 1; padding: var(--sp-2) var(--sp-3); }
 .nav-section {
@@ -260,21 +322,24 @@ body.nav-locked { overflow: hidden; }
 .nav-badge {
   position: absolute; top: 6px; right: 8px;
   min-width: 18px; height: 18px; padding: 0 var(--sp-1); border-radius: 9px;
-  background: var(--sb-bad); color: #fff; font-size: var(--fs-1); font-weight: 800;
+  background: var(--sb-bad); color: var(--on-danger); font-size: var(--fs-1); font-weight: 700;
   display: inline-flex; align-items: center; justify-content: center; line-height: 1;
-  box-shadow: 0 0 0 2px var(--sidebar-bg, rgba(0,0,0,.35));
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 2px var(--sidebar-bg);
 }
 .nav-badge.warn { background: var(--sb-warn); color: var(--sb-warn-fg); }
 /* มี badge เมื่อไหร่ เว้นที่ขวาให้ชื่อแท็บไม่วิ่งไปใต้เลข */
 .nav-item.has-badge { padding-right: var(--sp-7); }
 /* ป้ายหมายเหตุยูนิต (เช่น "รอรีแบรนด์") — โทนเหลืองอำพันให้ต่างจาก chip รหัสยูนิต */
-.chip.chip-note { background: rgba(230,126,34,.16); color: #e67e22; font-weight: 700; }
-:root[data-theme="light"] .chip.chip-note { background: rgba(230,126,34,.12); color: #b35c0e; }
+.chip.chip-note { background: var(--amber-soft); color: var(--amber); font-weight: 700; }
 
 /* ---------- หน้า KPI ทีมขาย (รื้อ UI 2026-08-01 — เลย์เอาต์แบบเว็บตัวอย่างของทีม) ---------- */
 .kpi-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); margin-top: var(--sp-3); }
 .kpi-card { display: flex; align-items: center; gap: var(--sp-3); }
-.kpi-big { font-size: var(--fs-8); font-weight: 800; line-height: 1.2; }
+/* C3: กล่องตัวเลข KPI ให้ป้ายขึ้นก่อนตัวเลข เหมือนกล่องตัวเลขหน้าอื่น — HTML เรียงเลข→ป้าย จึงกลับด้านด้วย CSS */
+.kpi-card > div:not(.kpi-ico):not(.kpi-ring) { display: flex; flex-direction: column-reverse; justify-content: flex-end; min-width: 0; }
+.kpi-card .card-sub { font-size: var(--fs-3); font-weight: 500; color: var(--text-2); max-width: none; }
+.kpi-big { font-size: var(--fs-num); font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; }
 .kpi-max { font-size: var(--fs-2); font-weight: 600; color: var(--text-3); }
 .kpi-ico { font-size: var(--fs-8); width: 44px; height: 44px; border-radius: 12px; background: var(--primary-soft);
   display: flex; align-items: center; justify-content: center; }
@@ -282,10 +347,10 @@ body.nav-locked { overflow: hidden; }
   background: conic-gradient(var(--rc, var(--primary)) calc(var(--p, 0) * 1%), var(--track) 0);
   display: flex; align-items: center; justify-content: center; }
 .kpi-ring > span { width: 42px; height: 42px; border-radius: 50%; background: var(--surface);
-  display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: var(--fs-2); }
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--fs-2); }
 /* เกรด A-D */
 .grade { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 21px;
-  padding: 0 var(--sp-2); border-radius: 6px; font-weight: 800; font-size: var(--fs-2); vertical-align: middle; }
+  padding: 0 var(--sp-2); border-radius: 6px; font-weight: 700; font-size: var(--fs-2); vertical-align: middle; }
 .grade.g-a { background: var(--green-soft); color: var(--green); }
 .grade.g-b { background: var(--blue-soft); color: var(--blue); }
 .grade.g-c { background: var(--amber-soft); color: var(--amber); }
@@ -297,7 +362,7 @@ body.nav-locked { overflow: hidden; }
 .wt-role { font-weight: 700; font-size: var(--fs-3); margin-bottom: var(--sp-2); color: var(--text-2); }
 .wt-row { display: flex; gap: var(--sp-4); flex-wrap: wrap; }
 .wt-item { min-width: 62px; }
-.wt-num { font-size: var(--fs-6); font-weight: 800; }
+.wt-num { font-size: var(--fs-6); font-weight: 700; }
 .wt-name { font-size: var(--fs-1); color: var(--text-3); white-space: nowrap; }
 .wt-bar { height: 3px; border-radius: 2px; margin-top: var(--sp-1); }
 /* ตารางสายบังคับบัญชา + แผงขวา
@@ -306,22 +371,21 @@ body.nav-locked { overflow: hidden; }
 .kpi-grid > div:first-child { order: 2; }
 .kpi-side { display: flex; flex-direction: column; gap: var(--sp-3); }
 .kpi-head-row td { background: var(--primary-soft); font-size: var(--fs-4); }
-.kpi-sub-row td { background: rgba(128, 128, 128, .05); }
-:root[data-theme="light"] .kpi-sub-row td { background: rgba(15, 23, 42, .045); }
+.kpi-sub-row td { background: var(--row-sub); }
 /* กัน hover ทั่วไปกลืนแถบสีของแถวหัวหน้า/รอง (ตัวเลือก tr:hover td แรงกว่า) */
 table.tbl tr.kpi-head-row:hover td { background: var(--primary-soft); }
-table.tbl tr.kpi-sub-row:hover td { background: rgba(108, 92, 231, .10); }
+table.tbl tr.kpi-sub-row:hover td { background: var(--hover-tint); }
 .kpi-child td { color: var(--text-2); }
 .kpi-subnum { font-size: var(--fs-1); color: var(--text-3); white-space: nowrap; }
 table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้พับได้ ไม่งั้นดันตารางล้นจอ */
 /* เกรดชิปใน legend/คำอธิบาย — ย่อลงไม่ให้ดันความสูงบรรทัด */
 .card-sub .grade, .kpi-lg .grade { height: 16px; min-width: 18px; font-size: var(--fs-1); padding: 0 var(--sp-1); }
 .kpi-rank { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
-  border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-weight: 800; font-size: var(--fs-1); }
+  border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-weight: 700; font-size: var(--fs-1); }
 .kpi-donut { width: 110px; height: 110px; border-radius: 50%; flex: none; position: relative;
   display: flex; align-items: center; justify-content: center; }
 .kpi-donut > span { width: 66px; height: 66px; border-radius: 50%; background: var(--surface);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 800; font-size: var(--fs-5); }
+  display: flex; flex-direction: column; align-items: center; justify-content: center; font-weight: 700; font-size: var(--fs-5); }
 .kpi-donut > span small { font-size: var(--fs-1); font-weight: 600; color: var(--text-3); }
 .kpi-lg { font-size: var(--fs-2); display: flex; align-items: center; gap: var(--sp-2); }
 .kpi-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
@@ -329,14 +393,13 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 .kpi-alert:last-child { border-bottom: none; }
 .kpi-alert.risk { border-left: 3px solid var(--red); padding-left: var(--sp-2); }
 .kpi-alert.watch { border-left: 3px solid var(--amber); padding-left: var(--sp-2); }
-/* แถบสลับแท็บย่อยของหน้า KPI */
-.kpi-tabbar { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; margin-top: var(--sp-4); }
-.kpi-tab {
-  background: var(--surface); border: 1px solid var(--border); color: var(--text-2);
-  padding: var(--sp-2) var(--sp-4); border-radius: 10px; font-size: var(--fs-3); font-weight: 600; cursor: pointer;
+/* แถบสลับแท็บย่อยของหน้า KPI — หน้าตาแบบแท็บกลาง (ตัวหนังสือ + เส้นใต้ม่วง ดู .tab ในชุดชิ้นส่วนกลาง)
+   เดิมแท็บที่เลือกเป็นม่วงทึบ หน้าตาเหมือนปุ่มหลัก คนเลยไม่แน่ใจว่ากดแล้ว "เปลี่ยนมุมมอง" หรือ "สั่งงาน" */
+.kpi-tabbar {
+  display: flex; gap: var(--sp-1) var(--sp-2); align-items: flex-end; flex-wrap: wrap; margin-top: var(--sp-4);
+  border-bottom: 1px solid var(--border);
 }
-.kpi-tab:hover { color: var(--text); }
-.kpi-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.kpi-tabbar > .btn-mini { align-self: center; margin-bottom: var(--sp-1); }
 /* การ์ดรองหัวหน้า (แท็บโครงสร้างทีม) */
 .dep-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: var(--sp-4); margin-top: var(--sp-4); }
 .dep-card.ok { border-top: 3px solid var(--green); }
@@ -355,10 +418,10 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
   padding: var(--sp-2) var(--sp-3); border-radius: 10px; margin-top: var(--sp-1);
 }
 .coach-tree .tree-btn small { color: var(--text-3); font-size: var(--fs-1); }
-.coach-tree .tree-btn span:last-child { margin-left: auto; font-weight: 800; color: var(--text-2); }
+.coach-tree .tree-btn span:last-child { margin-left: auto; font-weight: 700; color: var(--text-2); }
 .coach-tree .tree-btn:hover { background: var(--surface-2); }
-.coach-tree .tree-btn.active { background: var(--primary-soft); color: var(--primary); }
-.coach-tree .tree-btn.active span:last-child { color: var(--primary); }
+.coach-tree .tree-btn.active { background: var(--primary-soft); color: var(--primary-ink); }
+.coach-tree .tree-btn.active span:last-child { color: var(--primary-ink); }
 .coach-tree .tree-btn.sub { padding-left: var(--sp-5); }
 .coach-tree .tree-btn.staff { padding-left: var(--sp-7); font-size: var(--fs-3); }
 /* แถวตัวชี้วัดในแผง Coaching */
@@ -366,9 +429,10 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 .metric-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-2); font-size: var(--fs-3); }
 .metric-bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; margin-top: var(--sp-1); }
 .metric-bar > div { height: 100%; border-radius: 3px; }
-.nav-item:hover { background: rgba(255,255,255,.06); color: #fff; }
-.nav-item.active { background: var(--primary); color: #fff; }
-.nav-item.active .nav-label-sub { color: rgba(255,255,255,.75); }
+.nav-item:hover { background: var(--sb-hover); color: var(--sb-text-strong); }
+/* aria-current="page" = หน้าที่เปิดอยู่ (F5: โปรแกรมอ่านหน้าจอบอก "หน้านี้") — หน้าตาเดียวกับ .active */
+.nav-item.active, .nav-item[aria-current="page"] { background: var(--primary); color: var(--on-primary); }
+.nav-item.active .nav-label-sub, .nav-item[aria-current="page"] .nav-label-sub { color: var(--sb-active-sub); }
 /* ไอคอนเมนู = เส้นสีประจำเมนูบนกล่องสีอ่อนโทนเดียวกัน (พีขอ 26 ก.ย. 69: สมัยอีโมจิแต่ละเมนูมีสีของตัวเอง
    ทีมอาจจำเมนูจากสีไปแล้ว) สีอิงอีโมจิเดิม ยกเว้นเมนูที่เดิมสีซ้ำกัน · สีอยู่ที่ token --ni-* ใน :root
    เมนูที่เลือกอยู่ (พื้นม่วง) ไอคอนเป็นขาว — ไอคอนสีบนพื้นม่วงจะจมหาย */
@@ -379,7 +443,7 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
   background: color-mix(in srgb, var(--ni, var(--sidebar-text)) 16%, transparent);
 }
 .nav-icon .ic { display: block; }
-.nav-item.active .nav-icon { color: #fff; background: rgba(255, 255, 255, 0.18); }
+.nav-item.active .nav-icon, .nav-item[aria-current="page"] .nav-icon { color: var(--on-primary); background: var(--sb-active-ic); }
 .nav-item[data-view="dashboard"]  { --ni: var(--ni-dashboard); }
 .nav-item[data-view="sales"]      { --ni: var(--ni-sales); }
 .nav-item[data-view="contentads"] { --ni: var(--ni-contentads); }
@@ -393,7 +457,7 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 .nav-item[data-view="me"]         { --ni: var(--ni-me); }
 .nav-item[data-view="users"]      { --ni: var(--ni-users); }
 .nav-texts { display: flex; flex-direction: column; line-height: 1.25; }
-.nav-label-sub { font-size: var(--fs-1); color: rgba(169,165,208,.75); }
+.nav-label-sub { font-size: var(--fs-1); color: var(--sb-sub); }
 .sidebar-footer { padding: var(--sp-3) var(--sp-4); font-size: var(--fs-1); opacity: .8; }
 
 /* ---------- topbar ---------- */
@@ -404,9 +468,15 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
   padding-top: max(var(--sp-3), env(safe-area-inset-top));
   background: var(--bg); position: sticky; top: 0; z-index: 10;
 }
-.topbar h1 { font-size: var(--fs-5); font-weight: 800; }
+/* ชื่อหน้า = บทบาท "ชื่อหน้า" (22px) ตั้งแต่ 600px — จอมือถือแคบกว่านั้นหัวเว็บต้องแบ่งที่ให้ปุ่มเมนู/ธีม/รีเฟรช
+   และชิป "ไม่อัปเดต" เหลือที่ให้ชื่อหน้าแค่ ~90px จึงคง 16px ไว้ (วัดแล้ว 18px ตัด "ภาพรวมแชท" เป็น "ภาพรว…")
+   line-height แคบกว่าเนื้อความ หัวเว็บจะได้ไม่สูงขึ้นเปล่าๆ */
+.topbar h1 { font-size: var(--fs-5); font-weight: 700; line-height: 1.3; }
 /* บรรทัดรองกินบรรทัดที่สองของหัวเว็บ ซึ่งบนมือถือคือ 5% ของจอแรก — โผล่ตอน ≥900 เท่านั้น */
-.topbar-sub { display: none; font-size: var(--fs-2); color: var(--text-3); margin-top: var(--sp-1); }
+.topbar-sub {
+  display: none; font-size: var(--fs-2); color: var(--text-3); margin-top: var(--sp-1);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;   /* บรรทัดเดียวเสมอ — ความสูงหัวเว็บต้องคงที่ (--topbar-h) */
+}
 .topbar-right { display: flex; gap: var(--sp-2); align-items: center; flex: none; }
 
 /* ---------- views ---------- */
@@ -427,7 +497,12 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
      ไม่มีโอกาสทำงานเลย (นี่คือสาเหตุที่หน้าเลื่อนซ้ายขวาได้บนมือถือ) */
   min-width: 0;
 }
-.card h3 { font-size: var(--fs-4); font-weight: 700; margin-bottom: var(--sp-1); }
+/* หัวข้อส่วน/หัวการ์ด/หัวหน้าต่าง = บทบาท "หัวข้อ" 16px (เดิม 14px เท่ากับเนื้อความ หัวข้อจมหาย)
+   ตั้งที่ h3 ทั้งเว็บ — มี <h3> 76 จุดใน view ซึ่งเกือบทั้งหมดคือหัวการ์ด/หัวโมดัล */
+h3 { font-size: var(--fs-section); font-weight: 700; line-height: 1.4; }
+/* หัวข้อย่อยในหน้าต่าง (เช่น "Top 5 เพจ") — ตัวหนาขนาดเนื้อความ ต่ำกว่าหัวข้อหลักหนึ่งขั้น */
+h4 { font-size: var(--fs-body); font-weight: 700; line-height: 1.4; }
+.card h3 { margin-bottom: var(--sp-1); }
 /* max-width กันบรรทัดยาวเกิน ~78 ตัวอักษรบนจอกว้าง (ยาวกว่านั้นตาไล่หาต้นบรรทัดถัดไปไม่เจอ) */
 .card-sub { font-size: var(--fs-2); color: var(--text-3); margin-bottom: var(--sp-3); max-width: 78ch; }
 
@@ -477,6 +552,15 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
   display: grid; grid-template-columns: repeat(auto-fit, minmax(min(215px, 100%), 1fr));
   gap: var(--sp-3); margin-top: var(--sp-3);
 }
+/* ---------- กล่องตัวเลขสรุป — 7 แบบเดิมหน้าตาเดียวกัน (ตรวจ UI รอบ 3 ข้อ C3) ----------
+   .stat-card (Dashboard) · .sr-card / .sr-chbox / .sr-strip .tile (Sales) · .umap-stats .tile (U Map)
+   .pgs-item (กำไร / Unit / แอดมิน / ผู้ใช้ / ผลงานของฉัน) · .kpi-card (KPI) · .me-card (ผลงานของฉัน)
+   ร่วมกัน: ป้ายบน 13px สีรอง → ตัวเลขใหญ่ var(--fs-num) หนา 700 เลขกว้างเท่ากัน → บรรทัดรองเล็ก · ชิดซ้าย
+   มุม 12px (มือถือ) / var(--radius) (≥600) · เงา var(--shadow) — ของใหม่ใช้ .stat-box ในชุดชิ้นส่วนกลาง
+   ตัวเลขย่อตามความกว้างกล่อง (cqi) กันเงินเต็มจำนวนล้นกล่องบนมือถือ — กล่องต้องเป็นลูกของกริดที่รู้จักเท่านั้น
+   (container-type ทำให้กล่องกว้างตามเนื้อหาไม่ได้ ถ้าไปอยู่ใน flex ที่ไม่กำหนดความกว้าง กล่องจะหดเหลือ 0) */
+.stat-grid > .stat-card, .sr-cards > .sr-card, .sr-channels > .sr-chbox, .sr-strip > .tile,
+.umap-stats > .tile, .pg-summary > .pgs-item, .kpi-cards > .kpi-card, .me-grid > .me-card { container-type: inline-size; }
 .stat-card {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 12px; padding: var(--sp-3); box-shadow: var(--shadow);
@@ -491,8 +575,11 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 .stat-icon.amber { background: var(--amber-soft); }
 .stat-icon.blue { background: var(--blue-soft); }
 .stat-icon.red { background: var(--red-soft); }
-.stat-label { font-size: var(--fs-3); font-weight: 600; color: var(--text-2); }
-.stat-value { font-size: var(--fs-8); font-weight: 800; letter-spacing: -0.5px; margin: var(--sp-1) 0; }
+.stat-label { font-size: var(--fs-3); font-weight: 500; color: var(--text-2); }
+.stat-value {
+  font-size: var(--fs-num); font-size: clamp(var(--fs-5), 16cqi, var(--fs-num));
+  font-weight: 700; letter-spacing: -0.01em; line-height: 1.25; margin: var(--sp-1) 0;
+}
 .stat-hint { font-size: var(--fs-2); color: var(--text-3); }
 .stat-hint .up { color: var(--green); font-weight: 700; }
 .stat-hint .warn { color: var(--amber); font-weight: 700; }
@@ -507,8 +594,8 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 .badge.admin { background: var(--amber-soft); color: var(--amber); }
 .badge.urgent { background: var(--red-soft); color: var(--red); }
 .badge.info { background: var(--blue-soft); color: var(--blue); }
-.badge.neutral { background: rgba(255,255,255,.08); color: var(--text-2); }
-.badge.brand { background: var(--primary-soft); color: #a99cff; }
+.badge.neutral { background: var(--track); color: var(--text-2); }
+.badge.brand { background: var(--primary-soft); color: var(--primary-ink); }
 .pill-grid { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-3); }
 
 /* ============================================================
@@ -554,7 +641,7 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 /* ป้ายอันดับ: วงกลมเลข (แทน 🥇🥈🥉) — เลขสีเข้มบนพื้นเหรียญสีอ่อน อ่านชัดทั้ง 2 ธีม */
 .rank {
   display: inline-flex; align-items: center; justify-content: center; flex: none;
-  border-radius: 50%; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums;
+  border-radius: 50%; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums;
   background: var(--rank-bg, var(--surface-2)); color: var(--rank-fg, var(--text-2));
   box-shadow: inset 0 0 0 1px var(--rank-ring, var(--border));
 }
@@ -623,14 +710,20 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 }
 /* chip ที่กดได้ (เช่นแถบอธิบายโหมดเท่า → เปิดแผงเกณฑ์) — สูงพอสำหรับนิ้วบนมือถือ */
 .chip.chip-btn { cursor: pointer; min-height: 32px; }
-.chip.chip-btn:hover { border-color: var(--primary); color: var(--text-1); }
+/* --text-1 ไม่มีในโปรเจกต์ (เดิมเขียนไว้ตรงนี้ = hover แล้วตัวหนังสือกลายเป็นสีปริยาย) */
+.chip.chip-btn:hover { border-color: var(--primary); color: var(--text); }
 .conv-filters { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+/* ชิปกรอง (ช่วงเวลา / ช่องทาง / เดือน) — ตัวที่เลือก = พื้นม่วงอ่อน ตัวม่วง (C2)
+   เดิมเป็นม่วงทึบแบบเดียวกับปุ่มหลัก ตาแยกไม่ออกว่า "เลือกอยู่" หรือ "ปุ่มสั่งงานสำคัญ"
+   aria-pressed="true" = สถานะเดียวกันสำหรับโปรแกรมอ่านหน้าจอ (F5) */
 .filter-btn {
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2);
   padding: var(--sp-2) var(--sp-4); border-radius: 99px; font-size: var(--fs-3); font-weight: 600;
 }
 .filter-btn:hover { border-color: var(--primary); color: var(--text); }
-.filter-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.filter-btn.active, .filter-btn[aria-pressed="true"] {
+  background: var(--primary-soft); border-color: var(--primary); color: var(--primary-ink);
+}
 
 /* ---------- buttons / inputs ---------- */
 .btn {
@@ -638,11 +731,11 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
   padding: var(--sp-2) var(--sp-4); border-radius: 10px; font-size: var(--fs-3); font-weight: 600;
 }
 .btn:hover { border-color: var(--primary); }
-.btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.btn.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
 .btn.primary:hover { background: var(--primary-600); }
 .btn-mini { padding: var(--sp-1) var(--sp-3); font-size: var(--fs-2); border-radius: 8px;
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text); }
-.btn-mini.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+.btn-mini.primary { background: var(--primary); border-color: var(--primary); color: var(--on-primary); }
 .input, select.input {
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
   padding: var(--sp-2) var(--sp-3); border-radius: 10px; font-size: var(--fs-3);
@@ -686,23 +779,23 @@ table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้
 }
 .hbar-row > .hbar-label { grid-column: 1 / -1; white-space: normal; overflow: visible; text-overflow: clip; }
 .hbar-row.clickable { cursor: pointer; border-radius: 7px; padding: var(--sp-1) var(--sp-2); margin-left: -6px; margin-right: -6px; transition: background .15s; }
-.hbar-row.clickable:hover { background: rgba(108,92,231,.10); }
+.hbar-row.clickable:hover { background: var(--hover-tint); }
 table.tbl tr.clickable { cursor: pointer; }
-table.tbl tr.clickable:hover td { background: rgba(108,92,231,.12); }
+table.tbl tr.clickable:hover td { background: var(--row-hover-strong); }
 .hbar-label { color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hbar-track { height: 9px; background: var(--surface-2); border-radius: 99px; overflow: hidden; }
 .hbar-fill {
   height: 100%; border-radius: 99px; transition: width .5s;
-  background: linear-gradient(90deg, #7d6cf0, #a55eea);
+  background: var(--bar-brand);
 }
 /* กลุ่มยอดขายที่ยังไม่จับคู่ยูนิต — สีส้มเตือนให้ไปจับคู่ใน U Map */
-.hbar-fill.sr-unmapped { background: linear-gradient(90deg, #e8a13a, #e17055); }
-/* แถวยูนิต "ยังไม่จัดกลุ่ม" ในตาราง — เตือนด้วยพื้นส้มจางว่ายอดก้อนนี้ยังไม่มีเจ้าของ */
-table.tbl tr.sr-unmapped td { background: rgba(232,161,58,.09); }
-.hbar-fill.green { background: linear-gradient(90deg, #16a06b, #2dd4bf); }
-.hbar-fill.blue { background: linear-gradient(90deg, #1877f2, #38bdf8); }
-.hbar-fill.amber { background: linear-gradient(90deg, #d97706, #fbbf24); }
-.hbar-fill.red { background: linear-gradient(90deg, #dc2f4c, #fb7185); }
+.hbar-fill.sr-unmapped { background: var(--bar-unmapped); }
+/* แถวยูนิต "ยังไม่จัดกลุ่ม" ในตาราง — เดิมทาพื้นส้มทั้งแถว → เหลือแถบส้มซ้าย (B3 งบสีแดง/ส้ม)
+   กฎอยู่ที่ "แถบสัญญาณซ้าย" ในชุดชิ้นส่วนกลาง (tr.sr-unmapped ใช้แถบเดียวกับ .sig-warn) */
+.hbar-fill.green { background: var(--bar-green); }
+.hbar-fill.blue { background: var(--bar-blue); }
+.hbar-fill.amber { background: var(--bar-amber); }
+.hbar-fill.red { background: var(--bar-red); }
 .hbar-num { text-align: right; font-weight: 700; font-size: var(--fs-2); }
 
 /* ---------- charts ---------- */
@@ -716,7 +809,7 @@ table.tbl tr.sr-unmapped td { background: rgba(232,161,58,.09); }
 .donut-legend b { margin-left: auto; }
 .mini-bars { display: flex; align-items: flex-end; gap: var(--sp-1); height: 48px; margin: var(--sp-3) 0; }
 .mini-bars i {
-  flex: 1; background: linear-gradient(180deg, #7d6cf0, #6c5ce7);
+  flex: 1; background: var(--bar-mini);
   border-radius: 2px 2px 0 0; min-height: 2px;
 }
 
@@ -728,7 +821,7 @@ table.tbl th {
   padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--border); white-space: nowrap;
 }
 table.tbl td { padding: var(--sp-2) var(--sp-3); border-bottom: 1px solid var(--row-line); }
-table.tbl tr:hover td { background: rgba(108,92,231,.05); }
+table.tbl tr:hover td { background: var(--row-hover); }
 
 /* ---------- 🎯 ผลงานราย Unit (up-*) — ตารางจัดอันดับ ----------
    ทีมเลือกแบบนี้เองจาก 3 แบบที่เสนอ (21 ก.ย. 69) เหตุผลที่ให้มาคือ "ดูง่าย"
@@ -748,9 +841,9 @@ table.tbl tr:hover td { background: rgba(108,92,231,.05); }
   color: var(--text-2); font-size: var(--fs-3); font-weight: 600; white-space: nowrap;
   transition: border-color .16s ease, background .16s ease, color .16s ease;
 }
-.up-chip b { font-variant-numeric: tabular-nums; font-weight: 800; }
+.up-chip b { font-variant-numeric: tabular-nums; font-weight: 700; }
 .up-chip:hover { border-color: var(--primary); color: var(--text); }
-.up-chip[aria-pressed="true"] { background: var(--primary-soft); border-color: var(--primary); color: var(--text); }
+.up-chip[aria-pressed="true"] { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-ink); }
 .up-chip.urgent b { color: var(--red); }
 .up-chip.watch b { color: var(--amber); }
 .up-chip.ok b { color: var(--green); }
@@ -776,7 +869,7 @@ table.tbl.up-tbl.tbl-scroll-x th:first-child,
 table.tbl.up-tbl.tbl-scroll-x td:first-child { left: 0; width: 46px; }
 table.tbl.up-tbl.tbl-scroll-x th:nth-child(2),
 table.tbl.up-tbl.tbl-scroll-x td:nth-child(2) {
-  left: 46px; box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px rgba(0, 0, 0, .28);
+  left: 46px; box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px var(--pin-shadow);
 }
 table.tbl.up-tbl.tbl-scroll-x th:first-child,
 table.tbl.up-tbl.tbl-scroll-x td:first-child,
@@ -792,11 +885,11 @@ table.tbl.up-tbl.tbl-scroll-x tr:hover td:nth-child(2),
 table.tbl.up-tbl.tbl-scroll-x tr.up-open td:first-child,
 table.tbl.up-tbl.tbl-scroll-x tr.up-open td:nth-child(2) {
   background-color: var(--surface);
-  background-image: linear-gradient(rgba(108,92,231,.05), rgba(108,92,231,.05));
+  background-image: linear-gradient(var(--row-hover), var(--row-hover));
 }
 table.tbl.up-tbl th { vertical-align: bottom; }
 table.tbl.up-tbl td { vertical-align: middle; }
-table.tbl.up-tbl tr.up-open td { background-color: rgba(108,92,231,.05); }
+table.tbl.up-tbl tr.up-open td { background-color: var(--row-hover); }
 .up-tbl .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .up-tbl th.r, .up-tbl td.r { text-align: right; }
 
@@ -829,14 +922,14 @@ table.tbl.up-tbl tr.up-open td { background-color: rgba(108,92,231,.05); }
 .up-dot.urgent { background: var(--red); }
 .up-dot.watch { background: var(--amber); }
 .up-dot.ok { background: var(--green); }
-.up-code { font-weight: 800; }
+.up-code { font-weight: 700; }
 .up-prod { color: var(--text-3); font-size: var(--fs-2); max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .up-goal { min-width: 190px; }
 .up-goal-top { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-3); font-size: var(--fs-3); }
-.up-money b { font-weight: 800; }
+.up-money b { font-weight: 700; }
 .up-money span { color: var(--text-3); font-weight: 600; }
 .up-sub { color: var(--text-3); font-size: var(--fs-1); white-space: nowrap; }
-.up-big { font-weight: 800; }
+.up-big { font-weight: 700; }
 .up-tbl .good { color: var(--green); }
 .up-tbl .bad { color: var(--red); }
 .up-tbl .warn { color: var(--amber); }
@@ -864,10 +957,9 @@ tr.up-detail td { background: var(--surface-2); }
 .up-daily {
   min-height: 44px; padding: 0 var(--sp-4); margin-top: var(--sp-3);
   background: none; border: 1px solid var(--border); border-radius: 999px;
-  color: #a99cff; font-size: var(--fs-2); font-weight: 700; cursor: pointer; white-space: nowrap;
+  color: var(--primary-ink); font-size: var(--fs-2); font-weight: 700; cursor: pointer; white-space: nowrap;
   transition: border-color .16s ease, background .16s ease;
 }
-:root[data-theme="light"] .up-daily { color: var(--primary); }
 .up-daily:hover { border-color: var(--primary); background: var(--primary-soft); }
 
 @media (min-width: 900px) {
@@ -893,17 +985,17 @@ table.tbl.ds-tbl.tbl-scroll-x th:first-child,
 table.tbl.ds-tbl.tbl-scroll-x td:first-child {
   position: sticky; left: 0; z-index: 1; background: var(--surface);
   white-space: nowrap; font-weight: 700;
-  box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px rgba(0, 0, 0, .28);
+  box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px var(--pin-shadow);
 }
 table.tbl.ds-tbl.tbl-scroll-x thead th:first-child { z-index: 2; }
 /* แถว hover มีพื้นโปร่ง — ช่องที่ตรึงต้องทา 2 ชั้นให้ได้สีผสมเดียวกับแถว ไม่งั้นคอลัมน์แรกสีเพี้ยน */
 table.tbl.ds-tbl.tbl-scroll-x tr:hover td:first-child {
   background-color: var(--surface);
-  background-image: linear-gradient(rgba(108,92,231,.05), rgba(108,92,231,.05));
+  background-image: linear-gradient(var(--row-hover), var(--row-hover));
 }
 table.tbl.ds-tbl.tbl-scroll-x tfoot .ds-foot td:first-child { background-color: var(--surface-2); }
 .ds-tbl th.ds-uth { text-align: right; }
-.ds-u { font-weight: 800; color: var(--text-2); }
+.ds-u { font-weight: 700; color: var(--text-2); }
 .ds-uname { font-weight: 500; font-size: var(--fs-1); color: var(--text-3);
   max-width: 108px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: auto; }
 .ds-v { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -926,21 +1018,16 @@ table.tbl.ds-tbl td:nth-child(2) { border-left: 0; }
    เจตนา: กวาดตาเห็น "วันไหนทั้งแถวเขียว/แดง" โดยตัว % ยังอ่านออก
    จึงคุมความทึบไว้ต่ำ (สูงสุด .15 ในโหมดมืด / .13 ในโหมดสว่าง) และวัดคอนทราสต์ตัวอักษรแล้วทุกระดับ
    ⚠️ ต้องเจาะจงกว่ากฎ hover ของ .tbl (table.tbl tr:hover td) ไม่งั้นสีหายตอนเอาเมาส์ชี้ */
-table.tbl.ds-tbl tbody td.ds-tu1 { background-color: rgba(45, 212, 160, .06); }
-table.tbl.ds-tbl tbody td.ds-tu2 { background-color: rgba(45, 212, 160, .10); }
-table.tbl.ds-tbl tbody td.ds-tu3 { background-color: rgba(45, 212, 160, .15); }
-table.tbl.ds-tbl tbody td.ds-td1 { background-color: rgba(255, 93, 122, .06); }
-table.tbl.ds-tbl tbody td.ds-td2 { background-color: rgba(255, 93, 122, .10); }
-table.tbl.ds-tbl tbody td.ds-td3 { background-color: rgba(255, 93, 122, .15); }
-:root[data-theme="light"] table.tbl.ds-tbl tbody td.ds-tu1 { background-color: rgba(4, 120, 87, .05); }
-:root[data-theme="light"] table.tbl.ds-tbl tbody td.ds-tu2 { background-color: rgba(4, 120, 87, .09); }
-:root[data-theme="light"] table.tbl.ds-tbl tbody td.ds-tu3 { background-color: rgba(4, 120, 87, .13); }
-:root[data-theme="light"] table.tbl.ds-tbl tbody td.ds-td1 { background-color: rgba(194, 24, 62, .05); }
-:root[data-theme="light"] table.tbl.ds-tbl tbody td.ds-td2 { background-color: rgba(194, 24, 62, .09); }
-:root[data-theme="light"] table.tbl.ds-tbl tbody td.ds-td3 { background-color: rgba(194, 24, 62, .13); }
+/* สีอยู่ที่ token --tint-* (มีค่าของทั้ง 2 ธีม) — ใช้ร่วมกับคลาส .heat-* ของตารางอื่น (G2) */
+table.tbl.ds-tbl tbody td.ds-tu1 { background-color: var(--tint-up-1); }
+table.tbl.ds-tbl tbody td.ds-tu2 { background-color: var(--tint-up-2); }
+table.tbl.ds-tbl tbody td.ds-tu3 { background-color: var(--tint-up-3); }
+table.tbl.ds-tbl tbody td.ds-td1 { background-color: var(--tint-dn-1); }
+table.tbl.ds-tbl tbody td.ds-td2 { background-color: var(--tint-dn-2); }
+table.tbl.ds-tbl tbody td.ds-td3 { background-color: var(--tint-dn-3); }
 /* hover ต้องทาทับเป็นอีกชั้น (background-image) ไม่ใช่เขียนทับ background-color ของสีพื้น */
 table.tbl.ds-tbl tbody tr:hover td {
-  background-image: linear-gradient(rgba(108, 92, 231, .05), rgba(108, 92, 231, .05));
+  background-image: linear-gradient(var(--row-hover), var(--row-hover));
 }
 .ds-tbl .ds-st { white-space: nowrap; }
 .ds-tbl tfoot .ds-foot td { border-bottom: none; border-top: 1px solid var(--border);
@@ -949,22 +1036,25 @@ table.tbl.ds-tbl tbody tr:hover td {
 
 /* ---------- sales dashboard (sr-*) ---------- */
 .sr-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--sp-3); align-items: center; margin-bottom: var(--sp-4); }
-.sr-title { font-size: var(--fs-5); font-weight: 800; }
+.sr-title { font-size: var(--fs-section); font-weight: 700; }
 .sr-title-sub { font-size: var(--fs-2); color: var(--text-3); }
 /* เหลือ 2 การ์ด (บอสสั่งลบ "รายได้รวม") — auto-fit ให้ 2 ใบยืดเต็มแถว ไม่เหลือคอลัมน์ว่าง */
 .sr-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: var(--sp-4); }
 .sr-card {
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
   padding: var(--sp-4) var(--sp-5); box-shadow: var(--shadow);
 }
-.sr-card .label { font-size: var(--fs-3); color: var(--text-2); font-weight: 600; }
-.sr-card .big { font-size: var(--fs-8); font-weight: 800; margin: var(--sp-1) 0; letter-spacing: -0.5px; }
+.sr-card .label { font-size: var(--fs-3); color: var(--text-2); font-weight: 500; }
+.sr-card .big {
+  font-size: var(--fs-num); font-size: clamp(var(--fs-5), 11cqi, var(--fs-num));
+  font-weight: 700; margin: var(--sp-1) 0; letter-spacing: -0.01em; line-height: 1.25;
+}
 .sr-card .foot { font-size: var(--fs-2); color: var(--text-3); }
 /* การ์ด "ธุรกิจวันนี้" — วิดเจ็ต LIVE ที่ไม่ขึ้นกับตัวกรอง */
 .card.sr-live { border-top: 3px solid var(--green); }
 .badge.live-now {
   display: inline-flex; align-items: center; gap: var(--sp-1);
-  background: var(--green-soft); color: var(--green); font-weight: 800;
+  background: var(--green-soft); color: var(--green); font-weight: 700;
 }
 .badge.live-now::before {
   content: ''; width: 7px; height: 7px; border-radius: 50%;
@@ -975,35 +1065,44 @@ table.tbl.ds-tbl tbody tr:hover td {
 .sr-trend { display: inline-block; padding: var(--sp-1) var(--sp-2); border-radius: 99px; font-size: var(--fs-1); font-weight: 700; margin-left: var(--sp-2); }
 .sr-trend.up { background: var(--green-soft); color: var(--green); }
 .sr-trend.down { background: var(--red-soft); color: var(--red); }
-.sr-trend.flat { background: rgba(255,255,255,.08); color: var(--text-3); }
+.sr-trend.flat { background: var(--track); color: var(--text-3); }
 .sr-chan-banner {
   display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2);
   margin-bottom: var(--sp-3); padding: var(--sp-2) var(--sp-3); border-radius: 10px;
   background: var(--primary-soft); border: 1px solid var(--primary);
   color: var(--text); font-size: var(--fs-3); font-weight: 600;
 }
-.sr-chan-banner b { font-weight: 800; }
+.sr-chan-banner b { font-weight: 700; }
 .sr-chan-hint { font-size: var(--fs-2); font-weight: 500; color: var(--text-3); }
 /* auto-fit: มือถือได้ 2 ช่อง จอกว้างได้ 3 ช่อง โดยไม่ต้องมีจุดตัด */
 .sr-channels { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: var(--sp-3); margin-top: var(--sp-3); }
+/* กล่องช่องทาง = กล่องตัวเลขที่กดกรองได้ — หน้าตากล่องตัวเลขมาตรฐาน + สถานะเลือกแบบชิปกรอง (พื้นม่วงอ่อน) */
 .sr-chbox {
   background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-  padding: var(--sp-3) var(--sp-4); text-align: left; color: var(--text);
+  padding: var(--sp-3) var(--sp-4); text-align: left; color: var(--text); box-shadow: var(--shadow);
 }
 .sr-chbox:hover { border-color: var(--primary); }
-.sr-chbox.active { border-color: var(--primary); background: var(--primary-soft); }
-.sr-chbox .t { font-size: var(--fs-3); font-weight: 700; color: var(--text-2); }
-.sr-chbox .v { font-size: var(--fs-7); font-weight: 800; margin: var(--sp-1) 0; }
-.sr-chbox .s { font-size: var(--fs-1); color: var(--text-3); }
+.sr-chbox.active, .sr-chbox[aria-pressed="true"] { border-color: var(--primary); background: var(--primary-soft); }
+.sr-chbox .t { font-size: var(--fs-3); font-weight: 500; color: var(--text-2); }
+.sr-chbox .v {
+  font-size: var(--fs-num); font-size: clamp(var(--fs-5), 14cqi, var(--fs-num));
+  font-weight: 700; margin: var(--sp-1) 0; letter-spacing: -0.01em; line-height: 1.25;
+}
+.sr-chbox .s { font-size: var(--fs-2); color: var(--text-3); }
 .sr-strip {
   display: grid; grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
   gap: var(--sp-3); margin-top: var(--sp-4);
 }
+/* กล่องแน่น (แถวตัวเลขรอง) — ตัวเลขเล็กกว่ากล่องหลัก (--fs-num-sm) แต่หนา/ตระกูลเดียวกัน
+   HTML คือ "ไอคอน + ป้าย(ข้อความเปล่า) + <b>ตัวเลข</b>" จึงแต่งป้ายที่ตัวกล่อง แล้วให้ <b> ขึ้นบรรทัดใหม่ */
 .sr-strip .tile {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-  padding: var(--sp-3) var(--sp-4); font-size: var(--fs-2); color: var(--text-3);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow);
+  padding: var(--sp-3) var(--sp-4); font-size: var(--fs-2); font-weight: 500; color: var(--text-2); line-height: 1.4;
 }
-.sr-strip .tile b { display: block; font-size: var(--fs-5); color: var(--text); margin-top: var(--sp-1); }
+.sr-strip .tile b {
+  display: block; margin-top: var(--sp-1); color: var(--text); font-weight: 700; line-height: 1.25;
+  font-size: var(--fs-num-sm); font-size: clamp(var(--fs-4), 14cqi, var(--fs-num-sm)); letter-spacing: -0.01em;
+}
 /* ตัวเลข "ออเดอร์ที่ต้องตรวจ" ที่กดเปิดตารางรายออเดอร์ได้ (การ์ดคำสั่งซื้อ + การ์ดธุรกิจวันนี้) */
 /* ปุ่มแบบลิงก์ในประโยค — ขยายความสูงตรงๆ ไม่ได้ (บรรทัดจะเบี้ยว)
    ใช้ padding เพิ่มพื้นที่นิ้วแล้วหักกลับด้วย margin ติดลบ เลย์เอาต์จึงเท่าเดิมแต่กดง่ายขึ้น */
@@ -1054,7 +1153,7 @@ table.tbl.ds-tbl tbody tr:hover td {
 .sr-prog.low b { color: var(--red); }
 .sr-green { color: var(--green); }
 .sr-red { color: var(--red); }
-.sr-today-row { display: flex; justify-content: space-between; font-size: var(--fs-3); padding: var(--sp-2) 0; border-bottom: 1px dashed rgba(38,51,82,.6); }
+.sr-today-row { display: flex; justify-content: space-between; font-size: var(--fs-3); padding: var(--sp-2) 0; border-bottom: 1px dashed var(--row-line); }
 .sr-today-row:last-child { border-bottom: none; }
 .sr-today-row b { font-weight: 700; }
 /* บรรทัดย่อยในแถว (เช่น แชทค้างรอตอบ → แยกอินบ็อกซ์/คอมเมนต์) */
@@ -1069,7 +1168,7 @@ table.tbl.ds-tbl tbody tr:hover td {
 }
 .alert-row.lv-red { border-left-color: var(--red); }
 .alert-row.lv-orange { border-left-color: var(--amber); }
-.alert-row.lv-yellow { border-left-color: #e8d44d; }
+.alert-row.lv-yellow { border-left-color: var(--yellow); }
 .alert-row.lv-green { border-left-color: var(--green); }
 /* ไอคอนลายเส้นในแถวแจ้งเตือน (แทนอีโมจิ) — flex ตัดช่องว่าง line-height ใต้ svg, สีตามระดับของแถว */
 .alert-icon { display: flex; flex: none; line-height: 1; padding-top: var(--sp-1); color: var(--text-3); }
@@ -1080,7 +1179,7 @@ table.tbl.ds-tbl tbody tr:hover td {
 .alert-body { flex: 1; min-width: 0; }
 .alert-title { font-weight: 700; font-size: var(--fs-3); }
 .alert-reason { font-size: var(--fs-2); color: var(--text-2); margin-top: var(--sp-1); }
-.alert-recommend { font-size: var(--fs-2); color: #a99cff; margin-top: var(--sp-1); }
+.alert-recommend { font-size: var(--fs-2); color: var(--primary-ink); margin-top: var(--sp-1); }
 
 /* ---------- content & ads cards (ca-*) ---------- */
 .ca-list { display: flex; flex-direction: column; gap: var(--sp-3); margin-top: var(--sp-4); }
@@ -1089,7 +1188,7 @@ table.tbl.ds-tbl tbody tr:hover td {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: 12px; padding: var(--sp-3);
 }
-.ca-rank { font-size: var(--fs-7); font-weight: 800; color: var(--text-3); width: 34px; text-align: center; flex-shrink: 0; }
+.ca-rank { font-size: var(--fs-7); font-weight: 700; color: var(--text-3); width: 34px; text-align: center; flex-shrink: 0; }
 .ca-id { font-weight: 700; font-size: var(--fs-3); }
 .ca-sub { font-size: var(--fs-2); color: var(--text-3); margin-top: var(--sp-1); }
 /* ⚠️ ต้องมีฐาน 180px ไม่ใช่ flex:1 เปล่าๆ — flex:1 คือ basis 0 แปลว่า "ขอเฉพาะที่เหลือ"
@@ -1109,14 +1208,14 @@ table.tbl.ds-tbl tbody tr:hover td {
 /* ---------- แถบเตือน "ชีท KPI กรอกไม่ครบ" (บนสุดหน้า KPI ทีมขาย) ---------- */
 /* ต้องเห็นก่อนตัวเลข เพราะทีมจะอ่านเกรด D แล้วตกใจก่อนจะรู้ว่าคะแนนขาดตัวตั้ง */
 .kpi-gap {
-  margin-top: var(--sp-3); border-color: rgba(253, 203, 110, .5);
-  background: linear-gradient(0deg, rgba(253, 203, 110, .07), rgba(253, 203, 110, .07)), var(--card);
+  /* แถบส้มซ้าย (B3) — เดิมอ้าง var(--card) ซึ่งไม่มีอยู่จริง ทั้งบรรทัด background จึงใช้ไม่ได้ การ์ดโปร่งทะลุพื้นหน้า */
+  margin-top: var(--sp-3); border-left: 3px solid var(--amber-bar); background: var(--surface);
 }
 .kpi-gap b { color: var(--amber); }
 
 /* ---------- แจ้งเตือนยูนิตขาดทุน (บนสุดหน้า Sales) ---------- */
 /* การ์ดนี้ต้องสะดุดตากว่าการ์ดอื่นทั้งหน้า — ทีมสั่งว่า "ต้องขึ้นแจ้งเตือนทันที" */
-.loss-card { border-color: rgba(255, 118, 117, .45); box-shadow: 0 0 0 1px rgba(255, 118, 117, .12); }
+.loss-card { border-color: color-mix(in srgb, var(--red) 45%, var(--border)); }
 .loss-row {
   display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: var(--sp-3); align-items: center;
   padding: var(--sp-3); border-radius: 10px; background: var(--surface-2);
@@ -1124,8 +1223,9 @@ table.tbl.ds-tbl tbody tr:hover td {
 }
 /* มือถือ: ปุ่ม "ดูรายละเอียด" ตกลงมาบรรทัดใหม่แทนบีบข้อความเหตุผลจนอ่านไม่ออก */
 .loss-row > .btn-mini { grid-column: 2; justify-self: start; }
-.loss-row.lv-red { border-left-color: var(--red); background: rgba(255, 118, 117, .09); }
-.loss-row.lv-yellow { border-left-color: var(--amber); background: rgba(232, 161, 58, .08); }
+/* B3: เหลือแถบสีซ้าย ไม่ทาพื้นชมพู/ส้มทั้งแถว (พื้น --surface-2 เท่ากันทุกแถว) */
+.loss-row.lv-red { border-left-color: var(--red); }
+.loss-row.lv-yellow { border-left-color: var(--amber-bar); }
 .loss-icon { font-size: var(--fs-5); line-height: 1; }
 .loss-title { font-size: var(--fs-4); margin-bottom: var(--sp-1); }
 .loss-reason { font-size: var(--fs-2); color: var(--text-2); }
@@ -1134,7 +1234,7 @@ table.tbl.ds-tbl tbody tr:hover td {
    มือถือ: app-core แปลงตารางเป็นการ์ดต่อแถว → แถบอยู่ที่ขอบซ้ายของการ์ด
    (.loss-row/.loss-icon/.loss-body ด้านบนยังใช้อยู่ใน adminperf.ts ห้ามลบ) */
 .loss-tbl tr.loss-urgent { --loss-c: var(--red); }
-.loss-tbl tr.loss-watch { --loss-c: var(--amber); }
+.loss-tbl tr.loss-watch { --loss-c: var(--amber-bar); }
 table.tbl.tbl-cards.loss-tbl tr { border-left: 3px solid var(--loss-c, var(--border)); }
 .loss-v { text-align: right; }
 .loss-sub { font-size: var(--fs-1); font-weight: 500; color: var(--text-3); line-height: 1.4; }
@@ -1172,8 +1272,8 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .ca-play {
   position: absolute; right: 4px; bottom: 4px;
   width: 18px; height: 18px; border-radius: 50%;
-  background: rgba(0, 0, 0, .58); color: #fff;
-  font-size: 9px; line-height: 18px; text-align: center;
+  background: var(--media-overlay); color: var(--on-media);
+  font-size: var(--fs-1); line-height: 18px; text-align: center;
 }
 .ca-media {
   display: flex; gap: var(--sp-4); flex-wrap: wrap; align-items: flex-start;
@@ -1202,12 +1302,19 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
    ตอนที่ตั้ง 120px ไทล์ยังใส่แค่จำนวนนับหลักเดียว พอหน้ากำไรมาใช้ เลขเลยโดนตัดหายไปครึ่งตัว
    บนจอ 412px ได้ 3 คอลัมน์ ช่องละ 129px ซึ่งใส่ไม่พอ (วัดแล้ว: กล่อง 87 < เนื้อหา 129) */
 .pg-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: var(--sp-3); margin-bottom: var(--sp-4); }
+/* C3: หน้าตากล่องตัวเลขมาตรฐาน — ป้ายบน ตัวเลขล่าง ชิดซ้าย (เดิมจัดกลาง เลขบน ป้าย 11px จางอยู่ล่าง)
+   HTML เรียง <b>เลข</b><span>ป้าย</span> ใช้ในหลายหน้า จึงกลับลำดับด้วย column-reverse แทนการแก้ทุกหน้า
+   ตัวเลขย่อตามความกว้างกล่อง (cqi): เงินเต็มจำนวน "฿83,126,917" ต้องไม่ล้นกล่อง 2 คอลัมน์บนมือถือ */
 .pgs-item {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-  padding: var(--sp-3) var(--sp-4); text-align: center;
+  display: flex; flex-direction: column-reverse; justify-content: flex-end; gap: var(--sp-1);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow);
+  padding: var(--sp-3) var(--sp-4); text-align: left; min-width: 0;
 }
-.pgs-item b { display: block; font-size: var(--fs-7); font-weight: 800; }
-.pgs-item span { font-size: var(--fs-1); color: var(--text-3); }
+.pgs-item b {
+  display: block; font-weight: 700; line-height: 1.2; letter-spacing: -0.01em;
+  font-size: var(--fs-num); font-size: clamp(var(--fs-5), 14cqi, var(--fs-num));
+}
+.pgs-item span { font-size: var(--fs-3); font-weight: 500; color: var(--text-2); line-height: 1.4; }
 .pgs-item.ok b { color: var(--green); }
 .pgs-item.warn b { color: var(--amber); }
 .pgs-item.bad b { color: var(--red); }
@@ -1221,15 +1328,15 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .avatar {
   width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  font-weight: 800; color: #fff; font-size: var(--fs-5); position: relative;
+  font-weight: 700; color: var(--on-primary); font-size: var(--fs-5); position: relative;
 }
 .avatar.sm { width: 34px; height: 34px; font-size: var(--fs-2); }
 .status-dot {
   position: absolute; bottom: 0; right: 0; width: 12px; height: 12px;
   border-radius: 50%; border: 2px solid var(--surface);
 }
-.status-dot.online { background: #22c55e; }
-.status-dot.offline { background: #94a3b8; }
+.status-dot.online { background: var(--online); }
+.status-dot.offline { background: var(--offline); }
 .admin-name { font-weight: 700; font-size: var(--fs-4); }
 .admin-meta { font-size: var(--fs-1); color: var(--text-3); margin-top: var(--sp-1); }
 .page-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-2); margin-bottom: var(--sp-3); }
@@ -1257,53 +1364,49 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .top3-card .medal { line-height: 1; }
 .top3-card.first .medal .rank { width: 44px; height: 44px; font-size: var(--fs-6); }
 .top3-card.first { padding: var(--sp-5) var(--sp-3); }
-.top3-card.gold { border-color: var(--gold); background: linear-gradient(180deg, rgba(245,179,1,.10), var(--surface)); box-shadow: 0 6px 18px rgba(245,179,1,.25); }
-.top3-card.silver { border-color: var(--silver); background: linear-gradient(180deg, rgba(154,165,177,.10), var(--surface)); }
-.top3-card.bronze { border-color: var(--bronze); background: linear-gradient(180deg, rgba(196,127,61,.10), var(--surface)); }
+.top3-card.gold { border-color: var(--gold); background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 10%, transparent), var(--surface)); box-shadow: 0 6px 18px color-mix(in srgb, var(--gold) 25%, transparent); }
+.top3-card.silver { border-color: var(--silver); background: linear-gradient(180deg, color-mix(in srgb, var(--silver) 10%, transparent), var(--surface)); }
+.top3-card.bronze { border-color: var(--bronze); background: linear-gradient(180deg, color-mix(in srgb, var(--bronze) 10%, transparent), var(--surface)); }
 .top3-card .avatar { margin: var(--sp-2) auto; }
 .top3-card.first .avatar { width: 54px; height: 54px; }
 .top3-card .nm { font-weight: 700; font-size: var(--fs-3); }
-.top3-card .val { font-size: var(--fs-6); font-weight: 800; color: var(--green); margin: var(--sp-1) 0; }
+.top3-card .val { font-size: var(--fs-6); font-weight: 700; color: var(--green); margin: var(--sp-1) 0; }
 .top3-card.first .val { font-size: var(--fs-7); }
 .top3-card .sub { font-size: var(--fs-1); color: var(--text-3); }
-/* ---------- สลับหัวลิสต์: ท็อป 3 / ต่ำสุด 5 (ทีมขอ 2026-08-10 — โชว์ทีละอัน ไม่กินที่) ---------- */
-.rank-tabs { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-3); flex-wrap: wrap; }
-.rank-tab {
-  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2);
-  padding: var(--sp-2) var(--sp-4); border-radius: 99px; font: inherit; font-size: var(--fs-2);
-  font-weight: 700; cursor: pointer; min-height: 38px;
-}
-.rank-tab:hover { border-color: var(--primary); }
-.rank-tab.good.active { background: var(--green-soft); border-color: var(--green); color: var(--green); }
-.rank-tab.warn.active { background: var(--red-soft); border-color: var(--red); color: var(--red); }
+/* ---------- สลับหัวลิสต์: ท็อป 3 / ต่ำสุด 5 (ทีมขอ 2026-08-10 — โชว์ทีละอัน ไม่กินที่) ----------
+   = สลับมุมมอง จึงใช้หน้าตาแท็บกลาง (.tab — ตัวหนังสือ + เส้นใต้ม่วง) เดิมแท็บ "ต่ำสุด 5" เป็นพื้นแดง
+   ซึ่งกินงบสีแดง (B3) ทั้งที่มันแค่ปุ่มสลับ ไม่ใช่เรื่องด่วน */
+.rank-tabs { display: flex; gap: var(--sp-1); margin-bottom: var(--sp-3); flex-wrap: wrap; border-bottom: 1px solid var(--border); }
 
-/* ---------- 🚨 โซนเตือน "ต่ำสุด 5" — แดงทั้งโซนให้เห็นว่าคนละเรื่องกับโพเดียม ---------- */
+/* ---------- โซน "ต่ำสุด 5" — คนละเรื่องกับโพเดียม ----------
+   B3 งบสีแดง: เดิมทาพื้นแดงทั้งโซน + กรอบแดงทุกใบ → เหลือแถบแดงซ้ายของโซน/การ์ด หัวข้อสีปกติ
+   (ตัวเลขยังเป็นแดงตามความหมาย) */
 .b5-zone {
-  border: 2px solid var(--red); border-radius: 16px; padding: var(--sp-3);
-  background: var(--red-soft); margin-bottom: var(--sp-4);
+  border: 1px solid var(--border); border-left: 3px solid var(--red); border-radius: 16px; padding: var(--sp-3);
+  background: var(--surface); margin-bottom: var(--sp-4);
   display: flex; flex-direction: column; gap: var(--sp-2);
 }
 .b5-head { margin-bottom: var(--sp-1); }
-.b5-title { font-weight: 800; font-size: var(--fs-4); color: var(--red); }
+.b5-title { font-weight: 700; font-size: var(--fs-section); color: var(--text); }
 .b5-note { font-size: var(--fs-1); color: var(--text-3); margin-top: var(--sp-1); line-height: 1.5; }
 .b5-card {
   display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap;
-  background: var(--surface); border: 1px solid var(--red); border-left: 4px solid var(--red);
+  background: var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--red);
   border-radius: 12px; padding: var(--sp-3); min-width: 0;
 }
-.b5-card.worst { border-width: 2px; border-left-width: 6px; box-shadow: 0 4px 14px var(--red-soft); }
+.b5-card.worst { border-left-width: 5px; }
 /* ป้าย "ต่ำสุด N" — ทีมบอกว่าเห็นแต่เลขอันดับรวมแล้วแยกไม่ออกว่าใครหนักกว่าใคร */
 .b5-rank {
   width: 52px; flex-shrink: 0; border-radius: 10px; padding: var(--sp-1) 0;
   background: var(--red-soft); color: var(--red); text-align: center; line-height: 1.15;
 }
 .b5-rank-lo { display: block; font-size: var(--fs-1); font-weight: 700; opacity: .85; }
-.b5-rank-n { display: block; font-size: var(--fs-5); font-weight: 800; }
+.b5-rank-n { display: block; font-size: var(--fs-5); font-weight: 700; }
 .b5-overall { font-size: var(--fs-1); font-weight: 500; color: var(--text-3); }
 .b5-mid { flex: 1 1 160px; min-width: 0; }
 .b5-name { font-weight: 700; font-size: var(--fs-4); display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
 /* ใบอันดับ 1 (ต่ำสุด) — ป้ายทึบ + กรอบหนา ให้สะดุดตากว่าอีก 4 ใบ */
-.b5-card.worst .b5-rank { background: var(--red); color: #fff; }
+.b5-card.worst .b5-rank { background: var(--danger-solid); color: var(--on-danger); }
 .b5-units { display: flex; gap: var(--sp-1); flex-wrap: wrap; margin-top: var(--sp-1); }
 .b5-unit {
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2);
@@ -1314,7 +1417,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .b5-unit.guess { border-style: dashed; color: var(--text-3); font-weight: 600; }
 .b5-stats { font-size: var(--fs-1); color: var(--text-3); margin-top: var(--sp-1); line-height: 1.6; }
 /* มือถือ: ค่าตกลงมาเต็มบรรทัดแต่ชิดขวา — ลอยอยู่ซ้ายล่างจะดูหลุดจากการ์ด */
-.b5-val { font-size: var(--fs-5); font-weight: 800; color: var(--red); width: 100%; text-align: right; }
+.b5-val { font-size: var(--fs-5); font-weight: 700; color: var(--red); width: 100%; text-align: right; }
 
 .rank-list { display: flex; flex-direction: column; gap: var(--sp-3); }
 /* การ์ดอันดับ — มือถือให้บล็อกขวา (เปอร์บิล/ROAS) ตกลงมาเต็มบรรทัด แทนบีบคอลัมน์กลางจนชื่อขาด */
@@ -1329,7 +1432,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .rank-no {
   width: 34px; height: 34px; border-radius: 50%; flex-shrink: 0;
   background: var(--surface-2); color: var(--text-2);
-  display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: var(--fs-3);
+  display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--fs-3);
 }
 .rank-no.medal { background: transparent; font-size: var(--fs-8); }
 .rank-no.medal > .rank { width: 34px; height: 34px; }   /* วงเหรียญเท่ากรอบเลขอันดับอื่น */
@@ -1337,14 +1440,14 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .rank-name { font-weight: 700; font-size: var(--fs-4); display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
 .rank-sub { font-size: var(--fs-2); color: var(--text-3); margin-top: var(--sp-1); }
 .rank-right { text-align: left; width: 100%; flex-shrink: 0; }
-.rank-big { font-size: var(--fs-5); font-weight: 800; color: var(--green); }
+.rank-big { font-size: var(--fs-5); font-weight: 700; color: var(--green); }
 .rank-big .rank-big-u { font-size: var(--fs-1); font-weight: 600; color: var(--text-3); }
 .rank-mini { font-size: var(--fs-1); color: var(--text-3); margin-top: var(--sp-1); }
 
 /* ---------- admin performance: dynamic scoring (Overall) ---------- */
 .score-badge {
   display: inline-block; padding: var(--sp-1) var(--sp-2); border-radius: 99px;
-  font-size: var(--fs-2); font-weight: 800; white-space: nowrap;
+  font-size: var(--fs-2); font-weight: 700; white-space: nowrap;
 }
 .score-badge.good { background: var(--green-soft); color: var(--green); }
 .score-badge.mid  { background: var(--amber-soft); color: var(--amber); }
@@ -1389,7 +1492,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .kpi-bar-track { height: 6px; border-radius: 99px; background: var(--track); overflow: hidden; }
 .kpi-bar-track i { display: block; height: 100%; border-radius: 99px; background: var(--text-3); transition: width .3s ease; }
 .kpi-bar-txt { font-size: var(--fs-1); color: var(--text-3); margin-top: var(--sp-1); }
-.kpi-bar-txt b { font-weight: 800; }
+.kpi-bar-txt b { font-weight: 700; }
 .kpi-bar.good .kpi-bar-track i { background: var(--green); }
 .kpi-bar.good .kpi-bar-txt b { color: var(--green); }
 .kpi-bar.mid .kpi-bar-track i { background: var(--amber-bar); }
@@ -1413,8 +1516,8 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 }
 .live-dot.on { background: var(--green); animation: livePulse 2s ease-in-out infinite; }
 @keyframes livePulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(45, 212, 160, .5); }
-  70% { opacity: .55; box-shadow: 0 0 0 6px rgba(45, 212, 160, 0); }
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 color-mix(in srgb, var(--green) 50%, transparent); }
+  70% { opacity: .55; box-shadow: 0 0 0 6px transparent; }
 }
 @media (prefers-reduced-motion: reduce) { .live-dot.on { animation: none; } }
 
@@ -1427,7 +1530,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 }
 .attn-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; width: 100%; }
 .attn-page { font-size: var(--fs-1); color: var(--text-3); }
-.attn-item:hover { background: rgba(108,92,231,.08); }
+.attn-item:hover { background: var(--hover-tint); }
 .attn-body { flex: 1; min-width: 0; }
 /* ชื่อ + ป้าย "รอ 20 ชม. 40 นาที" — ป้ายเป็น nowrap ยาว ~120px ถ้าไม่ให้ตัดบรรทัด
    มันจะดันทั้งหน้าเลื่อนแนวนอนบนมือถือ (เจอจากการวัดจริงที่ 390px) */
@@ -1439,7 +1542,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 
 /* ---------- tag cloud ---------- */
 .tag-cloud { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
-.tag-cloud .chip { background: var(--primary-soft); color: #a99cff; border: none; }
+.tag-cloud .chip { background: var(--primary-soft); color: var(--primary-ink); border: none; }
 .tag-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
 
 /* ---------- modal / toast / states ---------- */
@@ -1449,7 +1552,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
    คีย์บอร์ดเด้งขึ้นมาแล้วดันโมดัลออกนอกจอ และขอบมนทั้ง 4 ด้านทำให้เนื้อหาเหลือที่น้อยลงอีก
    จอ ≥600px ค่อยกลับเป็นกล่องลอยกลางจอตามเดิม */
 .modal-overlay {
-  position: fixed; inset: 0; background: rgba(5,8,18,.7); z-index: 100;
+  position: fixed; inset: 0; background: var(--overlay); z-index: 100;
   display: flex; align-items: flex-end; justify-content: center; padding: 0;
 }
 .modal {
@@ -1486,7 +1589,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
   content: ''; position: absolute; top: 2px; left: 50%; transform: translateX(-50%);
   width: 40px; height: 4px; border-radius: 99px; background: var(--text-3); opacity: .55;
 }
-.modal-head h3 { font-size: var(--fs-4); margin-top: var(--sp-2); }
+.modal-head h3 { font-size: var(--fs-section); margin-top: var(--sp-2); }
 .modal-close { background: none; border: none; color: var(--text-3); font-size: var(--fs-6); margin-top: var(--sp-1); }
 /* ปุ่มปิดแบบไอคอนกากบาท (modalCloseBtn / openModal แปลง ✕ เดิมให้) — จัดไอคอนให้อยู่กลางพื้นที่กด */
 .modal-close:has(> .ic) { display: inline-flex; align-items: center; justify-content: center; flex: none; border-radius: 10px; }
@@ -1503,14 +1606,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
   gap: var(--sp-2); margin-top: var(--sp-4);
 }
 .modal-actions .btn, .modal-actions .btn-mini { width: 100%; }
-#toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 200; display: flex; flex-direction: column; gap: var(--sp-2); }
-.toast {
-  background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
-  padding: var(--sp-3) var(--sp-4); border-radius: 10px; font-size: var(--fs-3); box-shadow: var(--shadow);
-  animation: toastIn .25s ease;
-  /* ไอคอนสถานะ (toast(msg, kind) ใน helpers) อยู่หน้าข้อความ — ข้อความยาวบนมือถือต้องไม่ล้นขอบจอ */
-  display: flex; align-items: flex-start; gap: var(--sp-2); max-width: min(420px, calc(100vw - 40px));
-}
+/* กล่องข้อความเด้ง (#toast-stack / #toast-container) + หน้าตา .toast ย้ายไปอยู่ "ข้อความเด้ง 3 แบบ" ในชุดชิ้นส่วนกลาง */
 .toast-ic { display: inline-flex; flex: none; margin-top: 2px; }
 .toast-ok .toast-ic { color: var(--green); }
 .toast-warn .toast-ic { color: var(--amber); }
@@ -1587,7 +1683,9 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 }
 
 /* แชทรอนานเกิน 1 ชม. — คาดแดงซ้ายให้สะดุดตา */
-.attn-item.urgent { border-left: 3px solid var(--red); background: var(--red-soft); border-radius: 8px; }
+/* B3: เดิมทาพื้นแดงด้วย — ตอนนี้แชทรอตอบแทบทุกแถวเกิน 1 ชม. เลยแดงทั้งการ์ด 30 แถว ตาชินจนไม่เห็นอะไร
+   เหลือแถบแดงซ้ายอย่างเดียว (ระดับความด่วนจริงให้บอกด้วยสีป้ายเวลารอ) */
+.attn-item.urgent { border-left: 3px solid var(--red); border-radius: 8px; }
 a.btn-mini { text-decoration: none; display: inline-block; }
 
 /* ---------- Admin Management: ปุ่มจัดการบนการ์ด + ตั้งค่า ---------- */
@@ -1626,7 +1724,7 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   background: var(--surface);                 /* ทึบเต็ม — ลุคคมชัด */
   border: 1px solid var(--border);
   border-radius: calc(var(--radius) - 4px);   /* ~10px คมกว่าการ์ดปกติ */
-  box-shadow: 0 8px 24px -6px rgba(3,7,18,.55), 0 2px 6px -2px rgba(3,7,18,.42);
+  box-shadow: var(--shadow-pop);
   color: var(--text);
   font-family: inherit; font-size: var(--fs-2); line-height: 1.35; font-weight: 500;
   letter-spacing: -.01em;
@@ -1651,7 +1749,7 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 }
 .chart-tip .ct-value {
   margin-top: var(--sp-1);
-  font-size: var(--fs-6); font-weight: 800; line-height: 1.1;
+  font-size: var(--fs-6); font-weight: 700; line-height: 1.1;
   letter-spacing: -.02em; color: var(--text);
   font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1;
 }
@@ -1690,9 +1788,6 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   border-top: 1px solid var(--border);
   border-top-left-radius: 2px; border-bottom-right-radius: 0;
 }
-:root[data-theme="light"] .chart-tip {
-  box-shadow: 0 8px 24px -6px rgba(15,23,42,.16), 0 2px 6px -2px rgba(15,23,42,.10);
-}
 
 /* ============================================================
    info tooltip ("holder") — กรอบลอยอธิบายสูตร/ความหมายของค่า
@@ -1705,7 +1800,7 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   max-width: 320px; padding: var(--sp-3) var(--sp-3) var(--sp-3);
   background: var(--surface); border: 1px solid var(--border);
   border-radius: calc(var(--radius) - 4px);
-  box-shadow: 0 10px 28px -8px rgba(3,7,18,.6), 0 2px 6px -2px rgba(3,7,18,.45);
+  box-shadow: var(--shadow-pop);
   color: var(--text);
   font-family: inherit; font-size: var(--fs-2); line-height: 1.45; font-weight: 500;
   letter-spacing: -.01em;
@@ -1749,9 +1844,6 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   border-left: 1px solid var(--border); border-top: 1px solid var(--border);
   border-top-left-radius: 2px;
 }
-:root[data-theme="light"] .info-tip {
-  box-shadow: 0 10px 28px -8px rgba(15,23,42,.18), 0 2px 6px -2px rgba(15,23,42,.10);
-}
 /* ค่าที่ hover ดูคำอธิบายได้ = เมาส์ลูกศรปกติ (บอสไม่เอาเมาส์รูป ? — 2026-09-15)
    :where ทำให้ความเจาะจงเป็น 0 → ปุ่ม/ลิงก์/แถวที่กดได้ยังเป็นรูปมือตาม rule ของตัวเอง
    ของที่อยู่ "ข้างใน" ของกดได้ (เช่น ป้ายตัวเลขในเมนู, ช่องในแถวตาราง) ให้รับรูปมือจากตัวแม่ */
@@ -1788,15 +1880,20 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 
 
 /* ---------- U Map (หน้า 6: จับคู่แอดมิน ↔ U) ---------- */
+/* ช่องละ 150px = มือถือ 390px ได้ 2 คอลัมน์ (เดิม 180px เรียงลงมาทีละกล่อง 4 กล่องกินจอแรกหมด) */
 .umap-stats {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
   gap: var(--sp-3); margin-bottom: var(--sp-4);
 }
+/* กล่องตัวเลข U Map — หน้าตาเดียวกับกล่องแน่นหน้า Sales (.sr-strip .tile) */
 .umap-stats .tile {
-  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
-  padding: var(--sp-3) var(--sp-4); font-size: var(--fs-2); color: var(--text-3);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow);
+  padding: var(--sp-3) var(--sp-4); font-size: var(--fs-2); font-weight: 500; color: var(--text-2); line-height: 1.4;
 }
-.umap-stats .tile b { display: block; font-size: var(--fs-5); color: var(--text); margin-top: var(--sp-1); }
+.umap-stats .tile b {
+  display: block; margin-top: var(--sp-1); color: var(--text); font-weight: 700; line-height: 1.25;
+  font-size: var(--fs-num-sm); font-size: clamp(var(--fs-4), 14cqi, var(--fs-num-sm)); letter-spacing: -0.01em;
+}
 .umap-hint {
   background: var(--primary-soft); border: 1px dashed var(--primary);
   border-radius: 10px; padding: var(--sp-2) var(--sp-4); font-size: var(--fs-3); margin-bottom: var(--sp-4);
@@ -1815,10 +1912,10 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   transition: border-color .15s ease, background .15s ease;
 }
 .admin-pick:hover { border-color: var(--primary); }
-.admin-pick.selected { background: var(--primary); border-color: var(--primary); color: #fff; }
+/* แอดมินที่เลือกอยู่ = สถานะ "เลือก" แบบชิปกรอง (พื้นม่วงอ่อน ตัวม่วง) ไม่ใช่ม่วงทึบแบบปุ่มหลัก (C2) */
+.admin-pick.selected { background: var(--primary-soft); border-color: var(--primary); color: var(--primary-ink); font-weight: 700; }
 .admin-pick .cnt { font-size: var(--fs-1); color: var(--text-3); }
 .admin-pick .cnt.none { color: var(--amber); }
-.admin-pick.selected .cnt, .admin-pick.selected .cnt.none { color: rgba(255,255,255,.85); }
 .pdot {
   display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
 }
@@ -1829,7 +1926,7 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   padding: var(--sp-3) var(--sp-4); box-shadow: var(--shadow); position: relative;
   transition: border-color .15s ease, transform .12s ease, box-shadow .15s ease;
 }
-.u-card .u-code { font-size: var(--fs-7); font-weight: 800; letter-spacing: .5px; }
+.u-card .u-code { font-size: var(--fs-7); font-weight: 700; letter-spacing: .5px; }
 .u-card .u-product { font-size: var(--fs-3); color: var(--text-2); margin-top: var(--sp-1); word-break: break-word; }
 .u-card .u-tools {
   /* gap เดิม 4px — ปุ่มแก้กับปุ่มลบชิดกันเกินไปสำหรับนิ้ว ขยายเป็น 8px */
@@ -1926,7 +2023,7 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 @media (prefers-reduced-motion: reduce) { .btn.btn-nav { transition: none; } }
 .nav-backdrop {
   display: block; position: fixed; inset: 0; z-index: 55;
-  background: rgba(0,0,0,.5); opacity: 0; pointer-events: none;
+  background: var(--backdrop); opacity: 0; pointer-events: none;
   transition: opacity .22s ease;
 }
 #app.nav-open .nav-backdrop { opacity: 1; pointer-events: auto; }
@@ -1935,11 +2032,11 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 
 /* ---------- กล่องผู้ใช้ที่ล็อกอินอยู่ (ท้าย sidebar) ---------- */
 .me-box {
-  border-top: 1px solid rgba(255,255,255,.12);
+  border-top: 1px solid var(--sb-divider);
   padding-top: var(--sp-3); margin-bottom: var(--sp-3);
 }
 .me-name {
-  color: #fff; font-weight: 700; font-size: var(--fs-2);
+  color: var(--sb-text-strong); font-weight: 700; font-size: var(--fs-2);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .me-role { font-size: var(--fs-1); opacity: .82; margin-bottom: var(--sp-2); }
@@ -1948,7 +2045,7 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   padding: var(--sp-1) var(--sp-3); font-size: var(--fs-1); width: 100%;
   background: transparent; border-color: var(--sb-line); color: var(--sidebar-text);
 }
-.btn.btn-logout:hover { border-color: var(--sidebar-text); color: #fff; }
+.btn.btn-logout:hover { border-color: var(--sidebar-text); color: var(--sb-text-strong); }
 
 /* ---------- หน้า login ---------- */
 .login-wrap {
@@ -1964,7 +2061,7 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   text-align: center; margin-bottom: var(--sp-4);
 }
 .login-logo { display: block; }
-.login-title { font-size: var(--fs-6); font-weight: 800; }
+.login-title { font-size: var(--fs-6); font-weight: 700; }
 .login-brand .card-sub { margin-bottom: 0; }
 /* ป้ายชื่อช่องอยู่เหนือช่องเสมอ (placeholder หายทันทีที่พิมพ์) */
 .login-label { display: block; font-size: var(--fs-2); font-weight: 600; color: var(--text-2); margin-bottom: var(--sp-1); }
@@ -1988,16 +2085,19 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 .login-hint { font-size: var(--fs-1); color: var(--text-3); text-align: center; margin-top: var(--sp-3); }
 
 /* ---------- หน้า "ผลงานของฉัน" ---------- */
-.me-hero { background: linear-gradient(135deg, rgba(108,92,231,.16), transparent); }
-.me-hero-name { font-size: var(--fs-6); font-weight: 800; }
+.me-hero { background: linear-gradient(135deg, var(--primary-soft), transparent), var(--surface); }
+.me-hero-name { font-size: var(--fs-6); font-weight: 700; }
 .me-hero-sub { font-size: var(--fs-2); color: var(--text-3); margin-top: var(--sp-1); }
 .me-rank { margin-top: var(--sp-2); font-size: var(--fs-3); }
 .me-rank b { font-size: var(--fs-5); color: var(--primary); }
 
 .me-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap: var(--sp-3); margin-bottom: var(--sp-4); }
 .me-card { margin-bottom: 0; }
-.me-card-top { font-size: var(--fs-2); color: var(--text-3); margin-bottom: var(--sp-1); }
-.me-card-val { font-size: var(--fs-7); font-weight: 800; font-variant-numeric: tabular-nums; }
+.me-card-top { font-size: var(--fs-3); font-weight: 500; color: var(--text-2); margin-bottom: var(--sp-1); }
+.me-card-val {
+  font-size: var(--fs-num); font-size: clamp(var(--fs-5), 14cqi, var(--fs-num));
+  font-weight: 700; line-height: 1.25; letter-spacing: -0.01em; font-variant-numeric: tabular-nums;
+}
 .me-card .card-sub { margin-bottom: 0; margin-top: var(--sp-1); font-size: var(--fs-1); }
 
 .me-prog { margin-bottom: var(--sp-4); }
@@ -2008,11 +2108,11 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 .me-bar { height: 9px; border-radius: 99px; background: var(--border); overflow: hidden; }
 .me-bar-fill { display: block; height: 100%; border-radius: 99px; transition: width .4s ease; }
 .me-bar-fill.ok { background: var(--green); }
-.me-bar-fill.warn { background: var(--amber, #f0a020); }
+.me-bar-fill.warn { background: var(--amber-bar); }
 .me-bar-fill.bad { background: var(--red); }
 .me-prog-pct { font-size: var(--fs-1); margin-top: var(--sp-1); }
 .me-prog-pct.ok { color: var(--green); }
-.me-prog-pct.warn { color: var(--amber, #f0a020); }
+.me-prog-pct.warn { color: var(--amber); }
 .me-prog-pct.bad { color: var(--red); }
 
 .me-kv { display: flex; justify-content: space-between; gap: var(--sp-3); padding: var(--sp-2) 0; border-bottom: 1px solid var(--border); font-size: var(--fs-3); }
@@ -2116,18 +2216,15 @@ table.tbl.tbl-scroll-x td:first-child {
   background: var(--surface);
   /* เงาทึบพอให้อ่านออกว่าคอลัมน์นี้ "ลอยอยู่ข้างบน" ส่วนคอลัมน์ถัดไปมุดอยู่ข้างใต้
      เส้น 1px เฉยๆ ทำให้ตัวเลขที่โดนบังครึ่งตัวดูเหมือนตารางพัง */
-  box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px rgba(0, 0, 0, .28);
+  box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px var(--pin-shadow);
 }
 table.tbl.tbl-scroll-x thead th:first-child { z-index: 2; background: var(--surface); }
-/* แถวที่มีพื้นของตัวเอง (hover / ยังไม่จัดกลุ่ม) ต้องทาสีช่องที่ตรึงด้วย ไม่งั้นช่องแรกสีไม่ตรงกับแถว
-   ทา 2 ชั้น (สีทับ + พื้นการ์ด) ให้ได้สีผสมเดียวกับแถวเป๊ะ ไม่ใช่เดาเป็นสีทึบ */
+/* แถวที่มีพื้นของตัวเอง (hover) ต้องทาสีช่องที่ตรึงด้วย ไม่งั้นช่องแรกสีไม่ตรงกับแถว
+   ทา 2 ชั้น (สีทับ + พื้นการ์ด) ให้ได้สีผสมเดียวกับแถวเป๊ะ ไม่ใช่เดาเป็นสีทึบ
+   (แถว "ยังไม่จัดกลุ่ม" ไม่ทาพื้นแล้ว — ใช้แถบส้มซ้ายแทน ดูแถบสัญญาณในชุดชิ้นส่วนกลาง) */
 table.tbl.tbl-scroll-x tr.clickable:hover td:first-child {
   background-color: var(--surface);
-  background-image: linear-gradient(rgba(108,92,231,.12), rgba(108,92,231,.12));
-}
-table.tbl.tbl-scroll-x tr.sr-unmapped td:first-child {
-  background-color: var(--surface);
-  background-image: linear-gradient(rgba(232,161,58,.09), rgba(232,161,58,.09));
+  background-image: linear-gradient(var(--row-hover-strong), var(--row-hover-strong));
 }
 
 /* ---- ตรึง 2 คอลัมน์ (.tbl-pin2) — ตารางที่คอลัมน์แรกเป็นแค่ลำดับ "#" (classifyTable ใน app-core ติดให้)
@@ -2139,18 +2236,14 @@ table.tbl.tbl-scroll-x.tbl-pin2 th:nth-child(2),
 table.tbl.tbl-scroll-x.tbl-pin2 td:nth-child(2) {
   position: sticky; left: var(--pin1-w, 40px); z-index: 1;
   background: var(--surface);
-  box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px rgba(0, 0, 0, .28);
+  box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px var(--pin-shadow);
   /* ชื่อยาวบรรทัดเดียว ตัดด้วย … ไม่เกิน 40% ของจอ — ไม่งั้นคอลัมน์ที่ตรึงกินจอจนไม่เหลือที่ให้ตัวเลข */
   max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 table.tbl.tbl-scroll-x.tbl-pin2 thead th:nth-child(2) { z-index: 2; }
 table.tbl.tbl-scroll-x.tbl-pin2 tr.clickable:hover td:nth-child(2) {
   background-color: var(--surface);
-  background-image: linear-gradient(rgba(108,92,231,.12), rgba(108,92,231,.12));
-}
-table.tbl.tbl-scroll-x.tbl-pin2 tr.sr-unmapped td:nth-child(2) {
-  background-color: var(--surface);
-  background-image: linear-gradient(rgba(232,161,58,.09), rgba(232,161,58,.09));
+  background-image: linear-gradient(var(--row-hover-strong), var(--row-hover-strong));
 }
 /* แถวที่ช่องแรกกินหลายคอลัมน์ (เช่น "รวม" colspan=2) ช่องที่ 2 ของแถวนั้นคือคอลัมน์อื่น — ห้ามตรึง
    ไม่งั้นมันจะไปลอยทับชื่อคอลัมน์ที่ 2 ของแถวอื่น */
@@ -2159,7 +2252,7 @@ table.tbl.tbl-scroll-x.tbl-pin2 tr:has(> :first-child[colspan]) > :nth-child(2) 
 }
 /* ช่องแรกที่กินหลายคอลัมน์ของแถวนั้นกลายเป็นขอบที่ตรึงแทน — ต้องมีเงาขอบเหมือนคอลัมน์ชื่อ */
 table.tbl.tbl-scroll-x.tbl-pin2 tr > td:first-child[colspan] {
-  box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px rgba(0, 0, 0, .28);
+  box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px var(--pin-shadow);
 }
 
 /* ---- บอกว่า "ขวามือยังมีอีก" (bindScrollHint ใน app-core ติด .sx-more เมื่อยังเลื่อนต่อได้) ----
@@ -2217,8 +2310,6 @@ table.tbl.tbl-cards td.tc-title::before { content: none; }
 /* แถวที่ใช้ colspan (ไม่มีข้อมูล / แถวรวม) — ไม่มีคอลัมน์ให้จับคู่ป้ายกำกับ */
 table.tbl.tbl-cards tr.tc-plain { display: block; }
 table.tbl.tbl-cards tr.tc-plain td { display: block; }
-table.tbl.tbl-cards tr.sr-unmapped { border-color: var(--amber); background: rgba(232,161,58,.09); }
-table.tbl.tbl-cards tr.sr-unmapped td { background: none; }   /* กันสีส้มทับสองชั้น */
 /* ปุ่มจัดการในการ์ด — เรียง 2 ปุ่มต่อแถว (เรียงลงมาทีละปุ่มทำให้การ์ดสูงเกินจำเป็น)
    ยังกว้างพอสำหรับนิ้วเพราะครึ่งหนึ่งของ 340px ยังเกิน 44px อยู่มาก */
 /* ⚠️ class us-actions อยู่บน <td> เอง (lib/views/users.ts) — เดิมเขียน "td .us-actions" ซึ่งเล็งกล่องข้างใน td
@@ -2235,6 +2326,485 @@ table.tbl.tbl-cards td.us-actions .btn-mini.danger::before {
   border-top: 1px solid var(--border);
 }
 table.tbl.tbl-cards td > .btn-mini { flex: 1; }
+
+/* ============================================================
+   🧱 ชุดชิ้นส่วนกลาง (ตรวจ UI รอบ 3 — 26 ก.ย. 69)
+   ของที่ทุกหน้าต้องหน้าตาเหมือนกัน รวมไว้ที่เดียว — หน้าไหนประกอบเองด้วย style="" ให้ย้ายมาใช้ชุดนี้
+   ตัวสร้าง HTML: lib/ui/helpers.ts (toast / undoToast / confirmDialog / withBusy / infoTip / stateHtml)
+                  lib/ui/table-sort.ts (makeSortable) · lib/ui/color-rules.ts (attainKind → kindClass)
+   ============================================================ */
+
+/* ---------- C1 บทบาทตัวอักษร 5 ชั้น ----------
+   เดิมหัวการ์ด 14px เท่ากับเนื้อความ ตัวเลขเด่นหนา 800 ปนกับ 700 — ตาแยกไม่ออกว่าอะไรสำคัญกว่า
+   ใช้คลาสเหล่านี้แทนการใส่ font-size ลงใน style="" ของแต่ละหน้า */
+.t-page { font-size: var(--fs-page); font-weight: 700; line-height: 1.3; }
+.t-section { font-size: var(--fs-section); font-weight: 700; line-height: 1.4; }
+.t-body { font-size: var(--fs-body); font-weight: 400; }
+.t-label { font-size: var(--fs-label); font-weight: 500; color: var(--text-3); }
+.t-num {
+  font-size: var(--fs-num); font-weight: 700; line-height: 1.2;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.01em;
+}
+
+/* ---------- C2 ปุ่ม 4 แบบ ----------
+   (1) .btn.primary ม่วงทึบ — ไม่เกิน 1 ปุ่มต่อส่วน  (2) .btn ปุ่มรอง (กรอบเทา)
+   (3) .btn-text ไม่มีกรอบ ตัวม่วง — ปุ่มที่ซ้ำทุกแถว เช่น "สถิติ" "ดูรายละเอียด →" (ปุ่มกรอบ 30 อันซ้อนกันคือเสียงดังทั้งตาราง)
+   (4) .danger กรอบแดง = ลบ/ระงับ · .btn.danger.solid แดงทึบ ใช้เฉพาะปุ่มยืนยันในกล่องยืนยัน */
+.btn.btn-text, .btn-mini.btn-text, .btn-text {
+  background: none; border-color: transparent; color: var(--primary-ink); font-weight: 600;
+}
+.btn-text:not(.btn):not(.btn-mini) {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 44px;
+  padding: var(--sp-2); border: 1px solid transparent; border-radius: 8px; font-size: var(--fs-3);
+}
+.btn.btn-text:hover, .btn-mini.btn-text:hover, .btn-text:hover {
+  background: var(--primary-soft); border-color: transparent;
+}
+@media (min-width: 900px) { .btn-text:not(.btn):not(.btn-mini) { min-height: 0; padding: var(--sp-1) var(--sp-2); } }
+.btn.danger, .btn-mini.danger { background: transparent; color: var(--red); border-color: var(--red); }
+.btn.danger:hover, .btn-mini.danger:hover { background: var(--red-soft); border-color: var(--red); }
+/* แดงทึบใช้ --danger-solid ไม่ใช่ --red — --red ของโหมดมืดเป็นชมพูสว่าง ตัวขาวบนนั้นได้แค่ 3:1 */
+.btn.danger.solid { background: var(--danger-solid); border-color: var(--danger-solid); color: var(--on-danger); }
+.btn.danger.solid:hover { background: var(--danger-solid); border-color: var(--danger-solid); filter: brightness(1.08); }
+
+/* ปุ่มที่กำลังทำงาน (withBusy ใส่ .is-busy + disabled + <svg class="ic spin">) — ต้องต่างจากปุ่มปกติ
+   ไม่งั้นเน็ตช้าแล้วคนกดซ้ำจนบันทึกซ้ำ · ทึบกว่าปุ่ม disabled ธรรมดา เพราะข้อความ "กำลังบันทึก…" ต้องอ่านออก */
+:is(.btn, .btn-mini, .btn-text, .filter-btn).is-busy {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: progress;
+}
+:is(.btn, .btn-mini, .btn-text, .filter-btn).is-busy,
+:is(.btn, .btn-mini, .btn-text, .filter-btn).is-busy:disabled { opacity: .78; }
+:is(.btn, .btn-mini, .btn-text, .filter-btn).is-busy:hover { border-color: var(--border); }
+.ic.spin, .spin { animation: spin .9s linear infinite; transform-origin: 50% 50%; }
+/* ลดการเคลื่อนไหว: วงหมุนหยุดนิ่ง แต่คำว่า "กำลัง…" ยังบอกสถานะอยู่ */
+@media (prefers-reduced-motion: reduce) { .ic.spin, .spin { animation: none; } }
+
+/* ---------- C2 แท็บ (สลับหน้าย่อย) vs ชิปกรอง (กรองข้อมูล) ----------
+   แท็บ = ตัวหนังสือ + เส้นใต้ม่วง · ชิปกรอง = พื้นม่วงอ่อน ตัวม่วง (กฎอยู่ที่ .filter-btn ด้านบน)
+   เดิมทั้งสองแบบเป็นม่วงทึบเหมือนปุ่มหลัก → ตาแยกไม่ออกว่าอันไหน "เลือกอยู่" อันไหน "กดแล้วบันทึก"
+   เส้นใต้ใช้ box-shadow ด้านใน ไม่ใช่ border — แท็บที่เลือกจะได้ไม่สูงกว่าแท็บอื่น 2px */
+.tabs {
+  display: flex; align-items: flex-end; gap: var(--sp-1);
+  border-bottom: 1px solid var(--border); margin-bottom: var(--sp-4);
+  overflow-x: auto; scrollbar-width: none;       /* แท็บเยอะบนมือถือ = ปัดซ้ายขวา ไม่ขึ้นบรรทัดใหม่ */
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tab, .kpi-tab, .rank-tab {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex: none;
+  min-height: 44px; padding: var(--sp-2) var(--sp-3);
+  background: none; border: 0; border-radius: 8px 8px 0 0;
+  color: var(--text-2); font: inherit; font-size: var(--fs-3); font-weight: 600; white-space: nowrap;
+  cursor: pointer;
+}
+.tab:hover, .kpi-tab:hover, .rank-tab:hover { color: var(--text); background: var(--row-hover); border-color: transparent; }
+.tab[aria-selected="true"], .tab.active, .kpi-tab.active, .kpi-tab[aria-selected="true"],
+.rank-tab.active, .rank-tab[aria-selected="true"] {
+  color: var(--primary-ink); background: none; box-shadow: inset 0 -2px 0 var(--primary);
+}
+@media (min-width: 900px) { .tab, .kpi-tab, .rank-tab { min-height: 0; } }
+
+/* ---------- C3 กล่องตัวเลขมาตรฐาน (.stat-box) ----------
+   ป้ายสั้นบน (13px สีรอง) · ตัวเลขใหญ่ขนาดเดียวกันทุกหน้า · บรรทัดเทียบตัวเล็ก · ชิดซ้าย · มุม/เงาเท่ากัน
+   กล่องเดิม 6 แบบ (.stat-card .sr-card .sr-chbox .tile .pgs-item .kpi-card .me-card) ถูกปรับให้หน้าตาตรงกันแล้ว
+   ในกฎของแต่ละตัว — ของใหม่ให้ใช้ .stat-box ตัวนี้
+   ⚠️ ตัวเลขย่อตามความกว้างกล่อง (cqi) — เงินเต็มจำนวน "฿83,126,917" ที่ 26px กว้าง ~150px
+      กล่อง 2 คอลัมน์บนมือถือเหลือเนื้อที่ ~145px ตัวเลขจะล้นกล่อง (เคยเกิดกับ .pgs-item มาแล้ว)
+      เบราว์เซอร์ที่ไม่รู้จัก cqi ใช้บรรทัดแรก (26px) ตามเดิม */
+.stat-boxes {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+  gap: var(--sp-3); margin-bottom: var(--sp-4);
+}
+.stat-box {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: var(--sp-3) var(--sp-4); box-shadow: var(--shadow); color: var(--text);
+}
+.stat-boxes > .stat-box { container-type: inline-size; }
+.sb-label { font-size: var(--fs-3); font-weight: 500; color: var(--text-2); line-height: 1.4; }
+.sb-value {
+  font-size: var(--fs-num); font-size: clamp(var(--fs-5), 15cqi, var(--fs-num));
+  font-weight: 700; line-height: 1.2; letter-spacing: -0.01em; font-variant-numeric: tabular-nums;
+}
+.sb-sub { font-size: var(--fs-2); color: var(--text-3); line-height: 1.45; }
+/* กล่องแน่นๆ (แถวตัวเลขรองหน้า Sales) — ตัวเลขเล็กลงแต่หนา/ตระกูลเดียวกัน */
+.stat-box.dense .sb-value { font-size: var(--fs-num-sm); font-size: clamp(var(--fs-4), 13cqi, var(--fs-num-sm)); }
+.stat-box.dense .sb-label { font-size: var(--fs-2); }
+@media (min-width: 600px) { .stat-box { border-radius: var(--radius); } }
+
+/* ---------- C3 หัวการ์ด + ระยะห่างระหว่างส่วน + แถวรายละเอียด ----------
+   หัวการ์ด = หัวข้อซ้าย ปุ่มขวา — แทน style="display:flex;justify-content:space-between" ที่ประกอบเองทุกหน้า */
+.card-head {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--sp-2) var(--sp-3); margin-bottom: var(--sp-3);
+}
+.card-title, .card-head > h3 {
+  display: inline-flex; align-items: center; gap: var(--sp-1); min-width: 0; margin: 0;
+  font-size: var(--fs-section); font-weight: 700; line-height: 1.4;
+}
+.card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-left: auto; }
+/* บรรทัดรองที่ตามหัวการ์ดมา — ชิดหัวข้อ ไม่ลอยห่าง */
+.card-head + .card-sub { margin-top: calc(var(--sp-2) * -1); }
+/* ระยะห่างระหว่างส่วน = ค่าเดียวทั้งเว็บ (16px) */
+.stack { display: flex; flex-direction: column; gap: var(--gap-section); }
+.section-gap { margin-top: var(--gap-section); }
+/* แถวรายละเอียด "หัวข้อ : ค่า" ในหน้าต่าง — แทนตารางเล็ก/ div ประกอบมือในแต่ละโมดัล */
+.kv { display: flex; flex-direction: column; }
+.kv-row {
+  display: flex; justify-content: space-between; align-items: baseline; gap: var(--sp-3);
+  padding: var(--sp-2) 0; border-bottom: 1px solid var(--row-line); font-size: var(--fs-3);
+}
+.kv-row:last-child { border-bottom: 0; }
+.kv-k { color: var(--text-3); flex: none; max-width: 55%; }
+.kv-v { font-weight: 600; text-align: right; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+
+/* ---------- C4 แถวเครื่องมือมาตรฐาน ----------
+   ซ้าย = ช่วงเวลา → ตัวกรองของหน้า → ขวาสุด = ปุ่ม "ดาวน์โหลด ▾" ปุ่มเดียว
+   บรรทัด "ข้อมูลถึงวันไหน" (.data-asof) อยู่ใต้แถวนี้ตำแหน่งเดียวกันทุกหน้า */
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
+.tb-range, .tb-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); min-width: 0; }
+.tb-actions { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
+.data-asof {
+  display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap;
+  font-size: var(--fs-2); color: var(--text-3); margin-bottom: var(--sp-4);
+}
+/* เมนูเล็กที่เด้งจากปุ่ม (เช่น ดาวน์โหลด ▾ → CSV / Excel) */
+.menu-wrap { position: relative; display: inline-flex; }
+.menu-pop {
+  position: absolute; right: 0; top: calc(100% + var(--sp-1)); z-index: 40;
+  min-width: 200px; padding: var(--sp-1);
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow-pop);
+}
+.menu-pop[hidden] { display: none; }
+.menu-item {
+  display: flex; align-items: center; gap: var(--sp-2); width: 100%; min-height: 44px;
+  padding: var(--sp-2) var(--sp-3); background: none; border: 0; border-radius: 8px;
+  color: var(--text); font-size: var(--fs-3); text-align: left; white-space: nowrap;
+}
+.menu-item:hover { background: var(--surface-2); }
+.menu-item small { margin-left: auto; padding-left: var(--sp-3); color: var(--text-3); font-size: var(--fs-1); }
+@media (min-width: 900px) { .menu-item { min-height: 36px; } }
+
+/* ---------- F1 ช่วงเวลาบนมือถือ: ปุ่มเดียว "ช่วงเวลา: วันนี้ ▾" → แผ่นเลือกจากด้านล่าง ----------
+   แถวปุ่ม 7 ปุ่มกิน 3 บรรทัดของจอแรกบนมือถือ (ครึ่งจอแรกเป็นแต่ตัวกรอง)
+   MOBILE FIRST: ค่าเริ่มต้น = โชว์ปุ่มเดียว ซ่อนแถวเต็ม · ≥600 สลับกัน
+   HTML (rangeControlsHtml): button.btn.range-mobile > ไอคอน + span.rm-text("ช่วงเวลา: <b>วันนี้</b>") + .rm-caret
+   ⚠️ เขียน .btn.range-mobile (2 คลาส) — กฎจัดไอคอน :is(.btn,…):has(> .ic) มีน้ำหนัก 2 คลาสและสั่ง display:inline-flex
+      ถ้าเขียนคลาสเดียว ปุ่มจะไม่ยอมหายตอน ≥600 (เจอจริงตอนเทส: จอคอมโชว์ทั้งปุ่มเดียวและแถวเต็ม) */
+.btn.range-mobile, .range-mobile {
+  display: inline-flex; align-items: center; gap: var(--sp-2); max-width: 100%; min-height: 44px;
+  padding: var(--sp-2) var(--sp-4); border-radius: 99px;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+  font-size: var(--fs-3); font-weight: 500; white-space: nowrap;
+}
+.range-mobile:hover { border-color: var(--primary); }
+.range-mobile .rm-text, .range-mobile .rm-k { color: var(--text-2); font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.range-mobile .rm-text b, .range-mobile .rm-v { color: var(--text); font-weight: 700; }
+.range-mobile .rm-caret { color: var(--text-3); }
+.conv-filters.range-full, .range-full { display: none; }
+/* แผ่นเลือกช่วงเวลา (.modal-range > .range-sheet > .filter-btn.range-opt) = รายการเรียงลงมา แถวละ 48px แตะง่าย */
+.conv-filters.range-sheet { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 2px; margin-bottom: 0; }
+.range-sheet .filter-btn, .range-opt {
+  display: flex; align-items: center; width: 100%; min-height: 48px; justify-content: flex-start; text-align: left;
+  padding: var(--sp-2) var(--sp-3); border-radius: 10px; border-color: transparent; background: none;
+  color: var(--text); font-size: var(--fs-body); font-weight: 500;
+}
+.range-sheet .filter-btn:hover { background: var(--surface-2); border-color: transparent; }
+.range-sheet .filter-btn.active, .range-sheet .filter-btn[aria-pressed="true"] {
+  background: var(--primary-soft); border-color: transparent; color: var(--primary-ink); font-weight: 700;
+}
+/* ตัวที่เลือกอยู่มีเครื่องหมายถูกท้ายแถว — สีอย่างเดียวบนพื้นอ่อนเห็นยากกลางแดด */
+.range-sheet .filter-btn.active::after, .range-sheet .filter-btn[aria-pressed="true"]::after {
+  content: ''; width: 18px; height: 18px; margin-left: auto; flex: none; background-color: currentColor;
+  -webkit-mask: var(--ic-check) center / contain no-repeat; mask: var(--ic-check) center / contain no-repeat;
+}
+/* รายการตัวเลือกในแผ่นล่างแบบทั่วไป (ใช้ได้กับ "จัดอันดับตาม" / ตัวกรองหน้าอื่น) */
+.sheet-list { display: flex; flex-direction: column; gap: 2px; }
+.sheet-opt {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+  width: 100%; min-height: 48px; padding: var(--sp-2) var(--sp-3);
+  background: none; border: 0; border-radius: 10px;
+  color: var(--text); font-size: var(--fs-body); text-align: left;
+}
+.sheet-opt:hover { background: var(--surface-2); }
+.sheet-opt.active, .sheet-opt[aria-pressed="true"], .sheet-opt[aria-selected="true"], .sheet-opt[aria-checked="true"] {
+  background: var(--primary-soft); color: var(--primary-ink); font-weight: 700;
+}
+@media (min-width: 600px) {
+  .btn.range-mobile, .range-mobile { display: none; }
+  .conv-filters.range-full, .range-full { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+}
+
+/* ---------- D3 ไอคอน ⓘ คำอธิบาย (infoTip() สร้าง / lib/ui/infotip.ts ผูกการแตะ) ----------
+   ไอคอน 14px แต่พื้นที่แตะ 44px บนมือถือ — ขยายด้วย ::after ที่ล่องหน บรรทัดจึงไม่สูงขึ้น
+   ⚠️ พื้นที่แตะยื่นออกไปรอบตัว 13px — อย่าวาง ⓘ ชิดปุ่มอื่นเกินนั้น (มันจะแย่งการแตะของปุ่มข้างๆ)
+   ⚠️ ห้ามใส่ cursor: help (พีสั่ง 15 ก.ย. 69) — เป็นปุ่ม จึงได้รูปมือจากกฎ button อยู่แล้ว */
+.info-i {
+  position: relative; display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 18px; height: 18px; padding: 0; margin: 0 var(--sp-1); vertical-align: -0.2em;
+  background: none; border: 0; border-radius: 50%; color: var(--text-3); line-height: 1;
+}
+.info-i::after { content: ''; position: absolute; inset: -13px; border-radius: 50%; }
+.info-i .ic { width: 14px; height: 14px; vertical-align: 0; }
+.info-i:hover, .info-i[aria-expanded="true"] { color: var(--primary-ink); }
+@media (min-width: 900px) { .info-i::after { inset: -5px; } }
+/* กรอบที่เปิดค้างจากการแตะ/คลิก (ไม่ใช่ hover) ต้องรับเมาส์ได้ — ลากคลุมข้อความ/กดลิงก์ข้างในได้ */
+.info-tip.is-pinned { pointer-events: auto; }
+
+/* ---------- D3 สถานะว่าง / รอ / ยังไม่พร้อม / ผิดพลาด (stateHtml) ----------
+   หัวข้อ + ประโยคบอกทางแก้ + ปุ่ม · รายละเอียดเทคนิค (.sql / npm) พับไว้ใน .state-admin เห็นเฉพาะผู้ดูแลระบบ
+   stateHtml() ใส่ไอคอนไว้หน้าหัวข้อ (.state-title > svg.ic) — สีไอคอนตามชนิด
+   กล่อง .state ที่ประกอบเองโดยไม่มีไอคอน: วาดไอคอนให้ด้วย mask ด้านบน (ไม่ต้องพึ่งมาร์กอัป) */
+.state {
+  --state-c: var(--text-3);
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
+  max-width: 560px; margin: 0 auto; padding: var(--sp-6) var(--sp-4);
+  text-align: center; color: var(--text-2);
+}
+.state-wait { --state-c: var(--blue); }
+.state-notready { --state-c: var(--amber); }
+.state-error { --state-c: var(--red); }
+.state::before {
+  content: ''; width: 32px; height: 32px; flex: none; margin-bottom: var(--sp-1);
+  background-color: var(--state-c);
+  -webkit-mask: var(--state-ic) center / contain no-repeat; mask: var(--state-ic) center / contain no-repeat;
+}
+.state:has(.state-title .ic, .state-ic)::before { content: none; }
+.state-ic { display: inline-flex; color: var(--state-c); margin-bottom: var(--sp-1); }
+.state-nodata, .state:not(.state-wait):not(.state-notready):not(.state-error) {
+  --state-ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='22 12 16 12 14 15 10 15 8 12 2 12'/%3E%3Cpath d='M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z'/%3E%3C/svg%3E");
+}
+.state-wait {
+  --state-ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpolyline points='12 6 12 12 16 14'/%3E%3C/svg%3E");
+}
+.state-notready {
+  --state-ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z'/%3E%3C/svg%3E");
+}
+.state-error {
+  --state-ic: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='12' y1='8' x2='12' y2='12'/%3E%3Cline x1='12' y1='16' x2='12.01' y2='16'/%3E%3C/svg%3E");
+}
+.state-title {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2);
+  font-size: var(--fs-section); font-weight: 700; color: var(--text); line-height: 1.4;
+}
+.state-title > .ic { color: var(--state-c); }
+.state-body { font-size: var(--fs-body); line-height: 1.6; max-width: 46ch; }
+.state-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--sp-2); margin-top: var(--sp-2); }
+.state-actions:empty { display: none; }
+.state-admin {
+  width: 100%; margin-top: var(--sp-3); padding-top: var(--sp-2); border-top: 1px dashed var(--border);
+  text-align: left; font-size: var(--fs-2); color: var(--text-3);
+}
+.state-admin > summary {
+  display: flex; align-items: center; min-height: 44px; cursor: pointer; color: var(--text-2);
+  text-decoration: underline dotted; text-underline-offset: 3px;
+}
+.state-admin pre, .state-admin code {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; font-size: var(--fs-1);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.state-admin pre { background: var(--track); border-radius: 8px; padding: var(--sp-2) var(--sp-3); margin-top: var(--sp-1); }
+@media (min-width: 900px) { .state-admin > summary { min-height: 32px; } }
+
+/* ---------- F4 ข้อความเด้ง 3 แบบ (toast / undoToast) ----------
+   ขีดสีซ้าย: เขียว = สำเร็จ (หาย 3 วิ) · แดง = ผิดพลาด (ค้าง 8 วิ มีปุ่มลองใหม่) · เทา = ข้อมูลทั่วไป
+   มือถือ: เต็มความกว้างเหนือแถบล่างของ iPhone · ≥600: มุมขวาล่าง
+   รองรับทั้ง #toast-stack (ชื่อใหม่) และ #toast-container (ชื่อเดิม) */
+#toast-stack, #toast-container {
+  position: fixed; z-index: 200;
+  left: var(--sp-4); right: var(--sp-4); bottom: calc(var(--sp-4) + env(safe-area-inset-bottom));
+  display: flex; flex-direction: column; align-items: stretch; gap: var(--sp-2);
+  pointer-events: none;                 /* ช่องว่างระหว่างข้อความต้องไม่บังปุ่มที่อยู่ข้างใต้ */
+}
+#toast-stack > *, #toast-container > * { pointer-events: auto; }
+.toast {
+  --toast-c: var(--border);
+  display: flex; align-items: flex-start; gap: var(--sp-2); width: 100%; max-width: none;
+  padding: var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-4);
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-left: 4px solid var(--toast-c); border-radius: 10px;
+  box-shadow: var(--shadow-pop); font-size: var(--fs-3); line-height: 1.5;
+  animation: toastIn .22s ease;
+}
+.toast-ok { --toast-c: var(--green); }
+.toast-warn { --toast-c: var(--amber-bar); }
+.toast-error { --toast-c: var(--red); }
+.toast-info { --toast-c: var(--text-3); }
+.toast-busy { --toast-c: var(--primary); }
+.toast-info .toast-ic { color: var(--text-3); }
+.toast > span:not(.toast-ic), .toast-msg { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.toast-action {
+  flex: none; align-self: center; min-height: 44px; margin: calc(var(--sp-3) * -1) 0;
+  padding: 0 var(--sp-2); background: none; border: 0; border-radius: 8px;
+  color: var(--primary-ink); font-size: var(--fs-3); font-weight: 700; white-space: nowrap;
+}
+.toast-action:hover { background: var(--primary-soft); }
+.toast-close {
+  flex: none; align-self: center; display: inline-flex; align-items: center; justify-content: center;
+  width: 44px; height: 44px; margin: calc(var(--sp-3) * -1) calc(var(--sp-2) * -1) calc(var(--sp-3) * -1) 0;
+  background: none; border: 0; border-radius: 8px; color: var(--text-3);
+}
+.toast-close:hover { color: var(--text); background: var(--surface-2); }
+.toast.is-leaving { animation: toastOut .18s ease forwards; }
+@keyframes toastOut { to { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .toast, .toast.is-leaving { animation: none; } }
+@media (min-width: 600px) {
+  #toast-stack, #toast-container {
+    left: auto; right: var(--sp-5); bottom: calc(var(--sp-5) + env(safe-area-inset-bottom));
+    align-items: flex-end;
+  }
+  .toast { width: auto; max-width: 420px; }
+}
+@media (min-width: 900px) {
+  .toast-action { min-height: 32px; }
+  .toast-close { width: 32px; height: 32px; margin-top: calc(var(--sp-1) * -1); margin-bottom: calc(var(--sp-1) * -1); }
+}
+
+/* ---------- F4 กล่องยืนยันของเว็บเอง (confirmDialog — แทน confirm() ของเบราว์เซอร์) ----------
+   ใช้ระบบโมดัลเดิม: มือถือ = แผ่นเลื่อนขึ้นจากขอบล่าง, ≥600 = กล่องเล็กกลางจอ
+   หัวข้อเป็นคำถาม · ปุ่มหลักเขียนชัดว่าจะทำอะไร ("ลบบัญชี sale69427") ไม่ใช่ "ตกลง" */
+.modal.modal-confirm { max-width: 440px; }
+/* ไม่มี .modal-head (ไม่มีหัวแผ่นให้จับ) — วาดขีดจับให้ ให้หน้าตาเหมือนแผ่นอื่นของเว็บ */
+.modal.modal-confirm:not(:has(.modal-head))::before {
+  content: ''; display: block; width: 40px; height: 4px; margin: 0 auto var(--sp-3);
+  border-radius: 99px; background: var(--text-3); opacity: .55;
+}
+.confirm-title { font-size: var(--fs-section); font-weight: 700; line-height: 1.45; color: var(--text); }
+.confirm-body { margin-top: var(--sp-2); font-size: var(--fs-body); line-height: 1.6; color: var(--text-2); overflow-wrap: anywhere; }
+.confirm-body b, .confirm-body strong { color: var(--text); }
+.confirm-actions {
+  display: flex; flex-direction: column-reverse; align-items: stretch; gap: var(--sp-2);
+  margin-top: var(--sp-5);
+}
+.confirm-actions .btn { width: 100%; min-height: 48px; }
+@media (min-width: 600px) {
+  .modal.modal-confirm:not(:has(.modal-head))::before { content: none; }
+  .confirm-actions { flex-direction: row; justify-content: flex-end; align-items: center; gap: var(--sp-3); }
+  .confirm-actions .btn { width: auto; min-height: 40px; }
+}
+
+/* ---------- F3 ปุ่มกลับขึ้นบน ----------
+   โผล่ (.show) ตอนเลื่อนลงเกิน 2 จอแล้วเริ่มปัดขึ้น — อยู่มุมขวาล่าง พ้นแถบล่างของ iPhone
+   z-index ต่ำกว่าลิ้นชักเมนู (60) และโมดัล (100) — ไม่ลอยทับของที่เปิดอยู่ */
+.back-top {
+  position: fixed; right: var(--sp-4); bottom: calc(var(--sp-4) + env(safe-area-inset-bottom)); z-index: 50;
+  width: 44px; height: 44px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: var(--shadow-pop);
+  opacity: 0; visibility: hidden; transform: translateY(8px);
+  transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s;
+}
+.back-top.show { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
+.back-top:hover { border-color: var(--primary); color: var(--primary-ink); }
+@media (min-width: 900px) { .back-top { right: var(--sp-6); bottom: calc(var(--sp-6) + env(safe-area-inset-bottom)); } }
+@media (prefers-reduced-motion: reduce) { .back-top { transition: none; } }
+
+/* ---------- G2 ตารางเรียงได้ (makeSortable) ----------
+   <th data-sort-key aria-sort> ครอบ <button class="th-sort"> — ทั้งหัวคอลัมน์เป็นปุ่ม ลูกศรบอกทิศ */
+.th-sort {
+  display: inline-flex; align-items: center; gap: 3px; min-height: 44px; padding: 0;
+  background: none; border: 0; color: inherit; font: inherit; font-weight: 700;
+  text-align: inherit; white-space: nowrap; cursor: pointer;
+}
+.th-sort:hover { color: var(--text); }
+.th-sort .th-arrow { display: inline-flex; flex: none; }   /* table-sort.ts ห่อลูกศรไว้ใน span.th-arrow */
+.th-sort .ic { opacity: .45; flex: none; }
+th[aria-sort="ascending"] .th-sort, th[aria-sort="descending"] .th-sort { color: var(--primary-ink); }
+th[aria-sort="ascending"] .th-sort .ic, th[aria-sort="descending"] .th-sort .ic { opacity: 1; }
+th.num .th-sort, th.r .th-sort { flex-direction: row; }
+/* แถวรวมท้ายตาราง — makeSortable(…, { totalsRowSelector: 'tr.tbl-total' }) ดันไว้ล่างสุดเสมอ
+   (ไม่แตะ <tfoot> เดิมของ .ds-tbl / .up-tbl — สองตารางนั้นมีสีช่องตรึงของตัวเองอยู่แล้ว) */
+table.tbl tr.tbl-total td {
+  font-weight: 700; background: var(--surface-2); border-top: 1px solid var(--border); border-bottom: 0;
+}
+@media (min-width: 900px) { .th-sort { min-height: 32px; } }
+
+/* ---------- G2 สีพื้นตาราง (heat) — กำไร 3 ระดับ / ขาดทุน 3 ระดับ ----------
+   สีชุดเดียวกับตารางรายวันหน้า Sales (--tint-*) ความทึบต่ำพอให้ตัวเลขยังอ่านออก (วัดคอนทราสต์แล้วทุกระดับ)
+   ⚠️ ต้องเจาะจงกว่ากฎ hover (table.tbl tr:hover td) — ไม่งั้นสีหายตอนเอาเมาส์ชี้ */
+table.tbl tbody tr td.heat-p1 { background-color: var(--tint-up-1); }
+table.tbl tbody tr td.heat-p2 { background-color: var(--tint-up-2); }
+table.tbl tbody tr td.heat-p3 { background-color: var(--tint-up-3); }
+table.tbl tbody tr td.heat-n1 { background-color: var(--tint-dn-1); }
+table.tbl tbody tr td.heat-n2 { background-color: var(--tint-dn-2); }
+table.tbl tbody tr td.heat-n3 { background-color: var(--tint-dn-3); }
+table.tbl tbody tr:hover td:is(.heat-p1, .heat-p2, .heat-p3, .heat-n1, .heat-n2, .heat-n3) {
+  background-image: linear-gradient(var(--row-hover), var(--row-hover));
+}
+
+/* ---------- E3 สีตัวเลขตามกติกากลาง (color-rules.ts → kindClass) ----------
+   เขียว = ดีเท่านั้น · ส้ม = เฝ้าดู · แดง = ต้องแก้ · ตัวเลขที่ไม่ได้ตัดสินอะไร (ยอดขาย) = สีปกติตัวหนา */
+.v-good, .v-warn, .v-bad, .v-plain { font-weight: 700; font-variant-numeric: tabular-nums; }
+.v-good { color: var(--green); }
+.v-warn { color: var(--amber); }
+.v-bad { color: var(--red); }
+.v-plain { color: var(--text); }
+/* บรรทัดอธิบายสีใต้หัวตาราง เช่น "เขียว = ถึงเป้า · ส้ม = 80-99% · แดง = ต่ำกว่า 80%" */
+.color-legend {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-3);
+  margin-bottom: var(--sp-2); font-size: var(--fs-1); color: var(--text-3); line-height: 1.5;
+}
+.color-legend .lg { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.color-legend .lg::before { content: ''; width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--text-3); }
+.color-legend .lg-good::before { background: var(--green); }
+.color-legend .lg-warn::before { background: var(--amber-bar); }
+.color-legend .lg-bad::before { background: var(--red); }
+
+/* ---------- B3 งบสีแดง: แถบสัญญาณซ้าย แทนการทาพื้นทั้งแถว ----------
+   แดง = ต้องทำวันนี้ (มีไม่กี่เรื่อง) · ส้ม = เฝ้าดู · ถ้าทาพื้นแดงทุกแถว ตาจะชินแล้วไม่เห็นอะไรเลย
+   ตาราง: แถบอยู่ที่ช่องแรก (ขอบของ <tr> ในตารางวาดไม่สม่ำเสมอ) · การ์ด/แถว div: ขอบซ้ายหนา 3px
+   tr.sr-unmapped (ยูนิตที่ยังไม่จับคู่ หน้า Sales) ใช้แถบส้มชุดเดียวกัน */
+.sig-bad { --sig: var(--red); }
+.sig-warn, tr.sr-unmapped { --sig: var(--amber-bar); }
+.sig-bad:not(tr):not(td), .sig-warn:not(tr):not(td) { border-left: 3px solid var(--sig); }
+table.tbl tr:is(.sig-bad, .sig-warn, .sr-unmapped) > td:first-child { box-shadow: inset 3px 0 0 var(--sig); }
+/* มือถือ ตารางเลื่อนแนวนอน: ช่องแรกตรึงอยู่และมีเงาขอบของมันเอง — ต้องวาดทั้งสองอย่างพร้อมกัน */
+table.tbl.tbl-scroll-x tr:is(.sig-bad, .sig-warn, .sr-unmapped) > td:first-child {
+  box-shadow: inset 3px 0 0 var(--sig), 1px 0 0 var(--border), 6px 0 8px -4px var(--pin-shadow);
+}
+/* มือถือ ตารางแบบการ์ด: แถบอยู่ที่ขอบซ้ายของการ์ด */
+table.tbl.tbl-cards tr:is(.sig-bad, .sig-warn, .sr-unmapped) { border-left: 3px solid var(--sig); }
+table.tbl.tbl-cards tr:is(.sig-bad, .sig-warn, .sr-unmapped) > td:first-child { box-shadow: none; }
+
+/* ป้ายบนเมนู: "เรื่องที่ควรดู" = ส้มอ่อนตัวเข้ม (เลขจริง) · แดงทึบเก็บไว้ให้เรื่องด่วนจริงเท่านั้น */
+.nav-badge.soft { background: var(--sb-soft-bg); color: var(--sb-soft-fg); font-weight: 700; }
+
+/* ---------- G3 กราฟ: สีตามธีม ----------
+   ใช้คลาสแทน fill="#..." ที่ฝังในโค้ดกราฟ — สีเปลี่ยนตามโหมดสว่าง/มืดเอง */
+.chart-svg .ch-axis { fill: var(--text-3); }
+.chart-svg .ch-val { fill: var(--text-2); font-weight: 600; }
+.chart-svg .ch-grid { stroke: var(--track); }
+.chart-svg .ch-base { stroke: var(--border); }
+.chart-svg .ch-series { stroke: var(--primary); fill: none; }
+.chart-svg .ch-area { fill: var(--chart-area); stroke: none; }
+.chart-svg .ch-prev { stroke: var(--chart-prev); fill: none; stroke-dasharray: 6 4; }
+.chart-svg .ch-ref { stroke: var(--text-3); stroke-dasharray: 4 4; opacity: .7; fill: none; }
+.chart-svg .ch-ref-t { fill: var(--text-3); }
+.chart-svg .ch-bar-1 { fill: var(--primary); }
+.chart-svg .ch-bar-2 { fill: var(--blue); }
+.chart-svg .ch-bar-soft { fill: var(--chart-soft); }
+.chart-svg .ch-pt { fill: var(--primary); }
+
+/* ---------- C7 ตัวเลขกว้างเท่ากันทุกหลัก ในตาราง/ตัวเลขเด่น ---------- */
+table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-item b,
+.kpi-big, .me-card-val, .ca-num b, .hbar-num, .rank-big, .top3-card .val, .b5-val { font-variant-numeric: tabular-nums; }
+
+@media (min-width: 900px) {
+  /* ---------- G2 หัวตารางค้างใต้แถบบนตอนเลื่อน (.tbl-sticky) ----------
+     sticky ใช้ไม่ได้ถ้าตารางอยู่ในกล่องที่เลื่อนแนวนอน (overflow-x: auto) — กล่องนั้นจะกลายเป็น "จอ" ของมันเอง
+     จึงปลด overflow ของกล่องห่อตารางที่ติด .tbl-sticky ตั้งแต่ 900px (ตารางต้องพอดีการ์ดที่จอนี้)
+     ⚠️ ห้ามใช้กับตารางที่กว้างเกินจอแม้บนเดสก์ท็อป (ตารางรายวัน .ds-tbl / .up-tbl ที่ min-width: max-content)
+     เส้นใต้หัวใช้ box-shadow — border ของ th ที่ sticky หลุดหายตอนเลื่อน (border-collapse) */
+  :is(.table-scroll, .tbl-wrap, .sx-scroll):has(> table.tbl-sticky) { overflow: visible; }
+  table.tbl.tbl-sticky thead th {
+    position: sticky; top: var(--topbar-h); z-index: 3;
+    background: var(--surface); box-shadow: inset 0 -1px 0 var(--border);
+  }
+  /* แถบสัญญาณ: ≥900 ตารางกลับเป็นตาราง — ล้างเงาตรึง/ขอบการ์ดของมือถือ เหลือแถบในช่องแรก */
+  table.tbl.tbl-scroll-x tr:is(.sig-bad, .sig-warn, .sr-unmapped) > td:first-child { box-shadow: inset 3px 0 0 var(--sig); }
+  table.tbl.tbl-cards tr:is(.sig-bad, .sig-warn, .sr-unmapped) { border-left: 0; }
+  table.tbl.tbl-cards tr:is(.sig-bad, .sig-warn, .sr-unmapped) > td:first-child { box-shadow: inset 3px 0 0 var(--sig); }
+}
 
 /* ============================================================
    📐 ≥600px — มือถือจอใหญ่ / มือถือแนวนอน: เริ่มวาง 2 คอลัมน์ได้
@@ -2289,7 +2859,7 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
 /* ช่วงที่คลุมอยู่ = แถบจางระหว่างหัวท้าย */
 .dp-day.dp-in { background: var(--primary-soft); border-radius: 0; }
 /* หัวและท้ายช่วง = ทึบ */
-.dp-day.dp-sel { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 700; }
+.dp-day.dp-sel { background: var(--primary); border-color: var(--primary); color: var(--on-primary); font-weight: 700; }
 .dp-day.dp-start { border-radius: 9px 0 0 9px; }
 .dp-day.dp-end { border-radius: 0 9px 9px 0; }
 /* วงโฟกัสต้องอยู่ "ใน" ปุ่ม — offset บวกจะดันวงออกไปทับช่องข้างเคียง
@@ -2310,7 +2880,7 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
   border-top: 1px solid var(--border); padding: var(--sp-3) 0 0;
   position: sticky; bottom: calc(var(--sp-3) * -1); background: var(--surface); }
 
-:root[data-theme="light"] .dp-day.dp-in { background: rgba(108, 92, 231, 0.12); }
+:root[data-theme="light"] .dp-day.dp-in { background: var(--row-hover-strong); }
 
 @media (min-width: 600px) {
   /* ปฏิทิน: จอ ≥600px กางเป็น 2 เดือน */
@@ -2322,6 +2892,9 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
   .view { padding: var(--sp-4) var(--sp-4) var(--sp-8); }
   .card { padding: var(--sp-4); border-radius: var(--radius); }
   .stat-card { padding: var(--sp-4); border-radius: var(--radius); }
+  /* กล่องตัวเลขทุกแบบใช้มุมเดียวกับการ์ด (C3) */
+  .sr-card, .sr-chbox, .sr-strip .tile, .umap-stats .tile, .pgs-item { border-radius: var(--radius); }
+  .topbar h1 { font-size: var(--fs-page); }
   .kpi-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .adm-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   /* ปุ่มบนแถวการ์ดขาดทุนกลับไปอยู่ท้ายแถวเดียวกัน */
@@ -2387,7 +2960,6 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
   }
 
   .topbar { padding: var(--sp-4) var(--sp-6); gap: var(--sp-3); }
-  .topbar h1 { font-size: var(--fs-6); }
   .topbar-sub { display: block; }
   .topbar-right { gap: var(--sp-3); }
   .sync-chip { display: inline-flex; }
@@ -2423,15 +2995,13 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
   table.tbl.tbl-scroll-x th:first-child, table.tbl.tbl-scroll-x td:first-child {
     position: static; background: none; box-shadow: none;
   }
-  table.tbl.tbl-scroll-x tr.clickable:hover td:first-child,
-  table.tbl.tbl-scroll-x tr.sr-unmapped td:first-child { background-image: none; }
+  table.tbl.tbl-scroll-x tr.clickable:hover td:first-child { background-image: none; }
   table.tbl.tbl-scroll-x.tbl-pin2 th:nth-child(2), table.tbl.tbl-scroll-x.tbl-pin2 td:nth-child(2) {
     position: static; background: none; box-shadow: none; max-width: none; overflow: visible;
   }
   table.tbl.tbl-scroll-x.tbl-pin2 td:nth-child(2) { white-space: normal; }
   table.tbl.tbl-scroll-x.tbl-pin2 tr > td:first-child[colspan] { box-shadow: none; }
-  table.tbl.tbl-scroll-x.tbl-pin2 tr.clickable:hover td:nth-child(2),
-  table.tbl.tbl-scroll-x.tbl-pin2 tr.sr-unmapped td:nth-child(2) { background-image: none; }
+  table.tbl.tbl-scroll-x.tbl-pin2 tr.clickable:hover td:nth-child(2) { background-image: none; }
 
   table.tbl.tbl-cards { display: table; }
   table.tbl.tbl-cards thead { display: table-header-group; }
@@ -2445,8 +3015,7 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
   }
   table.tbl.tbl-cards td::before { content: none; }
   table.tbl.tbl-cards td.num { text-align: right; }
-  table.tbl.tbl-cards tr:hover td { background: rgba(108,92,231,.05); }
-  table.tbl.tbl-cards tr.sr-unmapped, table.tbl tr.sr-unmapped td { background: rgba(232,161,58,.09); }
+  table.tbl.tbl-cards tr:hover td { background: var(--row-hover); }
   table.tbl.tbl-cards td .btn-mini { flex: none; }
 
   .hbar-cols { column-count: 2; }

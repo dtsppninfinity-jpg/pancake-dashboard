@@ -1,9 +1,18 @@
 /* ============================================================
    charts — SVG chart builders (ported จาก JsCommon.html)
-   คืน HTML string เหมือนเดิมเป๊ะ (markup/สี/เลข)
+   คืน HTML string (view เอาไปต่อสตริงแล้ว innerHTML)
+
+   กติการ่วมของทุกกราฟ (ตรวจ UI ข้อ G3):
+   - แกนเป็น "เลขกลม" เสมอ (0 / 25K / 50K / 75K / 100K) — เดิมแบ่งค่าสูงสุด×1.1 เป็น 4 ส่วน
+     ได้เลขอย่าง 27.5k / 55.0k ซึ่งอ่านแล้วต้องคิดต่อ ตาคนจับเลขกลมได้ทันที
+   - แกนเงินมี ฿ นำหน้า · แกนจำนวนมีหน่วย (เช่น "ข้อความ") เขียนไว้เหนือแกนครั้งเดียว
+   - สีมาจากตัวแปรธีม (--primary / --text-3 / --track / --green) ผ่าน style="" เท่านั้น
+     ไม่ใช่ hex ตรงๆ — เดิมเส้นเปรียบเทียบเป็น #5b6478 ซึ่งจมหายในโหมดมืด และสีไม่เปลี่ยนตามธีม
+     (ใช้ style ไม่ใช้ attribute fill="var(..)" เพราะ var() ใน presentation attribute ไม่รับประกันทุกเบราว์เซอร์)
+   - เส้นหนา 2px, หัวแท่งมน 4px, เส้น grid บาง ทึบ อยู่หลังข้อมูล
    ============================================================ */
 
-import { esc, fmtNum, THB, kFmt } from '@/lib/ui/helpers';
+import { esc, fmtNum, THB } from '@/lib/ui/helpers';
 
 export interface WeekBar {
   label: string;
@@ -22,11 +31,29 @@ export interface HbarItem {
 export interface HbarOpts {
   cls?: string;
   empty?: string;
+  /** true = ห่อด้วย .hbar-wide (ช่องชื่อยืดได้ถึง 280px บนจอกว้าง) — ใช้กับรายการที่ชื่อยาว เช่น ชื่อเพจ */
+  wide?: boolean;
 }
 
 export interface LineOpts {
-  fmt?: 'thb' | 'num'; // รูปแบบตัวเลขในทูลทิป (default thb)
-  unit?: string;       // หน่วยต่อท้ายเมื่อ fmt=num เช่น 'ข้อความ'
+  fmt?: 'thb' | 'num'; // รูปแบบตัวเลข (แกน + ทูลทิป) default thb
+  unit?: string;       // หน่วยเมื่อ fmt=num เช่น 'ข้อความ' — เขียนเหนือแกนตั้ง + ต่อท้ายตัวเลขในทูลทิป
+  prevLabel?: string;  // ชื่อเส้นเปรียบเทียบในทูลทิป (เช่น "เมื่อวาน") — ไม่ส่ง = "ช่วงก่อนหน้า"
+}
+
+export interface WeekBarsOpts {
+  unit?: string;       // หน่วยของแท่ง (default 'ข้อความ')
+}
+
+export interface ScorePoint {
+  label: string;       // ป้ายแกนนอน เช่น ชื่อเดือนย่อ
+  value: number;       // คะแนน 0-100
+}
+
+export interface ScoreLineOpts {
+  pass?: number | null; // เส้นประเกณฑ์ผ่าน (default 70) — null/0 = ไม่วาด
+  unit?: string;       // หน่วยในทูลทิป (default 'คะแนน')
+  empty?: string;      // ข้อความเมื่อมีจุดไม่ถึง 2 จุด
 }
 
 /* ⚠️ ตัวหนังสือใน SVG อยู่ในหน่วยของ viewBox มันย่อ/ขยายไปพร้อมกราฟ
@@ -39,59 +66,163 @@ function vbWidth(wide: number, narrow: number): number {
   return (typeof window !== 'undefined' && window.innerWidth < 600) ? narrow : wide;
 }
 
-/** กราฟแท่งคู่ 7 วัน: data = [{label, total, replied}] (ลูกค้าทัก/เพจตอบ, มุมมน) */
-export function svgWeekBars(data: WeekBar[]): string {
-  const W = vbWidth(560, 330), H = 208, padX = 14, bottom = 28, topPad = 26;
-  const innerH = H - bottom - topPad;
-  const baseY = H - bottom;
-  // สเกลรวมทั้ง 2 ชุด (ลูกค้าทัก + เพจตอบ) กันไม่ให้แท่งไหนพุ่งทะลุกราฟ
-  const max = Math.max(...data.map(function (d) {
-    return Math.max(Number(d.total) || 0, Number(d.replied) || 0);
-  }).concat([1])) * 1.18;
-  const cellW = (W - padX * 2) / data.length;
-  const gap = 5;                                        // ช่องว่างระหว่างแท่งคู่ในวันเดียว
-  const barW = Math.max(9, Math.min(26, (cellW * 0.66 - gap) / 2));
-  const pairW = barW * 2 + gap;
-  const r = Math.min(7, barW / 2);
-  // path สี่เหลี่ยมมนเฉพาะ 2 มุมบน (ก้นตรง วางแนบเส้นฐาน)
-  function topRoundRect(x: number, y: number, w: number, h: number, rr: number): string {
-    if (h <= 0.5) return '';
-    rr = Math.min(rr, w / 2, h);
-    return 'M' + x + ',' + (y + h) + ' L' + x + ',' + (y + rr) +
-      ' Q' + x + ',' + y + ' ' + (x + rr) + ',' + y +
-      ' L' + (x + w - rr) + ',' + y +
-      ' Q' + (x + w) + ',' + y + ' ' + (x + w) + ',' + (y + rr) +
-      ' L' + (x + w) + ',' + (y + h) + ' Z';
-  }
-  const parts = ['<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '">',
-    '<defs>',
-    '<linearGradient id="gradCust" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#5aa9ff"/><stop offset="1" stop-color="#3b82f6"/></linearGradient>',
-    '<linearGradient id="gradPage" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8b7cf6"/><stop offset="1" stop-color="#6c5ce7"/></linearGradient>',
-    '</defs>'];
-  parts.push('<line x1="' + padX + '" y1="' + baseY + '" x2="' + (W - padX) + '" y2="' + baseY + '" style="stroke:var(--track)"/>');
+/* ---------------- แกนเลขกลม (ใช้ร่วมทุกกราฟ) ---------------- */
+
+/**
+ * ขั้นแกนตั้งแบบเลขกลม: niceTicks(87000) → [0, 25000, 50000, 75000, 100000]
+ * เลือกขั้นจาก 1 / 2 / 2.5 / 5 × 10^n ให้ได้ราว `target` ช่อง แล้วปัดยอดขึ้นให้พ้นค่าสูงสุด
+ * integer=true (ค่าเป็นจำนวนนับ) ห้ามได้ขั้นทศนิยม — ข้อความ 2.5 ข้อความไม่มีจริง
+ * ค่าสูงสุด ≤ 0 (ทั้งกราฟเป็นศูนย์) → [0] เส้นฐานเส้นเดียว ไม่ประดิษฐ์ขั้นปลอมๆ อย่าง ฿1 ฿2 ขึ้นมา
+ */
+export function niceTicks(maxVal: number, target = 4, integer = true): number[] {
+  const m = Number(maxVal) || 0;
+  if (!(m > 0)) return [0];
+  const raw = m / Math.max(1, target);
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const norm = raw / mag;
+  let mult = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 2.5 ? 2.5 : norm <= 5 ? 5 : 10;
+  if (integer && mult === 2.5 && mag < 10) mult = 2;   // 2.5 × 1 = ขั้นทศนิยม → ใช้ 2 แทน
+  let step = mult * mag;
+  if (integer && step < 1) step = 1;
+  const top = Math.ceil(m / step - 1e-9) * step;
+  const out: number[] = [];
+  for (let v = 0; v <= top + step * 1e-6; v += step) out.push(Math.round(v * 1e6) / 1e6);
+  return out;
+}
+
+/** ตัวเลขบนแกนแบบสั้น: 25000 → "25K", 2500 → "2.5K", 1500000 → "1.5M" (K/M ตัวใหญ่ตามกติกา E2) */
+function axisNum(v: number): string {
+  const a = Math.abs(v);
+  const trim = (x: number) => String(Math.round(x * 100) / 100);
+  if (a >= 1e6) return trim(v / 1e6) + 'M';
+  if (a >= 1e3) return trim(v / 1e3) + 'K';
+  return trim(v);
+}
+
+/** ป้ายค่าบนแท่ง/จุด: ไม่ถึงหมื่นเขียนเต็ม (1,234) เกินนั้นย่อ 1 ตำแหน่ง (12.3K) — แคบพอวางบนแท่งได้ */
+function valueLabel(v: number): string {
+  const a = Math.abs(v);
+  if (a < 10000) return fmtNum(Math.round(v));
+  if (a < 1e6) return (Math.round(v / 100) / 10) + 'K';
+  return (Math.round(v / 1e5) / 10) + 'M';
+}
+
+/** ความกว้างช่องซ้ายสำหรับเลขแกน — ประมาณจากจำนวนตัวอักษร (ตัวเลข 11px กว้างราว 6.6 หน่วย) */
+function axisPad(labels: string[], min: number): number {
+  const len = labels.reduce(function (m, s) { return Math.max(m, s.length); }, 0);
+  return Math.max(min, Math.ceil(len * 6.6) + 10);
+}
+
+const r1 = (n: number) => Math.round(n * 10) / 10;
+
+/** เส้น grid แนวนอน + เลขแกนซ้าย (เส้นบาง ทึบ สี --track · ตัวเลขสี --text-3) */
+function gridY(ticks: number[], labels: string[], yOf: (v: number) => number, x1: number, x2: number): string {
+  return ticks.map(function (t, i) {
+    const y = r1(yOf(t));
+    return '<line x1="' + x1 + '" y1="' + y + '" x2="' + x2 + '" y2="' + y + '" style="stroke:var(--track)" stroke-width="1"/>' +
+      '<text x="' + (x1 - 6) + '" y="' + (y + 4) + '" text-anchor="end" font-size="11" style="fill:var(--text-3)">' +
+      esc(labels[i]) + '</text>';
+  }).join('');
+}
+
+/** หน่วยของแกนตั้ง เขียนครั้งเดียวที่มุมซ้ายบน (แทนการต่อท้ายทุกขั้นซึ่งกินที่) */
+function unitLabel(unit: string): string {
+  return unit
+    ? '<text x="2" y="11" text-anchor="start" font-size="11" style="fill:var(--text-3)">' + esc(unit) + '</text>'
+    : '';
+}
+
+/** path สี่เหลี่ยมมนเฉพาะ 2 มุมบน (ก้นตรง วางแนบเส้นฐาน) */
+function topRoundRect(x: number, y: number, w: number, h: number, rr: number): string {
+  if (h <= 0.5) return '';
+  rr = Math.min(rr, w / 2, h);
+  return 'M' + x + ',' + (y + h) + ' L' + x + ',' + (y + rr) +
+    ' Q' + x + ',' + y + ' ' + (x + rr) + ',' + y +
+    ' L' + (x + w - rr) + ',' + y +
+    ' Q' + (x + w) + ',' + y + ' ' + (x + w) + ',' + (y + rr) +
+    ' L' + (x + w) + ',' + (y + h) + ' Z';
+}
+
+/** เส้นไกด์ตั้ง + จุดโฟกัส (ซ่อนไว้ก่อน — bindChartTips เลื่อนไปยังจุดที่ hover) */
+function crossLayer(yTop: number, yBottom: number): string {
+  return '<g class="ch-cross">' +
+      '<g class="ch-line-g"><line class="ch-cross-line" y1="' + yTop + '" y2="' + yBottom + '"/></g>' +
+      '<g class="ch-dot-g">' +
+        '<circle class="ch-halo" r="9"/>' +
+        '<circle class="ch-ring" r="5"/>' +
+        '<circle class="ch-dot" r="2.5"/>' +
+      '</g>' +
+    '</g>';
+}
+
+/**
+ * กราฟแท่ง 7-14 วัน "ลูกค้าส่ง" (หน้าภาพรวมแชท) — data = [{label, total, replied}]
+ * total = ข้อความลูกค้าส่ง = แท่งหลักบนสเกลของตัวเอง · replied = ข้อความเพจส่ง → บรรทัดเล็กใต้วัน "เพจ 10.5:1"
+ *
+ * ทำไมไม่วาดแท่งคู่แบบเดิม: เพจส่งสคริปต์ขายทีละหลายบับเบิล (รวมบอต/บรอดแคสต์) จึงสูงกว่าลูกค้า 5-15 เท่าเป็นปกติ
+ * พอสองชุดอยู่สเกลเดียวกัน แท่งลูกค้าเหลือเป็นตอเตี้ยๆ อ่านไม่ออกว่าวันไหนลูกค้าทักมากน้อย
+ * (และห้ามใช้แกนตั้ง 2 สเกล — คนอ่านเทียบความสูงข้ามสเกลผิดเสมอ) เลยแยกเพจส่งออกมาเป็นอัตราส่วนตัวเลข
+ * ⚠️ ทั้งสองค่าเป็น "จำนวนข้อความ" ไม่ใช่บทสนทนา — อัตราส่วนเรียก "% การตอบ" ไม่ได้ (เคยโชว์ 828%)
+ *
+ * ป้ายตัวเลขบนแท่ง: เฉพาะแท่งสูงสุดกับวันล่าสุด (ที่เหลือดูจากแกน/ทูลทิป) — ตัวเลขทุกแท่งทำให้ตาไม่รู้จะดูตรงไหน
+ * ลายเซ็นเดิม svgWeekBars(week) ยังใช้ได้เหมือนเดิม — opts เป็นของเสริม
+ */
+export function svgWeekBars(data: WeekBar[], opts?: WeekBarsOpts): string {
+  const unit = (opts && opts.unit) || 'ข้อความ';
+  const n = Math.max(1, data.length);
+  const W = vbWidth(560, 330);
+  const vals = data.map(function (d) { return Number(d.total) || 0; });
+  const ticks = niceTicks(Math.max.apply(null, vals.concat([0])), 4, true);
+  const top = ticks[ticks.length - 1] || 1;
+  const tickLabels = ticks.map(axisNum);
+  const padL = axisPad(tickLabels, 28), padR = 6, padT = 26;
+  const cellW = (W - padL - padR) / n;
+  // บรรทัดอัตราส่วนใต้วัน: ช่องกว้างพอ = "เพจ 10.5:1" · แคบ = "10.5:1" · แคบมาก (14 วันบนมือถือ) = ไม่วาด ดูในทูลทิป
+  const ratioMode: 'long' | 'short' | 'none' = cellW >= 62 ? 'long' : cellW >= 36 ? 'short' : 'none';
+  const padB = ratioMode === 'none' ? 26 : 42;
+  const H = 180 + padB;
+  const baseY = H - padB;
+  const innerH = baseY - padT;
+  const yOf = (v: number) => baseY - (v / top) * innerH;
+  const barW = Math.max(8, Math.min(34, cellW * 0.56));
+  const rad = Math.min(4, barW / 2);
+  // ป้ายวันแน่นเกิน (14 วันบนจอแคบ) → เว้นทีละวัน แต่วันล่าสุดต้องมีเสมอ
+  const labelEvery = Math.max(1, Math.ceil(28 / cellW));
+  let maxIdx = -1;
+  vals.forEach(function (v, i) { if (v > 0 && (maxIdx < 0 || v > vals[maxIdx])) maxIdx = i; });
+
+  const parts = ['<svg class="chart-svg ch-week" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' +
+    esc('กราฟ' + unit + 'ที่ลูกค้าส่งรายวัน ' + data.length + ' วัน') + '">'];
+  parts.push(unitLabel(unit));
+  parts.push(gridY(ticks, tickLabels, yOf, padL, W - padR));
   data.forEach(function (d, i) {
-    const cx = padX + i * cellW + cellW / 2;
-    const xC = Math.round(cx - pairW / 2);    // แท่งลูกค้าทัก (ซ้าย)
-    const xP = xC + barW + gap;               // แท่งเพจตอบ (ขวา)
-    const tot = Number(d.total) || 0, rep = Number(d.replied) || 0;
-    const hC = Math.round((tot / max) * innerH);
-    const hP = Math.round((rep / max) * innerH);
-    parts.push('<path d="' + topRoundRect(xC, baseY - hC, barW, hC, r) + '" fill="url(#gradCust)"/>');
-    parts.push('<path d="' + topRoundRect(xP, baseY - hP, barW, hP, r) + '" fill="url(#gradPage)"/>');
-    if (tot > 0) parts.push('<text x="' + (xC + barW / 2) + '" y="' + (baseY - hC - 5) + '" text-anchor="middle" font-size="11" font-weight="600" style="fill:var(--text-3)">' + kFmt(tot) + '</text>');
-    if (rep > 0) parts.push('<text x="' + (xP + barW / 2) + '" y="' + (baseY - hP - 5) + '" text-anchor="middle" font-size="11" font-weight="700" style="fill:var(--text-2)">' + kFmt(rep) + '</text>');
-    parts.push('<text x="' + cx + '" y="' + (H - 9) + '" text-anchor="middle" font-size="11" style="fill:var(--text-3)">' + esc(d.label) + '</text>');
-    // เป้า hover ให้ทูลทิปการ์ดลอย (bindChartTips) — แทน <title> เดิม
-    // ⚠️ ทั้งสองแท่งเป็น "จำนวนข้อความ" ไม่ใช่จำนวนบทสนทนา — เพจส่งสคริปต์ขายทีละหลายบับเบิล
-    //    อัตราส่วนจึงอยู่ที่ 5-15 เท่าเป็นปกติ เอามาเรียก "% การตอบ" ไม่ได้ (เคยโชว์ 828%)
-    //    แสดงเป็นสัดส่วน "เพจ:ลูกค้า x.x:1" แทน — ตรงกับสิ่งที่วัดได้จริง
-    const ratio = tot > 0 ? (rep / tot) : null;
-    parts.push('<circle class="ch-hit" cx="' + Math.round(cx) + '" cy="' + (baseY - Math.max(hC, hP)) + '" r="10" fill="transparent"' +
-      ' data-title="' + esc(d.label) + '" data-fmt="num" data-unit="ข้อความ"' +
+    const cx = padL + i * cellW + cellW / 2;
+    const x = r1(cx - barW / 2);
+    const tot = vals[i];
+    const rep = Number(d.replied) || 0;
+    const h = r1((tot / top) * innerH);
+    parts.push('<path d="' + topRoundRect(x, r1(baseY - h), r1(barW), h, rad) + '" style="fill:var(--primary)"/>');
+    const last = i === data.length - 1;
+    if (tot > 0 && (i === maxIdx || last)) {
+      parts.push('<text x="' + r1(cx) + '" y="' + r1(baseY - h - 6) + '" text-anchor="middle" font-size="11" font-weight="700" style="fill:var(--text)">' +
+        esc(valueLabel(tot)) + '</text>');
+    }
+    if (i % labelEvery === 0 || last) {
+      parts.push('<text x="' + r1(cx) + '" y="' + (baseY + 16) + '" text-anchor="middle" font-size="11" style="fill:var(--text-2)">' + esc(d.label) + '</text>');
+    }
+    const ratio = tot > 0 ? rep / tot : null;
+    const ratioTxt = ratio === null ? '' : (ratio >= 100 ? String(Math.round(ratio)) : ratio.toFixed(1)) + ':1';
+    if (ratioMode !== 'none' && (i % labelEvery === 0 || last)) {
+      parts.push('<text x="' + r1(cx) + '" y="' + (baseY + 32) + '" text-anchor="middle" font-size="11" style="fill:var(--text-3)">' +
+        esc(ratio === null ? '—' : (ratioMode === 'long' ? 'เพจ ' : '') + ratioTxt) + '</text>');
+    }
+    // เป้า hover ให้ทูลทิปการ์ดลอย (bindChartTips) — เลือกแท่งที่ใกล้เมาส์ที่สุดตามแกนนอน
+    parts.push('<circle class="ch-hit" cx="' + r1(cx) + '" cy="' + r1(Math.min(baseY - 10, baseY - h)) + '" r="12" fill="transparent"' +
+      ' data-title="' + esc(d.label) + '" data-fmt="num" data-unit="' + esc(unit) + '"' +
       ' data-cur="' + tot + '" data-curlabel="ลูกค้าส่ง"' +
       ' data-prev="' + rep + '" data-prevlabel="เพจส่ง"' +
       (ratio !== null
-        ? ' data-pill="เพจ:ลูกค้า ' + ratio.toFixed(1) + ':1" data-pillcls="flat"'
+        ? ' data-pill="เพจ:ลูกค้า ' + ratioTxt + '" data-pillcls="flat"'
         : ' data-pill="ยังไม่มีข้อความลูกค้า" data-pillcls="flat"') +
       '></circle>');
   });
@@ -99,85 +230,140 @@ export function svgWeekBars(data: WeekBar[]): string {
   return parts.join('');
 }
 
-/** โดนัท: pct 0-100 */
+/** โดนัท: pct 0-100 · color = ค่า CSS (แนะนำตัวแปรธีม เช่น 'var(--green)') ไม่ส่ง = --green */
 export function svgDonut(pct: number, centerTop: string | number, centerSub: string | number, color?: string): string {
   const r = 52, c = 2 * Math.PI * r;
   const arc = Math.max(0, Math.min(100, pct)) / 100 * c;
-  return '<svg viewBox="0 0 130 130" style="max-width:150px">' +
+  return '<svg viewBox="0 0 130 130" style="max-width:150px" role="img" aria-label="' +
+    esc(String(centerTop) + ' ' + String(centerSub)) + '">' +
     '<circle cx="65" cy="65" r="' + r + '" fill="none" style="stroke:var(--track)" stroke-width="16"/>' +
-    '<circle cx="65" cy="65" r="' + r + '" fill="none" stroke="' + (color || '#2dd4a0') + '" stroke-width="16" stroke-linecap="round"' +
+    '<circle cx="65" cy="65" r="' + r + '" fill="none" style="stroke:' + esc(color || 'var(--green)') + '" stroke-width="16" stroke-linecap="round"' +
     ' stroke-dasharray="' + arc + ' ' + (c - arc) + '" stroke-dashoffset="' + (c / 4) + '"/>' +
-    '<text x="65" y="63" text-anchor="middle" font-size="22" font-weight="800" style="fill:var(--text)">' + esc(centerTop) + '</text>' +
+    '<text x="65" y="63" text-anchor="middle" font-size="22" font-weight="700" style="fill:var(--text)">' + esc(centerTop) + '</text>' +
     '<text x="65" y="80" text-anchor="middle" font-size="11" style="fill:var(--text-3)">' + esc(centerSub) + '</text></svg>';
 }
 
-/** กราฟเส้น 24 ชั่วโมง: main/prev = array 24 ตัวเลข (opts.fmt='num' → ทูลทิปเป็นจำนวน ไม่ใช่ ฿) */
+/**
+ * กราฟเส้น 24 ชั่วโมง: main/prev = array 24 ตัวเลข
+ * opts.fmt='num' → แกน/ทูลทิปเป็นจำนวน (+ opts.unit) · ค่าเริ่มต้น = เงินบาท (แกนมี ฿)
+ * opts.prevLabel → ชื่อเส้นประในทูลทิป (เดิมหน้า Sales ต้องแทรก data-prevlabel เองด้วยการตัดสตริง — ยังใช้ได้)
+ */
 export function svgHourlyLine(main: number[], prev?: number[] | null, opts?: LineOpts): string {
-  const fmtAttr = opts && opts.fmt === 'num'
-    ? ' data-fmt="num"' + (opts.unit ? ' data-unit="' + esc(opts.unit) + '"' : '')
-    : '';
-  const W = vbWidth(780, 340), H = vbWidth(260, 190), padL = vbWidth(46, 34), padR = 14, padT = 16, padB = 28;
+  const isNum = !!(opts && opts.fmt === 'num');
+  const unit = isNum ? ((opts && opts.unit) || '') : '';
+  const fmtAttr = isNum ? ' data-fmt="num"' + (unit ? ' data-unit="' + esc(unit) + '"' : '') : '';
+  const prevLabelAttr = prev && opts && opts.prevLabel ? ' data-prevlabel="' + esc(opts.prevLabel) + '"' : '';
+  // กว้าง 640 (เดิม 780): การ์ดกราฟบนจอคอมกว้างราว 560-800px — viewBox 780 ถูกย่อจนเลขแกน 11 เหลือ ~8px
+  const W = vbWidth(640, 340), H = vbWidth(240, 200);
   const all = main.concat(prev || []);
-  const max = Math.max(...all.concat([1])) * 1.1;
+  const ticks = niceTicks(Math.max.apply(null, all.concat([0])), 4, true);
+  const top = ticks[ticks.length - 1] || 1;
+  const tickLabels = ticks.map(function (t) { return (isNum ? '' : '฿') + axisNum(t); });
+  const padL = axisPad(tickLabels, 30), padR = 14, padT = unit ? 24 : 14, padB = 28;
+  const last = Math.max(1, main.length - 1);
   function pt(i: number, v: number): [number, number] {
-    const x = padL + (i / 23) * (W - padL - padR);
-    const y = H - padB - (v / max) * (H - padT - padB);
-    return [Math.round(x * 10) / 10, Math.round(y * 10) / 10];
+    const x = padL + (i / last) * (W - padL - padR);
+    const y = H - padB - (v / top) * (H - padT - padB);
+    return [r1(x), r1(y)];
   }
-  const parts = ['<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '">'];
-  for (let g = 0; g <= 4; g++) {
-    const gy = padT + (g / 4) * (H - padT - padB);
-    const gv = max * (1 - g / 4);
-    parts.push('<line x1="' + padL + '" y1="' + gy + '" x2="' + (W - padR) + '" y2="' + gy + '" style="stroke:var(--track)"/>');
-    parts.push('<text x="' + (padL - 6) + '" y="' + (gy + 3) + '" text-anchor="end" font-size="11" style="fill:var(--text-3)">' + kFmt(gv) + '</text>');
-  }
-  for (let hx = 0; hx < 24; hx += 2) {
-    parts.push('<text x="' + pt(hx, 0)[0] + '" y="' + (H - 8) + '" text-anchor="middle" font-size="11" style="fill:var(--text-3)">' + hx + 'h</text>');
-  }
+  const parts = ['<svg class="chart-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' +
+    esc('กราฟรายชั่วโมง' + (unit ? ' (' + unit + ')' : isNum ? '' : ' (บาท)')) + '">'];
+  parts.push(unitLabel(unit));
+  parts.push(gridY(ticks, tickLabels, function (v) { return pt(0, v)[1]; }, padL, W - padR));
+  // แกนนอนแบบนาฬิกา 4 จุด — เดิม 0h 2h 4h … 12 ป้ายซึ่งเบียดกันบนมือถือ และ "h" ไม่ใช่วิธีที่คนไทยอ่านเวลา
+  [0, 6, 12, 18].forEach(function (hx) {
+    if (hx > last) return;
+    parts.push('<text x="' + pt(hx, 0)[0] + '" y="' + (H - 8) + '" text-anchor="middle" font-size="11" style="fill:var(--text-3)">' +
+      (hx < 10 ? '0' : '') + hx + ':00</text>');
+  });
   if (prev) {
-    parts.push('<polyline fill="none" stroke="#5b6478" stroke-width="2" stroke-dasharray="6 4" points="' +
+    parts.push('<polyline fill="none" style="stroke:var(--text-3)" stroke-width="2" stroke-dasharray="6 4" stroke-linejoin="round" points="' +
       prev.map(function (v, i) { return pt(i, v).join(','); }).join(' ') + '"/>');
   }
   const pts = main.map(function (v, i) { return pt(i, v).join(','); }).join(' ');
-  parts.push('<polygon fill="rgba(108,92,231,.10)" points="' + pt(0, 0).join(',') + ' ' + pts + ' ' + pt(23, 0).join(',') + '"/>');
-  parts.push('<polyline fill="none" stroke="#6c5ce7" stroke-width="2.6" points="' + pts + '"/>');
-  // เส้นไกด์ตั้ง + จุดโฟกัส (ซ่อนไว้ก่อน — bindChartTips เลื่อนไปยังจุดที่ hover)
-  parts.push(
-    '<g class="ch-cross">' +
-      '<g class="ch-line-g"><line class="ch-cross-line" y1="' + padT + '" y2="' + (H - padB) + '"/></g>' +
-      '<g class="ch-dot-g">' +
-        '<circle class="ch-halo" r="9"/>' +
-        '<circle class="ch-ring" r="5"/>' +
-        '<circle class="ch-dot" r="2.5"/>' +
-      '</g>' +
-    '</g>'
-  );
+  parts.push('<polygon style="fill:var(--primary);fill-opacity:.10" points="' + pt(0, 0).join(',') + ' ' + pts + ' ' + pt(last, 0).join(',') + '"/>');
+  parts.push('<polyline fill="none" style="stroke:var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="' + pts + '"/>');
+  parts.push(crossLayer(padT, H - padB));
   main.forEach(function (v, i) {
     const p = pt(i, v);
-    if (v > 0) {
-      parts.push('<circle cx="' + p[0] + '" cy="' + p[1] + '" r="3" fill="#6c5ce7"/>');
-    }
-    // เป้า hover (โปร่งใสแต่ยังรับอีเวนต์) + data-attrs ให้ทูลทิปอ่าน — แทน <title> เดิม
+    if (v > 0) parts.push('<circle cx="' + p[0] + '" cy="' + p[1] + '" r="3" style="fill:var(--primary)"/>');
+    // เป้า hover (โปร่งใสแต่ยังรับอีเวนต์) + data-attrs ให้ทูลทิปอ่าน
+    // ⚠️ ต้องขึ้นต้น class="ch-hit" ตรงตัว — หน้า Sales ตัดสตริงนี้เพื่อแทรก data-prevlabel (hourlyChartHtml_)
     parts.push('<circle class="ch-hit" cx="' + p[0] + '" cy="' + p[1] + '" r="10" fill="transparent"' +
-      ' data-h="' + i + '" data-cur="' + Math.round(v) + '"' + fmtAttr +
-      (prev ? ' data-prev="' + Math.round(prev[i]) + '"' : '') + '></circle>');
+      ' data-h="' + i + '" data-cur="' + Math.round(v) + '"' + fmtAttr + prevLabelAttr +
+      (prev ? ' data-prev="' + Math.round(prev[i] || 0) + '"' : '') + '></circle>');
   });
   parts.push('</svg>');
   return parts.join('');
 }
 
-/** แถว horizontal bar: items = [{label, value, display, cls}] */
+/**
+ * กราฟเส้นคะแนน 0-100 (หน้า KPI: การ์ดรายคน + ประวัติคะแนนหัวหน้า) — รวมโค้ด 2 ชุดที่เคยก๊อปกันไว้ในหน้า KPI
+ * แกนตั้งคงที่ 0-100 เสมอ: เดิมยืดตามค่าต่ำสุด-สูงสุดของคนนั้น คะแนน 68→71 เลยดูเหมือนพุ่งทะลุฟ้า
+ * และเทียบกราฟ 2 คนข้างกันไม่ได้ · เส้นประที่เกณฑ์ผ่าน (70) · ตัวเลขที่จุดล่าสุด
+ * จุดไม่ถึง 2 จุด → คืนกล่องข้อความแทนกราฟ (ผู้เรียกเช็ค length เองได้ถ้าอยากซ่อนทั้งการ์ด)
+ * hover/แตะดูค่าแต่ละเดือนได้ — หลัง innerHTML ให้เรียก bindChartTips(container)
+ */
+export function svgScoreLine(points: ScorePoint[], opts?: ScoreLineOpts): string {
+  const o = opts || {};
+  if (!points || points.length < 2) {
+    return '<div class="empty-note">' + esc(o.empty || 'มีข้อมูลเดือนเดียว — กราฟขึ้นเมื่อมี 2 เดือนขึ้นไป') + '</div>';
+  }
+  const pass = o.pass === undefined ? 70 : o.pass;
+  const unit = o.unit || 'คะแนน';
+  const W = 300, H = 128, padL = 28, padR = 34, padT = 10, padB = 24;
+  const n = points.length;
+  const clamp = (v: number) => Math.max(0, Math.min(100, Number(v) || 0));
+  const yOf = (v: number) => padT + (1 - clamp(v) / 100) * (H - padT - padB);
+  const xOf = (i: number) => padL + (i / (n - 1)) * (W - padL - padR);
+  const parts = ['<svg class="chart-svg ch-score" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' +
+    esc('กราฟ' + unit + ' ' + points[0].label + ' ถึง ' + points[n - 1].label + ' ล่าสุด ' + fmtNum(points[n - 1].value) +
+      (pass ? ' (เส้นประ = เกณฑ์ผ่าน ' + pass + ')' : '')) + '">'];
+  parts.push(gridY([0, 50, 100], ['0', '50', '100'], yOf, padL, W - padR));
+  if (pass) {
+    // ป้าย "70" อยู่บนแกนซ้ายแบบขั้นแกน ไม่วางในพื้นที่กราฟ — เส้นคะแนนวิ่งผ่านแถว 70 บ่อยมาก ป้ายจะโดนเส้นทับ
+    // (ความหมายของเส้นประให้หัวการ์ดบอก เช่น "เส้นประ = เกณฑ์ผ่าน 70" + อยู่ใน aria-label ด้านบนแล้ว)
+    const y = r1(yOf(pass));
+    parts.push('<line x1="' + padL + '" y1="' + y + '" x2="' + (W - padR) + '" y2="' + y + '" style="stroke:var(--text-3)" stroke-width="1.5" stroke-dasharray="5 4"/>' +
+      '<text x="' + (padL - 6) + '" y="' + (y + 4) + '" text-anchor="end" font-size="11" font-weight="600" style="fill:var(--text-2)">' + pass + '</text>');
+  }
+  const xy = points.map(function (p, i) { return [r1(xOf(i)), r1(yOf(p.value))]; });
+  parts.push('<polyline fill="none" style="stroke:var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" points="' +
+    xy.map(function (p) { return p.join(','); }).join(' ') + '"/>');
+  parts.push(crossLayer(padT, H - padB));
+  const mid = Math.floor((n - 1) / 2);
+  points.forEach(function (p, i) {
+    const lastPt = i === n - 1;
+    parts.push('<circle cx="' + xy[i][0] + '" cy="' + xy[i][1] + '" r="' + (lastPt ? 4 : 2.5) + '" style="fill:var(--primary)"/>');
+    // ป้ายเดือน ต้น/กลาง/ท้าย พอ — ครบทุกเดือนแล้วล้นการ์ดแคบ 300px
+    if (i === 0 || lastPt || i === mid) {
+      const anchor = i === 0 ? 'start' : lastPt ? 'end' : 'middle';
+      parts.push('<text x="' + xy[i][0] + '" y="' + (H - 6) + '" text-anchor="' + anchor + '" font-size="11" style="fill:var(--text-3)">' + esc(p.label) + '</text>');
+    }
+    parts.push('<circle class="ch-hit" cx="' + xy[i][0] + '" cy="' + xy[i][1] + '" r="10" fill="transparent"' +
+      ' data-title="' + esc(p.label) + '" data-fmt="num" data-unit="' + esc(unit) + '" data-cur="' + (Math.round((Number(p.value) || 0) * 10) / 10) + '"></circle>');
+  });
+  // ตัวเลขล่าสุดวางขวาของจุดสุดท้าย (padR เผื่อที่ไว้แล้ว) — คำถามแรกของทุกคนคือ "ตอนนี้กี่คะแนน"
+  const lp = xy[n - 1];
+  parts.push('<text x="' + (lp[0] + 7) + '" y="' + (lp[1] + 4) + '" text-anchor="start" font-size="12" font-weight="700" style="fill:var(--text)">' +
+    esc(fmtNum(Math.round((Number(points[n - 1].value) || 0) * 10) / 10)) + '</text>');
+  parts.push('</svg>');
+  return parts.join('');
+}
+
+/** แถว horizontal bar: items = [{label, value, display, cls}] · opts.wide = ช่องชื่อกว้าง (.hbar-wide) */
 export function hbarRows(items: HbarItem[], opts?: HbarOpts): string {
   const o = opts || {};
   if (!items || !items.length) return '<div class="empty-note">' + (o.empty || 'ยังไม่มีข้อมูล') + '</div>';
   const max = Math.max(...items.map(function (it) { return it.value; }).concat([1]));
-  return items.map(function (it) {
+  const rows = items.map(function (it) {
     const w = Math.round((it.value / max) * 100);
     return '<div class="hbar-row' + (it.attr ? ' clickable' : '') + '"' + (it.attr ? ' ' + it.attr : '') + '>' +
       '<div class="hbar-label" title="' + esc(it.label) + '">' + esc(it.label) + '</div>' +
       '<div class="hbar-track"><div class="hbar-fill ' + (it.cls || o.cls || '') + '" style="width:' + w + '%"></div></div>' +
       '<div class="hbar-num">' + esc(it.display !== undefined ? it.display : fmtNum(it.value)) + '</div></div>';
   }).join('');
+  return o.wide ? '<div class="hbar-wide">' + rows + '</div>' : rows;
 }
 
 /** แท่งจิ๋ว 24 ชั่วโมง (CSS bars) */
@@ -185,14 +371,27 @@ export function miniBars(values: number[]): string {
   const max = Math.max(...values.concat([1]));
   return '<div class="mini-bars">' + values.map(function (v, i) {
     const h = Math.max(2, Math.round((v / max) * 46));
-    return '<i style="height:' + h + 'px" title="' + i + ':00 — ' + THB(v) + '"></i>';
+    return '<i style="height:' + h + 'px" title="' + (i < 10 ? '0' : '') + i + ':00 — ' + THB(v) + '"></i>';
   }).join('') + '</div>';
 }
 
+/**
+ * ป้ายคำอธิบายเส้น/แท่งใต้กราฟ (legend) สีจากตัวแปรธีม — แทนกล่องสี hex ที่แต่ละหน้าเขียนเองแบบ inline
+ * kind: 'line' เส้นทึบ · 'dash' เส้นประ · 'bar' สี่เหลี่ยม · color ไม่ส่ง = --primary (dash = --text-3)
+ * ตัวอย่าง: chartKey('line', 'ช่วงที่เลือก') + chartKey('dash', 'เมื่อวาน')
+ */
+export function chartKey(kind: 'line' | 'dash' | 'bar', label: string, color?: string): string {
+  const c = color || (kind === 'dash' ? 'var(--text-3)' : 'var(--primary)');
+  const mark = kind === 'bar'
+    ? '<span aria-hidden="true" style="display:inline-block;width:10px;height:10px;border-radius:3px;background:' + esc(c) + ';margin-right:6px;vertical-align:middle"></span>'
+    : '<span aria-hidden="true" style="display:inline-block;width:18px;height:0;border-top:2px ' + (kind === 'dash' ? 'dashed' : 'solid') + ' ' + esc(c) + ';margin-right:6px;vertical-align:middle"></span>';
+  return '<span class="ch-key" style="white-space:nowrap">' + mark + esc(label) + '</span>';
+}
+
 /* ============================================================
-   chart hover tooltip ("holder") — ทูลทิปการ์ดลอยของกราฟเส้น (svgHourlyLine)
+   chart hover tooltip ("holder") — ทูลทิปการ์ดลอยของกราฟ (เส้น/แท่ง/คะแนน)
    การ์ดวางที่ <body> ครั้งเดียว (singleton) แล้วอัปเดตแค่ textContent/class ต่อ hover
-   ไม่ผูก listener ที่ body/window (กันรั่ว) — ผูกที่วง .ch-hit ซึ่งถูกทำลายพร้อม re-render
+   ไม่ผูก listener ที่ body/window (กันรั่ว) — ผูกที่ <svg> ซึ่งถูกทำลายพร้อม re-render
    ============================================================ */
 
 let _tip: HTMLElement | null = null;
@@ -252,10 +451,10 @@ export function hideChartTip(): void {
 }
 
 /**
- * ผูกทูลทิป hover ให้กราฟเส้นใน container: การ์ดลอยเข้าธีม + เส้นไกด์ตั้ง + จุดโฟกัสใน SVG
+ * ผูกทูลทิป hover ให้กราฟใน container: การ์ดลอยเข้าธีม + เส้นไกด์ตั้ง + จุดโฟกัสใน SVG (ถ้ากราฟมี)
  * ติดตามเมาส์ต่อเนื่องทั้งพื้นที่กราฟ แล้วเลือก "จุดที่ใกล้ที่สุด" — ไม่มีช่องว่างให้กระพริบตอนลากเมาส์
  * เรียกซ้ำได้ทุกครั้งที่ re-render (ทูลทิปเป็น singleton — สร้างครั้งเดียว, listener ผูกที่ <svg> ตัวเดียว)
- * กราฟที่ไม่มี .ch-hit (แท่ง/โดนัท) จะ return ทันที — เรียกแบบรวมๆ ได้อย่างปลอดภัย
+ * กราฟที่ไม่มี .ch-hit (โดนัท) จะ return ทันที — เรียกแบบรวมๆ ได้อย่างปลอดภัย
  */
 export function bindChartTips(container: HTMLElement): void {
   container.querySelectorAll<SVGSVGElement>('svg.chart-svg').forEach(function (svg) {
@@ -266,6 +465,10 @@ export function bindChartTips(container: HTMLElement): void {
 function bindOneChart_(svg: SVGSVGElement): void {
   const hitList = Array.from(svg.querySelectorAll<SVGCircleElement>('.ch-hit'));
   if (!hitList.length) return;
+  // กันผูกซ้ำ: บางหน้าเรียก bindChartTips ทั้ง container หลังวาดแค่บางการ์ดใหม่
+  // กราฟเดิมที่ยังอยู่จะได้ listener ซ้อน 2 ชุด (อัปเดตการ์ด 2 รอบต่อการขยับเมาส์ 1 ครั้ง)
+  if (svg.getAttribute('data-tip-bound') === '1') return;
+  svg.setAttribute('data-tip-bound', '1');
   const svgEl: SVGSVGElement = svg; // non-null local — คง type ในคลอเชอร์ (TS ไม่ narrow ข้าม closure)
   ensureTip();
   const tip = _tip as HTMLElement;
@@ -325,7 +528,7 @@ function bindOneChart_(svg: SVGSVGElement): void {
     els.value.textContent = (curLabel ? curLabel + ' ' : '') + fv(cur);
     const pillTxt = c.getAttribute('data-pill');
     if (pillTxt !== null) {
-      // กราฟที่กำหนด pill เอง (เช่น week bars: "ตอบแล้ว 85%") — ไม่ใช่การเทียบช่วงเวลา
+      // กราฟที่กำหนด pill เอง (เช่น แท่งรายวัน: "เพจ:ลูกค้า 10.5:1") — ไม่ใช่การเทียบช่วงเวลา
       tip.classList.remove('is-bare');
       els.pill.className = 'ct-pill ' + (c.getAttribute('data-pillcls') || 'flat');
       els.pill.textContent = pillTxt;

@@ -50,25 +50,127 @@ export function esc(s: unknown): string {
     .replace(/"/g, '&quot;');
 }
 
+/* ---- ตัวจัดรูปแบบตัวเลข/วันที่ชุดกลาง (ตรวจ UI ข้อ E2) ----
+ * ทั้งเว็บเขียนเงิน / เปอร์เซ็นต์ / ROAS / วันที่ แบบเดียวกัน — เดิมแต่ละหน้าเขียนเอง
+ * ได้ "฿-2,278,072" ในหน้าหนึ่ง "-฿2.3M" อีกหน้า และ "573.0k" ตัวเล็กอีกหน้า คนอ่านต้องสะดุดทุกครั้ง
+ *   เงินเต็ม   THB(-2278072)   → "-฿2,278,072"   (ลบอยู่หน้า ฿ เสมอ)
+ *   เงินย่อ    THBk(-2278072)  → "-฿2.28M"  · THBk(573000) → "฿573.0K"  (K/M ตัวใหญ่ มี ฿ ทุกครั้ง)
+ *   %ปิด/%Error/%ตีกลับ  pct2(12.9) → "12.90%"
+ *   %บรรลุเป้า           pct1(80)   → "80.0%"  (ไม่ตัดศูนย์ทิ้ง)
+ *   ROAS                 roasFmt(3.031) → "3.03x"
+ *   วันที่  dateTh('2026-09-25') → "25 ก.ย. 69" · เดือน monthTh('2026-09') → "ก.ย. 69"
+ * ค่าที่ไม่มี = "—" (ตัวหนังสือล้วน ใช้ได้ทั้งใน HTML / title / esc()) · อยากได้แบบสีจางใน HTML ใช้ dash()
+ * ⚠️ ไฟล์ CSV/Excel ห้ามส่งผลของตัวจัดรูปแบบเหล่านี้ — ส่งตัวเลขดิบ ให้ Excel คำนวณต่อได้
+ */
+const NA = '—';
+const bad_ = (n: unknown): boolean => n === null || n === undefined || (n as unknown) === '' || !isFinite(Number(n));
+
 export function fmtNum(n: number | null | undefined): string {
-  if (n === null || n === undefined || isNaN(n)) return '-';
+  if (bad_(n)) return NA;
   return Number(n).toLocaleString('th-TH');
 }
 
+/** เงินเต็มจำนวน "-฿2,278,072" — ปัดเป็นบาทเต็ม · ปัดแล้วเป็น 0 ไม่มีเครื่องหมายลบ (กัน "-฿0") */
 export function THB(n: number | null | undefined): string {
-  if (n === null || n === undefined || isNaN(n)) return '-';
-  return '฿' + Math.round(Number(n)).toLocaleString('th-TH');
+  if (bad_(n)) return NA;
+  const v = Math.round(Number(n));
+  return (v < 0 ? '-' : '') + '฿' + Math.abs(v).toLocaleString('th-TH');
 }
 
+/** ย่อจำนวน (ไม่มีสกุลเงิน) "1.25M" / "573.0K" / "950" — ตัวเลขเดียวกับ THBk แต่ไม่มี ฿ */
+export function numK(n: number | null | undefined): string {
+  if (bad_(n)) return NA;
+  const v = Number(n);
+  const a = Math.abs(v);
+  // เกณฑ์เลื่อนหน่วยคิดจาก "ค่าหลังปัด" — ไม่งั้น 999,990 จะกลายเป็น "1000.0K" แทน "1.00M"
+  let s: string;
+  if (a >= 999950) s = (a / 1e6).toFixed(2) + 'M';
+  else if (a >= 999.5) s = (a / 1e3).toFixed(1) + 'K';
+  else s = Math.round(a).toLocaleString('th-TH');
+  return (v < 0 && s !== '0' ? '-' : '') + s;
+}
+
+/** เงินแบบย่อ "-฿2.28M" / "฿573.0K" / "฿950" — ตัวเต็มควรอยู่ใน tooltip/ตารางละเอียดเสมอ */
+export function THBk(n: number | null | undefined): string {
+  if (bad_(n)) return NA;
+  const s = numK(n);
+  return s.charAt(0) === '-' ? '-฿' + s.slice(1) : '฿' + s;
+}
+
+/** ย่อจำนวนแบบเดิม (ใช้กับแกนกราฟ/ตัวเลขรอง) — ตอนนี้ K ตัวใหญ่ตามชุดกลาง ส่วนทศนิยม 1 ตำแหน่งคงเดิม */
 export function kFmt(n: number | null | undefined): string {
   const v = Number(n) || 0;
-  if (Math.abs(v) >= 1000000) return (v / 1000000).toFixed(1) + 'M';
-  if (Math.abs(v) >= 1000) return (v / 1000).toFixed(1) + 'k';
+  const a = Math.abs(v);
+  if (a >= 999950) return (v / 1000000).toFixed(1) + 'M';
+  if (a >= 999.5) return (v / 1000).toFixed(1) + 'K';
   return String(Math.round(v));
 }
 
+/** ตัวเลขบนแกนกราฟ: ตัดศูนย์ท้ายทิ้ง "25K" "1.5M" (ขั้นแกนเป็นเลขกลมอยู่แล้ว ".0" มีแต่รก) · money = ใส่ ฿ */
+export function axisFmt(n: number, money = false): string {
+  if (!isFinite(n)) return '';
+  const a = Math.abs(n);
+  const trim = (x: number, d: number) => x.toFixed(d).replace(/\.?0+$/, '');
+  const s = a >= 1e6 ? trim(a / 1e6, 2) + 'M' : a >= 1e3 ? trim(a / 1e3, 1) + 'K' : trim(a, a < 10 ? 1 : 0);
+  return (n < 0 ? '-' : '') + (money ? '฿' : '') + s;
+}
+
+/** %ทศนิยม 2 ตำแหน่ง "12.90%" — %ปิด %Error %ตีกลับ (สเปกทีมแอด) */
+export function pct2(n: number | null | undefined): string {
+  return bad_(n) ? NA : Number(n).toFixed(2) + '%';
+}
+
+/** %ทศนิยม 1 ตำแหน่ง ไม่ตัดศูนย์ "80.0%" — %บรรลุเป้า สัดส่วน */
+export function pct1(n: number | null | undefined): string {
+  return bad_(n) ? NA : Number(n).toFixed(1) + '%';
+}
+
+/** ชื่อเดิม — ตอนนี้ = pct1 (เดิมตัดศูนย์ทิ้งเป็น "80%" คู่กับ "80.5%" ในคอลัมน์เดียวกัน อ่านไม่ตรงหลัก)
+ *  หน้าไหนเป็น %ปิด/%Error/%ตีกลับ ให้เปลี่ยนไปใช้ pct2 */
 export function pctFmt(n: number | null | undefined): string {
-  return (n === null || n === undefined || isNaN(n)) ? '-' : (Math.round(n * 10) / 10) + '%';
+  return pct1(n);
+}
+
+/** ROAS "3.03x" — ไม่มีค่าใช้จ่ายแอด (หารศูนย์ = Infinity) ถือว่าไม่มีข้อมูล */
+export function roasFmt(n: number | null | undefined): string {
+  return bad_(n) ? NA : Number(n).toFixed(2) + 'x';
+}
+
+/** ขีด "ไม่มีข้อมูล" สีจางแบบเดียวทั้งเว็บ (HTML) — ห้ามใส่ใน title/esc() ให้ใช้ตัวหนังสือ '—' แทน */
+export function dash(): string {
+  return '<span class="tx-muted">' + NA + '</span>';
+}
+
+const TH_MON_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
+  'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+
+/**
+ * วันที่ไทยแบบสั้น "25 ก.ย. 69" (พ.ศ. 2 หลักท้าย — ทีมอ่านแบบนี้ในชีททุกใบ)
+ * รับ 'YYYY-MM-DD' (วันตามปฏิทิน อ่านตรงจากตัวเลข ไม่ผ่าน Date — กันคลาด 1 วันจาก UTC)
+ * หรือเวลาแบบ ISO / Date (แปลงเป็นวันตามนาฬิกาเครื่องผู้ใช้)
+ */
+export function dateTh(s: string | Date | null | undefined): string {
+  if (s === null || s === undefined || s === '') return NA;
+  let y: number, m: number, d: number;
+  const civil = typeof s === 'string' ? s.match(/^(\d{4})-(\d{2})-(\d{2})$/) : null;
+  if (civil) {
+    y = Number(civil[1]); m = Number(civil[2]) - 1; d = Number(civil[3]);
+  } else {
+    const dt = s instanceof Date ? s : new Date(String(s).replace(' ', 'T'));
+    if (isNaN(dt.getTime())) return NA;
+    y = dt.getFullYear(); m = dt.getMonth(); d = dt.getDate();
+  }
+  if (!(m >= 0 && m < 12) || !(d >= 1 && d <= 31)) return NA;
+  return d + ' ' + TH_MON_SHORT[m] + ' ' + String((y + 543) % 100).padStart(2, '0');
+}
+
+/** เดือนไทยแบบสั้น "ก.ย. 69" — รับ 'YYYY-MM' หรือ 'YYYY-MM-DD' */
+export function monthTh(s: string | null | undefined): string {
+  const m = String(s || '').match(/^(\d{4})-(\d{2})/);
+  if (!m) return NA;
+  const mi = Number(m[2]) - 1;
+  if (!(mi >= 0 && mi < 12)) return NA;
+  return TH_MON_SHORT[mi] + ' ' + String((Number(m[1]) + 543) % 100).padStart(2, '0');
 }
 
 /** iso 'yyyy-MM-ddTHH:mm:ss' → 'x นาทีที่แล้ว' */
@@ -121,36 +223,448 @@ export function avatarHtml(
 
 /* ---------------- UI helpers ---------------- */
 
-/** ชนิดของข้อความเด้ง — กำหนดไอคอน+สีหน้าข้อความ (แทนอีโมจิ ✅ ⚠️ ❌ ⟳ ที่เคยพิมพ์ไว้หน้าข้อความ) */
+/* ---------- ประกาศให้โปรแกรมอ่านหน้าจอ (live region) ----------
+ * แยกเป็นกล่องล่องหนถาวร 2 กล่อง (สุภาพ / ด่วน) แทนการติด aria-live ที่ตัว toast แต่ละใบ
+ * เพราะ live region ที่ "เพิ่งถูกสร้างพร้อมข้อความ" โปรแกรมอ่านหน้าจอหลายตัวไม่อ่านเลย
+ * ต้องมีกล่องอยู่ก่อนแล้วค่อยเปลี่ยนข้อความข้างใน ถึงจะถูกอ่านแน่นอน
+ * สไตล์ซ่อนใส่ inline เพราะเว็บยังไม่มีคลาส sr-only กลาง (ไม่มีสีจึงไม่ผิดกติกา token) */
+let annPolite_: HTMLElement | null = null;
+let annAssert_: HTMLElement | null = null;
+
+function announcer_(assertive: boolean): HTMLElement {
+  const cur = assertive ? annAssert_ : annPolite_;
+  if (cur && cur.isConnected) return cur;
+  const el = document.createElement('div');
+  el.className = 'pn-announcer';
+  el.setAttribute('role', assertive ? 'alert' : 'status');
+  el.setAttribute('aria-live', assertive ? 'assertive' : 'polite');
+  el.setAttribute('aria-atomic', 'true');
+  el.style.cssText = 'position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;' +
+    'overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap';
+  document.body.appendChild(el);
+  if (assertive) annAssert_ = el; else annPolite_ = el;
+  return el;
+}
+
+/** ให้โปรแกรมอ่านหน้าจออ่านข้อความนี้ (ไม่แสดงบนจอ) — assertive = ขัดจังหวะทันที ใช้กับข้อผิดพลาดเท่านั้น */
+export function announce(msg: string, assertive = false): void {
+  if (typeof document === 'undefined' || !msg) return;
+  const el = announcer_(assertive);
+  // ล้างก่อนแล้วค่อยใส่ — ข้อความเดิมซ้ำ (เช่น "บันทึกแล้ว" 2 ครั้ง) จะได้ถูกอ่านทุกครั้ง
+  el.textContent = '';
+  setTimeout(() => { el.textContent = msg; }, 60);
+}
+
+/* ---------- ข้อความเด้งมุมจอ (toast) — ตรวจ UI ข้อ F4/F5 ---------- */
+
+/** ชนิดของข้อความเด้ง — กำหนดไอคอน+สีขีดซ้าย (แทนอีโมจิ ✅ ⚠️ ❌ ⟳ ที่เคยพิมพ์ไว้หน้าข้อความ) */
 export type ToastKind = 'ok' | 'warn' | 'error' | 'info' | 'busy';
+export interface ToastOpts {
+  /** ปุ่มในข้อความ เช่น { label: 'เลิกทำ', fn } หรือ { label: 'ลองใหม่', fn } */
+  action?: { label: string; fn: () => void };
+  /** ค้างกี่มิลลิวินาที (0 = ค้างจนกดปิด) — ไม่ใส่ = ตามชนิด */
+  ms?: number;
+}
 const TOAST_ICON: Record<ToastKind, string> = {
   ok: 'circle-check', warn: 'triangle-alert', error: 'circle-x', info: 'info', busy: 'refresh-cw',
 };
+/** สำเร็จหายไว (3 วิ) · ข้อผิดพลาดค้างนาน (8 วิ) ให้อ่านทัน/กดลองใหม่ทัน */
+const TOAST_MS: Record<ToastKind, number> = { ok: 3000, info: 4000, warn: 5000, error: 8000, busy: 4000 };
+/** ซ้อนกันเกินนี้ ตัวเก่าสุดหลีกทาง — กองข้อความเต็มมุมจอบังปุ่มข้างหลัง */
+const TOAST_MAX = 4;
+
+/** เดาชนิดจากคำ (เฉพาะกรณีที่ชัดเจน) — มี toast หลายสิบจุดทั่วเว็บที่ไม่ได้ส่งชนิดมา
+ *  "ไม่สำเร็จ/ผิดพลาด/ล้มเหลว" = error · ขึ้นต้น "กำลัง" = busy · "...แล้ว" (บันทึกแล้ว/ลบแล้ว) = ok
+ *  ที่เหลือ = info (ขีดเทา) — ไอคอนผิดความหมายแย่กว่าข้อความกลางๆ */
+function guessToastKind_(msg: string): ToastKind {
+  if (/ไม่สำเร็จ|ผิดพลาด|ล้มเหลว/.test(msg)) return 'error';
+  if (/^กำลัง/.test(msg)) return 'busy';
+  if (/แล้ว(?=$|[\s—.!,)])/.test(msg) && !/^ยัง|ไม่ได้/.test(msg)) return 'ok';
+  return 'info';
+}
+
+/** กล่องซ้อน toast — ใช้ #toast-stack ที่หน้าเว็บมีอยู่ ไม่มีก็สร้างเอง */
+function toastStack_(): HTMLElement {
+  let el = document.getElementById('toast-stack');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'toast-stack';
+    document.body.appendChild(el);
+  }
+  // live region อยู่ที่ announce() แล้ว — ถ้าตัวกล่องเป็น live region ด้วย โปรแกรมอ่านหน้าจอจะอ่านซ้ำ 2 รอบ
+  if (el.hasAttribute('aria-live')) el.removeAttribute('aria-live');
+  if (el.getAttribute('role') === 'status') el.removeAttribute('role');
+  return el;
+}
 
 /**
- * ข้อความเด้งมุมจอ — toast('บันทึกแล้ว', 'ok')
- * ไม่ส่ง kind มา: เดาจากคำเฉพาะกรณีที่ชัดเจน ("ไม่สำเร็จ/ผิดพลาด/ล้มเหลว" = error, ขึ้นต้น "กำลัง" = busy)
- * เพราะมี toast หลายสิบจุดทั่วเว็บที่เคยสื่อสถานะด้วยอีโมจิ พอถอดอีโมจิออกสถานะจะหายไปเงียบๆ
- * กรณีอื่นไม่เดา (ไม่มีไอคอน) — ไอคอนผิดความหมายแย่กว่าไม่มีไอคอน
+ * ข้อความเด้งมุมจอ — toast('บันทึกแล้ว', 'ok') · toast('โหลดไม่สำเร็จ', 'error', { action: { label: 'ลองใหม่', fn } })
+ * ไม่ส่ง kind มา = เดาจากคำ (ดู guessToastKind_) · ข้อความเป็น textContent เสมอ (ข้อความจากเซิร์ฟเวอร์ห้ามเป็น HTML)
+ * ชี้เมาส์/โฟกัสค้างที่ข้อความ = หยุดนับเวลา (อ่านไม่ทันต้องไม่หายไปต่อหน้า)
  */
-export function toast(msg: string, kind?: ToastKind): void {
-  const box = document.getElementById('toast-container')!;
-  const k: ToastKind | undefined = kind ||
-    (/ไม่สำเร็จ|ผิดพลาด|ล้มเหลว/.test(msg) ? 'error' : /^กำลัง/.test(msg) ? 'busy' : undefined);
+export function toast(msg: string, kind?: ToastKind, opts?: ToastOpts): void {
+  if (typeof document === 'undefined') return;
+  const k: ToastKind = kind || guessToastKind_(String(msg || ''));
+  const o = opts || {};
+  const stack = toastStack_();
+
+  // "กำลัง..." หมดหน้าที่ทันทีที่ผลลัพธ์ตามมา · ข้อความเดิมซ้ำ = แทนที่ตัวเก่า (กดรีเฟรชรัวๆ ไม่ขึ้นเป็นกอง)
+  stack.querySelectorAll('.toast').forEach((el) => {
+    const t = el as HTMLElement;
+    if ((k !== 'busy' && t.classList.contains('toast-busy')) || t.dataset.msg === msg) t.remove();
+  });
+
   const t = document.createElement('div');
-  t.className = 'toast' + (k ? ' toast-' + k : '');
-  if (k) {
-    const ic = document.createElement('span');
-    ic.className = 'toast-ic';
-    ic.innerHTML = icon(TOAST_ICON[k], { size: 16 });
-    t.appendChild(ic);
-  }
-  // ข้อความยังเป็น textContent เสมอ — ข้อความ error จากเซิร์ฟเวอร์ห้ามถูกตีความเป็น HTML
+  t.className = 'toast toast-' + k;
+  t.dataset.msg = msg;
+  const ic = document.createElement('span');
+  ic.className = 'toast-ic';
+  ic.innerHTML = icon(TOAST_ICON[k], { size: 16 });
+  t.appendChild(ic);
   const tx = document.createElement('span');
+  tx.className = 'toast-msg';
   tx.textContent = msg;
   t.appendChild(tx);
-  box.appendChild(t);
-  setTimeout(() => { t.remove(); }, 3200);
+
+  let closed = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    if (timer) clearTimeout(timer);
+    t.remove();
+  };
+
+  if (o.action && o.action.label) {
+    const a = document.createElement('button');
+    a.type = 'button';
+    a.className = 'toast-action';
+    a.textContent = o.action.label;
+    const fn = o.action.fn;
+    a.addEventListener('click', () => {
+      if (closed) return;     // กันกดซ้ำ (เลิกทำ 2 ครั้ง = ทำซ้ำกลับไปกลับมา)
+      close();
+      try { fn(); } catch (e) { console.error(e); }
+    });
+    t.appendChild(a);
+  }
+  const x = document.createElement('button');
+  x.type = 'button';
+  x.className = 'toast-close';
+  x.setAttribute('aria-label', 'ปิดข้อความ');
+  x.innerHTML = icon('x', { size: 16 });
+  x.addEventListener('click', close);
+  t.appendChild(x);
+
+  stack.appendChild(t);
+  const all = stack.querySelectorAll('.toast');
+  for (let i = 0; i < all.length - TOAST_MAX; i++) all[i].remove();
+
+  announce(msg, k === 'error');
+
+  const base = typeof o.ms === 'number' ? o.ms : (o.action ? Math.max(5000, TOAST_MS[k]) : TOAST_MS[k]);
+  if (base > 0) {
+    let remaining = base;
+    let started = Date.now();
+    timer = setTimeout(close, remaining);
+    const pause = () => {
+      if (!timer || closed) return;
+      clearTimeout(timer); timer = null;
+      remaining -= Date.now() - started;
+    };
+    const resume = () => {
+      if (timer || closed) return;
+      started = Date.now();
+      timer = setTimeout(close, Math.max(1500, remaining));
+    };
+    t.addEventListener('mouseenter', pause);
+    t.addEventListener('mouseleave', resume);
+    t.addEventListener('focusin', pause);
+    t.addEventListener('focusout', resume);
+  }
+}
+
+/** แถบ "ทำไปแล้ว · เลิกทำ" ค้าง ms มิลลิวินาที — ใช้กับคำสั่งที่ทำทันทีแต่ย้อนได้ (เช่น ระงับแอดมิน) */
+export function undoToast(msg: string, onUndo: () => void, ms = 5000): void {
+  toast(msg, 'ok', { action: { label: 'เลิกทำ', fn: onUndo }, ms });
+}
+
+/* ---------- ปุ่มกำลังทำงาน (F4) ----------
+ * ระหว่างรอเซิร์ฟเวอร์ ปุ่มต้องเปลี่ยนหน้าตา+กดซ้ำไม่ได้ ไม่งั้นเน็ตช้าแล้วคนกดซ้ำจนข้อมูลซ้ำ
+ * กดซ้ำระหว่างทำงาน (ถ้าหลุดมาถึงได้) จะได้ promise ตัวเดิมกลับไป ไม่เริ่มงานรอบใหม่ */
+const busyRuns_ = new WeakMap<HTMLElement, Promise<unknown>>();
+
+/**
+ * withBusy(btn, 'กำลังบันทึก…', () => serverCall(...))
+ * ปิดปุ่ม + วงหมุน + คำว่ากำลังทำ → เสร็จ/พลาดก็คืนหน้าตาเดิมเสมอ (ผลลัพธ์/ข้อผิดพลาดส่งต่อให้คนเรียกตามปกติ)
+ */
+export function withBusy<T>(btn: HTMLElement | null, busyText: string, fn: () => Promise<T>): Promise<T> {
+  if (!btn) return Promise.resolve().then(fn);
+  const running = busyRuns_.get(btn);
+  if (running) return running as Promise<T>;
+
+  const b = btn as HTMLButtonElement;
+  const canDisable = 'disabled' in b;
+  const prevHtml = btn.innerHTML;
+  const prevDisabled = canDisable ? b.disabled : false;
+  const prevMinW = btn.style.minWidth;
+  const hadFocus = document.activeElement === btn;
+  // ล็อกความกว้างเดิม — คำว่า "กำลังบันทึก…" ยาวกว่า/สั้นกว่าเดิม ปุ่มข้างๆ จะไม่กระโดด
+  const w = btn.getBoundingClientRect().width;
+  if (w) btn.style.minWidth = Math.ceil(w) + 'px';
+  btn.classList.add('is-busy');
+  btn.setAttribute('aria-busy', 'true');
+  if (canDisable) b.disabled = true; else btn.setAttribute('aria-disabled', 'true');
+  btn.innerHTML = icon('loader-circle', { size: 16, cls: 'spin' }) + '<span>' + esc(busyText) + '</span>';
+
+  const restore = () => {
+    busyRuns_.delete(btn);
+    btn.classList.remove('is-busy');
+    btn.removeAttribute('aria-busy');
+    if (canDisable) b.disabled = prevDisabled; else btn.removeAttribute('aria-disabled');
+    btn.innerHTML = prevHtml;
+    btn.style.minWidth = prevMinW;
+    // ปุ่มที่ถูก disabled ระหว่างโฟกัสอยู่ เบราว์เซอร์ทิ้งโฟกัสไปที่ body — คืนให้คนใช้คีย์บอร์ดกดต่อได้
+    if (hadFocus && btn.isConnected && document.activeElement === document.body) {
+      try { btn.focus({ preventScroll: true }); } catch { /* ไม่เป็นไร */ }
+    }
+  };
+
+  let p: Promise<T>;
+  try { p = Promise.resolve(fn()); } catch (e) { p = Promise.reject(e); }
+  const out = p.then((v) => { restore(); return v; }, (e) => { restore(); throw e; });
+  busyRuns_.set(btn, out);
+  return out;
+}
+
+/* ---------- ปุ่ม ⓘ คำอธิบาย (D3) ----------
+ * คืน markup อย่างเดียว — พฤติกรรม (แตะแล้วกรอบค้าง / Esc ปิด) อยู่ที่ lib/ui/infotip.ts
+ * text: ตัวคั่น " • " = ขึ้นบรรทัดใหม่ · บรรทัดที่มี "=" แสดงเป็นสูตร · label = ชื่อเรื่อง (เช่น "%ปิด")
+ * ⚠️ ห้ามวางไว้ "ในปุ่มอื่น" (เช่น ปุ่มเรียงหัวตาราง) — ปุ่มซ้อนปุ่มกดไม่ได้ ให้วางต่อท้ายแทน */
+export function infoTip(text: string, label?: string): string {
+  const aria = label ? 'คำอธิบาย: ' + label : 'คำอธิบาย';
+  return '<button type="button" class="info-i" aria-label="' + esc(aria) + '" data-tip="' + esc(text) + '"' +
+    (label ? ' data-tip-title="' + esc(label) + '"' : '') + '>' + icon('info', { size: 14 }) + '</button>';
+}
+
+/* ---------- กล่องสถานะ ไม่มีข้อมูล / รอข้อมูล / ยังไม่พร้อม / ผิดพลาด (D3) ----------
+ * เขียนเป็นภาษาคน: หัวข้อ + ประโยคบอกทางแก้ + ปุ่ม · ชื่อไฟล์ .sql / คำสั่ง npm / ข้อความ error ดิบ
+ * อยู่ใน "รายละเอียดสำหรับผู้ดูแล" ที่พับไว้ และแสดงเฉพาะผู้ดูแลระบบ (superadmin) เท่านั้น */
+export type StateKind = 'nodata' | 'wait' | 'notready' | 'error';
+const STATE_DEF: Record<StateKind, { ic: string; title: string; body: string }> = {
+  nodata: { ic: 'inbox', title: 'ช่วงนี้ยังไม่มีข้อมูล', body: 'ลองเปลี่ยนช่วงวันที่หรือตัวกรอง' },
+  wait: { ic: 'hourglass', title: 'กำลังรอข้อมูลรอบถัดไป', body: 'ระบบดึงข้อมูลใหม่เป็นรอบๆ ลองกลับมาดูอีกครั้งในอีกสักครู่' },
+  notready: { ic: 'circle-alert', title: 'ส่วนนี้ยังไม่พร้อม', body: 'กรุณาแจ้งผู้ดูแลระบบ' },
+  error: { ic: 'cloud-off', title: 'โหลดข้อมูลไม่สำเร็จ', body: 'ลองใหม่อีกครั้ง ถ้ายังไม่ได้ให้แจ้งผู้ดูแลระบบ' },
+};
+
+/** คนที่เปิดหน้าอยู่เป็นผู้ดูแลระบบไหม (page.tsx ใส่ data-role ไว้ที่ #app) */
+function isSuperadmin_(): boolean {
+  if (typeof document === 'undefined') return false;
+  const app = document.getElementById('app');
+  return !!app && app.dataset.role === 'superadmin';
+}
+
+/**
+ * stateHtml('nodata', { actionsHtml: '<button ...>เปลี่ยนช่วงวันที่</button>' })
+ * title/body = ข้อความธรรมดา (escape ให้) ไม่ใส่ = ใช้คำมาตรฐานของชนิดนั้น · body: '' = ไม่มีบรรทัดอธิบาย
+ * actionsHtml = HTML ของปุ่ม (คนเรียกผูก event เอง) · adminDetail = ข้อความเทคนิค (ผู้ดูแลระบบเท่านั้นที่เห็น)
+ */
+export function stateHtml(
+  kind: StateKind,
+  opts?: { title?: string; body?: string; actionsHtml?: string; adminDetail?: string },
+): string {
+  const d = STATE_DEF[kind] || STATE_DEF.nodata;
+  const o = opts || {};
+  const body = o.body !== undefined ? o.body : d.body;
+  return '<div class="state state-' + kind + '"' + (kind === 'error' ? ' role="alert"' : '') + '>' +
+    '<div class="state-title">' + icon(d.ic, { size: 18 }) + '<span>' + esc(o.title || d.title) + '</span></div>' +
+    (body ? '<div class="state-body">' + esc(body) + '</div>' : '') +
+    (o.actionsHtml ? '<div class="state-actions">' + o.actionsHtml + '</div>' : '') +
+    (o.adminDetail && isSuperadmin_()
+      ? '<details class="state-admin"><summary>รายละเอียดสำหรับผู้ดูแล</summary><pre>' + esc(o.adminDetail) + '</pre></details>'
+      : '') +
+  '</div>';
+}
+
+/* ---------- หน้าต่าง (modal / bottom sheet) ----------
+ * F5: หน้าต่างบอกตัวเองว่าเป็น dialog (role + aria-modal + ชื่อจากหัวข้อ) ย้ายโฟกัสเข้าไปตอนเปิด
+ *     คืนโฟกัสให้ปุ่มที่กดเปิดตอนปิด · Tab วนอยู่ในหน้าต่าง · Esc ปิด
+ * ซ้อนได้ 1 ชั้นสำหรับกล่องยืนยัน (confirmDialog เปิดจากในหน้าต่างอื่นได้โดยไม่ลบหน้าต่างเดิม)
+ * ⚠️ #modal-root ต้องว่างสนิทตอนไม่มีหน้าต่าง — หลายหน้าเช็ค modalRoot.innerHTML เพื่อรู้ว่ามีหน้าต่างเปิดอยู่
+ * เหตุการณ์ 'pn:modal' (detail.open, detail.depth) ยิงที่ document ทุกครั้งที่เปิด/ปิด — ให้ตัวจัดการปุ่มย้อนกลับ (F3) ใช้ */
+
+interface ModalLayer { overlay: HTMLElement; opener: HTMLElement | null; onClose?: () => void }
+let layers_: ModalLayer[] = [];
+let mdlSeq_ = 0;
+let modalKeysBound_ = false;
+
+export interface ModalOpts {
+  /** คลาสเพิ่มที่ .modal เช่น 'modal-confirm' */
+  cls?: string;
+  /** ชื่อหน้าต่างสำหรับโปรแกรมอ่านหน้าจอ เมื่อไม่มีหัวข้อ h3 ให้หยิบ */
+  label?: string;
+  role?: 'dialog' | 'alertdialog';
+  /** เรียกเมื่อหน้าต่างนี้ถูกปิด (ไม่ว่าทางไหน: ปุ่มปิด / ฉากหลัง / Esc / ลาก / ถูกหน้าต่างใหม่แทนที่) */
+  onClose?: () => void;
+}
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), ' +
+  'select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
+
+/** detail = { open: มีหน้าต่างเหลือไหม, depth: จำนวนชั้นที่เปิดอยู่ } — เปิดแทนที่หน้าต่างเดิม depth ไม่เปลี่ยน */
+function emitModal_(): void {
+  const depth = layers_.length;
+  try { document.dispatchEvent(new CustomEvent('pn:modal', { detail: { open: depth > 0, depth } })); } catch { /* เบราว์เซอร์เก่า */ }
+}
+
+/** มีหน้าต่างเปิดอยู่ไหม */
+export function isModalOpen(): boolean {
+  const root = typeof document !== 'undefined' ? document.getElementById('modal-root') : null;
+  return !!(root && root.firstElementChild);
+}
+
+function captureOpener_(): HTMLElement | null {
+  const a = document.activeElement;
+  return a instanceof HTMLElement && a !== document.body ? a : null;
+}
+
+/** ตั้งชื่อ/บทบาทให้ .modal — หัวข้อหาได้จาก .confirm-title / .modal-title / h3 ใน .modal-head */
+function labelDialog_(modal: HTMLElement, fallback?: string): void {
+  if (!modal.getAttribute('role')) modal.setAttribute('role', 'dialog');
+  modal.setAttribute('aria-modal', 'true');
+  modal.setAttribute('tabindex', '-1');
+  // ตัวกล่องรับโฟกัสได้เพื่อให้โปรแกรมอ่านหน้าจออ่านชื่อหน้าต่าง แต่ไม่ใช่ปุ่ม — ไม่ต้องมีกรอบโฟกัสรอบทั้งกล่อง
+  modal.style.outline = 'none';
+  const t = modal.querySelector('.confirm-title, .modal-title, .modal-head h1, .modal-head h2, .modal-head h3, .modal-head h4, h2, h3') as HTMLElement | null;
+  if (t) {
+    if (!t.id) t.id = 'mdl-t' + (++mdlSeq_);
+    modal.setAttribute('aria-labelledby', t.id);
+    modal.removeAttribute('aria-label');
+  } else {
+    modal.removeAttribute('aria-labelledby');
+    modal.setAttribute('aria-label', fallback || modal.getAttribute('aria-label') || 'หน้าต่าง');
+  }
+}
+
+/** ผูกปุ่ม .modal-close ที่ยังไม่เคยผูก (กันผูกซ้ำตอน rebindModalClose) */
+function bindCloseBtns_(scope: HTMLElement, fn: () => void): void {
+  scope.querySelectorAll('.modal-close').forEach((x) => {
+    const el = x as HTMLElement;
+    if (el.getAttribute('data-mc')) return;
+    el.setAttribute('data-mc', '1');
+    el.addEventListener('click', fn);
+  });
+}
+
+function topModal_(): HTMLElement | null {
+  const l = layers_[layers_.length - 1];
+  return l ? (l.overlay.querySelector('.modal') as HTMLElement | null) : null;
+}
+
+/** โฟกัสเข้าหน้าต่าง: ตัวที่ติด data-autofocus ก่อน ไม่มีก็ตัวกล่อง (ไม่โฟกัสช่องกรอกเอง — มือถือจะเด้งคีย์บอร์ดบังจอ) */
+function focusInto_(modal: HTMLElement): void {
+  const target = (modal.querySelector('[data-autofocus], [autofocus]') as HTMLElement | null) || modal;
+  try { target.focus({ preventScroll: true }); } catch { target.focus(); }
+}
+
+function trapTab_(e: KeyboardEvent): void {
+  const top = topModal_();
+  if (!top) return;
+  const els = Array.from(top.querySelectorAll(FOCUSABLE)).filter((el) => {
+    const h = el as HTMLElement;
+    return h.offsetParent !== null || h === document.activeElement;
+  }) as HTMLElement[];
+  if (!els.length) { e.preventDefault(); top.focus(); return; }
+  const first = els[0], last = els[els.length - 1];
+  const act = document.activeElement;
+  if (!act || !top.contains(act)) { e.preventDefault(); first.focus(); return; }
+  if (e.shiftKey && (act === first || act === top)) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && act === last) { e.preventDefault(); first.focus(); }
+}
+
+function bindModalKeys_(): void {
+  if (modalKeysBound_) return;
+  modalKeysBound_ = true;
+  // ⚠️ ผูกแบบ capture: ต้องได้ Esc ก่อนตัวจัดการ Esc ของหัวเว็บ (app-core ปิด "หน้าต่าง/เมนู" แบบรวบ)
+  //    เราปิดทีละชั้น (กล่องยืนยันที่ซ้อนอยู่ปิดก่อน หน้าต่างข้างล่างยังอยู่) แล้ว preventDefault
+  //    เพื่อบอกตัวอื่นว่า Esc ครั้งนี้ใช้ไปแล้ว — กรอบคำอธิบาย ⓘ ผูก capture ไว้ก่อนเรา จึงได้ปิดตัวเองก่อนเสมอ
+  document.addEventListener('keydown', (e) => {
+    if (!layers_.length) return;
+    if (!isModalOpen()) { layers_ = []; return; }     // มีโค้ดล้าง #modal-root เองโดยไม่ผ่าน closeModal
+    if (e.key === 'Escape') {
+      // ตัวอื่นจัดการ Esc ไปแล้ว (กรอบคำอธิบาย) หรือปฏิทินเลือกวันเปิดอยู่ → ปิดแค่ตัวนั้น หน้าต่างยังอยู่
+      if (e.defaultPrevented || dpCtx_) return;
+      e.preventDefault();
+      closeTopModal();
+    } else if (e.key === 'Tab') {
+      trapTab_(e);
+    }
+  }, true);
+}
+
+/** สร้างชั้นหน้าต่าง (ฉากหลัง + กล่อง) แล้วผูกปิด/ลาก/ชื่อ/โฟกัส */
+function mountLayer_(html: string, opts: ModalOpts, stacked: boolean): HTMLElement {
+  const root = document.getElementById('modal-root')!;
+  const opener = captureOpener_();
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  const modal = document.createElement('div');
+  modal.className = 'modal' + (opts.cls ? ' ' + opts.cls : '');
+  if (opts.role) modal.setAttribute('role', opts.role);
+  modal.innerHTML = html;
+  overlay.appendChild(modal);
+
+  let layer: ModalLayer;
+  if (stacked) {
+    layer = { overlay, opener, onClose: opts.onClose };
+    root.appendChild(overlay);
+    layers_.push(layer);
+  } else {
+    // แทนที่หน้าต่างเดิม: ปุ่มที่ต้องคืนโฟกัสคือปุ่มที่เปิดหน้าต่าง "แรก" ไม่ใช่ปุ่มในหน้าต่างที่กำลังจะหายไป
+    const baseOpener = layers_.length && root.firstElementChild ? layers_[0].opener : opener;
+    const old = layers_.slice().reverse();
+    layers_ = [];
+    root.innerHTML = '';
+    old.forEach((l) => { try { if (l.onClose) l.onClose(); } catch (e) { console.error(e); } });
+    root.appendChild(overlay);
+    layer = { overlay, opener: baseOpener, onClose: opts.onClose };
+    layers_ = [layer];
+  }
+  const closeThis = () => closeLayer_(layer);
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeThis();
+  });
+  normalizeCloseBtns_(overlay);
+  // ต้อง querySelectorAll — modal ส่วนใหญ่มีปุ่มปิด 2 ตัว (✕ มุมบน + "ยกเลิก" ท้ายฟอร์ม)
+  // ถ้า bind แค่ตัวแรก ปุ่ม "ยกเลิก" จะกดไม่ติด (เคยเป็นบั๊กจริงบนหน้าจัดการผู้ใช้)
+  bindCloseBtns_(overlay, closeThis);
+  bindSheetDrag_(overlay, closeThis);
+  labelDialog_(modal, opts.label);
+  bindModalKeys_();
+  focusInto_(modal);
+  emitModal_();
+  return overlay;
+}
+
+/** ปิดชั้นหน้าต่างชั้นเดียว (ชั้นล่างสุด = ปิดทั้งหมด) */
+function closeLayer_(layer: ModalLayer): void {
+  const i = layers_.indexOf(layer);
+  if (i < 0) return;
+  if (i === 0) { closeModal(); return; }
+  layers_.splice(i, 1);
+  layer.overlay.remove();
+  try { if (layer.onClose) layer.onClose(); } catch (e) { console.error(e); }
+  const back = layer.opener && layer.opener.isConnected ? layer.opener : topModal_();
+  if (back) { try { back.focus({ preventScroll: true }); } catch { /* ไม่เป็นไร */ } }
+  emitModal_();
+}
+
+/** ปิดหน้าต่างบนสุดชั้นเดียว (Esc / ปุ่มย้อนกลับของมือถือ) — ไม่มีชั้นซ้อน = ปิดหน้าต่าง */
+export function closeTopModal(): void {
+  const l = layers_[layers_.length - 1];
+  if (l) closeLayer_(l); else closeModal();
 }
 
 /** ปุ่มปิดมุมบนของโมดัล (ใส่ใน .modal-head) — ปุ่มไอคอนล้วนจึงต้องมี aria-label + title เสมอ */
@@ -174,18 +688,9 @@ function normalizeCloseBtns_(root: HTMLElement): void {
   });
 }
 
-export function openModal(html: string): void {
-  const root = document.getElementById('modal-root')!;
-  root.innerHTML = '<div class="modal-overlay"><div class="modal">' + html + '</div></div>';
-  const overlay = root.querySelector('.modal-overlay') as HTMLElement;
-  overlay.addEventListener('click', (e) => {
-    if (e.target === e.currentTarget) closeModal();
-  });
-  normalizeCloseBtns_(root);
-  // ต้อง querySelectorAll — modal ส่วนใหญ่มีปุ่มปิด 2 ตัว (✕ มุมบน + "ยกเลิก" ท้ายฟอร์ม)
-  // ถ้า bind แค่ตัวแรก ปุ่ม "ยกเลิก" จะกดไม่ติด (เคยเป็นบั๊กจริงบนหน้าจัดการผู้ใช้)
-  root.querySelectorAll('.modal-close').forEach((x) => x.addEventListener('click', closeModal));
-  bindSheetDrag_(overlay);
+/** เปิดหน้าต่าง (แทนที่หน้าต่างเดิมถ้ามี) — opts ไม่บังคับ ของเดิมที่เรียก openModal(html) ใช้ได้เหมือนเดิม */
+export function openModal(html: string, opts?: ModalOpts): void {
+  mountLayer_(html, opts || {}, false);
 }
 
 /* ---------- ลากแผ่นลงเพื่อปิด (bottom sheet) ----------
@@ -200,7 +705,7 @@ const SHEET_CLOSE_RATIO = 0.25;   // ลากลงเกิน 1 ใน 4 ข�
 const SHEET_FLING_SPEED = 0.6;    // px ต่อ ms — สะบัดลงเร็วๆ สั้นๆ ก็ต้องปิดได้
 const SHEET_ANIM_MS = 180;
 
-function bindSheetDrag_(overlay: HTMLElement): void {
+function bindSheetDrag_(overlay: HTMLElement, closeFn: () => void): void {
   let id = -1, y0 = 0, t0 = 0, dy = 0;
   let sheet: HTMLElement | null = null;
   const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -237,7 +742,7 @@ function bindSheetDrag_(overlay: HTMLElement): void {
     id = -1;
     const speed = dy / Math.max(1, e.timeStamp - t0);
     if (dy > sheet.offsetHeight * SHEET_CLOSE_RATIO || speed > SHEET_FLING_SPEED) {
-      if (reduce) { closeModal(); return; }
+      if (reduce) { closeFn(); return; }
       // ⚠️ ระหว่างแอนิเมชันปิด ฉากหลังยังคาอยู่บนจอและยังรับการแตะอยู่ ทั้งที่มองไม่เห็นแล้ว
       //    แตะปุ่มทันทีหลังปัด = โดนฉากหลังกินไปเฉยๆ (วัดได้: elementFromPoint คืน .modal-overlay)
       //    ปิดการรับสัมผัสทันทีที่ตัดสินใจปิด นิ้วจะทะลุไปโดนของจริงข้างล่างได้เลย
@@ -245,7 +750,7 @@ function bindSheetDrag_(overlay: HTMLElement): void {
       sheet.style.transition = 'transform ' + SHEET_ANIM_MS + 'ms ease-in';
       sheet.style.transform = 'translateY(100%)';
       overlay.style.background = 'rgba(5,8,18,0)';
-      setTimeout(closeModal, SHEET_ANIM_MS - 10);
+      setTimeout(closeFn, SHEET_ANIM_MS - 10);
     } else {
       sheet.style.transition = reduce ? 'none' : 'transform ' + SHEET_ANIM_MS + 'ms ease-out';
       sheet.style.transform = '';
@@ -265,26 +770,122 @@ function bindSheetDrag_(overlay: HTMLElement): void {
 }
 
 /** โมดัลที่โหลดเนื้อหาทีหลังแล้วเขียนทับตัวเอง เรียกอันนี้แทนการผูกปุ่มปิดเอง
-    (ปุ่มปิดของ openModal ผูกไว้กับ element เดิมซึ่งหายไปพร้อม innerHTML) */
+    (ปุ่มปิดของ openModal ผูกไว้กับ element เดิมซึ่งหายไปพร้อม innerHTML) — ตั้งชื่อหน้าต่างใหม่ให้ด้วย */
 export function rebindModalClose(): void {
   const root = document.getElementById('modal-root');
   if (!root) return;
   normalizeCloseBtns_(root);
-  root.querySelectorAll('.modal-close').forEach((x) => x.addEventListener('click', closeModal));
+  if (layers_.length && root.firstElementChild) {
+    layers_.forEach((l) => bindCloseBtns_(l.overlay, () => closeLayer_(l)));
+  } else {
+    bindCloseBtns_(root, closeModal);
+  }
+  root.querySelectorAll('.modal').forEach((m) => labelDialog_(m as HTMLElement));
 }
 
+/** ปิดหน้าต่างทั้งหมด แล้วคืนโฟกัสให้ปุ่มที่กดเปิด */
 export function closeModal(): void {
-  document.getElementById('modal-root')!.innerHTML = '';
+  const root = document.getElementById('modal-root');
+  if (!root) return;
+  const had = layers_.length > 0 || !!root.firstElementChild;
+  const opener = layers_.length ? layers_[0].opener : null;
+  const old = layers_.slice().reverse();
+  layers_ = [];
+  root.innerHTML = '';
+  old.forEach((l) => { try { if (l.onClose) l.onClose(); } catch (e) { console.error(e); } });
+  if (opener && opener.isConnected) {
+    try { opener.focus({ preventScroll: true }); } catch { /* ไม่เป็นไร */ }
+  }
+  if (had) emitModal_();
+}
+
+/* ---------- กล่องยืนยันของเว็บเอง (F4) — แทน confirm() ของเบราว์เซอร์ ----------
+ * หัวข้อเป็นคำถาม ปุ่มหลักเขียนชัดว่าจะทำอะไร (เช่น "ลบบัญชี sale69427") คู่ปุ่ม "ยกเลิก"
+ * บนมือถือเป็นแผ่นเลื่อนขึ้นจากขอบล่างแบบเดียวกับหน้าต่างอื่น · เปิดซ้อนบนหน้าต่างอื่นได้
+ * danger = ปุ่มแดงทึบ และโฟกัสเริ่มที่ "ยกเลิก" (กด Enter พลาดต้องไม่ลบของ)
+ * ปิดด้วยทางไหนก็ตามที่ไม่ใช่ปุ่มหลัก = false */
+export function confirmDialog(opts: {
+  title: string; body?: string; confirmText: string; cancelText?: string; danger?: boolean;
+}): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    let done = false;
+    const finish = (v: boolean) => { if (!done) { done = true; resolve(v); } };
+    const n = ++mdlSeq_;
+    const html =
+      '<h3 class="confirm-title" id="cf-t' + n + '">' + esc(opts.title) + '</h3>' +
+      (opts.body ? '<div class="confirm-body" id="cf-b' + n + '">' + esc(opts.body).replace(/\n/g, '<br>') + '</div>' : '') +
+      // modal-actions = จัดวางปุ่มแบบเดียวกับฟอร์มอื่น (มือถือ: ปุ่มหลักอยู่บน เต็มความกว้าง)
+      '<div class="confirm-actions modal-actions">' +
+        '<button type="button" class="btn" data-cf="cancel"' + (opts.danger ? ' data-autofocus' : '') + '>' +
+          esc(opts.cancelText || 'ยกเลิก') + '</button>' +
+        '<button type="button" class="btn ' + (opts.danger ? 'danger solid' : 'primary') + '" data-cf="ok"' +
+          (opts.danger ? '' : ' data-autofocus') + '>' + esc(opts.confirmText) + '</button>' +
+      '</div>';
+    const lopts: ModalOpts = { cls: 'modal-confirm', role: 'alertdialog', onClose: () => finish(false) };
+    const stacked = isModalOpen() && layers_.length > 0;
+    const overlay = mountLayer_(html, lopts, stacked);
+    const modal = overlay.querySelector('.modal') as HTMLElement;
+    if (opts.body) modal.setAttribute('aria-describedby', 'cf-b' + n);
+    const layer = layers_.filter((l) => l.overlay === overlay)[0];
+    const ok = modal.querySelector('[data-cf="ok"]');
+    const cancel = modal.querySelector('[data-cf="cancel"]');
+    if (ok) ok.addEventListener('click', () => { finish(true); if (layer) closeLayer_(layer); });
+    if (cancel) cancel.addEventListener('click', () => { if (layer) closeLayer_(layer); else finish(false); });
+  });
+}
+
+/** คัดลอกข้อความ — คัดลอกไม่ได้ (เบราว์เซอร์ไม่ให้สิทธิ์) เปิดแผ่นที่มีช่องข้อความเลือกไว้ให้ + ปุ่มคัดลอก
+ *  แทน window.prompt() ซึ่งบนมือถือหน้าตาเหมือนระบบถามรหัส (F4) */
+export function copyText(text: string, okMsg = 'คัดลอกแล้ว', title = 'คัดลอกลิงก์'): void {
+  const fallback = () => {
+    openModal('<div class="modal-head"><h3>' + esc(title) + '</h3>' + modalCloseBtn() + '</div>' +
+      '<div class="card-sub">กดค้างที่ช่องด้านล่างเพื่อคัดลอก หรือกดปุ่มคัดลอก</div>' +
+      '<input class="input" id="copy-fallback" readonly value="' + esc(text) + '" aria-label="' + esc(title) + '" style="width:100%">' +
+      '<div class="modal-actions"><button type="button" class="btn modal-close">ปิด</button>' +
+      '<button type="button" class="btn primary" id="copy-fallback-btn" data-autofocus>' + icon('copy', { size: 16 }) + 'คัดลอก</button></div>');
+    const inp = document.getElementById('copy-fallback') as HTMLInputElement | null;
+    if (inp) { inp.focus({ preventScroll: true }); inp.select(); }
+    const b = document.getElementById('copy-fallback-btn');
+    if (b) b.addEventListener('click', () => {
+      if (!inp) return;
+      inp.select();
+      let ok = false;
+      try { ok = document.execCommand('copy'); } catch { ok = false; }
+      if (ok) { closeModal(); toast(okMsg, 'ok'); } else toast('คัดลอกเองได้เลย — ข้อความถูกเลือกไว้แล้ว', 'info');
+    });
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => toast(okMsg, 'ok')).catch(fallback);
+  } else fallback();
 }
 
 export function showLoading(el: HTMLElement): void {
   el.innerHTML = '<div class="loading"><div class="spinner"></div>กำลังโหลดข้อมูล...</div>';
 }
 
+/** ข้อความผิดพลาดที่คนทั่วไปอ่านเข้าใจ (ภาษาไทย ไม่มีศัพท์เทคนิค) — ที่เหลือเก็บไว้ให้ผู้ดูแลระบบดู */
+function humanErr_(msg: string): string {
+  let m = String(msg || '').trim();
+  // บาง route ตอบเป็น JSON { error: '...' } — ดึงเฉพาะข้อความออกมา
+  if (m.charAt(0) === '{') {
+    try { const j = JSON.parse(m); if (j && typeof j.error === 'string') m = j.error; } catch { /* ใช้ข้อความเดิม */ }
+  }
+  if (!/[฀-๿]/.test(m) || m.length > 160) return '';
+  if (/^(เรียก|โหลด)ข้อมูลไม่สำเร็จ$/.test(m)) return '';          // ซ้ำกับหัวข้ออยู่แล้ว
+  if (/\.sql|npm |sql|relation|column|function|supabase|postgres|PGRST|TypeError|SyntaxError|\{|https?:\/\//i.test(m)) return '';
+  return m;
+}
+
+/** กล่อง "โหลดข้อมูลไม่สำเร็จ — ลองใหม่อีกครั้ง" + ปุ่มลองใหม่ (#err-retry) · ข้อความดิบเห็นเฉพาะผู้ดูแลระบบ */
 export function showError(el: HTMLElement, msg: string, retryFn?: () => void): void {
-  el.innerHTML = '<div class="error-box" role="alert"><div class="error-msg">' +
-    '<span class="tx-bad">' + icon('circle-x', { size: 16 }) + '</span><span>' + esc(msg) + '</span></div>' +
-    '<div style="margin-top:10px"><button class="btn" id="err-retry">' + icon('refresh-cw', { size: 16 }) + 'ลองใหม่</button></div></div>';
+  const human = humanErr_(msg);
+  el.innerHTML = stateHtml('error', {
+    body: human || undefined,
+    actionsHtml: retryFn
+      ? '<button type="button" class="btn" id="err-retry">' + icon('refresh-cw', { size: 16 }) + 'ลองใหม่</button>'
+      : '',
+    adminDetail: human ? '' : String(msg || ''),
+  });
   const b = el.querySelector('#err-retry');
   if (b && retryFn) b.addEventListener('click', retryFn);
 }
@@ -369,8 +970,6 @@ export interface RangeState {
 
 const TH_MON = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
   'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
-const TH_MON_SHORT = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.',
-  'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 const TH_DOW = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 
 const pad2_ = (n: number) => (n < 10 ? '0' + n : String(n));
@@ -402,11 +1001,9 @@ function addDays_(s: string, delta: number): string {
   const d = new Date(p[0], p[1], p[2] + delta);
   return ymd_(d.getFullYear(), d.getMonth(), d.getDate());
 }
-/** '2026-08-27' → '27 ส.ค. 69' (พ.ศ. 2 หลักท้าย — ทีมอ่านแบบนี้ในชีททุกใบ) */
+/** '2026-08-27' → '27 ส.ค. 69' — ชื่อเดิม ส่งต่อให้ dateTh() ตัวกลาง (รับเฉพาะ 'YYYY-MM-DD' เหมือนเดิม) */
 export function thaiDateShort(s: unknown): string {
-  const p = parseYmd_(s);
-  if (!p) return '—';
-  return p[2] + ' ' + TH_MON_SHORT[p[1]] + ' ' + String((p[0] + 543) % 100);
+  return parseYmd_(s) ? dateTh(String(s)) : '—';
 }
 /** จำนวนวันในช่วง (นับหัวท้าย) */
 function spanDays_(from: string, to: string): number {
@@ -774,16 +1371,30 @@ export const RANGE_PRESETS = [
   { key: 'custom', label: 'กำหนดเอง' },
 ];
 
-/** สร้าง HTML ปุ่ม preset + date input; state = {preset, from, to} */
+/** ชื่อช่วงเวลาที่เลือกอยู่ (ใช้บนปุ่มมือถือ "ช่วงเวลา: วันนี้") */
+export function rangeLabel(state: RangeState): string {
+  const p = RANGE_PRESETS.filter((x) => x.key === state.preset)[0];
+  return p ? p.label : RANGE_PRESETS[0].label;
+}
+
+/**
+ * สร้าง HTML ตัวเลือกช่วงเวลา; state = {preset, from, to}
+ * ประกอบด้วย 3 ส่วน (ตรวจ UI ข้อ F1):
+ *   .range-mobile  ปุ่มเดียว "ช่วงเวลา: วันนี้" → เปิดแผ่นเลือกจากขอบล่าง (จอแคบกว่า 600px)
+ *   .range-full    แถวปุ่ม 7 ปุ่มแบบเดิม (จอตั้งแต่ 600px) — id / data-preset คงเดิม
+ *   .dp-wrap       ปุ่มเปิดปฏิทิน เฉพาะโหมดกำหนดเอง (แสดงทุกขนาดจอ จะได้เห็น/แก้ช่วงวันที่ได้บนมือถือด้วย)
+ * การซ่อน/แสดงตามความกว้างจออยู่ใน globals.css — เดิมแถวปุ่ม 7 ปุ่มกินครึ่งจอแรกบนมือถือ
+ */
 export function rangeControlsHtml(state: RangeState, idPrefix: string): string {
   const pills = RANGE_PRESETS.map((p) => {
-    return '<button class="filter-btn' + (state.preset === p.key ? ' active' : '') +
-      '" data-preset="' + p.key + '">' + p.label + '</button>';
+    const on = state.preset === p.key;
+    // aria-pressed = บอกโปรแกรมอ่านหน้าจอว่าปุ่มไหน "ถูกเลือกอยู่" (F5) — สีอย่างเดียวคนตาบอดไม่เห็น
+    return '<button type="button" class="filter-btn' + (on ? ' active' : '') +
+      '" data-preset="' + p.key + '" aria-pressed="' + (on ? 'true' : 'false') + '">' + p.label + '</button>';
   }).join('');
-  // โหมดกำหนดเอง: แก้วันที่แล้ว "ยังไม่โหลด" จนกด แสดง/Enter — เดิมโหลดทันทีทุกช่องที่แก้
-  // (เปลี่ยนช่วง 1 ครั้ง = แก้ 2 ช่อง = ยิงคิวรีช่วงยาว 2 รอบ ช้าและเปลืองฟรี — ผู้ใช้ขอแก้เอง)
   // โหมดกำหนดเอง: ปุ่มเดียวเปิดปฏิทินเลือกช่วง — เดิมเป็นช่อง <input type="date"> 2 ช่อง
   // ซึ่งกดยากบนมือถือ และไม่เห็นว่าช่วงที่เลือกกินกี่วันจนกว่าจะโหลดเสร็จ
+  // แก้วันที่แล้ว "ยังไม่โหลด" จนกด แสดง/Enter (เปลี่ยนช่วง 1 ครั้งเคยยิงคิวรีช่วงยาว 2 รอบ)
   const label = state.from && state.to
     ? thaiDateShort(state.from) + ' – ' + thaiDateShort(state.to)
     : 'เลือกช่วงวันที่';
@@ -794,7 +1405,65 @@ export function rangeControlsHtml(state: RangeState, idPrefix: string): string {
         '<div class="dp-host" id="' + idPrefix + '-dphost"></div>' +
       '</div>'
     : '';
-  return '<div class="conv-filters" id="' + idPrefix + '-presets" style="margin-bottom:0">' + pills + '</div>' + dates;
+  // หน้าตาทั้งหมดอยู่ที่ .range-mobile ใน globals.css (ไม่ใส่ .btn — กฎ display ของ .btn จะไปทับการซ่อนบนจอกว้าง)
+  const mobile = '<button type="button" class="range-mobile" id="' + idPrefix + '-rm" aria-haspopup="dialog">' +
+    icon('calendar', { size: 16 }) +
+    // ช่องว่างระหว่าง 2 span ไม่กินที่ในกล่อง flex แต่ทำให้ชื่อปุ่มที่โปรแกรมอ่านหน้าจออ่านไม่ติดกันเป็นคำเดียว
+    '<span class="rm-k">ช่วงเวลา:</span> <span class="rm-v">' + esc(rangeLabel(state)) + '</span>' +
+    icon('chevron-down', { size: 16, cls: 'rm-caret' }) +
+  '</button>';
+  return mobile +
+    '<div class="conv-filters range-full" id="' + idPrefix + '-presets" role="group" aria-label="ช่วงเวลา" style="margin-bottom:0">' +
+      pills + '</div>' +
+    dates;
+}
+
+/** ตั้งค่า preset ลง state (ใช้ร่วมทั้งแถวปุ่มและแผ่นมือถือ) */
+function applyPreset_(state: RangeState, key: string): void {
+  state.preset = key;
+  if (key === 'custom' && !state.from) {
+    // ใช้วันที่ตามเวลาเครื่องผู้ใช้ ไม่ใช่ UTC (toISOString จะถอยไปวันก่อนช่วงก่อน 7 โมงเช้า)
+    const today = todayYmd_();
+    state.from = today;
+    state.to = today;
+  }
+}
+
+/** state + callback ล่าสุดของแต่ละปุ่ม — ผูก listener ครั้งเดียวต่อ element แต่ใช้ค่าล่าสุดเสมอ
+ *  (บางหน้าเรียก bindRangeControls ซ้ำบน DOM เดิม เดิมได้ listener ซ้อน 2 ตัว → โหลดข้อมูล 2 รอบต่อการกด 1 ครั้ง) */
+interface RcBind { state: RangeState; onChange: () => void }
+const rcBinds_ = new WeakMap<Element, RcBind>();
+
+/** เลือก "กำหนดเอง" จากแผ่นมือถือ → เปิดปฏิทินให้เลยเมื่อหน้าวาดปุ่มปฏิทินเสร็จ (ถ้าวาดเสร็จเร็วพอ) */
+let dpAutoOpen_: { idPrefix: string; at: number } | null = null;
+const DP_AUTO_OPEN_MS = 2500;   // โหลดนานกว่านี้ ไม่เด้งปฏิทินใส่ — คนอาจเลื่อนไปทำอย่างอื่นแล้ว
+
+/** แผ่นเลือกช่วงเวลาบนมือถือ (bottom sheet ชุดเดียวกับหน้าต่างอื่นของเว็บ) */
+function openRangeSheet_(b: RcBind, idPrefix: string): void {
+  const st = b.state;
+  // รายการเรียงลงมาแถวละตัวเลือก สูง 48px (.sheet-list / .sheet-opt ใน globals.css) — แตะง่ายกว่าชิปที่ขึ้นหลายบรรทัด
+  const opts = RANGE_PRESETS.map((p) => {
+    const on = st.preset === p.key;
+    return '<button type="button" class="sheet-opt range-opt' + (on ? ' active' : '') + '" data-sheet-preset="' + p.key + '"' +
+      ' aria-pressed="' + (on ? 'true' : 'false') + '"' + (on ? ' data-autofocus' : '') + '>' +
+      '<span>' + esc(p.label) + '</span>' + (on ? icon('check', { size: 18 }) : '') + '</button>';
+  }).join('');
+  openModal(
+    '<div class="modal-head"><h3>ช่วงเวลา</h3>' + modalCloseBtn() + '</div>' +
+    '<div class="sheet-list range-sheet" role="group" aria-label="เลือกช่วงเวลา">' + opts + '</div>',
+    { cls: 'modal-range' },
+  );
+  const root = document.getElementById('modal-root');
+  if (!root) return;
+  root.querySelectorAll('[data-sheet-preset]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const key = btn.getAttribute('data-sheet-preset') || 'today';
+      closeModal();
+      applyPreset_(st, key);
+      dpAutoOpen_ = key === 'custom' ? { idPrefix, at: Date.now() } : null;
+      b.onChange();
+    });
+  });
 }
 
 /** ผูก event ให้ rangeControls; onChange() ถูกเรียกเมื่อ state เปลี่ยน (โหมดกำหนดเอง = ตอนกดแสดง) */
@@ -806,21 +1475,32 @@ export function bindRangeControls(
 ): void {
   const wrap = container.querySelector('#' + idPrefix + '-presets');
   if (!wrap) return;
-  wrap.querySelectorAll('[data-preset]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      state.preset = btn.getAttribute('data-preset')!;
-      if (state.preset === 'custom' && !state.from) {
-        // ใช้วันที่ตามเวลาเครื่องผู้ใช้ ไม่ใช่ UTC (toISOString จะถอยไปวันก่อนช่วงก่อน 7 โมงเช้า)
-        const d = new Date();
-        const today = d.getFullYear() + '-' +
-          ('0' + (d.getMonth() + 1)).slice(-2) + '-' +
-          ('0' + d.getDate()).slice(-2);
-        state.from = today;
-        state.to = today;
-      }
-      onChange();
+  const bind: RcBind = { state, onChange };
+  rcBinds_.set(wrap, bind);
+  if (!wrap.getAttribute('data-rc-bound')) {
+    wrap.setAttribute('data-rc-bound', '1');
+    wrap.addEventListener('click', (e) => {
+      const t = e.target as Element | null;
+      const btn = t && t.closest ? t.closest('[data-preset]') : null;
+      if (!btn || !wrap.contains(btn)) return;
+      const cur = rcBinds_.get(wrap);
+      if (!cur) return;
+      applyPreset_(cur.state, btn.getAttribute('data-preset') || 'today');
+      cur.onChange();
     });
-  });
+  }
+  // ปุ่มเดียวบนมือถือ → แผ่นรายการช่วงเวลา
+  const mb = container.querySelector('#' + idPrefix + '-rm');
+  if (mb) {
+    rcBinds_.set(mb, bind);
+    if (!mb.getAttribute('data-rc-bound')) {
+      mb.setAttribute('data-rc-bound', '1');
+      mb.addEventListener('click', () => {
+        const cur = rcBinds_.get(mb);
+        if (cur) openRangeSheet_(cur, idPrefix);
+      });
+    }
+  }
   // โหมดกำหนดเอง: ปุ่มเดียวเปิดปฏิทิน — ค่าจะมีผลต่อเมื่อกด "แสดง" ในปฏิทินเท่านั้น
   // (เปลี่ยนช่วง 1 ครั้งเคยยิงคิวรีช่วงยาว 2 รอบ เพราะแก้ทีละช่อง)
   const trig = container.querySelector('#' + idPrefix + '-dp') as HTMLElement | null;
@@ -835,8 +1515,20 @@ export function bindRangeControls(
   // กันผูก event ซ้ำ: บางหน้าเรียก bindRangeControls ใหม่โดยไม่ได้สร้าง DOM ใหม่ (เช่นรอบ
   // auto-refresh) ปุ่มเดิมจะมี listener 2 ตัว → คลิกเดียวสั่ง "เปิด" แล้ว "ปิด" ต่อทันที
   // อาการคือปฏิทินเปิดไม่ขึ้นแบบสุ่ม ไล่ยากมากเพราะครั้งแรกหลังโหลดหน้าใช้ได้ปกติ
-  if (trig && host && !trig.getAttribute('data-dp-bound')) {
-    trig.setAttribute('data-dp-bound', '1');
-    trig.addEventListener('click', () => dpOpen_(trig, host, state, idPrefix, onChange));
+  if (trig && host) {
+    rcBinds_.set(trig, bind);
+    if (!trig.getAttribute('data-dp-bound')) {
+      trig.setAttribute('data-dp-bound', '1');
+      trig.addEventListener('click', () => {
+        const cur = rcBinds_.get(trig) || bind;
+        dpOpen_(trig, host, cur.state, idPrefix, cur.onChange);
+      });
+    }
+    // มาจากแผ่นมือถือ ("กำหนดเอง") → เปิดปฏิทินให้เลย ไม่ต้องหาปุ่มแล้วกดอีกรอบ
+    if (dpAutoOpen_ && dpAutoOpen_.idPrefix === idPrefix) {
+      const fresh = Date.now() - dpAutoOpen_.at < DP_AUTO_OPEN_MS;
+      dpAutoOpen_ = null;
+      if (fresh && !dpCtx_) dpOpen_(trig, host, state, idPrefix, onChange);
+    }
   }
 }

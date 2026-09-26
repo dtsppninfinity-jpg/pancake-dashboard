@@ -6,10 +6,12 @@
    - serverCall / esc / relTime / toast มาจาก helpers
    ============================================================ */
 
-import { serverCall, esc, relTime, toast, openModal, modalCloseBtn, thaiDateShort } from '@/lib/ui/helpers';
+import {
+  serverCall, esc, relTime, openModal, closeTopModal as closeTopModalLayer, modalCloseBtn, thaiDateShort,
+} from '@/lib/ui/helpers';
 import { icon, statusPill, ICON_FOR, type StatusKind } from '@/lib/ui/icons';
 import { hideChartTip } from '@/lib/ui/charts';
-import { bindInfoTips, hideInfoTip } from '@/lib/ui/infotip';
+import { bindInfoTips, hideInfoTip, infoTipOpen } from '@/lib/ui/infotip';
 import { dashboard } from '@/lib/views/dashboard';
 import { sales } from '@/lib/views/sales';
 import { contentads } from '@/lib/views/contentads';
@@ -167,20 +169,26 @@ const Views: Record<string, ViewModule> = {
   users,
 };
 
+/* ชื่อหน้า + บรรทัดใต้ชื่อบนหัวเว็บ (ตรวจ UI ข้อ D2) — ภาษาไทยสั้นภาษาเดียว เป็นภาษาพูด
+   ห้ามมีศัพท์ช่าง (sync / API / POS / ชื่อระบบหลังบ้าน) — ทีมขายอ่านแล้วไม่ได้อะไร
+   ⚠️ ต้องตรงกับ NAV_* ใน app/page.tsx (ตัวนั้นใช้วาดเมนู + ชื่อหน้ารอบแรกจากเซิร์ฟเวอร์) */
 const VIEW_META: Record<string, { title: string; sub: string }> = {
-  dashboard:  { title: 'Dashboard', sub: 'ภาพรวมแชทวันนี้ — ข้อมูลจริงจาก Pancake (sync ทุก 15 นาที)' },
-  sales:      { title: 'Sales Dashboard', sub: 'ยอดขาย Facebook / LINE จาก Pancake POS' },
-  contentads: { title: 'Content & Ads Performance', sub: 'แอดที่กำลังยิง + คำแนะนำจากตัวเลขจริง' },
-  admins:     { title: 'Admin Management', sub: 'รายชื่อแอดมิน • สถานะออนไลน์ • สิทธิ์' },
-  adminperf:  { title: 'Admin Performance', sub: 'Ranking ยอดขาย • Top 3' },
-  kpi:        { title: 'KPI ทีมขาย', sub: 'หัวหน้า • รองหัวหน้า • แอดมิน — คะแนนจากชีท KPI ของทีม' },
-  profit:     { title: 'กำไร & ตีกลับ', sub: 'กำไรสุทธิจริงรายยูนิต/เดือน/ปี + ตีกลับ — จากชีททีม' },
-  unitperf:   { title: 'ผลงานราย Unit', sub: 'การ์ดรายยูนิต: ยอด vs เป้า • คาดการณ์สิ้นเดือน • สัญญาณเตือน' },
-  report:     { title: 'รายงาน & การตลาด', sub: 'เป้า vs จริง รายวีค/เดือน/ปี • ซื้อซ้ำรายยูนิต' },
-  umap:       { title: 'U Map', sub: 'แอดมินอยู่ U ไหน — จับคู่ • เพิ่ม/ลบ U • มี API ให้ระบบอื่นดึง' },
-  me:         { title: 'ผลงานของฉัน', sub: 'ยอดขาย • KPI • อันดับของคุณ' },
-  users:      { title: 'ผู้ใช้งาน', sub: 'บัญชีเข้าระบบ • ระดับสิทธิ์' },
+  dashboard:  { title: 'ภาพรวมแชท', sub: 'ลูกค้าทักเข้ามาเท่าไหร่ ตอบไปแล้วเท่าไหร่ และแชทที่ยังรอตอบ' },
+  sales:      { title: 'ยอดขาย', sub: 'ยอดขายเพจและไลน์ แยกตามยูนิต ช่องทาง และสินค้า' },
+  contentads: { title: 'โฆษณา & คอนเทนต์', sub: 'แอดที่กำลังยิงอยู่ คุ้มหรือไม่คุ้ม และควรทำอะไรต่อ' },
+  admins:     { title: 'จัดการแอดมิน', sub: 'รายชื่อแอดมิน ใครออนไลน์อยู่ และสิทธิ์ของแต่ละคน' },
+  adminperf:  { title: 'อันดับแอดมิน', sub: 'อันดับยอดขายและการตอบแชทของแอดมินแต่ละคน' },
+  kpi:        { title: 'KPI ทีมขาย', sub: 'คะแนน KPI ของหัวหน้า รองหัวหน้า และแอดมิน' },
+  profit:     { title: 'กำไร & ตีกลับ', sub: 'กำไรจริงและยอดตีกลับ รายยูนิต รายเดือน และรายปี' },
+  unitperf:   { title: 'ผลงานรายยูนิต', sub: 'แต่ละยูนิตทำได้เท่าไหร่เทียบเป้า และคาดว่าจะจบเดือนที่เท่าไหร่' },
+  report:     { title: 'รายงานการตลาด', sub: 'เป้าเทียบยอดจริง รายสัปดาห์ รายเดือน รายปี และลูกค้าซื้อซ้ำ' },
+  umap:       { title: 'จับคู่ยูนิต', sub: 'แอดมินและเพจแต่ละตัวอยู่ยูนิตไหน' },
+  me:         { title: 'ผลงานของฉัน', sub: 'ยอดขาย KPI และอันดับของคุณ' },
+  users:      { title: 'บัญชีผู้ใช้', sub: 'บัญชีเข้าใช้งานเว็บ และระดับสิทธิ์ของแต่ละคน' },
 };
+
+/** ชื่อเว็บต่อท้ายชื่อแท็บเบราว์เซอร์ — ประวัติย้อนกลับ (กดค้างปุ่ม back) จะได้เห็นชื่อหน้าแทนชื่อเว็บซ้ำๆ */
+const SITE_NAME = 'PN Infinity';
 
 /* ---------- สลับธีม สว่าง/มืด (จำค่าไว้ใน localStorage) ---------- */
 
@@ -228,6 +236,17 @@ function toggleSidebarPinned(): void {
   const hide = !app.classList.contains('nav-hidden');
   app.classList.toggle('nav-hidden', hide);
   try { localStorage.setItem(NAV_PREF_KEY, hide ? 'hide' : 'show'); } catch (e) {}
+  syncNavBtnState();
+}
+
+/** บอกโปรแกรมอ่านหน้าจอว่าเมนูตอนนี้ "เปิด" หรือ "ปิด" — ความหมายต่างกันตามขนาดจอ
+    จอแคบ = ลิ้นชักเลื่อนออกมาไหม · จอกว้าง = แถบเมนูกางอยู่ไหม */
+function syncNavBtnState(): void {
+  const btn = document.getElementById('btn-nav');
+  const app = document.getElementById('app');
+  if (!btn || !app) return;
+  const open = wideScreen() ? !app.classList.contains('nav-hidden') : app.classList.contains('nav-open');
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
 }
 
 function setNavOpen(open: boolean): void {
@@ -235,42 +254,150 @@ function setNavOpen(open: boolean): void {
   // กรอบอธิบายที่เพิ่งเด้งขึ้นมาจึงค้างกลางจอ ต้องสั่งปิดตรงนี้เอง
   hideInfoTip();
   const app = document.getElementById('app');
+  const was = !!(app && app.classList.contains('nav-open'));
   if (app) app.classList.toggle('nav-open', open);
   // ล็อกไม่ให้หน้าเลื่อนตอนเมนูเปิด (ไม่งั้นนิ้วปัดแล้วพื้นหลังไหลตาม)
   // ใช้คลาสไม่ใช่ style ตรงๆ เพื่อให้ CSS ปลดล็อกเองได้ตอนจอกว้าง ≥900
   // (หมุนจอเป็นแนวนอนทั้งที่เมนูเปิดค้าง แล้วหน้าเลื่อนไม่ได้ — style ตรงๆ ไม่มีทางแก้ด้วย CSS)
   document.body.classList.toggle('nav-locked', open);
+  syncNavBtnState();
+  if (was !== open && !wideScreen()) {
+    // โฟกัสตามลิ้นชัก (คีย์บอร์ด/โปรแกรมอ่านหน้าจอ): เปิด = ไปที่เมนูหน้าปัจจุบัน
+    // ปิด = คืนให้ปุ่ม ☰ ถ้าโฟกัสค้างอยู่ในลิ้นชักที่กำลังหายไป (ไม่งั้นโฟกัสหลุดไปอยู่ในของที่มองไม่เห็น)
+    const sb = document.getElementById('sidebar');
+    if (open) {
+      const cur = document.querySelector('.nav-item.active') as HTMLElement | null;
+      if (cur) cur.focus({ preventScroll: true });
+    } else if (sb && document.activeElement && sb.contains(document.activeElement)) {
+      const nb = document.getElementById('btn-nav');
+      if (nb) nb.focus({ preventScroll: true });
+    }
+  }
+  queueOverlaySync();
 }
 
-/* ---------------- badge แจ้งเตือนบนเมนูข้าง (แบบแอปมือถือ) ---------------- */
+/* ---------------- badge แจ้งเตือนบนเมนูข้าง (แบบแอปมือถือ) ----------------
+   "งบสีแดง" (ตรวจ UI ข้อ B3): ป้ายแดงมีไว้สำหรับเรื่องที่ต้องทำวันนี้จริงๆ และมีไม่กี่เรื่อง
+   เดิมป้ายแดงติดเกือบตลอดเวลา (ยูนิตขาดทุน 13 ยูนิต, แอดแจ้งเตือนเป็นร้อย) คนเลยชินจนมองข้ามป้ายทั้งหมด
+     แดง (.nav-badge)          = ยูนิตขาดทุน ≥2 วันติด (level urgent ของงาน unit-alerts) และมีไม่เกิน RED_BUDGET ยูนิต
+     ส้มอ่อน (.nav-badge.soft) = เรื่องที่ควรเข้าไปดู: ยูนิตเฝ้าระวัง (ขาดทุน 1 วัน), แอดที่ควรหยุด/แก้,
+                                 และยูนิตขาดทุนติดกันที่มีเยอะเกินงบแดง (เยอะขนาดนั้นคือสภาพทั่วไป ไม่ใช่ "เรื่องด่วนไม่กี่เรื่อง")
+   ตัวเลข = จำนวนจริง (เพดาน 99+) · เปิดหน้านั้นแล้วป้ายหาย จนกว่าจำนวนจะเพิ่มขึ้นอีก
+   (จำ "จำนวนที่เห็นแล้ว" ต่อหน้าไว้ใน localStorage — เครื่องใครเครื่องมัน ไม่ใช่ข้อมูลสำคัญ) */
 
-/** วาด/ลบตัวเลขมุมแท็บ — count 0 = เอาออก */
-function setNavBadge(view: string, count: number, warn?: boolean, tip?: string): void {
+interface BadgeInfo {
+  urgent: number; soft: number;       // จำนวนเรื่องแต่ละระดับ
+  urgentTip: string; softTip: string; // คำอธิบาย (ต่อท้าย tooltip + ชื่อปุ่มสำหรับโปรแกรมอ่านหน้าจอ)
+}
+type SeenMap = Record<string, { u: number; s: number }>;
+
+const BADGE_SEEN_KEY = 'pn-nav-seen';
+/** ป้ายแดงได้ไม่เกินกี่เรื่อง — เกินนี้เป็นส้มอ่อน (ตัวอย่างในรายงานตรวจ UI: "13" ต้องเป็นส้มอ่อน) */
+const RED_BUDGET = 3;
+/** ผลล่าสุดจาก apiNavBadges — ใช้ตอนเปิดหน้าเพื่อบันทึกว่า "เห็นแล้ว" โดยไม่ต้องยิง API ใหม่ */
+let lastBadges: Record<string, BadgeInfo> = {};
+
+function readSeen(): SeenMap {
+  try {
+    const o = JSON.parse(localStorage.getItem(BADGE_SEEN_KEY) || '{}');
+    return o && typeof o === 'object' ? o as SeenMap : {};
+  } catch (e) { return {}; }
+}
+function writeSeen(m: SeenMap): void {
+  try { localStorage.setItem(BADGE_SEEN_KEY, JSON.stringify(m)); } catch (e) {}
+}
+
+/** tooltip ของปุ่มเมนู — ถ้ากรอบอธิบาย (infotip) แปลง title ไปเป็น data-tip แล้ว ต้องแก้ที่ data-tip แทน */
+function setBtnTip(btn: HTMLElement, text: string): void {
+  if (btn.hasAttribute('data-tip')) btn.setAttribute('data-tip', text);
+  else btn.title = text;
+}
+
+/** วาด/ลบตัวเลขมุมแท็บ — count 0 = เอาออก · tone soft = ส้มอ่อน (ควรเข้าไปดู) / urgent = แดง (ด่วน) */
+function setNavBadge(view: string, count: number, tone?: 'urgent' | 'soft', tip?: string): void {
   const btn = document.querySelector('.nav-item[data-view="' + view + '"]') as HTMLElement | null;
   if (!btn) return;
+  const baseTip = btn.getAttribute('data-nav-tip') || '';
   let b = btn.querySelector('.nav-badge') as HTMLElement | null;
-  if (!count) { if (b) b.remove(); btn.classList.remove('has-badge'); return; }
+  if (!count) {
+    if (b) b.remove();
+    btn.classList.remove('has-badge');
+    btn.removeAttribute('aria-label');
+    setBtnTip(btn, baseTip);
+    return;
+  }
   if (!b) {
     b = document.createElement('span');
+    // ตัวเลขลอยๆ ไม่มีความหมายสำหรับโปรแกรมอ่านหน้าจอ — ความหมายเต็มไปอยู่ใน aria-label ของปุ่มแทน
+    b.setAttribute('aria-hidden', 'true');
     btn.appendChild(b);
   }
   btn.classList.add('has-badge'); // เว้นที่ด้านขวาไม่ให้เลขทับชื่อแท็บ
-  b.className = 'nav-badge' + (warn ? ' warn' : '');
-  b.textContent = count > 9 ? '9+' : String(count); // เพดาน 9+ พอ — บอกว่า "เยอะ" ก็พอแล้ว
-  if (tip) btn.title = tip;
+  b.className = 'nav-badge' + (tone === 'soft' ? ' soft' : '');
+  b.textContent = count > 99 ? '99+' : String(count);
+  const label = btn.querySelector('.nav-label');
+  const name = ((label && label.textContent) || '').trim();
+  if (tip) {
+    btn.setAttribute('aria-label', name + ' — ' + tip);
+    setBtnTip(btn, baseTip ? baseTip + ' • ' + tip : tip);
+  }
 }
 
-/** ดึงจำนวนเรื่องด่วนมาแปะแท็บ Sales / Content & Ads — เงียบเมื่อพลาด (badge ไม่ใช่ของสำคัญพอให้เด้ง error) */
+/** วาดป้ายทุกหน้าจากผลล่าสุด เทียบกับจำนวนที่ผู้ใช้เห็นแล้ว */
+function applyNavBadges(): void {
+  const seen = readSeen();
+  let dirty = false;
+  Object.keys(lastBadges).forEach(function (view) {
+    const b = lastBadges[view];
+    const sv = seen[view] || { u: 0, s: 0 };
+    // จำนวนลดลง (แก้ไปแล้วบางเรื่อง) → ลดเส้น "เห็นแล้ว" ตาม เรื่องใหม่ที่งอกทีหลังจะได้โผล่ทันที
+    if (b.urgent < sv.u) { sv.u = b.urgent; dirty = true; }
+    if (b.soft < sv.s) { sv.s = b.soft; dirty = true; }
+    // กำลังเปิดหน้านั้นอยู่ = เห็นตัวเลขบนหน้าอยู่แล้ว ไม่ต้องมีป้ายซ้ำ
+    if (view === App.state.view && (sv.u !== b.urgent || sv.s !== b.soft)) {
+      sv.u = b.urgent; sv.s = b.soft; dirty = true;
+    }
+    seen[view] = sv;
+    if (b.urgent > sv.u) setNavBadge(view, b.urgent, b.urgent <= RED_BUDGET ? 'urgent' : 'soft', b.urgentTip);
+    else if (b.soft > sv.s) setNavBadge(view, b.soft, 'soft', b.softTip);
+    else setNavBadge(view, 0);
+  });
+  if (dirty) writeSeen(seen);
+}
+
+/** เปิดหน้า view แล้ว = ถือว่าเห็นเรื่องที่ป้ายบอกแล้ว → ป้ายหาย */
+function markNavSeen(view: string): void {
+  const b = lastBadges[view];
+  if (!b) return;
+  const seen = readSeen();
+  seen[view] = { u: b.urgent, s: b.soft };
+  writeSeen(seen);
+  setNavBadge(view, 0);
+}
+
+/** ดึงจำนวนเรื่องมาแปะแท็บ ยอดขาย / โฆษณา — เงียบเมื่อพลาด (badge ไม่ใช่ของสำคัญพอให้เด้ง error) */
 function refreshNavBadges(): void {
   // role ที่ไม่มีสองแท็บนี้ (ระดับแอดมิน) ไม่ต้องยิง API เลย
   if (!document.querySelector('.nav-item[data-view="sales"], .nav-item[data-view="contentads"]')) return;
   serverCall<any>('apiNavBadges').then(function (b) {
     const s = (b && b.sales) || { urgent: 0, warn: 0 };
-    // แดง = ขาดทุน ≥2 วันติด; ไม่มีด่วนแต่มีเฝ้าระวัง → ส้ม
-    if (s.urgent > 0) setNavBadge('sales', s.urgent, false, 'ยูนิตขาดทุน ≥2 วันติด ' + s.urgent + ' ยูนิต');
-    else setNavBadge('sales', s.warn, true, s.warn ? 'ยูนิตเฝ้าระวังขาดทุน ' + s.warn + ' ยูนิต' : '');
     const c = (b && b.contentads) || { urgent: 0 };
-    setNavBadge('contentads', c.urgent, false, c.urgent ? 'แอดที่ควรหยุด/แก้ด่วน ' + c.urgent + ' รายการ' : '');
+    const su = Number(s.urgent) || 0, sw = Number(s.warn) || 0, cu = Number(c.urgent) || 0;
+    lastBadges = {
+      sales: {
+        urgent: su, soft: sw,
+        urgentTip: 'ยูนิตขาดทุน 2 วันติดขึ้นไป ' + su + ' ยูนิต',
+        softTip: 'ยูนิตที่ต้องเฝ้าดู (ขาดทุน 1 วัน) ' + sw + ' ยูนิต',
+      },
+      // แอดแจ้งเตือน API เรียกว่า urgent แต่มักมีเป็นสิบ และเป็นเรื่อง "ควรเข้าไปดู" ไม่ใช่เรื่องด่วนของทั้งทีม
+      // จึงเป็นป้ายส้มอ่อน — แดงเก็บไว้ให้ยูนิตขาดทุนติดกันอย่างเดียว
+      contentads: {
+        urgent: 0, soft: cu,
+        urgentTip: '',
+        softTip: 'แอดที่ควรหยุดหรือแก้ ' + cu + ' รายการ',
+      },
+    };
+    applyNavBadges();
   }).catch(function () {});
 }
 
@@ -437,6 +564,258 @@ function watchTables(): void {
   queueTableScan();
 }
 
+/* ============================================================
+   ชิปตัวกรอง: บอกโปรแกรมอ่านหน้าจอว่าตัวไหน "ถูกเลือก" (ตรวจ UI ข้อ F5)
+   ทุกหน้าใช้ <button class="filter-btn active"> บอกตัวที่เลือกด้วยสีอย่างเดียว คนตาบอดไม่มีทางรู้
+   เติม aria-pressed ตามคลาส .active ให้อัตโนมัติจุดเดียว แทนไล่แก้ทุก view (ซึ่งมีหลายสิบจุดและสลับ .active เอง)
+   กติกา: ปุ่มที่ view เขียน aria-pressed มาเองอยู่แล้ว → ไม่ยุ่ง (เราติด data-ap="1" เฉพาะตัวที่เราดูแล)
+          ปุ่มที่มี role (เช่น role="tab" ใช้ aria-selected) → ไม่ยุ่ง
+   ============================================================ */
+let pressedQueued = false;
+function syncPressed(): void {
+  pressedQueued = false;
+  document.querySelectorAll('button.filter-btn').forEach(function (el) {
+    if (el.hasAttribute('role')) return;
+    const mine = el.getAttribute('data-ap') === '1';
+    if (!mine && el.hasAttribute('aria-pressed')) return;
+    const on = el.classList.contains('active') ? 'true' : 'false';
+    if (el.getAttribute('aria-pressed') !== on) el.setAttribute('aria-pressed', on);
+    if (!mine) el.setAttribute('data-ap', '1');
+  });
+}
+function watchPressed(): void {
+  // ดูทั้งการวาดใหม่ (childList) และการสลับคลาสเฉยๆ (attributes: class) — ที่เราเขียนคือ aria-pressed/data-ap
+  // ซึ่งไม่ใช่ class จึงไม่วนกลับมาเรียกตัวเอง · รวบทุกการเปลี่ยนใน 1 เฟรม
+  new MutationObserver(function () {
+    if (pressedQueued) return;
+    pressedQueued = true;
+    requestAnimationFrame(syncPressed);
+  }).observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+  syncPressed();
+}
+
+/* ============================================================
+   ที่อยู่ของแต่ละหน้า + ปุ่มย้อนกลับ (ตรวจ UI ข้อ F3)
+   - ทุกหน้ามี # ของตัวเอง (…/#sales) — รีเฟรชแล้วอยู่หน้าเดิม ส่งลิงก์ให้กันแล้วเปิดหน้านั้นได้เลย
+   - เปลี่ยนเมนู = เพิ่มประวัติ 1 ขั้น → ปุ่มย้อนกลับของมือถือพากลับหน้าก่อน (เดิมหลุดออกจากเว็บทันที)
+   - มีหน้าต่าง (โมดัล/แผ่นล่าง) หรือลิ้นชักเมนูเปิดอยู่ → ย้อนกลับครั้งแรก "ปิดสิ่งนั้น" ไม่ใช่เปลี่ยนหน้า
+     ทำโดยเพิ่มประวัติ 1 ขั้นตอนมีของเปิด (ขั้นนี้ URL เท่าเดิม) ปุ่มย้อนกลับจะกินขั้นนี้ไปแทน
+     ถ้าของนั้นถูกปิดด้วยวิธีอื่น (กากบาท/แตะฉากหลัง/Esc) เราถอยขั้นที่เพิ่มไว้ออกเอง ประวัติจะได้ไม่รก
+   - สิทธิ์ยังตรวจเหมือนเดิม: หน้าที่สิทธิ์นี้เปิดไม่ได้ไม่มีช่อง view อยู่ในหน้าเลย (page.tsx) → พาไปหน้าแรกของเขา
+   ============================================================ */
+
+interface HistState { pnView: string; pnOverlay?: 1 }
+
+/** ประวัติขั้นบนสุดตอนนี้คือขั้น "ของเปิดอยู่" ที่เราเพิ่มเอง */
+let overlayEntry = false;
+/** จำนวน popstate ที่มาจาก history.back() ของเราเอง (ต้องไม่เอาไปตีความเป็นการกดย้อนกลับของผู้ใช้) */
+let ignorePops = 0;
+let overlaySyncQueued = false;
+
+function hashView(): string {
+  try { return decodeURIComponent(location.hash.replace(/^#\/?/, '')).trim(); } catch (e) { return ''; }
+}
+
+function canOpenView(v: string): boolean {
+  return !!v && !!VIEW_META[v] && !!document.getElementById('view-' + v);
+}
+
+function firstViewOf(): string {
+  const fv = (document.getElementById('app')?.getAttribute('data-first-view')) || 'dashboard';
+  return canOpenView(fv) ? fv : 'dashboard';
+}
+
+function modalOpen(): boolean {
+  return !!document.querySelector('#modal-root .modal-overlay');
+}
+
+function overlayIsOpen(): boolean {
+  if (modalOpen()) return true;
+  const app = document.getElementById('app');
+  // จอกว้างไม่มีลิ้นชัก (แถบเมนูปักซ้าย) — คลาส nav-open ที่ค้างมาจากตอนหมุนจอไม่นับ
+  return !!(app && app.classList.contains('nav-open') && !wideScreen());
+}
+
+/** ปิดเฉพาะหน้าต่าง "ชั้นบนสุด" (helpers.closeTopModal) — กล่องยืนยันที่ซ้อนบนฟอร์มปิดก่อน ฟอร์มข้างล่างยังอยู่
+    และโค้ดตอนปิดของชั้นนั้นได้ทำงาน (กล่องยืนยันตอบ "ไม่ยืนยัน" ให้คนที่รออยู่ + คืนโฟกัสให้ปุ่มที่กดเปิด)
+    ถ้ายังเหลือชั้นล่าง ขั้นประวัติ overlay จะถูกเพิ่มใหม่เอง (syncOverlayHistory) กดย้อนกลับอีกครั้งปิดชั้นถัดไป */
+function closeTopModal(): void {
+  // หน้าต่างที่ไม่ได้เปิดผ่าน openModal (เขียน #modal-root เอง) ไม่มีชั้น — helpers ล้างทิ้งทั้งหมดให้เอง
+  closeTopModalLayer();
+}
+
+function closeOverlays(): void {
+  if (modalOpen()) closeTopModal();
+  const app = document.getElementById('app');
+  if (app && app.classList.contains('nav-open')) setNavOpen(false);
+}
+
+/** ให้ประวัติตรงกับสภาพจอ: มีของเปิด → ต้องมีขั้น overlay · ไม่มีแล้ว → ถอยขั้นนั้นออก
+    รวบไว้ทำใน microtask เดียว (ปิดโมดัลเก่า-เปิดใหม่ทันทีในคลิกเดียว จะได้ไม่เพิ่ม/ถอยประวัติไปมา) */
+function queueOverlaySync(): void {
+  if (overlaySyncQueued) return;
+  overlaySyncQueued = true;
+  Promise.resolve().then(syncOverlayHistory);
+}
+
+function syncOverlayHistory(): void {
+  overlaySyncQueued = false;
+  if (ignorePops > 0) return;   // กำลังรอ history.back() ของเราเองจบ — popstate จะเรียกซ้ำให้
+  const open = overlayIsOpen();
+  if (open && !overlayEntry) {
+    try {
+      history.pushState({ pnView: App.state.view, pnOverlay: 1 } as HistState, '', location.href);
+      overlayEntry = true;
+    } catch (e) {}
+  } else if (!open && overlayEntry) {
+    overlayEntry = false;
+    ignorePops++;
+    history.back();
+  }
+}
+
+/** เขียนประวัติหลังเปลี่ยนหน้า — push = เพิ่มขั้นใหม่ (ย้อนกลับได้), replace = แทนขั้นปัจจุบัน */
+function writeHistory(view: string, push: boolean): void {
+  const url = '#' + view;
+  const st: HistState = { pnView: view };
+  try {
+    if (overlayEntry) {
+      // หน้าเดิม (เช่น แตะเมนูหน้าปัจจุบันในลิ้นชัก) — ปล่อยขั้น overlay ไว้ให้ syncOverlayHistory ถอยออกตอนของปิด
+      // ไม่งั้นได้ประวัติหน้าเดียวกันซ้อน 2 ขั้น (กดย้อนกลับแล้วจอไม่เปลี่ยน)
+      if (!push) return;
+      // เปลี่ยนหน้าจากในหน้าต่าง/ลิ้นชัก (เช่น ปุ่ม "ดูรายละเอียด →" ในโมดัล) — ขั้น overlay กลายเป็นขั้นของหน้าใหม่แทน
+      // ห้ามปล่อยให้ syncOverlayHistory ถอยทีหลัง ไม่งั้นมันจะถอยทับหน้าใหม่กลับไปหน้าเดิม
+      overlayEntry = false;
+      history.replaceState(st, '', url);
+    } else if (push) {
+      history.pushState(st, '', url);
+    } else {
+      history.replaceState(st, '', url);
+    }
+  } catch (e) {}
+}
+
+function onPopState(e: PopStateEvent): void {
+  if (ignorePops > 0) { ignorePops--; queueOverlaySync(); return; }
+  if (overlayEntry) {
+    // ผู้ใช้กดย้อนกลับตอนมีของเปิด — ขั้น overlay ถูกกินไปแล้ว เหลือแค่ปิดของ อยู่หน้าเดิม
+    overlayEntry = false;
+    if (overlayIsOpen()) { closeOverlays(); return; }
+  }
+  const st = (e.state || null) as HistState | null;
+  let v = (st && st.pnView) || hashView();
+  if (!v) {
+    // # ว่าง (ไม่ใช่ขั้นของเรา) — อยู่หน้าเดิม แค่เขียน # คืน
+    writeHistory(App.state.view, false);
+    return;
+  }
+  if (!canOpenView(v)) v = firstViewOf();
+  // เดินหน้า (forward) เข้าขั้น overlay เก่า ทั้งที่ไม่มีอะไรเปิด → ถือเป็นขั้นธรรมดาของหน้านั้น
+  if ((st && st.pnOverlay) || hashView() !== v) writeHistory(v, false);
+  if (v !== App.state.view) App.switchView(v, { history: 'none' });
+}
+
+function bindHistory(): void {
+  // หน้าเว็บวาดเนื้อหาใหม่ทุกครั้งที่สลับหน้า — ให้เบราว์เซอร์พยายามคืนตำแหน่งเลื่อนเองจะกระโดดมั่ว
+  try { history.scrollRestoration = 'manual'; } catch (e) {}
+  window.addEventListener('popstate', onPopState);
+  // โมดัล/แผ่นล่าง/กล่องยืนยันของ helpers เปิด-ปิดด้วยการเพิ่ม/ลบชั้น .modal-overlay ใน #modal-root
+  // ดูแค่ลูกชั้นแรก (เนื้อในหน้าต่างเปลี่ยนเองบ่อย ไม่เกี่ยวกับการเปิด-ปิด)
+  const mr = document.getElementById('modal-root');
+  if (mr) new MutationObserver(queueOverlaySync).observe(mr, { childList: true });
+}
+
+/* ============================================================
+   ปุ่มกลับขึ้นบน (ตรวจ UI ข้อ F3) — โผล่เมื่อเลื่อนลงเกิน 2 จอ "และเริ่มปัดขึ้น"
+   (สัญญาณว่ากำลังหาทางกลับขึ้นไป) ซ่อนตอนปัดลง ไม่ให้บังเนื้อหาระหว่างอ่าน
+   ============================================================ */
+function bindBackTop(): void {
+  const btn = document.getElementById('back-top');
+  if (!btn) return;
+  const b = btn;
+  let lastY = window.scrollY;
+  let queued = false;
+  let quietUntil = 0;   // ระหว่างเลื่อนขึ้นอัตโนมัติหลังกดปุ่ม — อย่าให้ปุ่มโผล่กลับมาเอง
+  function set(on: boolean): void {
+    if (b.classList.contains('show') === on) return;
+    b.classList.toggle('show', on);
+    // ตอนซ่อน: กด Tab ไม่ถึง และโปรแกรมอ่านหน้าจอไม่อ่าน (CSS ซ่อนแบบจางหาย ปุ่มยังอยู่ใน DOM)
+    if (on) { b.removeAttribute('aria-hidden'); b.removeAttribute('tabindex'); }
+    else { b.setAttribute('aria-hidden', 'true'); b.setAttribute('tabindex', '-1'); }
+  }
+  window.addEventListener('scroll', function () {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(function () {
+      queued = false;
+      const y = window.scrollY;
+      const dy = y - lastY;
+      if (Math.abs(dy) < 6) return;       // สั่นนิดหน่อยจากนิ้ว ไม่นับเป็นการเปลี่ยนทิศ
+      lastY = y;
+      if (y < window.innerHeight * 2 || Date.now() < quietUntil) { set(false); return; }
+      set(dy < 0);
+    });
+  }, { passive: true });
+  b.addEventListener('click', function () {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    quietUntil = Date.now() + 1500;
+    set(false);
+    window.scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' });
+    // โฟกัสย้ายไปที่ชื่อหน้า — ไม่งั้นโฟกัสค้างที่ปุ่มที่เพิ่งหายไป กด Tab ต่อแล้วเด้งกลับลงล่าง
+    const h = document.getElementById('topbar-title');
+    if (h) h.focus({ preventScroll: true });
+  });
+}
+
+/* ============================================================
+   ปุ่มรีเฟรชหมุนระหว่างโหลด (ตรวจ UI ข้อ F4) — แทนข้อความเด้ง "กำลังโหลดข้อมูลใหม่..." ที่เคยขึ้นทุกครั้ง
+   view.load() คืน Promise ก่อนข้อมูลมาถึง (ดึงข้อมูลเบื้องหลัง) จึงรอจาก "โครงร่าง (.skel) หายไปจากหน้า"
+   แทน — view ที่ force=true วาดโครงร่างก่อนเสมอ แล้วค่อยแทนด้วยของจริงหรือกล่อง error
+   ============================================================ */
+const REFRESH_MIN_MS = 500;      // หมุนอย่างน้อยครึ่งวิ — หยุดเร็วกว่านี้ตาไม่ทันเห็นว่ากดติด
+const REFRESH_MAX_MS = 30000;    // กันหมุนค้างตลอดไปถ้า view ไม่มีโครงร่าง/พังกลางทาง
+const LOADING_SEL = '.skel, .loading';
+function refreshWithSpinner(view: string): void {
+  const btn = document.getElementById('btn-refresh');
+  const container = document.getElementById('view-' + view);
+  if (!btn || !container) { App.loadView(view, true); return; }
+  if (btn.classList.contains('is-busy')) return;   // กำลังโหลดอยู่ — กดซ้ำไม่ยิงซ้ำ
+  const b = btn;
+  const ic = b.querySelector('svg.ic');
+  const t0 = Date.now();
+  b.classList.add('is-busy');
+  b.setAttribute('aria-busy', 'true');
+  // aria-disabled ไม่ใช่ disabled — ปุ่ม disabled จริงทำให้โฟกัสคีย์บอร์ดหลุดไปอยู่ที่ <body>
+  b.setAttribute('aria-disabled', 'true');
+  if (ic) ic.classList.add('spin');
+  let mo: MutationObserver | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let finished = false;
+  function done(): void {
+    if (finished) return;
+    finished = true;
+    if (mo) mo.disconnect();
+    if (timer) clearTimeout(timer);
+    setTimeout(function () {
+      b.classList.remove('is-busy');
+      b.removeAttribute('aria-busy');
+      b.removeAttribute('aria-disabled');
+      if (ic) ic.classList.remove('spin');
+    }, Math.max(0, REFRESH_MIN_MS - (Date.now() - t0)));
+  }
+  App.loadView(view, true);
+  // บาง view รออย่างอื่นก่อนวาดโครงร่าง (เช่น โหลดค่าตั้งต้น) — ให้เวลาโครงร่างโผล่ 0.8 วิ
+  // ไม่โผล่เลย = view นี้ไม่มีโครงร่าง → หมุนสั้นๆ แล้วจบ
+  let sawSkel = !!container.querySelector(LOADING_SEL);
+  mo = new MutationObserver(function () {
+    if (container.querySelector(LOADING_SEL)) sawSkel = true;
+    else if (sawSkel) done();
+  });
+  mo.observe(container, { childList: true, subtree: true });
+  setTimeout(function () { if (!sawSkel) done(); }, 800);
+  timer = setTimeout(done, REFRESH_MAX_MS);
+}
+
 /* ---------------- App core ---------------- */
 
 const App = {
@@ -446,6 +825,8 @@ const App = {
     const self = this;
     document.querySelectorAll('.nav-item').forEach(function (btn) {
       btn.addEventListener('click', function () {
+        // ลำดับสำคัญ: สลับหน้าก่อน (ขั้นประวัติ "ลิ้นชักเปิด" กลายเป็นขั้นของหน้าใหม่ — ดู writeHistory)
+        // แล้วค่อยปิดลิ้นชัก ย้อนกลับครั้งเดียวจึงกลับหน้าเดิมพอดี ไม่ต้องกด 2 ครั้ง
         self.switchView(btn.getAttribute('data-view') as string);
         setNavOpen(false); // เลือกเมนูบนมือถือแล้วต้องปิดเมนูเอง ไม่งั้นบังหน้าจอ
       });
@@ -463,8 +844,16 @@ const App = {
     }
     const backdrop = document.getElementById('nav-backdrop');
     if (backdrop) backdrop.addEventListener('click', function () { setNavOpen(false); });
+    // หมุนจอ/ย่อขยายหน้าต่างข้ามเส้น 900px — ความหมายของปุ่ม ☰ เปลี่ยน (ลิ้นชัก ↔ พับแถบ) ต้องอัปเดตสถานะปุ่ม
+    try { window.matchMedia('(min-width: 900px)').addEventListener('change', function () { syncNavBtnState(); queueOverlaySync(); }); } catch (e) {}
+    syncNavBtnState();
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape') setNavOpen(false);
+      if (e.key !== 'Escape') return;
+      // ตัวอื่นใช้ Esc ครั้งนี้ไปแล้ว (กรอบอธิบาย ⓘ / ปฏิทินเลือกวัน) — ไม่ปิดหน้าต่างซ้อนตามไปอีกชั้น
+      if (e.defaultPrevented || infoTipOpen()) return;
+      // Esc ปิดทีละชั้นจากบนสุด: หน้าต่าง → ลิ้นชักเมนู
+      if (modalOpen()) { closeTopModal(); return; }
+      setNavOpen(false);
     });
 
     const logout = document.getElementById('btn-logout');
@@ -476,28 +865,29 @@ const App = {
       });
     }
     document.getElementById('btn-refresh')!.addEventListener('click', function () {
-      self.loadView(self.state.view, true);
-      toast('กำลังโหลดข้อมูลใหม่...', 'busy');
+      // ปุ่มหมุนระหว่างโหลด แทนข้อความเด้ง "กำลังโหลดข้อมูลใหม่..." ที่ขึ้นทุกครั้งที่กด (ตรวจ UI ข้อ F4)
+      refreshWithSpinner(self.state.view);
     });
     const themeBtn = document.getElementById('btn-theme');
     if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
     setTheme(document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark');
-    bindInfoTips(); // tooltip กรอบอธิบายสูตร — ผูกครั้งเดียว ครอบทุก view
+    bindInfoTips(); // tooltip กรอบอธิบายสูตร + ปุ่ม ⓘ — ผูกครั้งเดียว ครอบทุก view
     watchTables();  // ตารางบนมือถือ → การ์ดต่อแถว (ติดป้ายอัตโนมัติทุกครั้งที่ view วาดใหม่)
+    watchPressed(); // ชิปตัวกรอง .filter-btn → aria-pressed ตาม .active
+    bindHistory();  // # ต่อหน้า + ปุ่มย้อนกลับ
+    bindBackTop();  // ปุ่มกลับขึ้นบน
     serverCall<Bootstrap>('apiBootstrap').then(function (b) {
       self.state.bootstrap = b;
       self.renderSyncInfo(b);
     }).catch(function () {});
-    // หน้าแรกขึ้นกับสิทธิ์ — page.tsx บอกมาทาง data-first-view (ระดับแอดมินเริ่มที่ "ผลงานของฉัน")
-    const first = (document.getElementById('app')?.getAttribute('data-first-view')) || 'dashboard';
-    this.state.view = first;
-    const meta = VIEW_META[first];
-    if (meta) {
-      document.getElementById('topbar-title')!.textContent = meta.title;
-      document.getElementById('topbar-sub')!.textContent = meta.sub;
-    }
-    this.loadView(first, false);
-    refreshNavBadges(); // ตัวเลขเรื่องด่วนบนแท็บ Sales / Content & Ads
+    // หน้าแรก: # ในลิงก์ (รีเฟรช/ลิงก์ที่ส่งต่อกัน) ถ้าสิทธิ์นี้เปิดได้ — ไม่งั้นหน้าแรกของสิทธิ์
+    // (page.tsx บอกมาทาง data-first-view · ระดับแอดมินเริ่มที่ "ผลงานของฉัน")
+    // # ของหน้าที่เปิดไม่ได้ → เขียน # ใหม่เป็นหน้าแรกของเขา (replace — ไม่เพิ่มประวัติ)
+    const fromHash = hashView();
+    const start = canOpenView(fromHash) ? fromHash : firstViewOf();
+    this.switchView(start, { history: 'replace', initial: true });
+    document.documentElement.removeAttribute('data-boot-view');   // ชื่อหน้าถูกแล้ว — โชว์หัวเว็บ (ดู page.tsx)
+    refreshNavBadges(); // ตัวเลขบนแท็บ ยอดขาย / โฆษณา
     // รีเฟรชหน้าปัจจุบันอัตโนมัติทุก 5 นาที — แบบเบื้องหลัง (force=false = render จาก cache
     // แล้วค่อยดึงใหม่) และข้ามรอบถ้าแท็บถูกซ่อนหรือผู้ใช้กำลังพิมพ์/เลือกค่าอยู่
     setInterval(function () {
@@ -571,24 +961,35 @@ const App = {
     chip.title = 'ระบบดึงข้อมูลใหม่อัตโนมัติทุก 15 นาที';
   },
 
-  switchView(view: string): void {
-    if (!VIEW_META[view]) return;
+  /**
+   * สลับหน้า — เรียกจากเมนู และจาก view อื่น (App.switchView('sales') ฯลฯ)
+   * opts.history: 'push' (ค่าเริ่มต้น — ย้อนกลับได้) | 'replace' (แทนขั้นปัจจุบัน) | 'none' (มาจากปุ่มย้อนกลับเอง)
+   */
+  switchView(view: string, opts?: { history?: 'push' | 'replace' | 'none'; initial?: boolean }): void {
     // ไม่มีช่อง view นี้ในหน้า = สิทธิ์นี้เปิดไม่ได้ (page.tsx render เฉพาะที่อนุญาต) — เงียบไว้
-    if (!document.getElementById('view-' + view)) return;
+    if (!canOpenView(view)) return;
+    const mode = (opts && opts.history) || 'push';
+    const same = view === this.state.view && !(opts && opts.initial);
     hideChartTip(); // กันทูลทิปกราฟ (body singleton) ค้างลอยข้ามหน้าเมื่อสลับ view ด้วยคีย์บอร์ด
     hideInfoTip();  // เช่นเดียวกัน — กันกรอบอธิบายค้างข้ามหน้า
     this.state.view = view;
     document.querySelectorAll('.nav-item').forEach(function (b) {
-      b.classList.toggle('active', b.getAttribute('data-view') === view);
+      const on = b.getAttribute('data-view') === view;
+      b.classList.toggle('active', on);
+      // โปรแกรมอ่านหน้าจออ่าน "หน้าปัจจุบัน" ที่เมนูนี้ (สีพื้นม่วงบอกได้แค่คนที่มองเห็น)
+      if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
     document.querySelectorAll('.view').forEach(function (s) {
       s.classList.toggle('active', s.id === 'view-' + view);
     });
     document.getElementById('topbar-title')!.textContent = VIEW_META[view].title;
     document.getElementById('topbar-sub')!.textContent = VIEW_META[view].sub;
+    document.title = VIEW_META[view].title + ' · ' + SITE_NAME;
     // เลื่อนกลับขึ้นบนทุกครั้งที่เปลี่ยนหน้า — เดิมค้างที่ตำแหน่งเดิม จากล่างสุดหน้า Sales
     // ไปกด KPI แล้วโผล่กลางหน้าโดยไม่เห็นหัวข้อ (หน้า KPI ถึงกับต้องขึ้นข้อความบอกทางผู้ใช้เอง)
     window.scrollTo({ top: 0, behavior: 'auto' });
+    markNavSeen(view);   // เปิดหน้านี้แล้ว = ป้ายตัวเลขบนเมนูของหน้านี้หาย จนกว่าจะมีเรื่องใหม่
+    if (mode !== 'none') writeHistory(view, mode === 'push' && !same);
     this.loadView(view, false);
   },
 
