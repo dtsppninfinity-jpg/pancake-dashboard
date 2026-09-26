@@ -488,11 +488,12 @@ async function loadUnitCost_(
   pageUnit: Record<string, { u: string; product: string }>,
   pagePlatform: Record<string, string>,
   unmappedKey: string
-): Promise<{ byChannel: UnitCostByChannel; days: Record<string, { spend: number; metaBase: number }> }> {
+): Promise<{ byChannel: UnitCostByChannel; days: Record<string, { spend: number; metaBase: number; pancakeBase: number }> }> {
   const from = fmtDateBkk(r.start), to = fmtDateBkk(r.end);
   const out: UnitCostByChannel = { all: {}, facebook: {}, line: {} };
-  // ค่าแอด + ตัวเลข Meta แยกรายวัน — ใช้ตัดสินว่าฐาน Meta ครบทั้งช่วงไหม (ดู metaBaseComplete_)
-  const days: Record<string, { spend: number; metaBase: number }> = {};
+  // ค่าแอด + ตัวเลข Meta + ตัวเลข Pancake แยกรายวัน — ใช้ตัดสินว่าฐาน Meta ครบทั้งช่วงไหม (ดู metaBaseComplete_)
+  const days: Record<string, { spend: number; metaBase: number; pancakeBase: number }> = {};
+  const touchDay_ = (ymd: string) => (days[ymd] = days[ymd] || { spend: 0, metaBase: 0, pancakeBase: 0 });
   const bump = (pageId: string, patch: Partial<UnitCost>) => {
     const um = pageUnit[pageId];
     const key = um ? um.u : unmappedKey;
@@ -532,10 +533,7 @@ async function loadUnitCost_(
       const spend = toNum_(a.spend);
       const mBase = toNum_(a.meta_first_replies) + toNum_(a.meta_comments);
       const ymd = String(a.date || '').slice(0, 10);
-      if (ymd) {
-        if (!days[ymd]) days[ymd] = { spend: 0, metaBase: 0 };
-        days[ymd].spend += spend; days[ymd].metaBase += mBase;
-      }
+      if (ymd) { const dd = touchDay_(ymd); dd.spend += spend; dd.metaBase += mBase; }
       bump(pid, {
         spend, msgs: toNum_(a.msgs_started),
         adInq: toNum_(a.meta_first_replies), adComment: toNum_(a.meta_comments),
@@ -551,6 +549,11 @@ async function loadUnitCost_(
     eng.forEach((e) => {
       const pid = String(e.page_id || '');
       if (!pid) return;
+      // นับเฉพาะเพจ Facebook ให้ตรงกับตัวหารจริง ไม่งั้นอัตราส่วน Meta/Pancake จะเพี้ยนเพราะอินบ็อกซ์ LINE
+      const ymd = String(e.date || '').slice(0, 10);
+      if (ymd && platformChannel_(pagePlatform[pid] || '') === 'facebook') {
+        touchDay_(ymd).pancakeBase += toNum_(e.new_inbox) + toNum_(e.comment);
+      }
       bump(pid, { reached: toNum_(e.new_inbox) + toNum_(e.comment), engOrders: toNum_(e.order_count),
         engOldOrders: toNum_((e as any).old_order_count),
         engNewInbox: toNum_(e.new_inbox), engComment: toNum_(e.comment) });
@@ -936,22 +939,33 @@ interface UnitGoalInput {
  * เพิ่งเริ่มเก็บ 17 ก.ย. 69 และกำลังทยอย backfill ย้อนหลัง — ถ้าฝังวันที่ไว้ในโค้ด
  * พอ backfill เสร็จก็ต้องกลับมาแก้โค้ดอีก (และถ้าลืมแก้ = ใช้ Pancake ต่อไปเงียบๆ)
  *
- * เกณฑ์: **ทุกวันที่มีค่าแอด ต้องมีตัวเลข Meta ด้วย** ถ้ามีสักวันที่จ่ายเงินแล้วตัวเลข Meta เป็น 0
- * แปลว่าข้อมูลวันนั้นยังไม่มา → ถอยไปใช้ Pancake ทั้งช่วง
- * (ทั้งบริษัทยิงแอดวันละ ~฿300k ได้คนทัก ~4,500 — วันที่จ่ายเงินแล้วได้ 0 คน คือข้อมูลขาด ไม่ใช่ของจริง)
+ * ด่าน 1 — **ทุกวันที่มีค่าแอด ต้องมีตัวเลข Meta ด้วย** วันที่จ่ายเงินแล้ว Meta เป็น 0 คือข้อมูลขาด
+ *   (ทั้งบริษัทยิงวันละ ~฿300k ได้คนทัก ~4,500 — จ่ายเงินแล้วได้ 0 คน ไม่ใช่ของจริง)
+ *
+ * ด่าน 2 — **ฐาน Meta ต้องไม่เล็กกว่า Pancake ผิดปกติ** กันกรณีที่ด่าน 1 จับไม่ได้:
+ *   งานดึง Meta ล้มเป็นราย "บัญชีโฆษณา" (เจอจริงตอน backfill: 5/165 บัญชีคืน "Service temporarily unavailable")
+ *   วันนั้นบัญชีอื่นยังมีเลข ด่าน 1 จึงผ่าน แต่ยูนิตที่อยู่บัญชีที่ล้มจะได้ตัวหาร 0 แล้ว %ปิด กลายเป็น 0.00%
+ *   วัดจริง 17-26 ก.ย.: Meta/Pancake = 0.98-1.01 ทุกวัน (Pancake สูงกว่านิดเพราะนับคนทักออร์แกนิกด้วย)
+ *   ตั้งพื้นไว้ 0.70 — หลุดเมื่อไหร่แปลว่าหายไปเป็นก้อน ไม่ใช่ความต่างตามธรรมชาติ
  *
  * ⚠️ ห้ามตัดสินรายวันแล้วสลับไปมาในช่วงเดียว — ตัวหารจะมาจากคนละแหล่งในเลขก้อนเดียว
  */
-function metaBaseComplete_(days: Record<string, { spend: number; metaBase: number }>): boolean {
+const META_BASE_MIN_RATIO = 0.70;
+
+function metaBaseComplete_(days: Record<string, { spend: number; metaBase: number; pancakeBase: number }>): boolean {
   const keys = Object.keys(days);
   if (!keys.length) return false;
-  let spentDays = 0;
+  let spentDays = 0, meta = 0, pancake = 0;
   for (const d of keys) {
+    meta += days[d].metaBase;
+    pancake += days[d].pancakeBase;
     if (days[d].spend <= 0) continue;     // วันที่ไม่ได้ยิงแอด ไม่มีอะไรให้ Meta รายงาน
     spentDays++;
     if (days[d].metaBase <= 0) return false;
   }
-  return spentDays > 0;
+  if (!spentDays) return false;
+  if (pancake > 0 && meta / pancake < META_BASE_MIN_RATIO) return false;
+  return true;
 }
 
 /**

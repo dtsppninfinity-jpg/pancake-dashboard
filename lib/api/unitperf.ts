@@ -186,7 +186,8 @@ export async function apiUnitPerf(params: any) {
     c.orders += num_(r.orders);
   });
   // ตัวเลข Meta รายวันทั้งบริษัท — ใช้ตัดสินว่าเดือนนี้มีข้อมูล Meta ครบทุกวันที่ยิงแอดไหม
-  const dayTot: Record<string, { spend: number; metaBase: number }> = {};
+  const dayTot: Record<string, { spend: number; metaBase: number; pancakeBase: number }> = {};
+  const touchDay_ = (ymd: string) => (dayTot[ymd] = dayTot[ymd] || { spend: 0, metaBase: 0, pancakeBase: 0 });
   (adsRows || []).forEach((r) => {
     const ymd = String(r.d || '').slice(0, 10);
     if (!ymd) return;
@@ -196,30 +197,38 @@ export async function apiUnitPerf(params: any) {
     const c = touch(unitOfPage(r.page_id), ymd);
     c.spend += spend;                                           // ad_daily.spend เป็นบาทจริง ห้ามหาร 100
     c.mBase += mBase;
-    if (!dayTot[ymd]) dayTot[ymd] = { spend: 0, metaBase: 0 };
-    dayTot[ymd].spend += spend; dayTot[ymd].metaBase += mBase;
+    const dd = touchDay_(ymd); dd.spend += spend; dd.metaBase += mBase;
   });
   engRows.forEach((r) => {
     const pid = String(r.page_id || '');
     if (platformOf[pid] === 'line') return;                     // ตัวหาร %ปิด นับเฉพาะเพจ Facebook
     const ymd = String(r.date || '').slice(0, 10);
     if (!ymd) return;
-    touch(unitOfPage(pid), ymd).pBase += num_(r.new_inbox) + num_(r.comment);
+    const v = num_(r.new_inbox) + num_(r.comment);
+    touch(unitOfPage(pid), ymd).pBase += v;
+    touchDay_(ymd).pancakeBase += v;
   });
 
-  /* ---- เลือกฐานตัวหาร: Meta ถ้าครบทุกวันที่ยิงแอด ไม่งั้นถอยไป Pancake ----
-   * กติกาเดียวกับ metaBaseComplete_ ใน lib/api/sales.ts — สองหน้าต้องตอบเลขเดียวกันเสมอ
+  /* ---- เลือกฐานตัวหาร: Meta ถ้าข้อมูลครบ ไม่งั้นถอยไป Pancake ----
+   * ⚠️ ต้องเป็นกติกาเดียวกับ metaBaseComplete_ ใน lib/api/sales.ts เป๊ะ — สองหน้าต้องตอบเลขเดียวกัน
+   *   ด่าน 1: ทุกวันที่ยิงแอดต้องมีตัวเลข Meta   ด่าน 2: ฐาน Meta ต้องไม่เล็กกว่า Pancake เกินปกติ
+   *   (ด่าน 2 กันกรณีงานดึง Meta ล้มเป็นราย "บัญชีโฆษณา" ซึ่งด่าน 1 จับไม่ได้ — ดูคำอธิบายเต็มใน sales.ts)
    * (เดือนที่คาบวันก่อน backfill จะมีวันที่จ่ายเงินแต่ Meta = 0 → ทั้งเดือนใช้ Pancake) */
+  const META_BASE_MIN_RATIO = 0.70;
   const metaOk = (() => {
     const ds = Object.keys(dayTot);
     if (!ds.length) return false;
-    let spentDays = 0;
+    let spentDays = 0, meta = 0, pancake = 0;
     for (const d of ds) {
+      meta += dayTot[d].metaBase;
+      pancake += dayTot[d].pancakeBase;
       if (dayTot[d].spend <= 0) continue;
       spentDays++;
       if (dayTot[d].metaBase <= 0) return false;
     }
-    return spentDays > 0;
+    if (!spentDays) return false;
+    if (pancake > 0 && meta / pancake < META_BASE_MIN_RATIO) return false;
+    return true;
   })();
   const baseOf_ = (c: Daily): number => (metaOk ? c.mBase : c.pBase);
   profitRows.forEach((r) => {
