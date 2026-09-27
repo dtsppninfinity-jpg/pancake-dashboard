@@ -1055,6 +1055,10 @@ function render(container: HTMLElement, data: any): void {
   if (data && data.adDaysWarning) {
     html += noticeHtml_('warn', String(data.adDaysWarning), data.adDaysFix ? String(data.adDaysFix) : undefined);
   }
+  // แถวออร์แกนิกดึงไม่สำเร็จรอบนี้ (server ไม่ล้มทั้งหน้าแล้ว) — บอกตรงๆ ไม่ใช่ให้แถวหายเงียบ
+  if (data && data.organicError) {
+    html += noticeHtml_('warn', 'แถวออร์แกนิก (โพสต์ที่ไม่ได้ยิงแอด) โหลดไม่สำเร็จรอบนี้ — ตัวเลขของแอดใช้ได้ตามปกติ กดรีเฟรชเพื่อลองใหม่');
+  }
   // มีแอดแต่ไม่มีสื่อสักตัว = ยังไม่ได้เปิดใช้ตาราง ad_creative (บอกให้ชัด ไม่ใช่ปล่อยกล่องรูปว่าง)
   if (data && !data.needAdSetup && items.length && !num(data.creativeCount)) {
     html += noticeHtml_('info', 'ยังไม่มีรูปครีเอทีฟของแอด — ตัวเลขใช้ได้ตามปกติ กรุณาแจ้งผู้ดูแลระบบ',

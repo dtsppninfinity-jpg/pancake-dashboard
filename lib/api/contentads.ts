@@ -1,6 +1,6 @@
 // lib/api/contentads.ts — port ของ apiContentAds จาก WebApi.gs
 // อ่านจาก Supabase (orders + ads) แล้วรวมยอด/สร้าง alerts ตาม logic เดิมทุกตัวอักษร
-import { db, fetchAll } from '@/lib/db';
+import { db, fetchAll, fetchAllSliced, fetchAllDateSliced } from '@/lib/db';
 import { EXCLUDED_STATUSES, money_, isPlaceholderOrder, fmtDateBkk, daysAgo } from '@/lib/config';
 
 /** ค่าจาก Postgres อาจเป็น number/string/null — แปลงเป็นเลขเสมอ (NaN → 0) */
@@ -10,6 +10,7 @@ function toNum_(v: unknown): number {
 }
 
 interface OrderRow {
+  id?: string | null;
   ad_id: string | number | null;
   post_id?: string | null;
   page_id?: string | null;
@@ -56,37 +57,42 @@ interface AdRow {
 }
 
 /**
+ * error นี้แปลว่า "ยังไม่ได้สร้างตาราง" (ยังไม่รัน migration) เท่านั้นไหม
+ * ⚠️ เดิมเช็คแค่ชื่อตาราง + 'does not exist' — "column ad_daily.x does not exist" ก็ผ่าน
+ *    ชื่อคอลัมน์ผิดทีเดียว หน้าเว็บขึ้น "ยังไม่ได้เปิดใช้ข้อมูลค่าแอด" เงียบๆ ไม่มี error ให้เห็น
+ */
+function isMissingTable_(msg: string, table: string): boolean {
+  if (!msg.includes(table) || /column/i.test(msg)) return false;
+  return /does not exist|schema cache|Could not find the table/i.test(msg);
+}
+
+/**
  * รวมค่าแอดจาก ad_daily ตามจำนวนวันย้อนหลัง แล้วคืนรูปเดียวกับตาราง `ads` เดิม
  * (metric สะสมบวกกัน / ctr,cpm คำนวณใหม่จากยอดรวม ห้ามเฉลี่ยค่าเฉลี่ย)
  * ตารางยังไม่ถูกสร้าง → คืน [] แล้วหน้าเว็บจะบอกให้รัน migration
  */
-async function loadAdsFromDaily_(days: number): Promise<{ ads: AdRow[]; daysCovered: number }> {
+async function loadAdsFromDaily_(start: Date): Promise<{ ads: AdRow[]; daysCovered: number }> {
+  // start = daysAgo(days-1) ตัวเดียวกับที่กรองออเดอร์ (apiContentAds คำนวณครั้งเดียวส่งมา)
   // days=1 → วันนี้วันเดียว | days=7 → วันนี้ + 6 วันก่อน (วันปฏิทินไทยเต็มวัน)
   // ⚠️ ต้องเป็นหน้าต่างเดียวกับตัวกรองออเดอร์เป๊ะๆ ไม่งั้น ROAS เพี้ยน
   //    (ของเดิม gte(date, now-days) ทำให้ days=1 กินค่าแอด 2 วันปฏิทิน แต่ยอดขายแค่ 24 ชม.)
-  const from = fmtDateBkk(daysAgo(days - 1));
+  const from = fmtDateBkk(start);
+  // หั่นทีละ 7 วัน (เดิม OFFSET ยาวทั้งช่วง — ปุ่ม 90 วัน ~135k แถว ลึกระดับที่ชน statement timeout)
+  // ขอบบนเผื่อพรุ่งนี้ = ไม่ตัดแถวที่ query เดิม (ไม่มีขอบบน) เคยได้ · ลำดับรวมยัง date,ad_id เหมือนเดิมเป๊ะ
+  const to = fmtDateBkk(new Date(Date.now() + 86400000));
+  // เฉพาะคอลัมน์ที่ลูปข้างล่างอ่านจริง (เดิมดึง 22 ตัว — page_name/ctr/cpm/phones ฯลฯ ไม่มีใครใช้ กิน egress เปล่า)
+  const COLS = 'date,ad_id,name,status,account_id,spend,impressions,reach,clicks,msgs_started,pos_orders,updated_at';
+  const load = (cols: string) => fetchAllDateSliced<any>((f, t) =>
+    db.from('ad_daily').select(cols).gte('date', f).lte('date', t), from, to, { orderColumn: 'date,ad_id' });
   let rows: any[];
   try {
-    rows = await fetchAll<any>(() =>
-      db.from('ad_daily').select(
-        'date,ad_id,page_id,page_name,name,status,account_id,spend,impressions,reach,clicks,' +
-        'link_clicks,ctr,cpm,msgs_started,first_replies,phones,pos_orders,' +
-        'meta_purchases,meta_purchase_value,optimization_goal,updated_at'
-      ).gte('date', from),
-      'date,ad_id'
-    );
+    rows = await load(COLS + ',meta_purchases,meta_purchase_value');
   } catch (e: any) {
     const m = String((e && e.message) || e || '');
     // ยังไม่รัน migration meta_purchase → ลองใหม่แบบไม่มี field นั้น (หน้าเว็บยังทำงานได้)
     if (m.includes('meta_purchase')) {
-      rows = await fetchAll<any>(() =>
-        db.from('ad_daily').select(
-          'date,ad_id,page_id,page_name,name,status,account_id,spend,impressions,reach,clicks,' +
-          'link_clicks,ctr,cpm,msgs_started,first_replies,phones,pos_orders,optimization_goal,updated_at'
-        ).gte('date', from),
-        'date,ad_id'
-      );
-    } else if (m.includes('ad_daily') && (m.includes('does not exist') || m.includes('schema cache'))) {
+      rows = await load(COLS);
+    } else if (isMissingTable_(m, 'ad_daily')) {
       return { ads: [], daysCovered: 0 };
     } else {
       throw e;
@@ -163,18 +169,31 @@ async function loadCreatives_(adIds: string[]): Promise<Record<string, CreativeR
   const CHUNK = 300;
   const cols = 'ad_id,name,thumb_url,image_url,video_id,object_type,post_id,permalink,ig_permalink,cta,link_url';
   try {
-    for (let i = 0; i < adIds.length; i += CHUNK) {
-      const part = adIds.slice(i, i + CHUNK);
-      const rows = await fetchAll<CreativeRow>(
-        () => db.from('ad_creative').select(cols).in('ad_id', part), 'ad_id');
-      rows.forEach(function (r) { out[String(r.ad_id)] = r; });
-    }
+    // เดิมวนทีละก้อน (~36 ก้อน = 46% ของเวลาทั้งหน้า) → ยิงพร้อมกัน ให้ semaphore ใน db.ts คุมจำนวนที่วิ่งจริง
+    const parts: string[][] = [];
+    for (let i = 0; i < adIds.length; i += CHUNK) parts.push(adIds.slice(i, i + CHUNK));
+    const results = await Promise.all(parts.map((part) =>
+      fetchAll<CreativeRow>(() => db.from('ad_creative').select(cols).in('ad_id', part), 'ad_id')));
+    results.forEach(function (rows) { rows.forEach(function (r) { out[String(r.ad_id)] = r; }); });
   } catch (e: any) {
     const m = String((e && e.message) || e || '');
-    if (m.includes('ad_creative')) return {};   // ยังไม่รัน 2026-07-27-ad-creative.sql
+    if (isMissingTable_(m, 'ad_creative')) return {};   // ยังไม่รัน 2026-07-27-ad-creative.sql
     throw e;
   }
   return out;
+}
+
+/**
+ * เรียงออเดอร์ตาม id กลับเป็นลำดับเดียวกับ query เดิม (fetchAll เรียง id) — ก้อนที่หั่นมาเรียงตาม inserted_at
+ * ลำดับมีผลกับ "ค่าเสมอกัน เจอก่อนชนะ": คนปิดขายมากสุด / เพจหลัก / สินค้า 5 อันดับ / โพสต์ organic ตรงเส้นตัด 50
+ * id ของ Pancake เกือบทั้งหมดเป็นตัวเลขล้วน — เทียบสตริงแบบไบต์ได้ลำดับเดียวกับ ORDER BY id ของ Postgres
+ * (temp/audit25/parity.ts --idcheck วัดจริง 27 ก.ย. 69: 10,090 แถว ลำดับตรง 100%) · ต่างได้แค่ลำดับของค่าที่เสมอกัน ตัวเลขไม่ขึ้นกับลำดับ
+ */
+function byOrderId_(rows: OrderRow[]): OrderRow[] {
+  return rows.sort(function (a, b) {
+    const x = String(a.id || ''), y = String(b.id || '');
+    return x < y ? -1 : x > y ? 1 : 0;
+  });
 }
 
 export async function apiContentAds(params?: any) {
@@ -183,20 +202,46 @@ export async function apiContentAds(params?: any) {
   const days = Math.min(95, Math.max(1, Math.round(Number((params && params.days)) || 7)));
   // นับเป็น "วันปฏิทินไทยเต็มวัน" เหมือนหน้า Sales และเหมือน Pancake
   // (days=1 = ตั้งแต่เที่ยงคืนวันนี้) — ต้องตรงกับหน้าต่างของ loadAdsFromDaily_
-  const sinceIso = daysAgo(days - 1).toISOString();
+  // คำนวณครั้งเดียว ใช้ทั้งออเดอร์และค่าแอด — เดิมคำนวณแยก 2 ที่ คำขอที่คร่อมเที่ยงคืนได้คนละหน้าต่าง
+  const start = daysAgo(days - 1);
+  // ขอบบนเผื่อ 1 วัน = เทียบเท่า "ไม่มีขอบบน" ของ query เดิม (เวลาในออเดอร์ของ Pancake อาจนำนาฬิกาเราเล็กน้อย)
+  const end = new Date(Date.now() + 86400000);
+  let organicError = false;
+
+  // ---- ยิงทุก query พร้อมกัน (เดิม await ต่อคิวทีละตัว รวม ~30 วิ) — ครีเอทีฟต้องรอรายชื่อแอดจาก ad_daily ตัวเดียว ----
+  // ออเดอร์: หั่นก้อนละ 4 วันตาม inserted_at (เดิม OFFSET ยาวทั้งช่วง ชน statement timeout 1 ใน 3 รอบ)
+  // ⛔ ห้ามใช้ fetchAllDateSliced กับ orders — ตัวนั้นเทียบสตริงวันที่ เจอ timestamptz ขอบวันเลื่อน 7 ชม.
   // ยอดขายที่ผูกกับแต่ละ ad_id — จำกัดตามช่วงที่เลือก ให้เทียบกับค่าแอดช่วงเดียวกันได้
-  const orders = await fetchAll<OrderRow>(() =>
-    db.from('orders').select('ad_id,page_id,total_price,items_count,status,seller_name,creator_name,items_json')
+  // .or(...) = ตัดออเดอร์เปล่าตั้งแต่ฐาน (ผลเท่ากับ !isPlaceholderOrder ทุกกรณีรวม NULL — แถวลดเกือบครึ่ง) · เช็คใน JS ยังอยู่เป็นตาข่าย
+  const ordersP = fetchAllSliced<OrderRow>((f, t) =>
+    db.from('orders').select('id,ad_id,page_id,total_price,items_count,status,seller_name,creator_name,items_json')
       .not('ad_id', 'is', null).neq('ad_id', '')
-      .gte('inserted_at', sinceIso)
-  );
+      .or('items_count.neq.0,total_price.neq.0')
+      .gte('inserted_at', f).lt('inserted_at', t),
+    start, end).then(byOrderId_);
+  // ชื่อเพจเป็นแค่ป้าย — ดึงไม่ได้ก็ยังเปิดหน้าได้ (เดิมทุก query ต่อคิว ตัวไหนล้มก็ 500 ทั้งหน้า)
+  const pagesP = fetchAll<any>(() => db.from('pages').select('page_id,name'), 'page_id')
+    .catch(function (e: any) { console.error('[contentads] pages', (e && e.message) || e); return [] as any[]; });
+  // ค่าแอดจริงจาก ad_daily (รวมตามช่วงวันที่เลือก) — ตาราง `ads` เดิมว่างเปล่าถาวร
+  // เพราะ POS /ads_manager/ads_v2 คืน 0 แถวเสมอ · สื่อของแต่ละแอด (รูป/คลิป/ลิงก์โพสต์) — join ต่อ ad_id
+  const adsP = loadAdsFromDaily_(start).then(function (r) {
+    return loadCreatives_(r.ads.map(function (a) { return String(a.ad_id); }))
+      .then(function (creatives) { return { ads: r.ads, daysCovered: r.daysCovered, creatives: creatives }; });
+  });
+  // แถว Organic: ออเดอร์ที่ผูกโพสต์ (post_id) แต่ไม่ได้มาจากแอด
+  const organicP = fetchAllSliced<OrderRow>((f, t) =>
+    db.from('orders').select('id,post_id,page_id,total_price,items_count,status,seller_name,creator_name,inserted_at')
+      .not('post_id', 'is', null).neq('post_id', '')
+      .or('ad_id.is.null,ad_id.eq.')
+      .gte('inserted_at', f).lt('inserted_at', t),
+    start, end).then(byOrderId_)
+    // แถว organic เป็นส่วนเสริม — ดึงไม่สำเร็จให้หน้าแอดยังใช้ได้ แล้วบอกหน้าเว็บ (organicError) ไม่ใช่หายเงียบ
+    .catch(function (e: any) { console.error('[contentads] organic', (e && e.message) || e); organicError = true; return [] as OrderRow[]; });
+  const [orders, pageRows, adsRes, organicOrders] = await Promise.all([ordersP, pagesP, adsP, organicP]);
 
   // ชื่อเพจ (ให้ dropdown "ทุกเพจ" ใช้ชื่อจริงแทน page_id)
   const pageNames: Record<string, string> = {};
-  {
-    const pageRows = await fetchAll<any>(() => db.from('pages').select('page_id,name'), 'page_id');
-    pageRows.forEach(function (p: any) { pageNames[String(p.page_id)] = String(p.name || ''); });
-  }
+  pageRows.forEach(function (p: any) { pageNames[String(p.page_id)] = String(p.name || ''); });
 
   const revByAd: Record<string, number> = {};
   const cntByAd: Record<string, number> = {};
@@ -267,12 +312,7 @@ export async function apiContentAds(params?: any) {
       .slice(0, 6);
   }
 
-  // ค่าแอดจริงจาก ad_daily (รวมตามช่วงวันที่เลือก) — ตาราง `ads` เดิมว่างเปล่าถาวร
-  // เพราะ POS /ads_manager/ads_v2 คืน 0 แถวเสมอ
-  const { ads, daysCovered: adDaysCovered } = await loadAdsFromDaily_(days);
-
-  // สื่อของแต่ละแอด (รูป/คลิป/ลิงก์โพสต์) — join ต่อ ad_id
-  const creatives = await loadCreatives_(ads.map(function (a) { return String(a.ad_id); }));
+  const { ads, daysCovered: adDaysCovered, creatives } = adsRes;
   let creativeCount = 0;
 
   const items = ads.map(function (a) {
@@ -374,14 +414,8 @@ export async function apiContentAds(params?: any) {
     };
   });
 
-  // ---- แถว Organic: ออเดอร์ที่ผูกโพสต์ (post_id) แต่ไม่ได้มาจากแอด ----
+  // ---- แถว Organic: ออเดอร์ที่ผูกโพสต์ (post_id) แต่ไม่ได้มาจากแอด (ดึงมาพร้อมกันใน Promise.all ข้างบน) ----
   // revenue/orders เป็นของจริง — spend/คลิก/แชทของโพสต์ไม่มีข้อมูล (ไม่ใช่ 0) หน้าเว็บโชว์ "-"
-  const organicOrders = await fetchAll<OrderRow>(() =>
-    db.from('orders').select('post_id,page_id,total_price,items_count,status,seller_name,creator_name,inserted_at')
-      .not('post_id', 'is', null).neq('post_id', '')
-      .or('ad_id.is.null,ad_id.eq.')
-      .gte('inserted_at', sinceIso)
-  );
   const byPost: Record<string, {
     revenue: number; orders: number;
     pages: Record<string, number>; sellers: Record<string, number>; lastAt: string;
@@ -520,6 +554,8 @@ export async function apiContentAds(params?: any) {
       ? 'ค่าแอดมีข้อมูลแค่ ' + adDaysCovered + ' วันจาก ' + days + ' วันที่เลือก — ROAS ช่วงนี้จะสูงเกินจริง'
       : null,
     adDaysFix: (ads.length > 0 && adDaysCovered < days) ? 'npm run backfill:ads ' + days : null,
+    // แถวออร์แกนิกโหลดไม่สำเร็จ (ตัวเลขแอดยังครบ) — หน้าเว็บขึ้นแถบแจ้ง
+    organicError,
     note: 'ทุกตัวเลขเป็นของ ' + (days === 1 ? 'วันนี้' : days + ' วันล่าสุด') +
       ' (วันปฏิทินไทยเต็มวัน — หน้าต่างเดียวกับหน้า Sales) • ' +
       'ยอดขาย / ROAS / %ปิด (ซื้อ÷ทัก) = ตัวเลขจาก Meta Ads โดยตรง ตรงกับหน้า Meta dashboard • ' +
