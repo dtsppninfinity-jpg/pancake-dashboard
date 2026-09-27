@@ -43,6 +43,8 @@ const mediaInflight = new Set<string>();
 let mediaTimer = 0;
 /** กล่องของหน้านี้ที่วาดล่าสุด — ผลสื่อมาถึงทีหลังให้แปะลงของที่อยู่บนจอจริงตอนนั้น (ไม่ถือ element เก่าไว้) */
 let caContainer: HTMLElement | null = null;
+/** แอดของหน้าวิเคราะห์ที่เปิดล่าสุด — ตอนรูปมาถึง lastData อาจถูกรีเฟรชเป็นชุดที่ไม่มีแอดนี้แล้ว */
+let openItem_: any = null;
 
 type CaTab = 'alerts' | 'ads' | 'media';
 const TAB_KEY = 'pn-ca-tab';
@@ -240,7 +242,9 @@ function mediaOf_(it: any): any {
 /** แอดจริงที่ยังไม่รู้ว่ามีรูปไหม (กำลังขอ / จะขอ) — organic มีสื่อจาก server เสมอ */
 function mediaLoading_(it: any): boolean {
   if (!it || it.organicPost || it.media) return false;
-  return !mediaCache[String(it.adId)];
+  const id = String(it.adId);
+  // id ที่ไม่ใช่ตัวเลขล้วน ensureMedia_ ไม่ขอ (server ก็ไม่รับ) — ถือว่ารู้แล้วว่าไม่มีรูป ไม่งั้นกล่องวิบวับค้างตลอด
+  return /^\d+$/.test(id) && !mediaCache[id];
 }
 
 /** จดสื่อที่มากับผลหลัก — ชุดที่ server เช็คแล้ว (mediaSeeded) ไม่ต้องขอซ้ำ แม้ไม่มีรูป */
@@ -277,10 +281,14 @@ function flushMedia_(): void {
     const chunk = ids.slice(i, i + 60);
     chunk.forEach(function (id) { mediaInflight.add(id); });
     serverCall<any>('apiPageMedia', { adIds: chunk }).then(function (res) {
-      const media = (res && res.media) || {};
       const now = Date.now();
+      // ผลไม่มี media เลย = server เวอร์ชันเก่า (ย้อน deploy) ไม่รู้จัก {adIds} แล้วตอบรายชื่อเพจแทน (สแกน ad_daily 60 วัน)
+      // → จดทั้งชุดว่า "ไม่มีรูป" ให้เพดาน 30 นาทีคุม ไม่งั้นทุกรอบวาด/ทุก 5 นาทียิงสแกนหนักซ้ำ
+      const legacy = !res || !res.media || typeof res.media !== 'object';
+      const media = legacy ? {} : res.media;
       chunk.forEach(function (id) {
         mediaInflight.delete(id);
+        if (legacy) { mediaCache[id] = { m: null, at: now }; return; }
         // id ที่ไม่อยู่ในผล = ยังไม่รู้ (ห้ามจดว่า "ไม่มีรูป" ไม่งั้นรูปหายถาวร) — ขอใหม่รอบวาดถัดไป
         if (Object.prototype.hasOwnProperty.call(media, id)) mediaCache[id] = { m: media[id] || null, at: now };
       });
@@ -310,16 +318,26 @@ function patchMedia_(ids: string[]): void {
   const panel = document.querySelector<HTMLElement>('#modal-root [data-ca-media-for]');
   const pid = panel ? panel.getAttribute('data-ca-media-for') || '' : '';
   if (panel && ids.indexOf(pid) >= 0) {
-    const item = findItem_(lastData, pid);
-    if (!item) return;
-    if (mediaLoading_(item)) {           // พลาด — เลิกวิบวับ ปุ่ม Ads Manager ยังอยู่
+    // ใช้แอดตัวที่เปิดหน้าต่างไว้ (lastData อาจถูกรีเฟรชเป็นชุดใหม่ที่ไม่มีแอดนี้แล้ว)
+    const item = (openItem_ && String(openItem_.adId) === pid) ? openItem_ : findItem_(lastData, pid);
+    if (!item || mediaLoading_(item)) {  // พลาด — เลิกวิบวับ บอกตรงๆ ปุ่ม Ads Manager ยังอยู่
       panel.querySelectorAll('.ca-loading').forEach(function (el) { el.classList.remove('ca-loading'); });
+      panel.removeAttribute('data-ca-media-for');
+      const note = panel.querySelector('.ca-media-note');
+      if (note) note.innerHTML = 'โหลดรูปไม่สำเร็จ — ดูครีเอทีฟได้ที่ <b>Ads Manager</b> หรือปิดแล้วเปิดใหม่อีกครั้ง';
       return;
     }
+    // จำปุ่มที่โฟกัสอยู่ (คนใช้คีย์บอร์ด) — แทนบล็อกใหม่แล้วคืนโฟกัสให้ปุ่มเดิม
+    const act = document.activeElement as HTMLAnchorElement | null;
+    const focusHref = act && panel.contains(act) ? act.getAttribute('href') : null;
     panel.outerHTML = mediaPanelHtml_(item);
     const mr = document.getElementById('modal-root');
     if (mr) bindImgFallback_(mr);
     bindMediaFrame_(item);
+    if (focusHref && mr) {
+      const again = Array.from(mr.querySelectorAll<HTMLAnchorElement>('.ca-media a')).find(function (a) { return a.getAttribute('href') === focusHref; });
+      if (again) again.focus({ preventScroll: true });
+    }
   }
 }
 
@@ -449,10 +467,12 @@ function mediaPanelHtml_(it: any): string {
   // เคยมีปุ่ม "เล่นวิดีโอตรงนี้" (facebook video plugin) แต่ใช้ไม่ได้จริง:
   // คลิปของแอดเป็น dark post ไม่ได้เผยแพร่สาธารณะ plugin จึงขึ้น "วิดีโอไม่พร้อมใช้งาน" เสมอ
   // และดึงไฟล์ตรงจาก Graph API ก็ไม่ได้ (error 10 — app ไม่มีสิทธิ์) จึงส่งไป Ads Manager แทน
+  // ข้อความต้องตรงกับปุ่มที่มีจริง — ตอนรอรูปมีแค่ปุ่ม Ads Manager (ยังไม่รู้ลิงก์โพสต์)
   h += '<div class="ca-media-note">' +
-    (!frame ? 'แอดนี้ยังไม่มีรูปครีเอทีฟในระบบ — ดูครีเอทีฟได้ที่ <b>Ads Manager</b> (ต้องล็อกอิน Facebook ที่มีสิทธิ์บัญชีโฆษณา)'
+    (wait ? 'กำลังโหลดรูปครีเอทีฟ…'
+      : !frame ? 'แอดนี้ยังไม่มีรูปครีเอทีฟในระบบ — ดูครีเอทีฟได้ที่ <b>Ads Manager</b> (ต้องล็อกอิน Facebook ที่มีสิทธิ์บัญชีโฆษณา)'
       : (m.video ? 'คลิปของแอดดูได้ที่ <b>Ads Manager</b> (ต้องล็อกอิน Facebook ที่มีสิทธิ์บัญชีโฆษณา) — ' : '') +
-        'รูปดึงจาก Meta โดยตรง ลิงก์มีวันหมดอายุ ถ้าไม่ขึ้นให้กด "เปิดโพสต์จริง"') + '</div>';
+        'รูปดึงจาก Meta โดยตรง ลิงก์มีวันหมดอายุ' + (m.permalink ? ' ถ้าไม่ขึ้นให้กด "เปิดโพสต์จริง"' : '')) + '</div>';
   h += '</div></div>';
   return h;
 }
@@ -520,6 +540,7 @@ function kvRow_(label: string, valHtml: string): string {
 function openAnalysis(data: any, adId: any): void {
   const item = findItem_(data, adId);
   if (!item) { toast('ไม่พบข้อมูลแอดนี้', 'warn'); return; }
+  openItem_ = item;
   const isOrganic = !!item.organicPost;
 
   const probs = isOrganic ? [] : computeProblems(item);
@@ -1190,6 +1211,9 @@ function render(container: HTMLElement, data: any): void {
   if (data && data.organicError) {
     html += noticeHtml_('warn', 'แถวออร์แกนิก (โพสต์ที่ไม่ได้ยิงแอด) โหลดไม่สำเร็จรอบนี้ — ตัวเลขของแอดใช้ได้ตามปกติ กดรีเฟรชเพื่อลองใหม่');
   }
+  if (data && data.pagesError) {
+    html += noticeHtml_('warn', 'ชื่อเพจโหลดไม่สำเร็จรอบนี้ (ช่องเพจจะเห็นเป็นรหัสแทนชื่อ) — ตัวเลขใช้ได้ตามปกติ กดรีเฟรชเพื่อลองใหม่');
+  }
   // มีแอดแต่ไม่มีสื่อสักตัว = ยังไม่ได้เปิดใช้ตาราง ad_creative (บอกให้ชัด ไม่ใช่ปล่อยกล่องรูปว่าง)
   if (data && !data.needAdSetup && items.length && !num(data.creativeCount)) {
     html += noticeHtml_('info', 'ยังไม่มีรูปครีเอทีฟของแอด — ตัวเลขใช้ได้ตามปกติ กรุณาแจ้งผู้ดูแลระบบ',
@@ -1343,12 +1367,15 @@ function fetchFresh(container: HTMLElement, background: boolean): void {
 
 export const contentads = {
   load: async (container: HTMLElement, force?: boolean) => {
-    if (lastData && !force) {
+    // ข้อมูลที่ถือไว้เป็นของช่วงอื่น (กดเปลี่ยนช่วงวันแล้วสลับหน้าก่อนผลมา) — ห้ามวาดตัวเลขช่วงเก่าใต้ป้ายช่วงใหม่
+    const stale = !!lastData && Number(lastData.days) !== rangeDays;
+    if (lastData && !force && !stale) {
       render(container, lastData);
       fetchFresh(container, true);
     } else {
       container.innerHTML = contentadsSkel();
-      fetchFresh(container, false);
+      // ช่วงนี้กำลังดึงอยู่แล้ว = รอผลเดิม (มันวาดลงกล่องเดียวกันเอง) ไม่ยิงซ้อน · กดรีเฟรช (force) ยิงใหม่เสมอ
+      if (force || fetchDays !== rangeDays) fetchFresh(container, false);
     }
   },
 };

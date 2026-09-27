@@ -74,15 +74,22 @@ export function toMediaObj(cr: CreativeRow | undefined | null): MediaObj | null 
 
 /** มีครีเอทีฟที่ใช้ได้สักแถวในตารางไหม — ตัวตัดสินว่าหน้าเว็บวาดกล่องรูปย่อไหม / ขึ้นแถบ "ยังไม่มีรูปครีเอทีฟ"
  *  ⚠️ คอลัมน์ของ ad_creative ค่าเริ่มต้นเป็น '' ไม่ใช่ NULL และ sync เขียนแถวเปล่าให้แอดที่ Meta ปฏิเสธ → เช็ค neq '' ไม่ใช่ not null
- *  error ใดๆ = 0 (เครื่องที่ยังไม่รัน migration ต้องเปิดหน้าได้) */
+ *  0 = ไม่มีตาราง/ไม่มีแถวจริงเท่านั้น · error อื่น (เน็ตสะดุด/timeout) ลองซ้ำ แล้วถ้ายังพลาดตอบ 1 = "ไม่แน่ใจ"
+ *  ให้หน้าเว็บวาดกล่องรูปแล้วขอรูปเองตามปกติ — ไม่ใช่ขึ้นแถบ "ยังไม่ได้รัน migration" หลอกตาเพราะเน็ตสะดุดครั้งเดียว */
 export async function hasAnyCreative(): Promise<number> {
-  try {
-    const { data, error } = await db.from('ad_creative').select('ad_id')
-      .or('image_url.neq.,thumb_url.neq.').limit(1)
-      .abortSignal(AbortSignal.timeout(15_000));
-    if (error) return 0;
-    return (data || []).length;
-  } catch (e) {
-    return 0;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let msg = '';
+    try {
+      const { data, error } = await db.from('ad_creative').select('ad_id')
+        .or('image_url.neq.,thumb_url.neq.').limit(1)
+        .abortSignal(AbortSignal.timeout(15_000));
+      if (!error) return (data || []).length;
+      msg = String(error.message || '');
+    } catch (e: any) {
+      msg = String((e && e.message) || e || '');
+    }
+    if (isMissingTable(msg, 'ad_creative')) return 0;
+    await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
   }
+  return 1;
 }

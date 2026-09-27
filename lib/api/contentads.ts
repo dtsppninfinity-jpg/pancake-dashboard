@@ -166,6 +166,7 @@ export async function apiContentAds(params?: any) {
   // ขอบบนเผื่อ 1 วัน = เทียบเท่า "ไม่มีขอบบน" ของ query เดิม (เวลาในออเดอร์ของ Pancake อาจนำนาฬิกาเราเล็กน้อย)
   const end = new Date(Date.now() + 86400000);
   let organicError = false;
+  let pagesError = false;
 
   // ---- ยิงทุก query พร้อมกัน (เดิม await ต่อคิวทีละตัว รวม ~30 วิ) — ครีเอทีฟต้องรอรายชื่อแอดจาก ad_daily ตัวเดียว ----
   // ออเดอร์: หั่นก้อนละ 4 วันตาม inserted_at (เดิม OFFSET ยาวทั้งช่วง ชน statement timeout 1 ใน 3 รอบ)
@@ -180,7 +181,7 @@ export async function apiContentAds(params?: any) {
     start, end).then(byOrderId_);
   // ชื่อเพจเป็นแค่ป้าย — ดึงไม่ได้ก็ยังเปิดหน้าได้ (เดิมทุก query ต่อคิว ตัวไหนล้มก็ 500 ทั้งหน้า)
   const pagesP = fetchAll<any>(() => db.from('pages').select('page_id,name'), 'page_id')
-    .catch(function (e: any) { console.error('[contentads] pages', (e && e.message) || e); return [] as any[]; });
+    .catch(function (e: any) { console.error('[contentads] pages', (e && e.message) || e); pagesError = true; return [] as any[]; });
   // ค่าแอดจริงจาก ad_daily (รวมตามช่วงวันที่เลือก) — ตาราง `ads` เดิมว่างเปล่าถาวร
   // เพราะ POS /ads_manager/ads_v2 คืน 0 แถวเสมอ
   const adsP = loadAdsFromDaily_(start);
@@ -484,10 +485,17 @@ export async function apiContentAds(params?: any) {
   alerts.slice(0, 30).forEach(function (a) { addSeed(a.adId); });
   items.slice().sort(function (a, b) { return b.revenue - a.revenue; }).slice(0, 30)
     .forEach(function (it) { addSeed(it.adId); });
-  const seedCr = anyCreative ? await loadCreatives(seedIds) : {};
+  // สื่อชุดแรกเป็นของเสริม — พลาด (timeout/เน็ต) ห้ามทำให้ตัวเลขที่คำนวณเสร็จแล้วทั้งหน้าหายเป็น 500
+  // → ไม่เติมและไม่บอกว่าเช็คแล้ว (mediaSeeded ว่าง) หน้าเว็บจะขอเองผ่าน apiPageMedia
+  let seedCr: Awaited<ReturnType<typeof loadCreatives>> = {};
+  let seeded = false;
+  if (anyCreative) {
+    try { seedCr = await loadCreatives(seedIds); seeded = true; }
+    catch (e: any) { console.error('[contentads] seed media', (e && e.message) || e); }
+  }
   const byId: Record<string, (typeof items)[number]> = {};
   items.forEach(function (it) { byId[it.adId] = it; });
-  seedIds.forEach(function (id) { if (byId[id]) byId[id].media = toMediaObj(seedCr[id]); });
+  if (seeded) seedIds.forEach(function (id) { if (byId[id]) byId[id].media = toMediaObj(seedCr[id]); });
 
   return {
     summary: {
@@ -502,7 +510,7 @@ export async function apiContentAds(params?: any) {
     // มีครีเอทีฟในระบบไหม (0/1 — หน้าเว็บใช้แค่ > 0) · 0 ทั้งที่มีแอด = ยังไม่รัน 2026-07-27-ad-creative.sql
     creativeCount: anyCreative,
     // id ที่เช็คสื่อแล้วในรอบนี้ (media ของแถวพวกนี้ null = ไม่มีรูปจริง หน้าเว็บไม่ต้องขอซ้ำ)
-    mediaSeeded: anyCreative ? seedIds : [],
+    mediaSeeded: seeded ? seedIds : [],
     // ค่าแอดครอบคลุมกี่วันจากที่เลือก — น้อยกว่า days = ROAS สูงเกินจริง หน้าเว็บต้องเตือน
     adDaysCovered,
     // ข้อความสำหรับทีม (ไม่มีคำสั่งเทคนิค) · คำสั่งเติมข้อมูลแยกไว้ใน adDaysFix ให้หน้าเว็บโชว์เฉพาะผู้ดูแลระบบ (D3)
@@ -510,8 +518,9 @@ export async function apiContentAds(params?: any) {
       ? 'ค่าแอดมีข้อมูลแค่ ' + adDaysCovered + ' วันจาก ' + days + ' วันที่เลือก — ROAS ช่วงนี้จะสูงเกินจริง'
       : null,
     adDaysFix: (ads.length > 0 && adDaysCovered < days) ? 'npm run backfill:ads ' + days : null,
-    // แถวออร์แกนิกโหลดไม่สำเร็จ (ตัวเลขแอดยังครบ) — หน้าเว็บขึ้นแถบแจ้ง
+    // แถวออร์แกนิก / ชื่อเพจ โหลดไม่สำเร็จ (ตัวเลขแอดยังครบ) — หน้าเว็บขึ้นแถบแจ้ง
     organicError,
+    pagesError,
     note: 'ทุกตัวเลขเป็นของ ' + (days === 1 ? 'วันนี้' : days + ' วันล่าสุด') +
       ' (วันปฏิทินไทยเต็มวัน — หน้าต่างเดียวกับหน้า Sales) • ' +
       'ยอดขาย / ROAS / %ปิด (ซื้อ÷ทัก) = ตัวเลขจาก Meta Ads โดยตรง ตรงกับหน้า Meta dashboard • ' +
