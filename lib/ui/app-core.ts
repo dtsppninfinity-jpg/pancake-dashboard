@@ -513,10 +513,17 @@ function bindScrollHint(tbl: HTMLTableElement): void {
     if (host && !host.classList.contains('sx-frame') && !sc.classList.contains('card')) {
       const d = getComputedStyle(host).display;
       if (d === 'block' || d === 'flow-root') {
+        // การย้ายกล่องเลื่อนเข้ากรอบ = ถอดออกแล้วใส่กลับ → โฟกัสหลุดไป body และตำแหน่งเลื่อนแนวนอนกลับเป็น 0
+        // (view วาดใหม่ทุกครั้งที่กางแถว/รีเฟรช — ปุ่มที่เพิ่งกดเสียโฟกัส ตารางที่เลื่อนไว้เด้งกลับซ้ายสุด) → จำไว้แล้วคืนให้
+        const ae = document.activeElement as HTMLElement | null;
+        const keepFocus = ae && sc.contains(ae) ? ae : null;
+        const left = sc.scrollLeft;
         const frame = document.createElement('div');
         frame.className = 'sx-frame';
         host.insertBefore(frame, sc);
         frame.appendChild(sc);
+        if (left) sc.scrollLeft = left;
+        if (keepFocus) keepFocus.focus({ preventScroll: true });
       }
     }
     const ro = sxObs();

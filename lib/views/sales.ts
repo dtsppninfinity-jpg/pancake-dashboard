@@ -856,10 +856,9 @@ function unitTableHtml_(units: any[], showAttain: boolean): string {
   //  ROAS รวม = ยอดขายรวม ÷ ค่าแอดรวม (ค่าแอดแบบไม่ปัด เหมือนที่ API ใช้คิด ROAS รายยูนิต)
   //  %บรรลุรวม = ยอดของ "วันที่มีเป้า" รวม ÷ เป้ารวม — ยอดวันที่มีเป้าของแต่ละยูนิตถอดจาก attain × target
   //  (ยูนิตที่เป้ามีไม่ครบทุกวัน API นับ %บรรลุ เฉพาะยอดวันที่มีเป้า — รวมด้วยวิธีเดียวกัน ตัวเลขจึงไม่ขัดกับรายแถว)
-  let totRev = 0, totSpend = 0, totSpendExact = 0, totTarget = 0, totGoalRev = 0;
+  let totRev = 0, totSpendExact = 0, totTarget = 0, totGoalRev = 0;
   units.forEach(function (u: any) {
     totRev += Number(u.revenue) || 0;
-    totSpend += Number(u.spend) || 0;
     totSpendExact += Number(u.spendExact === null || u.spendExact === undefined ? u.spend : u.spendExact) || 0;
     if (Number(u.target) > 0 && u.attain !== null && u.attain !== undefined) {
       totTarget += Number(u.target);
@@ -867,13 +866,17 @@ function unitTableHtml_(units: any[], showAttain: boolean): string {
     }
   });
   const totRoas = totSpendExact > 0 ? Math.round((totRev / totSpendExact) * 100) / 100 : null;
+  // แท็บ "ทั้งหมด" ยอดขายในตารางรวม LINE ด้วย → คนละนิยามกับกล่อง "ROAS รวม" ด้านบน (คิดเฉพาะยอด Facebook)
+  const roasTotTip = 'ROAS รวมทั้งตาราง = ยอดขายรวมในตาราง ÷ ค่าแอดรวม' +
+    (showAttain ? ' • แท็บทั้งหมดนับยอด LINE ด้วย จึงต่างจากกล่อง "ROAS รวม" ด้านบนที่คิดเฉพาะยอด Facebook' : '');
   const totAttain = showAttain && totTarget > 0 ? Math.round((totGoalRev / totTarget) * 1000) / 10 : null;
   const totalRow = '<tr class="tbl-total">' +
     '<td>รวม</td>' +  // คำเดียวพอ: แถวนี้มีพื้นและตัวหนาของตัวเองแล้ว ("รวมทั้งตาราง" ขึ้น 2 บรรทัดในคอลัมน์ที่ตรึงบนมือถือ)
     '<td class="num">' + THB(totRev) + '</td>' +
     '<td></td>' +
-    '<td class="num">' + (totSpend ? THB(totSpend) : dash()) + '</td>' +
-    '<td class="num ' + roasCls_(totRoas) + '" title="ROAS รวมทั้งตาราง = ยอดขายรวม ÷ ค่าแอดรวม">' +
+    // ค่าแอดรวมจากค่าไม่ปัด แล้วปัดครั้งเดียว — รวมค่าที่ปัดรายยูนิตแล้วคลาดจากกล่อง "ค่าแอด" ด้านบนหลักบาท
+    '<td class="num">' + (totSpendExact ? THB(totSpendExact) : dash()) + '</td>' +
+    '<td class="num ' + roasCls_(totRoas) + '" title="' + esc(roasTotTip) + '">' +
       (totRoas === null ? dash() : roasFmt(totRoas)) + '</td>' +
     '<td></td><td></td><td></td><td></td>' +
     '<td class="num">' + (showAttain && totTarget > 0 ? THB(totTarget) : '') + '</td>' +

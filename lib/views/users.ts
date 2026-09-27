@@ -222,6 +222,8 @@ function serverErrField(msg: string, isNew: boolean): string {
 function openEditor(container: HTMLElement, d: UsersData, user: UserRow | null): void {
   const isNew = !user;
   const roles = d.roles || [{ key: 'admin', label: 'ระดับแอดมิน' }];
+  // บัญชีใหม่เริ่มที่สิทธิ์ต่ำสุด (ระดับแอดมิน) — เดิมตัวเลือกแรกคือ "ผู้ดูแลระบบ" กดบันทึกโดยไม่ดูก็ได้บัญชีสิทธิ์สูงสุด
+  const newRole = roles.some((r: { key: string }) => r.key === 'admin') ? 'admin' : (roles[roles.length - 1] || { key: '' }).key;
   openModal(
     '<div class="modal-head"><h3>' + (isNew ? 'เพิ่มผู้ใช้' : 'แก้ไข ' + esc(user!.username)) + '</h3>' +
     modalCloseBtn() + '</div>' +
@@ -235,7 +237,7 @@ function openEditor(container: HTMLElement, d: UsersData, user: UserRow | null):
         '<input class="input" id="us-f-name" value="' + esc(user ? user.name : '') + '"></label>' +
       '<label class="adm-field"><span>ระดับสิทธิ์</span><select class="input" id="us-f-role">' +
         roles.map((r) => '<option value="' + esc(r.key) + '"' +
-          (user && user.role === r.key ? ' selected' : '') + '>' + esc(r.label) + '</option>').join('') +
+          ((user ? user.role : newRole) === r.key ? ' selected' : '') + '>' + esc(r.label) + '</option>').join('') +
       '</select>' + fieldErrSlot('us-f-role') + '</label>' +
       '<label class="adm-field"><span>ผูกกับแอดมิน (จำเป็นสำหรับระดับแอดมิน)</span>' +
         '<select class="input" id="us-f-admin">' + adminOptions(d, user ? String(user.admin_user_id || '') : '') + '</select>' +

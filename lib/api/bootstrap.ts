@@ -130,6 +130,12 @@ export async function apiBootstrap(_params?: unknown) {
       }
       return;
     }
+    // env-check ลง log เฉพาะตอนสถานะเปลี่ยน (scripts/sync/envcheck.ts) — แถวเก่าไม่ได้แปลว่าเงียบ
+    // ไม่งั้น 26 ชม.หลังแถวสุดท้าย ป้ายผู้ดูแลระบบจะฟ้อง "เงียบมา 27 ชม." ทั้งที่ทุกอย่างปกติ
+    if (k === 'env-check') {
+      if (!l.ok) syncHealth.push({ job: k, kind: 'fail', ageMins, message: clip(l.message, 110) });
+      return;
+    }
     // งานที่ "ไม่ได้ทำงาน" (ขาด env / ยังไม่ได้รัน migration) — บอกเหตุผลตรงๆ ไม่ใช่ 'ล้มเหลว'
     const stat = jobStats[k];
     if (stat && stat.skipped) {

@@ -201,7 +201,8 @@ export function bindInfoTips(): void {
     // อุปกรณ์สัมผัส: ถ้าสิ่งที่แตะเป็นปุ่ม/ลิงก์อยู่แล้ว อย่าเด้งกรอบอธิบายขึ้นมา
     // นิ้วแตะเพื่อ "สั่งงาน" ไม่ใช่เพื่อ "ขอคำอธิบาย" — และพอปุ่มนั้นหายไป (เช่น เมนูปิด)
     // ก็ไม่มี mouseout มาสั่งปิด กรอบเลยค้างกลางจอ (ปุ่ม ⓘ เปิดผ่าน click ข้างล่างแทน)
-    if (TOUCH && raw.closest('button, a[href], input, select, [role="button"]')) return;
+    // แถวตารางที่แตะแล้วเปิดหน้าต่าง (tr.clickable) ก็เป็น "สั่งงาน" เหมือนกัน — เดิมคำใบ้ของแถวโผล่ทับหน้าต่างที่เพิ่งเปิด
+    if (TOUCH && raw.closest('button, a[href], input, select, [role="button"], .clickable, [data-drill-unit], [data-drill-page], [data-drill-prod]')) return;
     curTarget = t;
     show(t, (e as MouseEvent).clientX, (e as MouseEvent).clientY);
   });

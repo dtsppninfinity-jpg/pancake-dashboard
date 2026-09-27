@@ -77,7 +77,7 @@ export function THB(n: number | null | undefined): string {
   return (v < 0 ? '-' : '') + '฿' + Math.abs(v).toLocaleString('th-TH');
 }
 
-/** ย่อจำนวน (ไม่มีสกุลเงิน) "1.25M" / "573.0K" / "950" — ตัวเลขเดียวกับ THBk แต่ไม่มี ฿ */
+/** ย่อจำนวน (ไม่มีสกุลเงิน) "1.25M" / "573.4K" / "750K" / "950" — ตัวเลขเดียวกับ THBk แต่ไม่มี ฿ */
 export function numK(n: number | null | undefined): string {
   if (bad_(n)) return NA;
   const v = Number(n);
@@ -87,10 +87,12 @@ export function numK(n: number | null | undefined): string {
   if (a >= 999950) s = (a / 1e6).toFixed(2) + 'M';
   else if (a >= 999.5) s = (a / 1e3).toFixed(1) + 'K';
   else s = Math.round(a).toLocaleString('th-TH');
+  // ตัดศูนย์ท้ายทศนิยม: 750.0K → 750K, 1.50M → 1.5M (ศูนย์ท้ายไม่บอกอะไรเพิ่ม แต่ทำให้ช่องแคบบนมือถือล้น)
+  s = s.replace(/\.0+([KM])$/, '$1').replace(/(\.\d*[1-9])0+([KM])$/, '$1$2');
   return (v < 0 && s !== '0' ? '-' : '') + s;
 }
 
-/** เงินแบบย่อ "-฿2.28M" / "฿573.0K" / "฿950" — ตัวเต็มควรอยู่ใน tooltip/ตารางละเอียดเสมอ */
+/** เงินแบบย่อ "-฿2.28M" / "฿573.4K" / "฿750K" / "฿950" — ตัวเต็มควรอยู่ใน tooltip/ตารางละเอียดเสมอ */
 export function THBk(n: number | null | undefined): string {
   if (bad_(n)) return NA;
   const s = numK(n);
@@ -911,7 +913,7 @@ export function downloadCSV(rows: unknown[][], filename?: string): void {
   a.download = (filename || 'export') + '.csv';
   a.click();
   URL.revokeObjectURL(a.href);
-  toast('Export CSV แล้ว', 'ok');
+  toast('ดาวน์โหลด CSV แล้ว', 'ok');
 }
 
 /**
@@ -942,7 +944,7 @@ export function downloadXLS(rows: unknown[][], filename?: string, sheetName?: st
   a.download = (filename || 'export') + '.xls';
   a.click();
   URL.revokeObjectURL(a.href);
-  toast('Export Excel แล้ว', 'ok');
+  toast('ดาวน์โหลด Excel แล้ว', 'ok');
 }
 
 /**
@@ -982,8 +984,21 @@ export function bindDownloadMenu(
     if (focusBtn) btn.focus();
   };
   // ปิดเมื่อแตะที่อื่น / กด Esc (capture — ไม่ให้ Esc ไปปิดหน้าต่างข้างหลังด้วย)
-  const onOutside = (e: Event) => { if (!pop.contains(e.target as Node) && e.target !== btn && !btn.contains(e.target as Node)) close(false); };
-  const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true); } };
+  // ปุ่มหลุดจากหน้าแล้ว (view วาดใหม่ระหว่างเมนูเปิด) → ถอดตัวดักทิ้งเงียบๆ ไม่กิน Esc ของหน้าต่างอื่น
+  const detached = () => {
+    if (btn.isConnected) return false;
+    document.removeEventListener('pointerdown', onOutside, true);
+    document.removeEventListener('keydown', onKey, true);
+    return true;
+  };
+  const onOutside = (e: Event) => {
+    if (detached()) return;
+    if (!pop.contains(e.target as Node) && e.target !== btn && !btn.contains(e.target as Node)) close(false);
+  };
+  const onKey = (e: KeyboardEvent) => {
+    if (detached()) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(true); }
+  };
   btn.addEventListener('click', () => {
     if (!pop.hidden) { close(false); return; }
     pop.hidden = false;

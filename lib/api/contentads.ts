@@ -286,7 +286,7 @@ export async function apiContentAds(params?: any) {
     const revenue = Math.round(metaValue);
     const roas = spend > 0 ? Math.round((metaValue / spend) * 100) / 100 : null;
     // %ปิด = ซื้อ ÷ ทัก (แบบ Meta) — ไม่ cap เพื่อให้ตรงเลข Meta จริง
-    const closeRate = msgs > 0 ? Math.round(metaPurchases / msgs * 1000) / 10 : null;
+    const closeRate = msgs > 0 ? Math.round(metaPurchases / msgs * 10000) / 100 : null;
     const costPerOrder = (spend > 0 && metaPurchases > 0) ? Math.round(spend / metaPurchases) : null;
     // ---- ยอด POS จริง (ในระบบเรา) เก็บไว้เทียบ ไม่ใช่ตัวหลักแล้ว ----
     const revenuePos = Math.round(revByAd[adId] || 0);

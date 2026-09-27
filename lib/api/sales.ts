@@ -1293,7 +1293,7 @@ export async function apiSales(params: any) {
     ? (channel ? eng.byCh[channel]
        : { total: eng.total, reached: eng.reached, newInbox: eng.newInbox, comment: eng.comment, orders: eng.orders })
     : null;
-  const closeRate = engCh && engCh.reached ? Math.round((engCh.orders / engCh.reached) * 1000) / 10 : null;
+  const closeRate = engCh && engCh.reached ? Math.round((engCh.orders / engCh.reached) * 10000) / 100 : null;
   // ตัวหารเดิม (บทสนทนาที่เปิดใหม่) ยังใช้ต่อในกล่องช่องทาง/ป้ายกำกับ
   const convBase = channel ? newConvsByCh[channel] || 0 : newConvs;
 
@@ -1318,7 +1318,7 @@ export async function apiSales(params: any) {
       const s = summarize(list);
       // ใช้สูตรเดียวกับ KPI ด้านบน (ออเดอร์จากแชท ÷ คนทัก = อินบ็อกซ์ใหม่ + คอมเมนต์)
       const e = eng ? eng.byCh[ch] : null;
-      const cRate = e && e.reached ? Math.round((e.orders / e.reached) * 1000) / 10 : null;
+      const cRate = e && e.reached ? Math.round((e.orders / e.reached) * 10000) / 100 : null;
       let status;
       if (!s.orders) status = { label: '—', cls: 'neutral' };
       else if (cRate !== null && cRate >= 20) status = { label: '✅ ดี', cls: 'ai' };
@@ -1878,7 +1878,7 @@ export async function apiSales(params: any) {
       // ยอดขายจากแอด (Meta) + %ปิดแบบ Meta = ซื้อ ÷ ทัก
       adRevenueMeta: Math.round(adCost.metaValue),
       adCloseRate: adCost.metaMsgs > 0
-        ? Math.round((adCost.metaPurchases / adCost.metaMsgs) * 1000) / 10 : null,
+        ? Math.round((adCost.metaPurchases / adCost.metaMsgs) * 10000) / 100 : null,
       adPurchases: adCost.metaPurchases,
       adMsgs: adCost.metaMsgs,
       // ---- ROAS แบบยอดขาย POS จริง (บอสสั่งเพิ่ม 2026-07-24) ----

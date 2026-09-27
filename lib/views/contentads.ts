@@ -30,17 +30,18 @@ let rangeDays = 7;
 
 type CaTab = 'alerts' | 'ads' | 'media';
 const TAB_KEY = 'pn-ca-tab';
-/** แท็บที่เปิดอยู่ — จำไว้ในแท็บเบราว์เซอร์นี้ (sessionStorage อาจใช้ไม่ได้ในโหมดส่วนตัว → ใช้ค่าในหน่วยความจำแทน) */
+/** แท็บที่เปิดอยู่ — จำไว้ในเครื่องนี้ (localStorage) คนที่ดูแต่ "อันดับแอด" ไม่ต้องกดเปลี่ยนแท็บทุกครั้งที่เปิดเว็บ
+ *  ใช้ไม่ได้ (โหมดส่วนตัว/ปิดที่เก็บข้อมูล) → จำแค่ในหน่วยความจำ เปิดใหม่เริ่มที่แท็บแจ้งเตือน */
 let caTab: CaTab = (function (): CaTab {
   try {
-    const v = window.sessionStorage.getItem(TAB_KEY);
+    const v = window.localStorage.getItem(TAB_KEY);
     if (v === 'alerts' || v === 'ads' || v === 'media') return v;
   } catch { /* ใช้ค่าเริ่มต้น */ }
   return 'alerts';
 })();
 function setTab_(t: CaTab): void {
   caTab = t;
-  try { window.sessionStorage.setItem(TAB_KEY, t); } catch { /* จำแค่ในหน่วยความจำ */ }
+  try { window.localStorage.setItem(TAB_KEY, t); } catch { /* จำแค่ในหน่วยความจำ */ }
 }
 
 /** จำนวนแอดสูงสุดในตาราง — ที่เหลือดูในไฟล์ดาวน์โหลด (กันหน้าบวม รูปครีเอทีฟโหลดทีละหลายร้อยรูป) */

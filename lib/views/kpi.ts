@@ -132,9 +132,10 @@ function trendHtml(cur: number | null | undefined, prev: number | null | undefin
   if (c === null || p === null) return dash();
   const d = Math.round((c - p) * 10) / 10;
   // ขึ้น = ดี (เขียว) · ลง = แดง — ตัวเลขแนวโน้มไม่หนา (ไม่แย่งสายตาจากคะแนน)
-  if (d > 0) return '<span class="tx-good">▲ +' + d.toFixed(1) + '</span>';
-  if (d < 0) return '<span class="tx-bad">▼ ' + Math.abs(d).toFixed(1) + '</span>'; // ลูกศรบอกทิศแล้ว ไม่ต้องติดลบซ้ำ
-  return '<span class="tx-muted">• 0</span>';
+  // nowrap: ลูกศรกับตัวเลขต้องอยู่บรรทัดเดียวกัน (ตารางสายบังคับบัญชาเคยแยก "▼" / "16.4")
+  if (d > 0) return '<span class="tx-good nowrap">▲ +' + d.toFixed(1) + '</span>';
+  if (d < 0) return '<span class="tx-bad nowrap">▼ ' + Math.abs(d).toFixed(1) + '</span>'; // ลูกศรบอกทิศแล้ว ไม่ต้องติดลบซ้ำ
+  return '<span class="tx-muted nowrap">• 0</span>';
 }
 
 /**
@@ -219,7 +220,7 @@ function summaryCards_(d: KpiData): string {
       '<div class="card-sub">แอดมิน (มีคะแนนเดือนนี้)</div></div></div>' +
     '<div class="card kpi-card"><div class="kpi-ico">' + icon(ICON_FOR.ok, { size: 22 }) + '</div><div>' +
       '<div class="kpi-big ' + kindClass(passKind) + '">' + passPct + '%</div>' +
-      '<div class="card-sub">ผ่าน KPI ' + fmtNum(passN) + '/' + fmtNum(d.persons.length) + ' คน (เกรด B ขึ้นไป)</div></div></div>' +
+      '<div class="card-sub">ผ่าน KPI ' + fmtNum(passN) + '/' + fmtNum(d.persons.length) + ' คน <span class="nowrap">(เกรด B ขึ้นไป)</span></div></div></div>' +
   '</div>';
 }
 
@@ -409,7 +410,7 @@ function hierarchyHtml_(d: KpiData): string {
       ' • กด "ดูทีม" เพื่อกางลูกทีมของรองคนนั้น</div>' +
     '<div class="color-legend"><span>คะแนนสีตามเกรด</span><span class="lg lg-bad">ค่าแอด/ยอด เกิน 33%</span></div>' +
     '<div class="table-scroll"><table class="tbl kpi-hier"><thead><tr>' +
-      '<th>บุคลากร</th><th>ยูนิต</th><th class="num">ยอดเทียบเป้า</th><th class="num">ค่าแอด/ยอด</th>' +
+      '<th class="kpi-col-person">บุคลากร</th><th>ยูนิต</th><th class="num">ยอดเทียบเป้า</th><th class="num">ค่าแอด/ยอด</th>' +
       // หัวคอลัมน์ 2 บรรทัด — บรรทัดเดียวกว้าง 100px ทั้งที่ตัวเลขข้างใต้แค่ "19/29" ดันตารางล้นการ์ด
       '<th class="num">ลูกทีม<br>ผ่าน KPI</th><th class="num">คะแนน</th><th>เกรด</th>' +
       '<th class="num">แนวโน้ม</th><th>สถานะ</th><th></th>' +

@@ -22,6 +22,11 @@
   --amber-soft: rgba(245, 167, 66, 0.14);
   --red: #ff5d7a;
   --red-soft: rgba(255, 93, 122, 0.14);
+  /* สีตัวหนังสือบนพื้นอ่อนสีเดียวกัน (ป้ายสถานะ/ชิป) — สีหลักบนพื้นอ่อนของมันเองได้แค่ 4.1-4.4:1
+     ในบางคู่ (ผู้ตรวจอิสระวัด 27 ก.ย.) · โหมดมืดยกแดง/ฟ้าให้สว่างขึ้น เขียว/ส้มผ่านอยู่แล้ว */
+  --green-ink: var(--green); --amber-ink: var(--amber);
+  --red-ink: #ff8298;                        /* 5.48:1 บน red-soft ทับ surface-2 */
+  --blue-ink: #7db1ff;                       /* 5.67:1 */
   --blue: #4d94ff;
   --blue-soft: rgba(77, 148, 255, 0.14);
   --sidebar-bg: #14122b;
@@ -163,6 +168,10 @@
   --amber-bar: #d97706;                     /* เนื้อแถบกราฟิก 3.18:1 บนขาว (เกณฑ์กราฟิก 3:1) — #9a5800 เป็นตัวอักษรได้แต่เป็นแถบดูน้ำตาล */
   --amber-soft: rgba(154, 88, 0, 0.13);
   --red: #c2183e;                           /* 5.46:1 บนพื้นรอง (เดิม #e11d48 = 4.26:1 ตก) */
+  --green-ink: #065f46;                      /* 5.92:1 บน green-soft ทับ surface-2 (--green ได้ 4.23) */
+  --amber-ink: #7a4500;                      /* 5.99:1 (--amber ได้ 4.25) */
+  --blue-ink: #1d4ed8;                       /* 5.35:1 (--blue ได้ 4.13) */
+  --red-ink: var(--red);                     /* 4.63:1 ผ่านอยู่แล้ว */
   --red-soft: rgba(194, 24, 62, 0.10);
   --blue: #2563eb;
   --blue-soft: rgba(37, 99, 235, 0.10);
@@ -377,8 +386,9 @@ table.tbl tr.kpi-sub-row:hover td { background: var(--hover-tint); }
 table.tbl .kpi-subnum { white-space: normal; } /* ในตารางให้พับได้ ไม่งั้นดันตารางล้นจอ */
 /* เกรดชิปใน legend/คำอธิบาย — ย่อลงไม่ให้ดันความสูงบรรทัด */
 .card-sub .grade, .kpi-lg .grade { height: 16px; min-width: 18px; font-size: var(--fs-1); padding: 0 var(--sp-1); }
+/* ม่วงทึบ + ตัวขาว — พื้นม่วงอ่อน + ตัวม่วงได้แค่ 2.99:1 ในโหมดมืด */
 .kpi-rank { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px;
-  border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-weight: 700; font-size: var(--fs-1); }
+  border-radius: 50%; background: var(--primary); color: var(--on-primary); font-weight: 700; font-size: var(--fs-1); }
 .kpi-donut { width: 110px; height: 110px; border-radius: 50%; flex: none; position: relative;
   display: flex; align-items: center; justify-content: center; }
 .kpi-donut > span { width: 66px; height: 66px; border-radius: 50%; background: var(--surface);
@@ -599,10 +609,14 @@ h4 { font-size: var(--fs-body); font-weight: 700; line-height: 1.4; }
    ไอคอน + ป้ายสถานะ + ป้ายอันดับ (ตรวจ UI รอบ 2, 26 ก.ย. 69 — แทนอีโมจิทั้งเว็บ)
    ตัวสร้าง HTML อยู่ที่ lib/ui/icons.ts: icon() / brandIcon() / statusPill() / statusDot() / rankBadge()
    ============================================================ */
-/* คำที่มองไม่เห็นแต่โปรแกรมอ่านหน้าจออ่านได้ (ป้ายหัวคอลัมน์บนมือถือ, คำในปุ่มไอคอนล้วน) */
+/* คำที่มองไม่เห็นแต่โปรแกรมอ่านหน้าจออ่านได้ (ป้ายหัวคอลัมน์บนมือถือ, คำในปุ่มไอคอนล้วน)
+   ⚠️ ไม่ใช้ position:absolute แบบสูตรทั่วไป — ในตารางกว้างที่เลื่อนแนวนอนไม่มีกล่องแม่ที่ตั้งตำแหน่งไว้
+   คำซ่อนจึงไปอ้างกรอบของทั้งหน้า พอ view วาดใหม่ หน้าเด้งขึ้นบนสุด (หน้าผลงานรายยูนิตบนมือถือ, 27 ก.ย. 69)
+   inline-block 1px + ตัดขอบ = ซ่อนได้เหมือนกันแต่อยู่ในที่ของมันเอง */
+.nowrap { white-space: nowrap; }
 .sr-only {
-  position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  display: inline-block; width: 1px; height: 1px; padding: 0; margin: -1px; border: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; vertical-align: top;
 }
 /* ไอคอนลายเส้น — สีตามตัวหนังสือรอบข้างเสมอ (stroke = currentColor) */
 .ic { display: inline-block; flex: none; vertical-align: -0.18em; }
@@ -623,10 +637,10 @@ h4 { font-size: var(--fs-body); font-weight: 700; line-height: 1.4; }
 
 /* ป้ายสถานะ = จุดสี + คำ บนพื้นอ่อนสีเดียวกัน (แทน 🟢🟡🔴⚪ ✅ ❌ ⚠️)
    สีมาจากชุดสีกลางผ่าน --st / --st-soft เท่านั้น */
-.st-good  { --st: var(--green); --st-soft: var(--green-soft); }
-.st-warn  { --st: var(--amber); --st-soft: var(--amber-soft); }
-.st-bad   { --st: var(--red);   --st-soft: var(--red-soft); }
-.st-info  { --st: var(--blue);  --st-soft: var(--blue-soft); }
+.st-good  { --st: var(--green-ink); --st-soft: var(--green-soft); }
+.st-warn  { --st: var(--amber-ink); --st-soft: var(--amber-soft); }
+.st-bad   { --st: var(--red-ink);   --st-soft: var(--red-soft); }
+.st-info  { --st: var(--blue-ink);  --st-soft: var(--blue-soft); }
 .st-muted { --st: var(--text-2); --st-soft: var(--track); }   /* --text-3 ได้แค่ 4.06:1 บนการ์ด — ต่ำกว่าเกณฑ์อ่านออก 4.5 */
 .st-brand { --st: var(--primary-ink); --st-soft: var(--primary-soft); }
 .st {
@@ -1072,8 +1086,8 @@ table.tbl.ds-tbl tbody tr:hover td {
 @media (prefers-reduced-motion: reduce) { .badge.live-now::before { animation: none; } }
 .sr-trend { display: inline-block; padding: var(--sp-1) var(--sp-2); border-radius: 99px; font-size: var(--fs-1); font-weight: 700; margin-left: var(--sp-2); }
 .sr-trend.up { background: var(--green-soft); color: var(--green); }
-.sr-trend.down { background: var(--red-soft); color: var(--red); }
-.sr-trend.flat { background: var(--track); color: var(--text-3); }
+.sr-trend.down { background: var(--red-soft); color: var(--red-ink); }
+.sr-trend.flat { background: var(--track); color: var(--text-2); }   /* --text-3 บนราง = 4.03:1 */
 .sr-chan-banner {
   display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-2);
   margin-bottom: var(--sp-3); padding: var(--sp-2) var(--sp-3); border-radius: 10px;
@@ -2161,7 +2175,7 @@ tr.row-off { opacity: .55; }
 .sync-stamp.sync-late { color: var(--amber); font-weight: 700; }
 /* ผู้ดูแลระบบ: มีงานเบื้องหลังที่มีปัญหา → ชิปส้มกดเปิดรายละเอียดได้ */
 .chip.sync-alert {
-  background: var(--amber-soft); border-color: var(--amber); color: var(--amber);
+  background: var(--amber-soft); border-color: var(--amber); color: var(--amber-ink);
   font-weight: 700; white-space: nowrap; min-height: 44px; min-width: 44px; padding: var(--sp-1) var(--sp-2);
   justify-content: center;
 }
@@ -2202,7 +2216,7 @@ tr.row-off { opacity: .55; }
 .u-member { padding: var(--sp-1) var(--sp-2); }
 .u-member .x { padding: var(--sp-2) var(--sp-1); margin: calc(var(--sp-2) * -1) 0; }
 .modal-close { min-width: 44px; min-height: 44px; font-size: var(--fs-7); }
-.u-tool-btn { min-width: 40px; min-height: 40px; }
+.u-tool-btn { min-width: 44px; min-height: 44px; }
 /* ปุ่ม "ดู/ปิด" ท้ายแถวตารางผลงานราย Unit (lib/views/unitperf.ts) — เดิม 32px แตะพลาดไปโดนแถวข้างเคียง */
 .up-more { min-height: 44px; min-width: 44px; }
 /* ⚠️ ยกเว้นโดยตั้งใจ: ลิงก์ตัวเลขในตาราง pivot กำไร (ยูนิต × 12 เดือน) ขยายเป็น 44px ไม่ได้
@@ -2717,6 +2731,7 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
   transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s;
 }
 .back-top.show { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
+body:has(#toast-stack > .toast) .back-top.show { transform: translateY(-68px); }
 .back-top:hover { border-color: var(--primary); color: var(--primary-ink); }
 @media (min-width: 900px) { .back-top { right: var(--sp-6); bottom: calc(var(--sp-6) + env(safe-area-inset-bottom)); } }
 @media (prefers-reduced-motion: reduce) { .back-top { transition: none; } }
@@ -2742,7 +2757,8 @@ table.tbl tr.tbl-total td {
 /* ช่องที่ตรึง (คอลัมน์แรก / คอลัมน์ชื่อของ pin2) มีพื้นของตัวเองที่เจาะจงกว่า — ต้องเป็นสีแถวรวมด้วย ไม่งั้นช่อง "รวม" ขาวโดด */
 table.tbl.tbl-scroll-x tr.tbl-total td:first-child,
 table.tbl.tbl-scroll-x.tbl-pin2 tr.tbl-total td:nth-child(2) { background-color: var(--surface-2); }
-@media (min-width: 900px) { .th-sort { min-height: 32px; } }
+.th-sort { min-width: 44px; }   /* มือถือ: คอลัมน์แคบ (เป้า / ม.ค.) ปุ่มเหลือกว้าง 33px ต่ำกว่าเกณฑ์นิ้ว */
+@media (min-width: 900px) { .th-sort { min-height: 32px; min-width: 0; } }
 
 /* ---------- G2 สีพื้นตาราง (heat) — กำไร 3 ระดับ / ขาดทุน 3 ระดับ ----------
    สีชุดเดียวกับตารางรายวันหน้า Sales (--tint-*) ความทึบต่ำพอให้ตัวเลขยังอ่านออก (วัดคอนทราสต์แล้วทุกระดับ)
@@ -3155,6 +3171,10 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
 #view-sales .sr-gboxes .sb-label > .si { flex: none; margin-top: 2px; }
 /* ลูกศรเทียบช่วงก่อนในบรรทัดรอง — ชิปเดิมมีระยะซ้ายไว้วางต่อท้ายตัวเลข อยู่ต้นบรรทัดไม่ต้องเว้น */
 #view-sales .sr-gboxes .sb-sub .sr-trend { margin-left: 0; }
+#sr-daily { margin-top: var(--gap-section); }
+.db-share-rate { font-size: var(--fs-section); white-space: nowrap; }
+/* KPI สายบังคับบัญชา: ตำแหน่ง "หัวหน้าฝ่าย / รองหัวหน้า" ใต้ชื่อต้องไม่แตกเป็น 2 บรรทัด */
+@media (min-width: 900px) { #view-kpi th.kpi-col-person { min-width: 120px; } }
 
 /* ---------- กราฟรายชั่วโมง: คำอธิบายเส้นใต้กราฟ (เดิมเป็น style="" + สี hex ตายตัว) ---------- */
 #view-sales .sr-legend {
@@ -3299,7 +3319,7 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
 
 @media (min-width: 900px) {
   .db-attn-row {
-    grid-template-columns: 34px minmax(120px, 200px) minmax(0, 1fr) minmax(0, 200px) auto auto;
+    grid-template-columns: 34px minmax(120px, 200px) minmax(0, 1fr) minmax(0, 200px) 150px auto;
     grid-template-areas: "av who snip page wait open";
     gap: var(--sp-3);
   }
@@ -3338,7 +3358,7 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
 .ca-tabs { margin-bottom: var(--sp-3); }
 .ca-tab-n {
   padding: 0 var(--sp-2); border-radius: 99px; background: var(--track);
-  font-size: var(--fs-2); font-weight: 600; color: var(--text-3); font-variant-numeric: tabular-nums;
+  font-size: var(--fs-2); font-weight: 600; color: var(--text-2); font-variant-numeric: tabular-nums;
 }
 .tab[aria-selected="true"] .ca-tab-n { background: var(--primary-soft); color: var(--primary-ink); }
 /* มือถือ: 3 แท็บต้องพอดีจอ 390 — แท็บกลางเลื่อนซ้ายขวาได้ก็จริง แต่แท็บที่ 3 "สื่อรายเพจ" ตกขอบจอจนคนไม่รู้ว่ามี
@@ -3969,6 +3989,10 @@ table.tbl.ca-media-tbl.tbl-scroll-x tr:hover td:first-child {
   text-decoration: underline dotted transparent; text-underline-offset: 3px;
 }
 .pf-drill:hover, .pf-drill:focus-visible { text-decoration-color: currentColor; }
+/* สีตัดสิน (กำไร = เขียว / ขาดทุน = แดง) ต้องชนะ color: inherit ด้านบน — เดิมสีหาย 110 ช่อง เหลือแค่พื้นจางๆ */
+.pf-drill.v-good { color: var(--green); }
+.pf-drill.v-warn { color: var(--amber); }
+.pf-drill.v-bad { color: var(--red); }
 /* มือถือ: ช่องตารางเตี้ย ปุ่มตัวเลขต้องมีพื้นที่แตะพอ — ขยายพื้นที่กดด้วย ::after ไม่ดันความสูงแถว */
 .pf-drill::after { content: ''; position: absolute; inset: -12px -8px; }
 @media (min-width: 900px) { .pf-drill::after { inset: -6px -4px; } }
@@ -3979,7 +4003,11 @@ table.tbl.ca-media-tbl.tbl-scroll-x tr:hover td:first-child {
 /* การ์ดตีกลับรายคน: ตัวเลือกเดือน/กลุ่ม + ปุ่มดาวน์โหลดอยู่ขวาของหัวการ์ด */
 #view-profit .card-actions select.input { width: auto; min-width: 0; }
 /* ตาราง ~90 คนต่อเดือน — กล่องเลื่อนในตัว สูงไม่เกินครึ่งจอ หัวตารางค้างอยู่บนสุดของกล่อง */
-.pf-ret-scroll { max-height: 52vh; overflow-y: auto; }
+.pf-ret-scroll {
+  max-height: 52vh; overflow-y: auto; padding-bottom: var(--sp-6);
+  /* ขอบล่างจาง = ยังเลื่อนลงได้อีก · เว้นท้ายไว้ให้แถวสุดท้ายไม่จมในส่วนที่จาง */
+  mask-image: linear-gradient(to bottom, black calc(100% - var(--sp-6)), transparent);
+}
 .pf-ret-scroll > table.tbl thead th { position: sticky; top: 0; z-index: 2; background: var(--surface); box-shadow: inset 0 -1px 0 var(--border); }
 
 /* ป้ายสินค้าเทส — ห่อบรรทัดได้ ระยะเท่ากัน */
@@ -4114,10 +4142,11 @@ tr.kpi-child.is-collapsed { display: none; }
    ทุกกฎผูกกับ id ของหน้า หรือคลาสที่มีเฉพาะหน้านั้น — ไม่กระทบหน้าอื่น
    กติกา: mobile-first (min-width 600/900/1200 เท่านั้น) · สีจาก token เท่านั้น · จุดกด ≥44px บนมือถือ */
 
-/* ซ่อนจากตาแต่โปรแกรมอ่านหน้าจอยังอ่าน (เช่น หัวคอลัมน์ของปุ่มท้ายแถวที่ไม่มีคำบนจอ) */
+/* ซ่อนจากตาแต่โปรแกรมอ่านหน้าจอยังอ่าน (เช่น หัวคอลัมน์ของปุ่มท้ายแถวที่ไม่มีคำบนจอ)
+   ไม่ใช้ position:absolute — เหตุผลเดียวกับ .sr-only (ตัวนี้แหละที่ทำให้หน้าผลงานรายยูนิตเด้งขึ้นบน) */
 .misc-vh {
-  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
-  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+  display: inline-block; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; vertical-align: top;
 }
 
 /* ============================================================
@@ -4288,7 +4317,7 @@ span.us-field-err[hidden], span.um-field-err[hidden] { display: none; }
   width: 24px; height: 24px; margin: -4px -4px -4px 0; padding: 0;
   background: none; border: 0; border-radius: 50%; color: inherit; opacity: .6;
 }
-#view-umap .u-member button.x::after { content: ''; position: absolute; inset: -8px -8px -8px -2px; }
+#view-umap .u-member button.x::after { content: ''; position: absolute; inset: -10px; }   /* 44×44 */
 #view-umap .u-member button.x:hover { opacity: 1; color: var(--red); background: var(--red-soft); }
 @media (min-width: 900px) { #view-umap .u-member button.x::after { inset: -2px; } }
 

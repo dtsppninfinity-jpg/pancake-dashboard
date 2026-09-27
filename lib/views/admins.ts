@@ -609,8 +609,8 @@ function rowHtml(a: Admin): string {
     '</button>' +
     '<div class="menu-wrap adm-menu">' +
       '<button type="button" class="btn-mini btn-text btn-icon adm-more" data-admore="' + esc(id) + '"' +
-        ' aria-haspopup="menu" aria-expanded="false" aria-label="' + esc('คำสั่งสำหรับ ' + nickOf(a)) + '"' +
-        ' title="สถิติ / สิทธิ์และตั้งค่า / สถานะ / ระงับบัญชี">' + icon('ellipsis', { size: 20 }) + '</button>' +
+        ' aria-haspopup="menu" aria-expanded="false" aria-label="' + esc('คำสั่งสำหรับ ' + nickOf(a)) + '">' +
+        icon('ellipsis', { size: 20 }) + '</button>' +
     '</div>' +
     '<div class="adm-det" id="adm-det-' + esc(id) + '"' + (open ? '' : ' hidden') + '>' + (open ? detailHtml(a) : '') + '</div>' +
   '</div>';
@@ -1203,9 +1203,9 @@ function renderGrid(container: HTMLElement): void {
   const working = fold ? list.filter(function (a) { const s = statusOf(a); return s !== 'offline' && s !== 'disabled'; }) : list;
   const offline = fold ? list.filter(function (a) { return statusOf(a) === 'offline'; }) : [];
   const disabled = fold ? list.filter(function (a) { return statusOf(a) === 'disabled'; }) : [];
-  // B3: นับจากแถวที่ "เห็นอยู่บนจอ" (กลุ่มที่พับไว้ไม่นับ) — เกินครึ่งเต็มเพดาน = ไม่ทาส้มทุกแถว
-  const shown = working.concat(groupOpen.offline ? offline : [], groupOpen.disabled ? disabled : [])
-    .filter(function (a) { return a.enabled !== false; });
+  // B3: เกินครึ่งติดเรื่องเดียวกัน = ไม่ทาส้มทุกแถว — นับจากทุกคนที่ใช้งานได้ในรายการ (ตามตัวกรอง)
+  // ห้ามนับจากแถวที่ "เห็นอยู่" — ไม่งั้นกางกลุ่มออฟไลน์แล้วคนเดิมเปลี่ยนจากเทาเป็นส้ม ทั้งที่ข้อมูลเขาไม่ได้เปลี่ยน
+  const shown = list.filter(function (a) { return a.enabled !== false; });
   const half = function (n: number): boolean { return n * 2 <= shown.length; };
   capColorOn = half(shown.filter(function (a) { return capOf(a).key === 'full'; }).length);
   slaColorOn = half(shown.filter(function (a) { return (Number(a.overSla) || 0) > 0; }).length);

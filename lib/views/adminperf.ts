@@ -698,7 +698,8 @@ function kpiPanelHtml(): string {
 function statBox(label: string, valHtml: string, ic: string, opts?: { cls?: string; sub?: string; tip?: string }): string {
   const o = opts || {};
   return '<div class="stat-box">' +
-    '<div class="sb-label">' + ic + '<span>' + esc(label) + '</span>' + (o.tip ? infoTip(o.tip, label) : '') + '</div>' +
+    '<div class="sb-label">' + ic + '<span>' + esc(label).replace(/\(([^)]*)\)/g, '<span class="nowrap">($1)</span>') + '</span>' +
+      (o.tip ? infoTip(o.tip, label) : '') + '</div>' +
     '<div class="sb-value ' + (o.cls || 'v-plain') + '">' + valHtml + '</div>' +
     (o.sub ? '<div class="sb-sub">' + o.sub + '</div>' : '') +
   '</div>';

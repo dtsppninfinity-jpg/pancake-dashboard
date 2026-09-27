@@ -203,7 +203,9 @@ export function svgWeekBars(data: WeekBar[], opts?: WeekBarsOpts): string {
     const h = r1((tot / top) * innerH);
     parts.push('<path d="' + topRoundRect(x, r1(baseY - h), r1(barW), h, rad) + '" style="fill:var(--primary)"/>');
     const last = i === data.length - 1;
-    if (tot > 0 && (i === maxIdx || last)) {
+    // 7 วัน (มุมมองปกติ) ช่องกว้างพอ → ตัวเลขทุกแท่งแบบเดิม ทีมอ่านได้ทันทีไม่ต้องแตะทีละแท่ง
+    // ช่วงยาวกว่านั้นตัวเลขจะชนกัน → เหลือแท่งสูงสุดกับวันล่าสุด
+    if (tot > 0 && (data.length <= 7 || i === maxIdx || last)) {
       parts.push('<text x="' + r1(cx) + '" y="' + r1(baseY - h - 6) + '" text-anchor="middle" font-size="11" font-weight="700" style="fill:var(--text)">' +
         esc(valueLabel(tot)) + '</text>');
     }

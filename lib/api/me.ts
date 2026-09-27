@@ -65,7 +65,7 @@ export async function apiMe(params: any) {
   };
   const closeRates = ranked.map((r) => r.closeRate).filter((v) => v !== null && v !== undefined) as number[];
   const avgClose = closeRates.length
-    ? Math.round((closeRates.reduce((s, v) => s + v, 0) / closeRates.length) * 10) / 10
+    ? Math.round((closeRates.reduce((s, v) => s + v, 0) / closeRates.length) * 100) / 100
     : null;
 
   const best = ranked[0] ? num_(ranked[0].revenue) : 0;

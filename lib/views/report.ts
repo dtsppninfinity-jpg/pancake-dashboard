@@ -104,7 +104,9 @@ function unitTableHtml_(d: ReportData): string {
   const pacePct = Math.round((dayOfMonth / daysInMonth) * 1000) / 10;   // ผ่านมากี่ % ของเดือน
 
   const count = { good: 0, warn: 0, bad: 0, wait: 0, missed: 0 };
-  let tSum = 0, aSum = 0, withData = 0;
+  // aTgt / withTarget = เฉพาะยูนิตที่มีเป้า — ตัวตั้งของ %บรรลุรวม และตัวหารของ "ถึงเป้า N จาก M"
+  // (ยูนิต "ไม่ตั้งเป้า" มียอดแต่เป้า 0 ถ้านับรวม %บรรลุจะสูงเกินจริง) · ยอดรวม aSum ยังนับทุกยูนิตที่มีข้อมูล
+  let tSum = 0, aSum = 0, aTgt = 0, withData = 0, withTarget = 0;
   const wkSum: Record<string, number> = {};
   const missing: UnitRow[] = [];
 
@@ -117,6 +119,7 @@ function unitTableHtml_(d: ReportData): string {
     if (noData) { missing.push(x); count.wait++; } else {
       // แถวรวมนับเฉพาะยูนิตที่มีข้อมูล — ยูนิตที่ยังไม่มีในชีทไม่ถูกนับเป็นยอด 0 (E1)
       withData++; tSum += x.target; aSum += x.actual || 0;
+      if (x.target > 0) { withTarget++; aTgt += x.actual || 0; }
       x.weekly.forEach((w) => { wkSum[w.week] = (wkSum[w.week] || 0) + w.sales; });
       if (st.kind === 'good') count.good++;
       else if (st.kind === 'warn') count.warn++;
@@ -140,8 +143,8 @@ function unitTableHtml_(d: ReportData): string {
       '</tr>';
   }).join('');
 
-  const tAttain = tSum > 0 ? Math.round((aSum / tSum) * 1000) / 10 : null;
-  const tKind = attainKind(aSum, tSum, pace !== null ? { pace } : undefined);
+  const tAttain = tSum > 0 ? Math.round((aTgt / tSum) * 1000) / 10 : null;
+  const tKind = attainKind(aTgt, tSum, pace !== null ? { pace } : undefined);
   const totalRow = withData
     ? '<tr class="tbl-total"><td>รวม ' + fmtNum(withData) + ' ยูนิต</td>' +
       '<td class="num">' + THB(tSum) + '</td><td class="num">' + THB(aSum) + '</td>' +
@@ -159,7 +162,7 @@ function unitTableHtml_(d: ReportData): string {
       count.bad ? statusDot('bad') + ' ต่ำกว่าแผนมาก ' + fmtNum(count.bad) : '',
     ]
     : [
-      statusDot('good') + ' ถึงเป้า ' + fmtNum(count.good) + ' จาก ' + fmtNum(withData) + ' ยูนิต',
+      statusDot('good') + ' ถึงเป้า ' + fmtNum(count.good) + ' จาก ' + fmtNum(withTarget) + ' ยูนิต',
     ]).concat(count.wait ? [statusDot('muted') + ' รอข้อมูล ' + fmtNum(count.wait)] : [])
     .filter(Boolean).map((t) => '<span class="rp-tally-i">' + t + '</span>').join('');
 

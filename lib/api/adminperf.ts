@@ -705,7 +705,7 @@ export async function apiAdminPerf(params: any) {
       chats: chats,
       replies: chat ? chat.replies : 0,
       phones: chat ? chat.phones : 0,
-      closeRate: chats ? Math.min(100, Math.round(newOrders / chats * 1000) / 10) : null,
+      closeRate: chats ? Math.min(100, Math.round(newOrders / chats * 10000) / 100) : null,
       newOrders: Math.round(newOrders * 10) / 10,  // ออเดอร์ที่มาจากแชทใหม่ (ตัวเศษของ %ปิด)
       avgRespMins: (chat && chat.respWeight) ? Math.round(chat.respWSum / chat.respWeight / 60 * 10) / 10 : null,
       avgOrder: nOrders ? Math.round(revenue / nOrders) : 0, // "เปอร์บิล" = ยอดเฉลี่ยต่อบิล

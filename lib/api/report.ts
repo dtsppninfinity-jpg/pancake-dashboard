@@ -156,7 +156,8 @@ export async function apiReport(params: any) {
   // ยูนิตที่ตั้งเป้าแต่ชีทยังไม่มีแถวเดือนนั้น ไม่นับในเป้ารวม/ยูนิตที่ตัดสิน (E1) — เดิมนับเป็นยอด 0
   // ทำให้ %บรรลุรวมต่ำกว่าจริง · เป้าที่ตัดออกส่งไปเป็น missingTarget ให้หน้าเว็บบอกไว้ใต้ตาราง (ไม่หายเงียบ)
   const yearSummary = monthsAvail.map((m) => {
-    let tSum = 0, aSum = 0, hit = 0, judged = 0, missN = 0, missT = 0;
+    // aTgt = ยอดจริงเฉพาะยูนิตที่มีเป้า — ตัวตั้งของ %บรรลุ (ยอดรวมทั้งเดือนยังเป็น aSum ทุกยูนิตเหมือนเดิม)
+    let tSum = 0, aSum = 0, aTgt = 0, hit = 0, judged = 0, missN = 0, missT = 0;
     allUnits.forEach((u) => {
       const t = (targets[u] || [])[m - 1] || 0;
       const a = (actual[u] || [])[m] || 0;
@@ -165,12 +166,12 @@ export async function apiReport(params: any) {
         return;
       }
       tSum += t; aSum += a;
-      if (t > 0) { judged++; if (a >= t) hit++; }
+      if (t > 0) { aTgt += a; judged++; if (a >= t) hit++; }
     });
     return {
       month: m, label: TH_MONTHS[m - 1],
       target: Math.round(tSum), actual: Math.round(aSum),
-      attain: tSum > 0 ? Math.round((aSum / tSum) * 1000) / 10 : null,
+      attain: tSum > 0 ? Math.round((aTgt / tSum) * 1000) / 10 : null,
       hitUnits: hit, judgedUnits: judged,
       missingUnits: missN, missingTarget: Math.round(missT),
       closed: m < curMonth, // เดือนที่จบแล้วเท่านั้นถึงตัดสิน "สำเร็จ/ไม่สำเร็จ" ได้จริง

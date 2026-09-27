@@ -274,6 +274,8 @@ function shareStripHtml(donut: DonutData | undefined, byType?: ByTypeItem[]): st
     { key: 'wait', label: 'รอตอบ', n: sh.waiting },
   ];
   const pct = (n: number) => (sh.base ? (n / sh.base) * 100 : 0);
+  // "ตอบแล้ว" = แอดมินตอบ + ตอบอัตโนมัติ — ตัวเลขหลักของการ์ดนี้ (เดิมอยู่กลางโดนัท) ไม่ให้ทีมต้องบวกเอง
+  const replied = '<b class="db-share-rate v-plain">ตอบแล้ว ' + pct1(pct(sh.replied + sh.ai)) + '</b>';
   const types = (byType || []).slice().sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0))
     .map((t) => esc(typeLabel(t.label)) + ' <b>' + fmtNum(Number(t.count) || 0) + '</b>');
   const aria = parts.map((p) => p.label + ' ' + pct1(pct(p.n))).join(' • ');
@@ -295,6 +297,7 @@ function shareStripHtml(donut: DonutData | undefined, byType?: ByTypeItem[]): st
         infoTip('แชททั้งหมดใน 24 ชม.ล่าสุด แบ่งตามสถานะตอนนี้ • แอดมินตอบ = แอดมินตอบแล้ว • ' +
           'ตอบอัตโนมัติ = บอตตอบแล้ว • รอตอบ = ลูกค้าทักมาแล้วยังไม่มีใครตอบ', 'สัดส่วนการตอบ') +
       '</h3>' +
+      (sh.base ? replied : '') +
       (types.length ? '<div class="db-share-types">บทสนทนา: ' + types.join(' · ') + '</div>' : '') +
       nowBadge_() +
     '</div>' +
