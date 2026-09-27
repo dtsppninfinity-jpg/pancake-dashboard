@@ -5,7 +5,7 @@
 // ซื้อซ้ำ = ออเดอร์ POS จริง (เริ่มมีข้อมูล 23 พ.ค. 2026) จัดกลุ่มยูนิตด้วยเพจ↔ยูนิตจาก U Map
 import { db, fetchAll, fetchAllSliced } from '@/lib/db';
 import { getUMapDoc, getPageUnitMap } from '@/lib/api/umap';
-import { EXCLUDED_STATUSES, isPlaceholderOrder, money_ } from '@/lib/config';
+import { EXCLUDED_STATUSES, money_ } from '@/lib/config';
 
 const num_ = (v: unknown): number => {
   const n = Number(v);
@@ -29,17 +29,23 @@ export async function apiReport(params: any) {
   if (p.section === 'marketing') {
     const pageUnit = await getPageUnitMap().catch(() => ({} as Record<string, { u: string; product: string }>));
     // ออเดอร์ทั้งหมดตั้งแต่ระบบเริ่มมีข้อมูลจริง (23 พ.ค. 2026) — คอลัมน์น้อยที่สุด
+    // ตัดออเดอร์เปล่า (ไม่มีสินค้า + ยอด 0) ที่ฐานเลย — เท่ากับ !isPlaceholderOrder ทุกกรณีรวม NULL
+    // ออเดอร์เปล่ามี ~35% ของทั้งหมด (27 ก.ย.: 97k จาก 276k แถว) เดิมดึงมาทิ้งทุกครั้งที่เปิดหน้า
+    // ลำดับแถวที่เหลือเหมือนเดิม (inserted_at,id) → ลำดับยูนิตที่ %ซื้อซ้ำเท่ากันไม่เปลี่ยน
     const orders = await fetchAllSliced<any>((f, t) =>
       db.from('orders')
-        .select('inserted_at,status,total_price,items_count,customer_id,page_id')
+        .select('inserted_at,status,customer_id,page_id')
+        .or('items_count.neq.0,total_price.neq.0')
         .gte('inserted_at', f).lt('inserted_at', t),
       new Date('2026-05-23T00:00:00+07:00'), new Date(),
+      // pool 4: เวลาหมดไปกับรอ round-trip (~180 หน้า × ~0.3 วิ) ไม่ใช่ฐานคิดหนัก — ยิงก้อนพร้อมกันมากขึ้น
+      // จำนวนคิวรีพร้อมกันจริงยังโดน MAX_INFLIGHT=12 ใน db.ts คุมอยู่ (ค่าที่วัดแล้วว่าฐานรับไหว)
+      { pool: 4 },
     );
     // per unit per customer → รายการเวลาซื้อ
     const cust: Record<string, Record<string, number[]>> = {};
     orders.forEach((o) => {
       if (EXCLUDED_STATUSES.indexOf(num_(o.status)) >= 0) return;
-      if (isPlaceholderOrder(o)) return;
       const cid = String(o.customer_id || '');
       if (!cid) return;
       const um = pageUnit[String(o.page_id || '')];
