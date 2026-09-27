@@ -7,7 +7,7 @@
    ============================================================ */
 
 import {
-  serverCall, esc, relTime, openModal, closeTopModal as closeTopModalLayer, modalCloseBtn, thaiDateShort,
+  serverCall, dataEpoch, esc, relTime, openModal, closeTopModal as closeTopModalLayer, modalCloseBtn, thaiDateShort,
   floaterIsOpen, closeTopFloater,
 } from '@/lib/ui/helpers';
 import { icon, statusPill, ICON_FOR, type StatusKind } from '@/lib/ui/icons';
@@ -1057,6 +1057,18 @@ const App = {
     // ไปกด KPI แล้วโผล่กลางหน้าโดยไม่เห็นหัวข้อ (หน้า KPI ถึงกับต้องขึ้นข้อความบอกทางผู้ใช้เอง)
     window.scrollTo({ top: 0, behavior: 'auto' });
     if (mode !== 'none') writeHistory(view, mode === 'push' && !same);
+    if (!same && !(opts && opts.initial) && viewIsFresh_(view)) {
+      // เพิ่งโหลดไปไม่ถึง 90 วิ และไม่มีการบันทึกอะไรในระหว่างนั้น → ใช้หน้าที่วาดค้างไว้เลย ไม่ดึงใหม่
+      // (เดิมกลับมาหน้าไหนก็วาดใหม่ 2 รอบ + ยิง API ทั้งก้อน แม้เพิ่งเปิดเมื่อครู่ — แย่งฐานกับหน้าที่กำลังจะเปิด)
+      // จอเปลี่ยนฝั่ง 600px ระหว่างนั้น (หมุนมือถือ) → วาดใหม่จากข้อมูลเดิม เหมือนตอนหมุนจอในหน้านั้นเอง
+      if (loadedWide_[view] !== wideNow_()) {
+        const mod = Views[view];
+        const box = document.getElementById('view-' + view) as HTMLElement | null;
+        if (mod && mod.redraw && box) { mod.redraw(box); loadedWide_[view] = wideNow_(); }
+        else this.loadView(view, false);
+      }
+      return;
+    }
     this.loadView(view, false);
   },
 
@@ -1066,6 +1078,9 @@ const App = {
     const v = Views[view];
     if (v && typeof v.load === 'function') {
       v.load(container, force);
+      loadedAt_[view] = Date.now();
+      loadedEpoch_[view] = dataEpoch();
+      loadedWide_[view] = wideNow_();
     }
   },
 };
@@ -1074,6 +1089,29 @@ const App = {
 (globalThis as any).App = App;
 (globalThis as any).VIEW_META = VIEW_META;
 (globalThis as any).Views = Views;
+
+/* ---- กลับมาหน้าเดิมภายใน 90 วิ ไม่ต้องดึงใหม่ (ดู switchView) ----
+ * รีเฟรชอัตโนมัติ 5 นาที / ปุ่มรีเฟรช / เปิดหน้าครั้งแรก ยังดึงใหม่เสมอเหมือนเดิม */
+const FRESH_MS = 90 * 1000;
+const loadedAt_: Record<string, number> = {};
+const loadedEpoch_: Record<string, number> = {};
+const loadedWide_: Record<string, boolean> = {};
+function wideNow_(): boolean {
+  try { return window.matchMedia('(min-width: 600px)').matches; } catch (e) { return true; }
+}
+function viewIsFresh_(view: string): boolean {
+  // หน้าอันดับแอดมินมีรอบอัปเดตของตัวเอง 75 วิ ที่หยุดตอนออกจากหน้าและตั้งใหม่ตอนวาด — ต้องผ่าน load ทุกครั้ง
+  if (view === 'adminperf') return false;
+  const t = loadedAt_[view];
+  if (!t || Date.now() - t >= FRESH_MS) return false;
+  if (loadedEpoch_[view] !== dataEpoch()) return false;     // มีการบันทึก/แก้ข้อมูลหลังโหลด → ดึงใหม่
+  const box = document.getElementById('view-' + view);
+  if (!box || !box.firstElementChild) return false;
+  // ยังโหลดไม่เสร็จ หรือโหลดพลาด → ทำแบบเดิม (ส่วนที่โหลดแยกทีหลังโดยตั้งใจ เช่นซื้อซ้ำ/ค่าคอม ไม่นับ)
+  const busy = Array.from(box.querySelectorAll('.skel, .skel-line, .loading, .state-error'))
+    .filter(function (x) { return !x.closest('#rp-market, #rk-com'); });
+  return busy.length === 0;
+}
 
 /** entry point — เรียกครั้งเดียวจาก DashboardClient (แทน App.init() ท้าย body ของ Index.html) */
 export function initApp(): void {

@@ -3,6 +3,51 @@ import DashboardClient from './DashboardClient';
 import { canView, ROLE_LABEL, type Role } from '@/lib/auth-session';
 import { icon, ICON_FOR } from '@/lib/ui/icons';
 import { logoMark } from '@/lib/ui/helpers';
+import { FIRST_CALLS } from '@/lib/ui/first-calls';
+import {
+  dashboardSkel, salesSkel, adminsSkel, adminperfSkel, umapSkel, contentadsSkel, unitperfSkel,
+  kpiSkel, profitSkel, reportSkel, meSkel, usersSkel,
+} from '@/lib/ui/skeletons';
+
+/** โครงร่างรอข้อมูลของแต่ละหน้า — วาดของหน้าแรกมาจาก server เลย (ไม่ต้องรอ JS ~0.3-2 วิ ก่อนเห็นอะไร)
+ *  view.load() ครั้งแรกวาดโครงเดียวกันทับ (ตัวเดียวกันจาก lib/ui/skeletons.ts) จอจึงไม่กระตุก */
+const SKEL: Record<string, () => string> = {
+  dashboard: dashboardSkel, sales: salesSkel, admins: adminsSkel, adminperf: adminperfSkel, umap: umapSkel,
+  contentads: contentadsSkel, unitperf: unitperfSkel, kpi: kpiSkel, profit: profitSkel, report: reportSkel,
+  me: meSkel, users: usersSkel,
+};
+
+/**
+ * ยิงคำขอข้อมูลของหน้าแรกทันทีที่ HTML มาถึง (ดู lib/ui/first-calls.ts) — ไม่รอ JS ของเว็บโหลดเสร็จ
+ * เลือกหน้าแบบเดียวกับ app-core: #ชื่อหน้า ถ้าสิทธิ์นี้เปิดได้ ไม่งั้นหน้าแรกของสิทธิ์
+ * ผลเก็บใน window.__pnPre ให้ serverCall หยิบไปใช้ · 15 วิแล้วไม่มีใครใช้ = ทิ้ง (กันผลเก่าไปโผล่ตอนรีเฟรชรอบหลัง)
+ * ไม่ยิง apiBootstrap/apiNavBadges ล่วงหน้า — app-core ตั้งใจหน่วงสองตัวนั้นไว้ไม่ให้แย่งฐานกับหน้าแรก
+ */
+function prefetchInit(allowed: string[], firstView: string): string {
+  const calls: Record<string, Array<[string, string]>> = {};
+  allowed.forEach((v) => {
+    calls[v] = (FIRST_CALLS[v] || []).map(([fn, p]) => [fn, JSON.stringify(p)] as [string, string]);
+  });
+  return `(function () {
+  try {
+    var C = ${JSON.stringify(calls)}, h = '';
+    try { h = location.hash; if (h.charAt(0) === '#') h = h.slice(1); if (h.charAt(0) === '/') h = h.slice(1); h = decodeURIComponent(h).trim(); } catch (e) { h = ''; }
+    var v = Object.prototype.hasOwnProperty.call(C, h) ? h : ${JSON.stringify(firstView)};
+    var P = {};
+    (C[v] || []).forEach(function (x) {
+      var p = fetch('/api/' + x[0], { method: 'POST', headers: { 'content-type': 'application/json' }, body: x[1] });
+      p.catch(function () {});
+      P[x[0] + '|' + x[1]] = p;
+    });
+    window.__pnPre = P;
+    setTimeout(function () {
+      var Q = window.__pnPre;
+      if (Q) Object.keys(Q).forEach(function (k) { console.warn('[prefetch] ไม่ถูกใช้: ' + k); });
+      window.__pnPre = null;
+    }, 15000);
+  } catch (e) {}
+})();`;
+}
 
 // โครง HTML พอร์ตจาก Index.html (GAS) แบบตรงตัว — class / ข้อความไทย / โครงเดิมทุกตัวอักษร
 // server component: render โครงนิ่ง ๆ แล้วให้ <DashboardClient/> (client) เรียก App.init()
@@ -28,9 +73,11 @@ const themeInit = `(function () {
 
 // คู่กับ data-boot-view ข้างบน — ถ้า JS ไม่มาภายใน 2 วิ (เน็ตช้า/สคริปต์พัง) ให้ชื่อหน้าโผล่เองอยู่ดี
 // ไม่อยู่ใน globals.css เพราะเป็นกลไกเฉพาะจังหวะบูตของหน้านี้ ไม่ใช่หน้าตา
+// โครงร่างของหน้าแรกที่ server วาดมา: ถ้าเปิดมาพร้อม #ชื่อหน้า อาจเป็นคนละหน้ากับที่จะเปิดจริง → ซ่อนไว้จน app-core สลับเสร็จ
 const bootCss =
   'html[data-boot-view] .topbar-titles{visibility:hidden;animation:pn-boot-reveal 0s linear 2s forwards}' +
-  '@keyframes pn-boot-reveal{to{visibility:visible}}';
+  '@keyframes pn-boot-reveal{to{visibility:visible}}' +
+  'html[data-boot-view] .view[data-ssr-skel]{visibility:hidden}';
 
 // icon = ชื่อไอคอนลายเส้นจาก ICON_FOR (lib/ui/icons.ts) — 1 เมนู 1 รูป ห้ามซ้ำกัน
 // (เดิมเป็นอีโมจิ และ 🎯 เคยซ้ำกันสองเมนู — เมนูที่ไอคอนซ้ำกันคือเมนูที่กดผิดกันบ่อย)
@@ -106,6 +153,7 @@ export default async function Page() {
     <>
       <script dangerouslySetInnerHTML={{ __html: themeInit }} />
       <style dangerouslySetInnerHTML={{ __html: bootCss }} />
+      <script dangerouslySetInnerHTML={{ __html: prefetchInit(ordered.map((it) => it.view), firstView) }} />
       <div id="app" data-role={role} data-first-view={firstView}>
         {/* ฉากหลังทึบตอนเปิดเมนูบนมือถือ — กดแล้วปิดเมนู */}
         <div id="nav-backdrop" className="nav-backdrop"></div>
@@ -187,14 +235,22 @@ export default async function Page() {
             </div>
           </header>
 
-          {/* render เฉพาะช่องของ view ที่สิทธิ์นี้เปิดได้ */}
-          {ordered.map((it) => (
+          {/* render เฉพาะช่องของ view ที่สิทธิ์นี้เปิดได้ · หน้าแรกมีโครงร่างรอข้อมูลมาจาก server เลย */}
+          {ordered.map((it) => (it.view === firstView && SKEL[it.view] ? (
+            <section
+              key={it.view}
+              id={'view-' + it.view}
+              className="view active"
+              data-ssr-skel="1"
+              dangerouslySetInnerHTML={{ __html: SKEL[it.view]() }}
+            ></section>
+          ) : (
             <section
               key={it.view}
               id={'view-' + it.view}
               className={'view' + (it.view === firstView ? ' active' : '')}
             ></section>
-          ))}
+          )))}
         </main>
       </div>
 

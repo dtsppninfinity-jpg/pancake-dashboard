@@ -26,13 +26,60 @@ export function logoMark(size = 38, label?: string): string {
 
 /* ---------------- server call ---------------- */
 
+/**
+ * คำขอที่ page.tsx ยิงไว้ล่วงหน้าตอนเปิดเว็บ (ดู lib/ui/first-calls.ts) — ใช้ได้ครั้งเดียวต่อคำขอ
+ * ต้องตรงทั้งชื่อ API และ body ทุกตัวอักษร · page.tsx ล้างทิ้งเองหลัง 15 วิ (ไม่เอาผลเก่ามาใช้ตอนรีเฟรชรอบหลัง)
+ */
+function takePrefetch_(fn: string, body: string): Promise<Response> | null {
+  if (typeof window === 'undefined') return null;
+  const pre = (window as any).__pnPre as Record<string, Promise<Response>> | null | undefined;
+  if (!pre) return null;
+  const k = fn + '|' + body;
+  const p = pre[k];
+  if (!p) return null;
+  delete pre[k];
+  return p;
+}
+
+/* ---- รุ่นข้อมูล: เพิ่มทุกครั้งที่มีการบันทึก/แก้ข้อมูลผ่าน API ----
+ * app-core ใช้ตัดสินว่า "หน้าที่เพิ่งโหลดไปไม่ถึง 90 วิ" ยังใช้ของที่วาดค้างไว้ได้ไหม
+ * (เช่น แก้ U Map แล้วกลับไปหน้ายอดขาย ต้องดึงใหม่ให้เห็นผลทันทีเหมือนเดิม)
+ * ⚠️ นับเป็น "อ่านอย่างเดียว" เฉพาะที่อยู่ในรายการข้างล่าง — API ใหม่/คำสั่งใหม่ที่ไม่อยู่ในรายการ = ถือว่าแก้ข้อมูล (ปลอดภัยไว้ก่อน) */
+let dataEpoch_ = 0;
+export function dataEpoch(): number { return dataEpoch_; }
+const READ_ONLY_FNS: Record<string, 1> = {
+  apiDashboard: 1, apiSales: 1, apiContentAds: 1, apiUnitPerf: 1, apiReport: 1, apiAdminPerf: 1, apiKpi: 1,
+  apiProfit: 1, apiAdmins: 1, apiBootstrap: 1, apiNavBadges: 1, apiPageMedia: 1, apiMe: 1,
+};
+function isReadOnlyCall_(fn: string, params: any, body: string): boolean {
+  if (READ_ONLY_FNS[fn]) return true;
+  if (fn === 'apiScoreConfig' || fn === 'apiUMap') return body === '{}';
+  if (fn === 'apiUsers') return !!params && params.action === 'list';
+  if (fn === 'apiAdminCom') return !params || !params.action;
+  return false;
+}
+
 /** แทน google.script.run เดิม → เรียก route /api/<fn> ด้วย fetch POST */
 export async function serverCall<T = any>(fn: string, params?: unknown): Promise<T> {
-  const r = await fetch('/api/' + fn, {
+  const body = JSON.stringify(params || {});
+  if (!isReadOnlyCall_(fn, params, body)) {
+    // นับทั้งตอนเริ่มและตอนจบ — หน้าที่โหลดระหว่างกำลังบันทึกก็ต้องถือว่าเก่า
+    dataEpoch_++;
+    const done = () => { dataEpoch_++; };
+    return serverCallRaw_<T>(fn, body).then((v) => { done(); return v; }, (e) => { done(); throw e; });
+  }
+  return serverCallRaw_<T>(fn, body);
+}
+
+async function serverCallRaw_<T>(fn: string, body: string): Promise<T> {
+  const send = () => fetch('/api/' + fn, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(params || {}),
+    body,
   });
+  const pre = takePrefetch_(fn, body);
+  // คำขอล่วงหน้าพลาดแบบเน็ตสะดุด (ไม่ใช่ server ตอบ error) → ยิงใหม่เองเหมือนไม่มีของล่วงหน้า
+  const r = pre ? await pre.catch(send) : await send();
   if (r.status === 401) {
     // session หมดอายุ / ยังไม่ล็อกอิน → เด้งไปหน้า login
     if (typeof window !== 'undefined') window.location.href = '/login';
