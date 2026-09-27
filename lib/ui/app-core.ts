@@ -302,30 +302,19 @@ function setNavOpen(open: boolean): void {
      แดง (.nav-badge)          = ยูนิตขาดทุน ≥2 วันติด (level urgent ของงาน unit-alerts) และมีไม่เกิน RED_BUDGET ยูนิต
      ส้มอ่อน (.nav-badge.soft) = เรื่องที่ควรเข้าไปดู: ยูนิตเฝ้าระวัง (ขาดทุน 1 วัน), แอดที่ควรหยุด/แก้,
                                  และยูนิตขาดทุนติดกันที่มีเยอะเกินงบแดง (เยอะขนาดนั้นคือสภาพทั่วไป ไม่ใช่ "เรื่องด่วนไม่กี่เรื่อง")
-   ตัวเลข = จำนวนจริง (เพดาน 99+) · เปิดหน้านั้นแล้วป้ายหาย จนกว่าจำนวนจะเพิ่มขึ้นอีก
-   (จำ "จำนวนที่เห็นแล้ว" ต่อหน้าไว้ใน localStorage — เครื่องใครเครื่องมัน ไม่ใช่ข้อมูลสำคัญ) */
+   ตัวเลข = จำนวนจริง (เพดาน 99+) · ป้ายอยู่ตราบที่ยังมีเรื่อง — เปิดหน้านั้นแล้วป้ายต้องไม่หาย
+   (พีสั่ง 28 ก.ย.: รอบ 2 เคยทำให้เปิดหน้าแล้วป้ายหาย ผิด — เรื่องยังไม่ถูกแก้ ป้ายต้องยังเตือนอยู่แบบเดิม) */
 
 interface BadgeInfo {
   urgent: number; soft: number;       // จำนวนเรื่องแต่ละระดับ
   urgentTip: string; softTip: string; // คำอธิบาย (ต่อท้าย tooltip + ชื่อปุ่มสำหรับโปรแกรมอ่านหน้าจอ)
 }
-type SeenMap = Record<string, { u: number; s: number }>;
-
-const BADGE_SEEN_KEY = 'pn-nav-seen';
+/** key เก่าของรอบ 2 ที่จำ "จำนวนที่เห็นแล้ว" — เลิกใช้ ลบทิ้งจากเครื่องผู้ใช้ */
+const OLD_BADGE_SEEN_KEY = 'pn-nav-seen';
 /** ป้ายแดงได้ไม่เกินกี่เรื่อง — เกินนี้เป็นส้มอ่อน (ตัวอย่างในรายงานตรวจ UI: "13" ต้องเป็นส้มอ่อน) */
 const RED_BUDGET = 3;
-/** ผลล่าสุดจาก apiNavBadges — ใช้ตอนเปิดหน้าเพื่อบันทึกว่า "เห็นแล้ว" โดยไม่ต้องยิง API ใหม่ */
+/** ผลล่าสุดจาก apiNavBadges */
 let lastBadges: Record<string, BadgeInfo> = {};
-
-function readSeen(): SeenMap {
-  try {
-    const o = JSON.parse(localStorage.getItem(BADGE_SEEN_KEY) || '{}');
-    return o && typeof o === 'object' ? o as SeenMap : {};
-  } catch (e) { return {}; }
-}
-function writeSeen(m: SeenMap): void {
-  try { localStorage.setItem(BADGE_SEEN_KEY, JSON.stringify(m)); } catch (e) {}
-}
 
 /** tooltip ของปุ่มเมนู — ถ้ากรอบอธิบาย (infotip) แปลง title ไปเป็น data-tip แล้ว ต้องแก้ที่ data-tip แทน */
 function setBtnTip(btn: HTMLElement, text: string): void {
@@ -363,36 +352,14 @@ function setNavBadge(view: string, count: number, tone?: 'urgent' | 'soft', tip?
   }
 }
 
-/** วาดป้ายทุกหน้าจากผลล่าสุด เทียบกับจำนวนที่ผู้ใช้เห็นแล้ว */
+/** วาดป้ายทุกหน้าจากผลล่าสุด — มีเรื่อง = มีป้าย (รวมหน้าที่กำลังเปิดอยู่) */
 function applyNavBadges(): void {
-  const seen = readSeen();
-  let dirty = false;
   Object.keys(lastBadges).forEach(function (view) {
     const b = lastBadges[view];
-    const sv = seen[view] || { u: 0, s: 0 };
-    // จำนวนลดลง (แก้ไปแล้วบางเรื่อง) → ลดเส้น "เห็นแล้ว" ตาม เรื่องใหม่ที่งอกทีหลังจะได้โผล่ทันที
-    if (b.urgent < sv.u) { sv.u = b.urgent; dirty = true; }
-    if (b.soft < sv.s) { sv.s = b.soft; dirty = true; }
-    // กำลังเปิดหน้านั้นอยู่ = เห็นตัวเลขบนหน้าอยู่แล้ว ไม่ต้องมีป้ายซ้ำ
-    if (view === App.state.view && (sv.u !== b.urgent || sv.s !== b.soft)) {
-      sv.u = b.urgent; sv.s = b.soft; dirty = true;
-    }
-    seen[view] = sv;
-    if (b.urgent > sv.u) setNavBadge(view, b.urgent, b.urgent <= RED_BUDGET ? 'urgent' : 'soft', b.urgentTip);
-    else if (b.soft > sv.s) setNavBadge(view, b.soft, 'soft', b.softTip);
+    if (b.urgent > 0) setNavBadge(view, b.urgent, b.urgent <= RED_BUDGET ? 'urgent' : 'soft', b.urgentTip);
+    else if (b.soft > 0) setNavBadge(view, b.soft, 'soft', b.softTip);
     else setNavBadge(view, 0);
   });
-  if (dirty) writeSeen(seen);
-}
-
-/** เปิดหน้า view แล้ว = ถือว่าเห็นเรื่องที่ป้ายบอกแล้ว → ป้ายหาย */
-function markNavSeen(view: string): void {
-  const b = lastBadges[view];
-  if (!b) return;
-  const seen = readSeen();
-  seen[view] = { u: b.urgent, s: b.soft };
-  writeSeen(seen);
-  setNavBadge(view, 0);
 }
 
 /** ดึงจำนวนเรื่องมาแปะแท็บ ยอดขาย / โฆษณา — เงียบเมื่อพลาด (badge ไม่ใช่ของสำคัญพอให้เด้ง error) */
@@ -951,6 +918,7 @@ const App = {
     this.switchView(start, { history: 'replace', initial: true });
     document.documentElement.removeAttribute('data-boot-view');   // ชื่อหน้าถูกแล้ว — โชว์หัวเว็บ (ดู page.tsx)
     refreshNavBadges(); // ตัวเลขบนแท็บ ยอดขาย / โฆษณา
+    try { localStorage.removeItem(OLD_BADGE_SEEN_KEY); } catch (e) {}
     // รีเฟรชหน้าปัจจุบันอัตโนมัติทุก 5 นาที — แบบเบื้องหลัง (force=false = render จาก cache
     // แล้วค่อยดึงใหม่) และข้ามรอบถ้าแท็บถูกซ่อนหรือผู้ใช้กำลังพิมพ์/เลือกค่าอยู่
     setInterval(function () {
@@ -1084,7 +1052,6 @@ const App = {
     // เลื่อนกลับขึ้นบนทุกครั้งที่เปลี่ยนหน้า — เดิมค้างที่ตำแหน่งเดิม จากล่างสุดหน้า Sales
     // ไปกด KPI แล้วโผล่กลางหน้าโดยไม่เห็นหัวข้อ (หน้า KPI ถึงกับต้องขึ้นข้อความบอกทางผู้ใช้เอง)
     window.scrollTo({ top: 0, behavior: 'auto' });
-    markNavSeen(view);   // เปิดหน้านี้แล้ว = ป้ายตัวเลขบนเมนูของหน้านี้หาย จนกว่าจะมีเรื่องใหม่
     if (mode !== 'none') writeHistory(view, mode === 'push' && !same);
     this.loadView(view, false);
   },
