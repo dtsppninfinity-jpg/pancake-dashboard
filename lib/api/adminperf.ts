@@ -159,6 +159,10 @@ async function loadOrders_(r: { start: Date; end: Date }) {
       .from('orders')
       // ad_id = แอดที่ออเดอร์นี้มาจาก (มีจริง ~92% ของยอด — ใช้ทำ ROAS รายแอดมิน)
       .select('inserted_at,status,total_price,platform,seller_id,seller_name,creator_name,items_json,page_id,account_name,ad_id')
+      // ตัดออเดอร์เปล่าที่ฐาน — ไฟล์นี้ไม่ได้ดึง items_count มา isPlaceholderOrder ข้างล่างจึงเท่ากับ "ราคา 0"
+      // ⚠️ ห้ามเปลี่ยนเป็น .or('items_count.neq.0,total_price.neq.0') แบบหน้าอื่น — ออเดอร์มีของแต่ราคา 0
+      //    จะเริ่มถูกนับ แล้วจำนวนออเดอร์/%ปิดของแอดมินเปลี่ยน · NULL ถูกตัดทั้งสองฝั่ง (num(null)=0)
+      .neq('total_price', 0)
       .gte('inserted_at', f)
       .lt('inserted_at', t),
     r.start, r.end

@@ -171,6 +171,7 @@ export async function apiAdmins(_params?: any) {
         db
           .from('orders')
           .select('inserted_at,status,total_price,items_count,seller_id,seller_name,creator_name')
+          .or('items_count.neq.0,total_price.neq.0')   // ออเดอร์เปล่า (ตัวกรอง JS ยังอยู่) — ลำดับแถวที่เหลือเหมือนเดิม
           .gte('inserted_at', todayStartIso)
       ),
       // Conversations — กรองเฉพาะที่อัปเดตใน 24 ชม. ล่าสุด

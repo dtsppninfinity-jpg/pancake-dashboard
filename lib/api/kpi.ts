@@ -32,6 +32,10 @@ function perPerson_(rows: KpiAdminMonthRow[]) {
 }
 
 export async function apiKpi(params: any) {
+  // ค่าคอม + ยูนิตขาดทุน ไม่พึ่งคะแนน KPI — เริ่มดึงพร้อมกันตั้งแต่ต้น (เดิมรอทีละตัว 3 ต่อ)
+  // พลาด = null แล้วส่วนนั้นเงียบไปเหมือนเดิม (ดู try/catch ตรงจุดที่ใช้)
+  const comP = db.from('admin_commission').select('month,admin,com').then((x) => x, () => null);
+  const uaP = db.from('sync_state').select('value').eq('key', 'unit_loss_alerts').maybeSingle().then((x) => x, () => null);
   const { data, error } = await db.from('sync_state').select('value').eq('key', 'kpi_scores').maybeSingle();
   if (error) throw new Error('อ่าน kpi_scores ไม่สำเร็จ: ' + error.message);
   if (!data || !data.value) return { setupNeeded: true };
@@ -86,7 +90,8 @@ export async function apiKpi(params: any) {
   // ---- แจ้งเตือน: ไม่ได้ค่าคอม 2 เดือนปิดยอดติดกัน (นิยามเดียวกับหน้า Admin Performance) ----
   const noCom: Array<{ admin: string; months: string[] }> = [];
   try {
-    const { data: comData } = await db.from('admin_commission').select('month,admin,com');
+    const comRes = await comP;
+    const comData = comRes && comRes.data;
     const comMonths = [...new Set((comData || []).map((x: any) => String(x.month)))].sort();
     const nowMonth = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 7);
     const closed = comMonths.filter((m) => m < nowMonth).slice(-2);
@@ -110,7 +115,8 @@ export async function apiKpi(params: any) {
   // ---- แจ้งเตือน: ยูนิตขาดทุน (จากงาน unit-alerts ที่คำนวณไว้แล้ว) ----
   let unitAlerts: Array<{ u: string; days: number; level: string }> = [];
   try {
-    const { data: ua } = await db.from('sync_state').select('value').eq('key', 'unit_loss_alerts').maybeSingle();
+    const uaRes = await uaP;
+    const ua = uaRes && uaRes.data;
     unitAlerts = (JSON.parse(String(ua?.value || '{}')).alerts || [])
       .map((a: any) => ({ u: String(a.u), days: Number(a.days) || 0, level: String(a.level) }));
   } catch { /* ยังไม่เคยคำนวณ */ }
