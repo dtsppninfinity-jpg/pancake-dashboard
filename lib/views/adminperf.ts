@@ -806,7 +806,7 @@ function teamHourlyCardHtml(data: PerfData | null): string {
   return '<div class="card">' +
     '<div class="card-head"><h3 class="card-title">ลูกค้าทักรายชั่วโมง (ทั้งทีม)</h3></div>' +
     '<div class="card-sub">' + esc((data && data.rangeLabel) || '') +
-      ' — ข้อความที่ลูกค้าทัก (' + chTxt + ', ข้อมูลจริงจาก Pancake) • ชี้ที่จุดเพื่อดูราย ชม.</div>' +
+      ' — ข้อความที่ลูกค้าทัก (' + chTxt + ', ข้อมูลจริงจาก Pancake) • ชี้หรือแตะที่จุดเพื่อดูราย ชม.</div>' +
     svgHourlyLine(hourly.map(function (v) { return Number(v) || 0; }), null, { fmt: 'num', unit: 'ข้อความ' }) +
   '</div>';
 }

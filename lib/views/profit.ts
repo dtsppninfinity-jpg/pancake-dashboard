@@ -267,7 +267,24 @@ function personCardHtml_(d: ProfitData): string {
       '<th class="num">#</th>' + sortTh('พนักงาน', 'name') + sortTh('ประเภท', 'type') +
       sortTh('รายการ', 'items', { num: true }) + sortTh('มูลค่าตีกลับ', 'value', { num: true }) +
       sortTh('% ของตีกลับเดือน', 'pct', { num: true }) +
-    '</tr></thead><tbody id="pf-ret-body">' + personRowsHtml_(d, month) + '</tbody></table></div></div>';
+    '</tr></thead><tbody id="pf-ret-body">' + personRowsHtml_(d, month) + '</tbody></table></div>' +
+    // มือถือโชว์ 10 คนแรก (ตามลำดับที่เรียงอยู่) + ปุ่มนี้ — syncRetCut_ ตัดสินใจตอนผูก event
+    '<button type="button" class="btn pf-ret-more" id="pf-ret-more" hidden></button>' +
+  '</div>';
+}
+
+/** มือถือ: ตีกลับรายคน 84 คน = การ์ดยาว ~17,000px ในกล่องเลื่อนครึ่งจอ ปัดเลื่อนหน้าแล้วโดนกล่องดูดนิ้ว
+ *  → จอ <600 เลิกกล่องเลื่อน (CSS) และโชว์ 10 คนแรก + "ดูทั้งหมด (N คน)" (รีวิวมือถือ 27 ก.ย. 69) */
+let retShowAll_ = false;
+function syncRetCut_(root: ParentNode): void {
+  const box = root.querySelector('.pf-ret-scroll');
+  const btn = root.querySelector('#pf-ret-more') as HTMLButtonElement | null;
+  if (!box || !btn) return;
+  const n = box.querySelectorAll('#pf-ret-body > tr:not(.tbl-total)').length;
+  const cut = !retShowAll_ && n > 10 && !window.matchMedia('(min-width: 600px)').matches;
+  box.classList.toggle('pf-ret-cut', cut);
+  btn.hidden = !cut;
+  btn.textContent = 'ดูทั้งหมด (' + fmtNum(n) + ' คน)';
 }
 
 function openDaily(u: string, month: string): void {
@@ -332,6 +349,9 @@ function bindEvents(container: HTMLElement): void {
     });
   });
   // ส่วนตีกลับรายคน — เปลี่ยนเดือน/ประเภทแล้ววาดใหม่ทั้งหน้า (ข้อมูลอยู่ใน lastData ครบแล้ว ไม่ยิง API ซ้ำ)
+  syncRetCut_(container);
+  const retMore = container.querySelector('#pf-ret-more');
+  if (retMore) retMore.addEventListener('click', function () { retShowAll_ = true; syncRetCut_(container); });
   const retMonth = container.querySelector('#pf-ret-month') as HTMLSelectElement | null;
   if (retMonth) retMonth.addEventListener('change', function () {
     retMonthSel = retMonth.value;

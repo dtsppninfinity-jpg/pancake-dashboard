@@ -114,7 +114,7 @@ function statsHtml(units: UUnit[], roster: UMember[]): string {
 function hintHtml(): string {
   if (!selected) return '';
   return '<div class="umap-hint" role="status">' + icon('mouse-pointer-click') + ' กำลังจับคู่: <b>' + esc(selected.name) + '</b>' +
-    ' — คลิกการ์ดยูนิตฝั่งขวาเพื่อวางลง (คลิกได้หลายการ์ดติดกัน)' +
+    ' — เลือกการ์ดยูนิตที่จะวางลง (เลือกได้หลายการ์ดติดกัน)' +
     '<button type="button" class="btn-mini umap-cancel" id="u-cancel-sel">' + icon(ICON_FOR.close) + 'เลิกเลือก</button></div>';
 }
 
@@ -196,7 +196,7 @@ function bodyHtml(data: UMapData): string {
     '<div class="umap-layout">' +
       '<div class="card umap-side">' +
         '<h3>แอดมิน (' + roster.length + ')</h3>' +
-        '<div class="card-sub">คลิกเลือกแอดมิน แล้วคลิกการ์ดยูนิตฝั่งขวาเพื่อจับคู่</div>' +
+        '<div class="card-sub">เลือกแอดมิน แล้วเลือกการ์ดยูนิตเพื่อจับคู่</div>' +
         '<div id="u-admin-list" class="u-admin-list">' + adminListHtml(units, roster) + '</div>' +
         '<div class="umap-upd">อัปเดตล่าสุด ' + esc(relTime(data.updatedAt)) + '</div>' +
       '</div>' +
@@ -501,11 +501,23 @@ function bindEvents(container: HTMLElement): void {
     if (!btn || !lastData) return;
     const id = btn.getAttribute('data-id') || '';
     const a = (lastData.roster || []).find((x) => x.id === id) || null;
+    // วาดทั้งหน้าใหม่ = รายชื่อเด้งกลับบนสุด และแถบ "กำลังจับคู่" แทรกด้านบนดันทุกอย่างลง
+    // มือถือเดิม: ชื่อที่เพิ่งแตะหลุดลงไปใต้ขอบรายชื่อ ไม่รู้ว่าเลือกใครอยู่ (รีวิวมือถือ 27 ก.ย. 69)
+    // → คืนตำแหน่งเลื่อนของรายชื่อ แล้วเลื่อนหน้าให้ชื่อที่แตะกลับมาอยู่ที่เดิมใต้นิ้ว
+    const oldList = container.querySelector('#u-admin-list') as HTMLElement | null;
+    const listTop = oldList ? oldList.scrollTop : 0;
+    const y0 = btn.getBoundingClientRect().top;
     selected = (selected && selected.id === id) ? null : a;
     render(container);
+    const newList = container.querySelector('#u-admin-list') as HTMLElement | null;
+    if (newList && listTop) newList.scrollTop = listTop;
     // วาดทั้งหน้าใหม่ = ปุ่มเดิมหายไป — คืนโฟกัสให้ปุ่มแอดมินคนเดิม (คนใช้คีย์บอร์ดไม่หลุดกลับไปบนสุด)
     const again = container.querySelector('.admin-pick[data-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]') as HTMLElement | null;
-    if (again) again.focus({ preventScroll: true });
+    if (again) {
+      again.focus({ preventScroll: true });
+      const dy = again.getBoundingClientRect().top - y0;
+      if (Math.abs(dy) > 1) window.scrollBy(0, dy);
+    }
   });
 
   // กระดานยูนิต: จับคู่ / เอาออก / แก้ / ลบ (delegate)
@@ -543,14 +555,20 @@ function bindEvents(container: HTMLElement): void {
     const card = t.closest('.u-card') as HTMLElement | null;
     if (!card) return;
     const u = card.getAttribute('data-u') || '';
-    if (!selected) { toast('เลือกแอดมินฝั่งซ้ายก่อน แล้วค่อยคลิกการ์ดยูนิต', 'info'); return; }
+    if (!selected) { toast('เลือกแอดมินจากรายการก่อน แล้วค่อยเลือกการ์ดยูนิต', 'info'); return; }
     const unit = (lastData && lastData.units || []).find((it) => it.u === u);
     if (unit && unit.admins.some((m) => m.id === selected!.id)) {
       toast(selected.name + ' อยู่ใน ' + u + ' อยู่แล้ว', 'info');
       return;
     }
-    mutate(container, { action: 'assign', u, userId: selected.id },
-      'จับคู่ ' + selected.name + ' ↔ ' + u + ' แล้ว');
+    // ทำทันที + แถบ "เลิกทำ" (เหมือนตอนเอาออก) — แตะการ์ดพลาดบนมือถือแก้ได้ในแตะเดียว
+    const userId = selected.id;
+    const name = selected.name;
+    mutate(container, { action: 'assign', u, userId }, '', {
+      onOk: () => undoToast('จับคู่ ' + name + ' ↔ ' + u + ' แล้ว', () =>
+        mutate(container, { action: 'unassign', u, userId }, 'เอา ' + name + ' ออกจาก ' + u + ' แล้ว')),
+      onErr: (msg) => toast(msg, 'error'),
+    });
   });
 
   const cancelSel = container.querySelector('#u-cancel-sel');

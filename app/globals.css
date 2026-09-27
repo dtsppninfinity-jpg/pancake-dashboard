@@ -145,7 +145,7 @@
      ใช้คำนวณ offset ของ element ที่ sticky อยู่ใต้มัน เช่น .umap-side และหัวตาราง .tbl-sticky
      วัดจริง 26 ก.ย. 69 = 84.2px (ชื่อหน้า 22px + บรรทัดรอง 1 บรรทัด) — ปัดลงให้ของที่ sticky มุดใต้หัวเว็บนิดเดียว
      ดีกว่าปัดขึ้นแล้วเห็นเนื้อหาลอดช่อง 1px · บรรทัดรองถูกบังคับบรรทัดเดียว (.topbar-sub) ความสูงจึงคงที่ */
-  --topbar-h: 84px;
+  --topbar-h: 69px;   /* ความสูงหัวเว็บจริง (วัดแล้ว): <900 = 69px · ≥900 = 84px (ตั้งใน @media ท้ายไฟล์) */
 }
 
 /* ---------- โหมดสว่าง (Light) — เนื้อหาหลักสว่าง, sidebar คงสีเข้มเป็นแถบเมนู ---------- */
@@ -274,6 +274,8 @@ input, select { font-family: inherit; }
 button, a, summary, label, [role="button"] { touch-action: manipulation; }
 /* ลิ้นชักเมนูเปิดอยู่ = ล็อกไม่ให้พื้นหลังเลื่อนตามนิ้ว (ปลดล็อกเองที่ ≥900) */
 body.nav-locked { overflow: hidden; }
+/* มีหน้าต่าง/แผ่นเปิดอยู่ (app-core syncOverlayHistory ตั้งให้เฉพาะจอ <900) — หน้าข้างหลังห้ามเลื่อนตามนิ้ว */
+html.modal-locked, html.modal-locked body { overflow: hidden; }
 
 /* ---------- layout ---------- */
 #app { display: flex; min-height: 100vh; }
@@ -1134,6 +1136,10 @@ table.tbl.ds-tbl tbody tr:hover td {
   cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px;
 }
 .sr-needcheck:hover { text-decoration-style: solid; }
+/* เลขหลักเดียวกว้างแค่ ~8px — พื้นที่กดล่องหนรอบตัวเลข ให้นิ้วโดนง่าย (ไม่ขยับเลย์เอาต์) */
+.sr-needcheck { position: relative; }
+.sr-needcheck::after { content: ''; position: absolute; inset: -4px -18px; }
+@media (min-width: 900px) { .sr-needcheck::after { inset: 0 -4px; } }
 /* hbar ที่ตัวเลขยาว (฿x,xxx,xxx) — ขยายช่องเลขจาก 48px */
 /* ชื่อสินค้าไทยยาวกว่าอังกฤษมาก — ให้คอลัมน์ชื่อยืดตามการ์ด (สูงสุด 42%) แทน 140px ตายตัว
    ที่ตัดคำทิ้งตั้งแต่การ์ดยังกว้างอยู่ • เพดาน 280px กันชื่อกินครึ่งจอตอนการ์ดเต็มความกว้าง */
@@ -1584,7 +1590,8 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
      ก็ดันกล่องทั้งใบให้กว้างเกินจอได้ (วัดได้ 431px บนจอ 390px) แล้วทั้งหน้าเลื่อนซ้ายขวา
      เป็นบั๊กตัวเดียวกับที่ .card เจอ */
   min-width: 0;
-  width: 100%; max-width: none; max-height: 92dvh; overflow-y: auto;
+  width: 100%; max-width: none; max-height: 92vh; max-height: 92dvh; overflow-y: auto;
+  overscroll-behavior: contain;   /* เลื่อนสุดขอบแผ่นแล้ว ไม่ส่งแรงปัดไปเลื่อนหน้าข้างหลัง / ไม่ดึงรีเฟรชทั้งหน้า */
   padding: var(--sp-3) var(--sp-3) calc(var(--sp-4) + env(safe-area-inset-bottom));
   animation: sheet-up .24s cubic-bezier(.16, 1, .3, 1);
 }
@@ -1625,7 +1632,14 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
    column-reverse = ปุ่มหลักอยู่บน (ใกล้นิ้วที่สุด) แต่ลำดับใน DOM/คีย์บอร์ดยังเป็นยกเลิก→ยืนยันตามเดิม */
 .modal-actions {
   display: flex; flex-direction: column-reverse; align-items: stretch;
-  gap: var(--sp-2); margin-top: var(--sp-4);
+  gap: var(--sp-2); margin-top: var(--sp-3);
+  /* ติดขอบล่างของแผ่นตอนเนื้อหายาว (หน้าต่างตั้งค่ายูนิต ~4,200px เดิมต้องเลื่อนลงสุดถึงเจอปุ่มบันทึก)
+     ค่าติดลบ = หักระยะขอบล่างของแผ่น ให้พื้นปุ่มปิดถึงขอบจริง เนื้อหาไม่โผล่ลอดใต้ปุ่ม · แผ่นสั้นหน้าตาเท่าเดิม */
+  position: sticky; z-index: 1; background: var(--surface);
+  bottom: calc((var(--sp-4) + env(safe-area-inset-bottom)) * -1);
+  margin-bottom: calc((var(--sp-4) + env(safe-area-inset-bottom)) * -1);
+  padding: var(--sp-3) 0 calc(var(--sp-4) + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--border);
 }
 .modal-actions .btn, .modal-actions .btn-mini { width: 100%; }
 /* กล่องข้อความเด้ง (#toast-stack / #toast-container) + หน้าตา .toast ย้ายไปอยู่ "ข้อความเด้ง 3 แบบ" ในชุดชิ้นส่วนกลาง */
@@ -1721,15 +1735,21 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px dashed var(--border);
 }
 .admin-actions .btn-mini { white-space: nowrap; }
+/* ⚠️ ตัวหนังสือ 16px (ตามกฎ select.input) บนจอสัมผัส — ต่ำกว่านี้ iPhone/iPad ซูมทั้งหน้าตอนแตะ ต้องถ่างนิ้วออกทุกครั้ง
+   หดเหลือ 11px เฉพาะจอคอมที่ใช้เมาส์ (รีวิวมือถือ 27 ก.ย. 69) */
 .admin-actions .ad-status-sel {
-  width: auto; padding: var(--sp-1) var(--sp-2); font-size: var(--fs-1); border-radius: 8px;
+  width: auto; padding: var(--sp-1) var(--sp-2); border-radius: 8px;
+}
+@media (min-width: 900px) and (hover: hover) and (pointer: fine) {
+  .admin-actions .ad-status-sel { font-size: var(--fs-1); }
 }
 .adm-form {
   display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); margin: var(--sp-3) 0 var(--sp-1);
 }
 .adm-field { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-2); }
 .adm-field > span { color: var(--text-3); font-size: var(--fs-2); font-weight: 600; }
-.perm-cb { width: 15px; height: 15px; accent-color: var(--primary); cursor: pointer; }
+.perm-cb { width: 22px; height: 22px; accent-color: var(--primary); cursor: pointer; flex: none; }
+@media (min-width: 900px) { .perm-cb { width: 15px; height: 15px; } }   /* เมาส์ หดได้ */
 .perm-cb:disabled { cursor: not-allowed; opacity: .4; }
 
 /* ============================================================
@@ -1918,9 +1938,14 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   font-size: var(--fs-num-sm); font-size: clamp(var(--fs-4), 14cqi, var(--fs-num-sm)); letter-spacing: -0.01em;
 }
 .umap-hint {
-  background: var(--primary-soft); border: 1px dashed var(--primary);
+  /* พื้นทึบ (สีอ่อนซ้อนบนพื้นการ์ด) — แถบนี้ติดบนจอตอนเลื่อน ถ้าโปร่งการ์ดยูนิตจะทะลุขึ้นมาซ้อน */
+  background: linear-gradient(var(--primary-soft), var(--primary-soft)), var(--surface);
+  border: 1px dashed var(--primary);
   border-radius: 10px; padding: var(--sp-2) var(--sp-4); font-size: var(--fs-3); margin-bottom: var(--sp-4);
   display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+  /* ติดใต้หัวเว็บตอนเลื่อนลงไปหาการ์ดยูนิต — มือถือการ์ดอยู่ใต้รายชื่อ ~5,000px เดิมเลื่อนแล้วไม่รู้ว่ากำลังจัดใคร
+     และหาปุ่ม "เลิกเลือก" ไม่เจอ (รีวิวมือถือ 27 ก.ย. 69) */
+  position: sticky; top: calc(var(--topbar-h) + var(--sp-2)); z-index: 4; box-shadow: var(--shadow);
 }
 .umap-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); align-items: start; }
 .umap-side { position: static; }
@@ -2862,13 +2887,15 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
   box-shadow: var(--shadow); padding: var(--sp-3);
   width: min(92vw, 340px);
   max-height: 76vh; overflow-y: auto;   /* มือถือ: 2 เดือนซ้อนกันแนวตั้ง เลื่อนดูได้ ไม่ดันจอ */
+  overscroll-behavior: contain;
 }
 .dp-nav { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); margin-bottom: var(--sp-2); }
 .dp-sum { font-size: var(--fs-3); font-weight: 700; color: var(--text); text-align: center; flex: 1; }
 .dp-arrow {
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
-  width: 36px; height: 36px; border-radius: 10px; font-size: var(--fs-5); line-height: 1;
+  width: 44px; height: 44px; border-radius: 10px; font-size: var(--fs-5); line-height: 1;
 }
+@media (min-width: 900px) { .dp-arrow { width: 36px; height: 36px; } }   /* เมาส์ หดได้ */
 .dp-arrow:hover { border-color: var(--primary); }
 
 .dp-months { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-4); }
@@ -2899,12 +2926,13 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
 .dp-day:focus { outline: none; }
 .dp-day:focus-visible { outline: 2px solid var(--text); outline-offset: -2px; }
 
-.dp-quicks { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-top: var(--sp-3); }
+.dp-quicks { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin-top: var(--sp-3); }
 .dp-quick {
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text-2);
   padding: var(--sp-1) var(--sp-3); border-radius: 99px; font-size: var(--fs-2); font-weight: 600;
-  min-height: 32px;
+  min-height: 44px;
 }
+@media (min-width: 900px) { .dp-quicks { gap: var(--sp-1); } .dp-quick { min-height: 32px; } }
 .dp-quick:hover { border-color: var(--primary); color: var(--text); }
 /* บนมือถือกล่องเลื่อนได้ ปุ่ม "แสดง" จะตกไปอยู่ใต้ขอบล่างจนต้องเลื่อนหา —
    ตรึงไว้ท้ายกล่องเสมอ กดได้ทันทีที่เลือกวันครบ */
@@ -2920,8 +2948,6 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
   /* ปฏิทิน: จอ ≥600px กางเป็น 2 เดือน */
   /* จอ ≥600px: กาง 2 เดือนคู่กัน คอลัมน์กว้างตายตัว —
      ถ้าใช้ minmax(0, …) กล่องที่ position:absolute จะหดจนเลขวันทับกัน */
-  .dp-pop { width: max-content; max-height: none; overflow: visible; }
-  .dp-months { grid-template-columns: repeat(2, 236px); }
 
   .view { padding: var(--sp-4) var(--sp-4) var(--sp-8); }
   .card { padding: var(--sp-4); border-radius: var(--radius); }
@@ -2940,11 +2966,20 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
   .us-actions { flex-direction: row; gap: var(--sp-1); }
   .us-actions .btn-mini { width: auto; }
 
-  /* จอกว้างพอให้กล่องลอยกลางจอได้แล้ว — เลิกเป็นแผ่นเลื่อนขึ้น */
+  /* แผ่นล่างบนจอกว้าง (มือถือแนวนอน/แท็บเล็ตเตี้ย) ไม่ต้องยืดเต็มจอ */
+  .modal { max-width: 680px; }
+  .modal-actions { flex-direction: row; justify-content: flex-end; align-items: center; gap: var(--sp-3); }
+  .modal-actions .btn, .modal-actions .btn-mini { width: auto; }
+}
+
+/* จอกว้าง "และสูงพอ" ให้กล่องลอยกลางจอได้แล้ว — เลิกเป็นแผ่นเลื่อนขึ้น
+   มือถือแนวนอน (844x390) ไม่เข้าเงื่อนไข: กล่องกลางจอสูงได้แค่ ~335px หัวกล่องเลื่อนหายพร้อมปุ่มปิด
+   → คงเป็นแผ่นล่าง หัวติดบนเสมอ (รีวิวมือถือ 27 ก.ย. 69) · min-height ไม่ใช่ max-width ไม่ขัดกติกา mobile-first */
+@media (min-width: 600px) and (min-height: 520px) {
   .modal-overlay { align-items: center; padding: var(--sp-5); }
   .modal {
     border-radius: 16px; border-bottom: 1px solid var(--border);
-    max-width: 680px; max-height: 86vh;
+    max-height: 86vh; max-height: 86dvh;
     padding: var(--sp-5); animation: none;
   }
   .modal-head {
@@ -2953,8 +2988,17 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
   }
   .modal-head::before { content: none; }
   .modal-head h3 { margin-top: 0; }
-  .modal-actions { flex-direction: row; justify-content: flex-end; align-items: center; gap: var(--sp-3); }
-  .modal-actions .btn, .modal-actions .btn-mini { width: auto; }
+  /* ปุ่มท้ายติดขอบล่าง — หักระยะขอบของกล่องลอย (sp-5) แทนของแผ่นล่าง */
+  .modal-actions {
+    bottom: calc(var(--sp-5) * -1); margin-bottom: calc(var(--sp-5) * -1);
+    padding: var(--sp-3) 0 var(--sp-5);
+  }
+  /* ปฏิทิน: กาง 2 เดือนคู่กัน คอลัมน์กว้างตายตัว —
+     ถ้าใช้ minmax(0, …) กล่องที่ position:absolute จะหดจนเลขวันทับกัน
+     เลื่อนในกล่องได้เสมอ (dpPlace_ จำกัดสูงตามที่ว่างจริง) — เดิม overflow:visible ทำให้ส่วนเกินล้นกล่องโปร่งทับตัวเลขหน้า
+     overflow-x hidden: กันแถบเลื่อนแนวตั้งเบียดความกว้างจนเกิดแถบแนวนอน */
+  .dp-pop { width: max-content; overflow-x: hidden; }
+  .dp-months { grid-template-columns: repeat(2, 236px); }
 }
 
 /* ============================================================
@@ -3024,7 +3068,10 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
   /* เมาส์: ปุ่มตาในช่องรหัสผ่านสูงเท่าช่อง (ช่องเตี้ยลงเหลือ ~37px ที่จอนี้ ปุ่ม 44px จะล้นกรอบ) */
   .pw-toggle { width: 40px; height: 100%; }
   table.tbl td.num a { min-height: 0; line-height: inherit; padding: 0; }
-  .input, select.input, input.input { font-size: var(--fs-3); }
+  /* iPad แนวนอนก็ ≥900 และซูมเองเมื่อช่องเล็กกว่า 16px — หดเฉพาะเครื่องที่ใช้เมาส์ */
+  @media (hover: hover) and (pointer: fine) {
+    .input, select.input, input.input { font-size: var(--fs-3); }
+  }
 
   /* จอกว้างพอแล้ว ตารางกลับเป็นตาราง: เลิกบังคับ 640px เลิกตรึงคอลัมน์แรก เลิกโหมดการ์ด */
   table.tbl.tbl-scroll-x { min-width: 0; }
@@ -3702,6 +3749,22 @@ table.tbl.ca-media-tbl.tbl-scroll-x tr:hover td:first-child {
 /* ---- แท็บ ตำแหน่งงาน & หน้าที่ ---- */
 #view-admins .adm-perm-name { min-width: 230px; }
 #view-admins .adm-perm-cell { text-align: center; }
+/* ช่องติ๊กในตาราง: label เต็มช่อง ≥44px — แตะตรงไหนในช่องก็ติ๊กได้ */
+#view-admins .perm-hit { display: flex; align-items: center; justify-content: center; min-height: 44px; cursor: pointer; }
+@media (min-width: 900px) { #view-admins .perm-hit { min-height: 0; } }
+/* มือถือ (<600): เลือกตำแหน่งทีละตำแหน่ง แทนตาราง 880px ที่มองไม่เห็นช่องติ๊ก (รีวิวมือถือ 27 ก.ย. 69) */
+#view-admins .adm-perm-matrix { display: none; }
+#view-admins .adm-perm-pick { margin: var(--sp-2) 0 var(--sp-1); }
+#view-admins .adm-perm-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  min-height: 52px; padding: var(--sp-2) 0; border-bottom: 1px solid var(--border);
+  font-size: var(--fs-body); color: var(--text); cursor: pointer;
+}
+#view-admins .adm-perm-row:last-child { border-bottom: 0; }
+@media (min-width: 600px) {
+  #view-admins .adm-perm-matrix { display: block; }
+  #view-admins .adm-perm-phone { display: none; }
+}
 #view-admins .adm-perm-th { white-space: normal; text-align: center; }
 
 /* ---- เมนู ⋯ (สร้างตอนกด) ---- */
@@ -3995,19 +4058,24 @@ table.tbl.ca-media-tbl.tbl-scroll-x tr:hover td:first-child {
 /* การ์ดตีกลับรายคน: ตัวเลือกเดือน/กลุ่ม + ปุ่มดาวน์โหลดอยู่ขวาของหัวการ์ด */
 #view-profit .card-actions select.input { width: auto; min-width: 0; }
 /* ตาราง ~90 คนต่อเดือน — กล่องเลื่อนในตัว สูงไม่เกินครึ่งจอ หัวตารางค้างอยู่บนสุดของกล่อง */
-.pf-ret-scroll {
-  max-height: 52vh; overflow-y: auto; padding-bottom: var(--sp-6);
-  /* ขอบล่างจาง = ยังเลื่อนลงได้อีก · เว้นท้ายไว้ให้แถวสุดท้ายไม่จมในส่วนที่จาง */
-  mask-image: linear-gradient(to bottom, black calc(100% - var(--sp-6)), transparent);
+/* มือถือ (<600): ไม่มีกล่องเลื่อนซ้อน (เดิมกล่องครึ่งจอดูดนิ้วตอนปัดเลื่อนหน้า) — ตัดเหลือ 10 คนแรก + ปุ่มดูทั้งหมด แทน */
+.pf-ret-cut #pf-ret-body > tr:nth-child(n+11):not(.tbl-total) { display: none; }
+.pf-ret-more { width: 100%; margin-top: var(--sp-3); }
+@media (min-width: 600px) {
+  .pf-ret-scroll {
+    max-height: 52vh; overflow-y: auto; overscroll-behavior: contain; padding-bottom: var(--sp-6);
+    /* ขอบล่างจาง = ยังเลื่อนลงได้อีก · เว้นท้ายไว้ให้แถวสุดท้ายไม่จมในส่วนที่จาง */
+    mask-image: linear-gradient(to bottom, black calc(100% - var(--sp-6)), transparent);
+  }
+  .pf-ret-scroll > table.tbl thead th { position: sticky; top: 0; z-index: 2; background: var(--surface); box-shadow: inset 0 -1px 0 var(--border); }
 }
-.pf-ret-scroll > table.tbl thead th { position: sticky; top: 0; z-index: 2; background: var(--surface); box-shadow: inset 0 -1px 0 var(--border); }
 
 /* ป้ายสินค้าเทส — ห่อบรรทัดได้ ระยะเท่ากัน */
 .pf-tests { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
 
 /* โมดัลกำไรรายวัน */
 .pf-daily-sub { margin-bottom: var(--sp-2); }
-.pf-daily-scroll { max-height: 60vh; overflow-y: auto; }
+.pf-daily-scroll { max-height: 60vh; overflow-y: auto; overscroll-behavior: contain; }
 
 /* ============================================================
    KPI ทีมขาย (#view-kpi)
@@ -4333,3 +4401,19 @@ span.us-field-err[hidden], span.um-field-err[hidden] { display: none; }
 #view-me .me-prog-pct { font-size: var(--fs-label); }
 /* งานค้างตอนนี้ 3 กล่อง ตัวเลขสั้น — 3 ต่อแถวทุกขนาดจอ ไม่ให้เหลือกล่องเดี่ยวบนมือถือ */
 #view-me .me-now { margin-bottom: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* ============================================================
+   ตัวเลขใหญ่บนเบราว์เซอร์ที่ไม่รู้จัก cqi (iOS 15 = iPhone 6s/7/SE รุ่นแรก, Chrome < 105)
+   ค่าสำรองเดิม 26px กว้างเกินกล่อง 2 คอลัมน์บนมือถือ → "฿110,782,300" ถูกตัดหลักท้าย (รีวิวมือถือ 27 ก.ย. 69)
+   ============================================================ */
+@supports not (font-size: 1cqi) {
+  .stat-value, .sr-card .big, .sr-chbox .v, .pgs-item b, .me-card-val, .sb-value { font-size: var(--fs-6); }
+  .sr-strip .tile b, .umap-stats .tile b { font-size: var(--fs-5); }
+  @media (min-width: 900px) {
+    .stat-value, .sr-card .big, .sr-chbox .v, .pgs-item b, .me-card-val, .sb-value { font-size: var(--fs-num); }
+    .sr-strip .tile b, .umap-stats .tile b { font-size: var(--fs-num-sm); }
+  }
+}
+
+/* ความสูงหัวเว็บจอ ≥900 (padding ใหญ่ขึ้น) — ของที่ติดใต้หัวเว็บ (หัวตาราง / แถบกำลังจับคู่ / แถบแอดมิน) ใช้ค่านี้ */
+@media (min-width: 900px) { :root { --topbar-h: 84px; } }

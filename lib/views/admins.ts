@@ -28,6 +28,8 @@ import {
   stateHtml,
   modalCloseBtn,
   dash,
+  floaterOpened,
+  floaterClosed,
 } from '@/lib/ui/helpers';
 import { adminsSkel } from '@/lib/ui/skeletons';
 import {
@@ -715,6 +717,10 @@ function cardHtml(a: Admin): string {
 
 let menuBtn: HTMLElement | null = null;
 let menuPop: HTMLElement | null = null;
+/** ปุ่มย้อนกลับของมือถือปิดเมนู ⋯ (ลงทะเบียนเป็นของลอยที่ helpers) — เดิมกดย้อนกลับแล้วออกจากหน้าไปเลย */
+const menuBack = (): void => closeMenu(false);
+/** ตำแหน่งที่เลือกดูในตารางหน้าที่แบบมือถือ (จำไว้ข้ามการวาดใหม่) */
+let permRole: string = ADMIN_ROLES[0];
 
 function menuItemsHtml(a: Admin): string {
   const enabled = a.enabled !== false;
@@ -769,6 +775,7 @@ function onMenuKey(e: KeyboardEvent): void {
 }
 
 function closeMenu(focusBtn: boolean): void {
+  floaterClosed(menuBack);
   if (menuPop) menuPop.remove();
   if (menuBtn) {
     menuBtn.setAttribute('aria-expanded', 'false');
@@ -796,9 +803,18 @@ function openMenu(btn: HTMLElement, a: Admin, container: HTMLElement): void {
   wrap.appendChild(pop);
   // ใกล้ขอบล่างจอ → เด้งขึ้นด้านบนปุ่มแทน (ไม่ต้องเลื่อนจอตามหาเมนู)
   const r = pop.getBoundingClientRect();
-  if (r.bottom > window.innerHeight - 8 && btn.getBoundingClientRect().top > r.height + 8) pop.classList.add('up');
+  if (r.bottom > window.innerHeight - 8) {
+    if (btn.getBoundingClientRect().top > r.height + 8) pop.classList.add('up');
+    else {
+      // มือถือแนวนอน (สูง ~390px): ข้างบน-ข้างล่างไม่พอทั้งคู่ → จำกัดสูงตามที่ว่างข้างล่าง แล้วเลื่อนในเมนูเอง
+      // เดิมเมนูยาวเลยขอบล่างจอ "พัก / ไม่ว่าง / ระงับบัญชี" มองไม่เห็น
+      pop.style.maxHeight = Math.max(160, Math.floor(window.innerHeight - r.top - 8)) + 'px';
+      pop.style.overflowY = 'auto';
+    }
+  }
   menuBtn = btn;
   menuPop = pop;
+  floaterOpened(menuBack);
   btn.setAttribute('aria-expanded', 'true');
   btn.setAttribute('aria-controls', 'adm-pop');
   document.addEventListener('pointerdown', onMenuOutside, true);
@@ -1074,13 +1090,37 @@ function rolesTabHtml(): string {
     return '<tr><td class="adm-perm-name">' + esc(PERM_LABELS[perm]) + '</td>' +
       ADMIN_ROLES.map(function (role) {
         const checked = rp[role] && rp[role][perm];
-        return '<td class="adm-perm-cell"><input type="checkbox" class="perm-cb" data-role="' +
+        // label เต็มช่อง = แตะตรงไหนในช่องก็ติ๊กได้ (เดิมโดนแค่กล่อง 15px — ติ๊กแล้วบันทึกทันที แตะพลาด = เปลี่ยนสิทธิ์จริง)
+        return '<td class="adm-perm-cell"><label class="perm-hit"><input type="checkbox" class="perm-cb" data-role="' +
           esc(role) + '" data-perm="' + esc(perm) + '"' + (checked ? ' checked' : '') +
           (role === 'Disabled' ? ' disabled' : '') +
-          ' aria-label="' + esc(role + ' — ' + PERM_LABELS[perm]) + '"></td>';
+          ' aria-label="' + esc(role + ' — ' + PERM_LABELS[perm]) + '"></label></td>';
       }).join('') +
     '</tr>';
   }).join('');
+  // มือถือ (<600): ตาราง 7 ตำแหน่ง กว้าง 880px ในจอ 360 มองไม่เห็นช่องติ๊กเลย (คอลัมน์ชื่อหน้าที่ตรึงบังหมด)
+  // → เลือกตำแหน่งทีละตำแหน่ง แล้วติ๊กรายการหน้าที่แถวละ 1 ช่องใหญ่ · ช่องติ๊กชุดนี้ใช้ class/data เดียวกับตาราง
+  //   ตัวบันทึก (delegation 'change') จึงใช้ร่วมกันได้ และซิงก์ติ๊กให้อีกชุดตรงกันเสมอ
+  const pr = (ADMIN_ROLES as readonly string[]).indexOf(permRole) >= 0 ? permRole : ADMIN_ROLES[0];
+  const phone = '<div class="adm-perm-phone">' +
+    '<label class="adm-field adm-perm-pick"><span>ตำแหน่ง</span>' +
+      '<select class="input" id="adm-perm-role">' +
+        ADMIN_ROLES.map(function (r) {
+          return '<option value="' + esc(r) + '"' + (r === pr ? ' selected' : '') + '>' + esc(r) + '</option>';
+        }).join('') +
+      '</select></label>' +
+    ADMIN_ROLES.map(function (role) {
+      return '<div class="adm-perm-list" data-perm-role="' + esc(role) + '"' + (role === pr ? '' : ' hidden') + '>' +
+        (role === 'Disabled' ? '<div class="card-sub">ตำแหน่งนี้ (บัญชีที่ถูกระงับ) แก้ไขไม่ได้</div>' : '') +
+        Object.keys(PERM_LABELS).map(function (perm) {
+          const checked = rp[role] && rp[role][perm];
+          return '<label class="adm-perm-row"><span>' + esc(PERM_LABELS[perm]) + '</span>' +
+            '<input type="checkbox" class="perm-cb" data-role="' + esc(role) + '" data-perm="' + esc(perm) + '"' +
+            (checked ? ' checked' : '') + (role === 'Disabled' ? ' disabled' : '') + '></label>';
+        }).join('') +
+      '</div>';
+    }).join('') +
+  '</div>';
   return '<div class="card">' +
     '<div class="card-head"><h3 class="card-title">ตำแหน่งงาน &amp; หน้าที่' +
       infoTip('ติ๊ก = ตำแหน่งนั้นทำได้ • บันทึกอัตโนมัติทุกครั้งที่ติ๊ก • ใช้เป็นทะเบียนทีมในเว็บนี้ (แสดงผล / รายงาน) • ไม่มีผลกับบัญชี Pancake', 'ตำแหน่งงาน & หน้าที่') +
@@ -1088,7 +1128,8 @@ function rolesTabHtml(): string {
     '<div class="card-sub">ติ๊ก = ตำแหน่งนั้นทำได้ — บันทึกอัตโนมัติ ไม่มีผลกับบัญชี Pancake</div>' +
     // data-cards="off" = ตารางเมทริกซ์ (หน้าที่ × ตำแหน่ง) ทำเป็นการ์ดต่อแถวไม่ได้ ต้องเห็นเป็นตารางถึงจะเทียบตำแหน่งได้
     // ความกว้างขั้นต่ำใช้ .tbl-scroll-x ไม่ใช่ inline style — inline จะทับกฎ min-width:0 ตอนจอกว้าง
-    '<div class="table-scroll"><table class="tbl tbl-scroll-x tbl-wide" data-cards="off"><thead><tr>' +
+    phone +
+    '<div class="table-scroll adm-perm-matrix"><table class="tbl tbl-scroll-x tbl-wide" data-cards="off"><thead><tr>' +
       '<th>หน้าที่</th>' +
       ADMIN_ROLES.map(function (r) { return '<th class="adm-perm-th">' + esc(r) + '</th>'; }).join('') +
     '</tr></thead><tbody>' + rows + '</tbody></table></div>' +
@@ -1553,11 +1594,24 @@ function bindEvents(container: HTMLElement): void {
       if (a) setStatusOverride(a, String(el.value || ''), container);
       return;
     }
+    // ตารางหน้าที่แบบมือถือ: เลือกตำแหน่ง → โชว์รายการของตำแหน่งนั้น
+    if (el.id === 'adm-perm-role') {
+      permRole = String(el.value || ADMIN_ROLES[0]);
+      wrap.querySelectorAll('[data-perm-role]').forEach(function (x) {
+        (x as HTMLElement).hidden = x.getAttribute('data-perm-role') !== permRole;
+      });
+      return;
+    }
     if (el.classList && el.classList.contains('perm-cb')) {
       const role = el.getAttribute('data-role');
       const perm = el.getAttribute('data-perm');
       const rp = (lastData && lastData.rolePerms) || null;
       if (rp && role && perm && rp[role]) {
+        // ช่องติ๊กมี 2 ชุด (ตาราง + แบบมือถือ) — ให้อีกชุดตรงกันทันที
+        wrap.querySelectorAll('.perm-cb').forEach(function (x) {
+          const cb = x as HTMLInputElement;
+          if (cb !== el && cb.getAttribute('data-role') === role && cb.getAttribute('data-perm') === perm) cb.checked = !!el.checked;
+        });
         rp[role][perm] = !!el.checked;
         dataSeq++; // แก้ matrix ใน state แล้ว — กัน refetch เก่ามาทับก่อน save
         saveRolePerms();

@@ -1002,6 +1002,18 @@ function bindEvents(container: HTMLElement): void {
     if (lastData) render(container, lastData);
     const c = container.closest('.view') || container;
     (c as HTMLElement).scrollTop = 0;
+    // มือถือ/แท็บเล็ต (<900): ผังทีมอยู่ "เหนือ" การ์ดของคนที่เลือก (~1,950px ลงไป) — เดิมเด้งขึ้นบนสุด
+    // ต้องเลื่อนหาเองทุกครั้งที่เลือกคน → พาไปที่การ์ดคนนั้นเลย (ชิดใต้หัวเว็บ) (รีวิวมือถือ 27 ก.ย. 69)
+    if (!window.matchMedia('(min-width: 900px)').matches) {
+      const head = container.querySelector('.kpi-person-head');
+      const card = head ? (head.closest('.card') as HTMLElement | null) : null;
+      if (card) {
+        const tb = document.querySelector('.topbar') as HTMLElement | null;
+        const off = (tb ? tb.getBoundingClientRect().height : 0) + 8;
+        window.scrollTo({ top: Math.max(0, card.getBoundingClientRect().top + window.scrollY - off) });
+        return;
+      }
+    }
     window.scrollTo({ top: 0 });
   };
   container.querySelectorAll('[data-coach]').forEach(function (el) {

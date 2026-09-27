@@ -522,6 +522,38 @@ function emitModal_(): void {
   try { document.dispatchEvent(new CustomEvent('pn:modal', { detail: { open: depth > 0, depth } })); } catch { /* เบราว์เซอร์เก่า */ }
 }
 
+/* ของลอยที่ไม่ได้อยู่ใน #modal-root (ปฏิทินเลือกวัน / เมนู ⋯ / เมนูดาวน์โหลด)
+   ลงทะเบียนตัวปิดไว้ที่นี่ ให้ปุ่มย้อนกลับของมือถือ "ปิดของลอยก่อน" เหมือนหน้าต่าง (app-core onPopState)
+   เดิมกดย้อนกลับตอนปฏิทิน/เมนูเปิด = ออกจากหน้าไปเลย ของลอยค้างอยู่ในหน้าที่ถูกซ่อน (รีวิวมือถือ 27 ก.ย. 69) */
+const floaters_: Array<() => void> = [];
+
+function emitFloater_(): void {
+  try { document.dispatchEvent(new CustomEvent('pn:overlay')); } catch { /* เบราว์เซอร์เก่า */ }
+}
+
+/** เปิดของลอย — close = ฟังก์ชันปิดของมันเอง (ต้องเรียก floaterClosed ตอนปิดทุกทาง) */
+export function floaterOpened(close: () => void): void {
+  if (floaters_.indexOf(close) < 0) floaters_.push(close);
+  emitFloater_();
+}
+
+/** ของลอยปิดแล้ว (ปิดเองทางไหนก็ตาม) — เรียกซ้ำได้ ไม่มีผล */
+export function floaterClosed(close: () => void): void {
+  const i = floaters_.indexOf(close);
+  if (i < 0) return;
+  floaters_.splice(i, 1);
+  emitFloater_();
+}
+
+export function floaterIsOpen(): boolean { return floaters_.length > 0; }
+
+/** ปิดของลอยชิ้นบนสุด (ปุ่มย้อนกลับ) */
+export function closeTopFloater(): void {
+  const c = floaters_[floaters_.length - 1];
+  if (c) c();
+  floaterClosed(c);   // เผื่อตัวปิดไม่ได้แจ้งกลับ — ไม่งั้นค้างนับว่าเปิดตลอด
+}
+
 /** มีหน้าต่างเปิดอยู่ไหม */
 export function isModalOpen(): boolean {
   const root = typeof document !== 'undefined' ? document.getElementById('modal-root') : null;
@@ -729,8 +761,9 @@ function bindSheetDrag_(overlay: HTMLElement, closeFn: () => void): void {
 
   // กันเบราว์เซอร์เอาท่าทางนี้ไปทำ scroll — ต้องเป็น listener แบบ non-passive ถึงจะ preventDefault ได้
   // (ใช้แทน CSS touch-action ซึ่งแก้ปัญหาเดียวกันได้แต่ไปกลืนการแตะครั้งถัดไป — ดูคอมเมนต์ที่ .modal-head)
+  // + ปัดบน "พื้นมืด" (นอกแผ่น) = ไม่มีอะไรให้เลื่อน — เดิมหน้าข้างหลังเลื่อนตาม ปิดแผ่นแล้วหลงตำแหน่ง
   overlay.addEventListener('touchmove', function (e) {
-    if (id !== -1 && e.cancelable) e.preventDefault();
+    if ((id !== -1 || e.target === overlay) && e.cancelable) e.preventDefault();
   }, { passive: false });
 
   overlay.addEventListener('pointermove', function (e) {
@@ -981,8 +1014,10 @@ export function bindDownloadMenu(
     btn.setAttribute('aria-expanded', 'false');
     document.removeEventListener('pointerdown', onOutside, true);
     document.removeEventListener('keydown', onKey, true);
+    floaterClosed(backClose);
     if (focusBtn) btn.focus();
   };
+  const backClose = () => close(false);
   // ปิดเมื่อแตะที่อื่น / กด Esc (capture — ไม่ให้ Esc ไปปิดหน้าต่างข้างหลังด้วย)
   // ปุ่มหลุดจากหน้าแล้ว (view วาดใหม่ระหว่างเมนูเปิด) → ถอดตัวดักทิ้งเงียบๆ ไม่กิน Esc ของหน้าต่างอื่น
   const detached = () => {
@@ -992,6 +1027,7 @@ export function bindDownloadMenu(
     btn.setAttribute('aria-expanded', 'false');
     document.removeEventListener('pointerdown', onOutside, true);
     document.removeEventListener('keydown', onKey, true);
+    floaterClosed(backClose);
     return true;
   };
   const onOutside = (e: Event) => {
@@ -1008,6 +1044,7 @@ export function bindDownloadMenu(
     btn.setAttribute('aria-expanded', 'true');
     document.addEventListener('pointerdown', onOutside, true);
     document.addEventListener('keydown', onKey, true);
+    floaterOpened(backClose);
     const first = pop.querySelector<HTMLElement>('.menu-item');
     if (first) first.focus();
   });
@@ -1207,7 +1244,12 @@ function dpPlace_(host: HTMLElement): void {
     host.style.bottom = 'calc(100% + var(--sp-2))';
     pop.style.maxHeight = Math.round(spaceAbove) + 'px';
   } else {
-    pop.style.maxHeight = Math.round(Math.max(MIN_H, spaceBelow)) + 'px';
+    // ข้างบน-ข้างล่างไม่พอทั้งคู่ (มือถือแนวนอน สูง ~390px) — เดิมกล่องสูง 260px ยื่นเลยขอบล่างจอ ~55px
+    // ปุ่ม "แสดง" หลุดจอ → เลื่อนหน้าขึ้นเท่าที่ขาด ให้ทั้งกล่องอยู่ในจอ (รีวิวมือถือ 27 ก.ย. 69)
+    const h = Math.min(MIN_H, vh - M * 2);
+    if (spaceBelow < h) window.scrollBy(0, Math.ceil(h - spaceBelow));
+    const below2 = vh - pop.getBoundingClientRect().top - M;
+    pop.style.maxHeight = Math.round(Math.max(h, below2)) + 'px';
   }
 }
 
@@ -1348,6 +1390,7 @@ let dpKey_: ((e: KeyboardEvent) => void) | null = null;
 function dpClose_(): void {
   const c = dpCtx_;
   dpCtx_ = null;
+  floaterClosed(dpClose_);
   if (dpOutside_) { document.removeEventListener('mousedown', dpOutside_, true); dpOutside_ = null; }
   if (dpKey_) { document.removeEventListener('keydown', dpKey_, true); dpKey_ = null; }
   document.querySelectorAll('.dp-host').forEach((h) => { h.innerHTML = ''; });
@@ -1423,9 +1466,11 @@ function dpOpen_(trigger: HTMLElement, host: HTMLElement, state: RangeState, idP
     if (map[k]) { e.preventDefault(); dpMoveFocus_(host, map[k][0], map[k][1]); }
   };
   document.addEventListener('keydown', dpKey_, true);
+  floaterOpened(dpClose_);
 
+  // preventScroll: วันนี้อาจอยู่ส่วนล่างของกล่อง — focus() เฉยๆ ลากทั้งหน้าเลื่อนตาม (วัดได้ 276px บนมือถือแนวนอน)
   const f = host.querySelector('[data-focus="1"]') as HTMLElement | null;
-  if (f) f.focus();
+  if (f) f.focus({ preventScroll: true });
 }
 
 
@@ -1512,7 +1557,9 @@ const rcBinds_ = new WeakMap<Element, RcBind>();
 
 /** เลือก "กำหนดเอง" จากแผ่นมือถือ → เปิดปฏิทินให้เลยเมื่อหน้าวาดปุ่มปฏิทินเสร็จ (ถ้าวาดเสร็จเร็วพอ) */
 let dpAutoOpen_: { idPrefix: string; at: number } | null = null;
-const DP_AUTO_OPEN_MS = 2500;   // โหลดนานกว่านี้ ไม่เด้งปฏิทินใส่ — คนอาจเลื่อนไปทำอย่างอื่นแล้ว
+// โหลดนานกว่านี้ ไม่เด้งปฏิทินใส่ — คนอาจเลื่อนไปทำอย่างอื่นแล้ว
+// (เดิม 2.5 วิ แต่หน้ายอดขายบนมือถือโหลดใหม่ ~3.7 วิ ปฏิทินเลยไม่เคยเด้ง — รีวิวมือถือ 27 ก.ย. 69)
+const DP_AUTO_OPEN_MS = 8000;
 
 /** แผ่นเลือกช่วงเวลาบนมือถือ (bottom sheet ชุดเดียวกับหน้าต่างอื่นของเว็บ) */
 function openRangeSheet_(b: RcBind, idPrefix: string): void {

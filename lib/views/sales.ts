@@ -601,7 +601,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
       svgHourlyLine(hourly, hourlyPrev, { prevLabel: prevName }) +
       '<div class="sr-legend">' + chartKey('line', 'ช่วงที่เลือก') +
         (hourlyPrev ? chartKey('dash', prevName + prevWinTxt) : '') +
-        '<span>ชี้ที่จุดบนเส้นเพื่อดูยอดแต่ละชั่วโมง</span>' +
+        '<span>ชี้หรือแตะที่จุดบนเส้นเพื่อดูยอดแต่ละชั่วโมง</span>' +
       '</div>' +
     '</div>' +
     // การ์ด "ธุรกิจวันนี้ LIVE" — ตั้งใจให้เป็นยอดสดที่ไม่ขึ้นกับตัวกรอง (ตรวจ UI ข้อ B2: ไม่แตะ)

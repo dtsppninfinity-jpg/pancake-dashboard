@@ -605,5 +605,8 @@ function bindOneChart_(svg: SVGSVGElement): void {
     onLeave();
   });
   svgEl.addEventListener('pointercancel', onLeave);
+  // แตะนิ้วนิ่งๆ ไม่มี pointermove เลย (มีแค่ down/up) — ตัวเลขไม่ขึ้น ต้องขยับนิ้วนิดหนึ่งถึงจะขึ้น
+  // click เกิดเฉพาะ "แตะจริง" ไม่เกิดตอนปัดเลื่อนหน้า (ถ้าใช้ pointerdown การ์ดจะแวบทุกครั้งที่เริ่มปัดบนกราฟ)
+  svgEl.addEventListener('click', function (e) { onMove(e as PointerEvent); });
   bindOutsideClose_();
 }

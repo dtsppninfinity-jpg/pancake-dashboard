@@ -8,6 +8,7 @@
 
 import {
   serverCall, esc, relTime, openModal, closeTopModal as closeTopModalLayer, modalCloseBtn, thaiDateShort,
+  floaterIsOpen, closeTopFloater,
 } from '@/lib/ui/helpers';
 import { icon, statusPill, ICON_FOR, type StatusKind } from '@/lib/ui/icons';
 import { hideChartTip } from '@/lib/ui/charts';
@@ -668,6 +669,7 @@ function modalOpen(): boolean {
 
 function overlayIsOpen(): boolean {
   if (modalOpen()) return true;
+  if (floaterIsOpen()) return true;   // ปฏิทิน / เมนู ⋯ / เมนูดาวน์โหลด (helpers.floaterOpened)
   const app = document.getElementById('app');
   // จอกว้างไม่มีลิ้นชัก (แถบเมนูปักซ้าย) — คลาส nav-open ที่ค้างมาจากตอนหมุนจอไม่นับ
   return !!(app && app.classList.contains('nav-open') && !wideScreen());
@@ -682,7 +684,9 @@ function closeTopModal(): void {
 }
 
 function closeOverlays(): void {
-  if (modalOpen()) closeTopModal();
+  // ปิดทีละชั้น: หน้าต่าง → ของลอย → ลิ้นชัก (กดย้อนกลับครั้งเดียวปิดชิ้นเดียว)
+  if (modalOpen()) { closeTopModal(); return; }
+  if (floaterIsOpen()) { closeTopFloater(); return; }
   const app = document.getElementById('app');
   if (app && app.classList.contains('nav-open')) setNavOpen(false);
 }
@@ -697,6 +701,9 @@ function queueOverlaySync(): void {
 
 function syncOverlayHistory(): void {
   overlaySyncQueued = false;
+  // ล็อกหน้าข้างหลังตอนมีหน้าต่าง/แผ่นเปิด (มือถือ/แท็บเล็ต) — เดิมปัดแล้วหน้าข้างหลังไหล ปิดแผ่นแล้วหลงตำแหน่ง
+  // จอ ≥900 ไม่ล็อก: หน้าเว็บจะกระตุกซ้ายขวาเท่าความกว้างแถบเลื่อนทุกครั้งที่เปิดหน้าต่าง
+  document.documentElement.classList.toggle('modal-locked', modalOpen() && !wideScreen());
   if (ignorePops > 0) return;   // กำลังรอ history.back() ของเราเองจบ — popstate จะเรียกซ้ำให้
   const open = overlayIsOpen();
   if (open && !overlayEntry) {
@@ -760,6 +767,8 @@ function bindHistory(): void {
   // ดูแค่ลูกชั้นแรก (เนื้อในหน้าต่างเปลี่ยนเองบ่อย ไม่เกี่ยวกับการเปิด-ปิด)
   const mr = document.getElementById('modal-root');
   if (mr) new MutationObserver(queueOverlaySync).observe(mr, { childList: true });
+  // ของลอยนอก #modal-root (ปฏิทิน / เมนู ⋯) แจ้งเปิด-ปิดผ่าน event นี้ (helpers.floaterOpened/Closed)
+  document.addEventListener('pn:overlay', queueOverlaySync);
 }
 
 /* ============================================================
@@ -883,6 +892,18 @@ const App = {
     if (backdrop) backdrop.addEventListener('click', function () { setNavOpen(false); });
     // หมุนจอ/ย่อขยายหน้าต่างข้ามเส้น 900px — ความหมายของปุ่ม ☰ เปลี่ยน (ลิ้นชัก ↔ พับแถบ) ต้องอัปเดตสถานะปุ่ม
     try { window.matchMedia('(min-width: 900px)').addEventListener('change', function () { syncNavBtnState(); queueOverlaySync(); }); } catch (e) {}
+    // หมุนมือถือข้ามเส้น 600px: กราฟเลือกขนาดตอนวาดครั้งเดียว (charts.vbWidth) — แนวตั้ง→แนวนอน กราฟสูงเกินจอ
+    // แนวนอน→แนวตั้ง ตัวหนังสือเหลือ ~6px อ่านไม่ออก → วาดหน้าที่มีกราฟใหม่ (load แบบ force=false = วาดจากแคชทันที)
+    try {
+      let rt = 0;
+      window.matchMedia('(min-width: 600px)').addEventListener('change', function () {
+        clearTimeout(rt);
+        rt = window.setTimeout(function () {
+          const v = self.state.view;
+          if (v === 'dashboard' || v === 'sales' || v === 'adminperf') self.loadView(v, false);
+        }, 300);
+      });
+    } catch (e) {}
     syncNavBtnState();
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
