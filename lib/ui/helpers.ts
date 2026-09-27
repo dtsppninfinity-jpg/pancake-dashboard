@@ -195,7 +195,9 @@ export function platformIcon(pf: string | null | undefined): string {
   return brandIcon('facebook', { size: 14 });
 }
 
-const AVATAR_COLORS = ['#6c5ce7', '#0984e3', '#00b894', '#e17055', '#d63031', '#e84393', '#fdcb6e', '#00cec9'];
+// สีรูปโปรไฟล์: โทนม่วง/น้ำเงิน/เขียวอมฟ้า/เทาเท่านั้น (ตรวจ UI ข้อ E3) — เดิมมีแดง ส้ม เขียว เหลือง
+// ซึ่งไปวางข้างป้ายสถานะ (แดง = ปัญหา, เขียว = ดี) แล้วอ่านเป็นสถานะได้ · ทุกสีตัวหนังสือขาวได้คอนทราสต์ ≥4.5:1
+const AVATAR_COLORS = ['#6c5ce7', '#4f46e5', '#7c3aed', '#2563eb', '#0369a1', '#0e7490', '#64748b', '#6d28d9'];
 export function avatarColor(id: string | number | null | undefined): string {
   let h = 0;
   const s = String(id || '');

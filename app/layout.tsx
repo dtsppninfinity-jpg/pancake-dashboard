@@ -1,10 +1,4 @@
 import './globals.css';
-// ชั่วคราวระหว่างงาน UI รอบ 2: ผู้ช่วยแต่ละหน้าแก้ไฟล์สไตล์ของตัวเอง (ไม่ชนกัน) — รวมเข้า globals.css แล้วลบตอนจบ
-import './styles/pw-sales.css';
-import './styles/pw-dashca.css';
-import './styles/pw-admins.css';
-import './styles/pw-kpr.css';
-import './styles/pw-misc.css';
 import type { Metadata } from 'next';
 import { IBM_Plex_Sans_Thai } from 'next/font/google';
 
