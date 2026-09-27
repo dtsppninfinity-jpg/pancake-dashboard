@@ -196,6 +196,19 @@ export async function apiDashboard(
   const chartStartStr = fmtDateBkk(chartDates[0]);
   // ดึงเท่าที่ใช้จริง = ช่วงที่เลือก ∪ ช่วงกราฟ (ลดจำนวนแถว) — วนจนครบ กัน 1000-row cap
   const fetchStartStr = chartStartStr < range.startStr ? chartStartStr : range.startStr;
+  // 3 แหล่งข้างล่าง (แชทรายชั่วโมง / บทสนทนา 24 ชม. / สถิติลูกค้า) ไม่ขึ้นกับกันเลย — ยิงพร้อมกันตั้งแต่ต้น
+  // เดิมรอทีละตัว 3 ต่อ · ลำดับแถวของแต่ละก้อนเหมือนเดิม (order ของแต่ละคิวรีไม่เปลี่ยน)
+  const cutoff = convCutoff_();
+  const cutoffIso = new Date(cutoff).toISOString();
+  const convRowsP = fetchAll<any>(() =>
+    db
+      .from('conversations')
+      .select('id,page_id,page_name,platform,type,customer_name,snippet,updated_at,waiting,last_sent_by,tags')
+      .gte('updated_at', cutoffIso)
+  );
+  const engP = loadEngagementRange_(range, channel, commentMode);
+  // คิวรีที่ await ก่อนล้ม → อีกตัวยังวิ่งต่อ แต่ต้องไม่กลายเป็น unhandled rejection
+  convRowsP.catch(() => {});
   const chatRows = await fetchAll<any>(() =>
     db
       .from('chat_hourly')
@@ -275,14 +288,7 @@ export async function apiDashboard(
   //    conversations เก็บ "สถานะล่าสุด" ของแต่ละบทสนทนา (1 แถว/บทสนทนา ทับของเดิม) ไม่ใช่ประวัติรายวัน
   //    เลือก '30 วันล่าสุด' แล้วกรอง updated_at ย้อนหลังจะได้ "แชทที่ยังค้างอยู่ตอนนี้" ปนกับของเก่า
   //    ซึ่งอ่านผิดเป็น "แชทที่ค้างเมื่อ 30 วันก่อน" — หน้าเว็บจึงติดป้ายกำกับว่าเป็นค่าตอนนี้แทน
-  const cutoff = convCutoff_();
-  const cutoffIso = new Date(cutoff).toISOString();
-  const convRows = await fetchAll<any>(() =>
-    db
-      .from('conversations')
-      .select('id,page_id,page_name,platform,type,customer_name,snippet,updated_at,waiting,last_sent_by,tags')
-      .gte('updated_at', cutoffIso)
-  );
+  const convRows = await convRowsP;
   const convs = convRows.filter((c: any) => {
     if (!convInWindow_(c, cutoff)) return false;
     if (commentMode) return String(c.type || '').toUpperCase() === 'COMMENT';
@@ -332,7 +338,7 @@ export async function apiDashboard(
   // ตัวเลขชุดเดียวกับหน้าสถิติแชทของ Pancake (chat_engagement_daily) — ใช้ยืนยันว่า
   // "ลูกค้าใหม่" ที่เราโชว์ตรงกับที่บอสเห็นบนจอ Pancake จริง
   // null = ยังไม่ได้รัน migration 2026-07-23-chat-engagement.sql → หน้าเว็บโชว์ "—"
-  const eng = await loadEngagementRange_(range, channel, commentMode);
+  const eng = await engP;
 
   const replyBase = donut.replied + donut.ai + donut.waiting;
   return {
