@@ -144,8 +144,9 @@ const VIEW_KEY = 'pn.admins.view';
 let viewMode: ViewMode | null = null; // อ่านจาก localStorage ตอนเปิดหน้าครั้งแรก (ไม่อ่านตอน import — ฝั่ง server ไม่มี localStorage)
 
 function readViewMode(): ViewMode {
+  // ค่าเริ่มต้น = การ์ด (พีเลือก 27 ก.ย. 69) · แบบแถวยังสลับได้ และจำค่าที่เลือกไว้ในเครื่อง
   // private window / ปิด cookie แล้ว localStorage โยน error ได้ — ใช้ค่าเริ่มต้นแทน ห้ามพังทั้งหน้า
-  try { return localStorage.getItem(VIEW_KEY) === 'cards' ? 'cards' : 'rows'; } catch { return 'rows'; }
+  try { return localStorage.getItem(VIEW_KEY) === 'rows' ? 'rows' : 'cards'; } catch { return 'cards'; }
 }
 function writeViewMode(v: ViewMode): void {
   try { localStorage.setItem(VIEW_KEY, v); } catch { /* จำไม่ได้ก็แค่กลับเป็นค่าเริ่มต้นรอบหน้า */ }
@@ -1191,7 +1192,7 @@ function renderGrid(container: HTMLElement): void {
     });
     return;
   }
-  const rows = viewMode !== 'cards';
+  const rows = viewMode === 'rows';
   const item = rows ? rowHtml : cardHtml;
   const block = function (arr: Admin[]): string {
     if (!arr.length) return '';
@@ -1339,7 +1340,7 @@ function toolbarHtml(depts: string[], groups: string[], slaMins: number, d: Admi
       { v: 'full', t: 'เต็มแล้ว' }, { v: 'slow', t: 'ตอบช้า (>8 นาที)' },
     ]);
   const vsw = function (v: ViewMode, ic: string, label: string): string {
-    const on = viewMode === v || (!viewMode && v === 'rows');
+    const on = viewMode === v || (!viewMode && v === 'cards');
     return '<button type="button" class="filter-btn' + (on ? ' active' : '') + '" data-admview="' + v + '">' +
       icon(ic, { size: 16 }) + '<span>' + label + '</span></button>';
   };
