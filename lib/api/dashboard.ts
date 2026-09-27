@@ -336,7 +336,9 @@ export async function apiDashboard(
   convs.forEach((c: any) => {
     const waiting = toBool_(c.waiting);
     const lastBy = String(c.last_sent_by);
-    if (waiting) donut.waiting++;
+    // จำนวนรอตอบนับจากก้อน "แชทรอตอบ" ข้างล่าง (ก้อนเดียวกับรายการต้องตอบ) — สองคิวรีอ่านคนละจังหวะ
+    // ถ้านับจากก้อนนี้ sync ที่ลงระหว่างนั้นทำให้เลขการ์ดกับรายการขัดกันได้ · ไม่มี sync คั่น = ผลเท่าเดิมทุกตัว
+    if (waiting) { /* นับข้างล่าง */ }
     else if (lastBy === 'ai') donut.ai++;
     else donut.replied++;
     const type = String(c.type || 'INBOX');
@@ -353,6 +355,7 @@ export async function apiDashboard(
   });
   // รายการ "ต้องตอบ" — แถวรอตอบตามลำดับ id เดิม (= ลำดับเดียวกับที่เคยหยิบจากก้อนรวม)
   convWaitRows.filter(convFilter_).forEach((c: any) => {
+    donut.waiting++;
     const upd = toDate_(c.updated_at);
     attention.push({
       id: String(c.id),

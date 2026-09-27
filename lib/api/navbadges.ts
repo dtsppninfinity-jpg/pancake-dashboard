@@ -23,21 +23,25 @@ export function apiNavBadges(): Promise<NavBadges> {
   const key = fmtDateBkk(daysAgo(6));
   const now = Date.now();
   if (badgeCache_ && badgeCache_.key === key && now - badgeCache_.at < BADGE_TTL_MS) return badgeCache_.p;
-  const p = computeNavBadges_(key);
+  const deg = { v: false };
+  const p = computeNavBadges_(key, deg);
   badgeCache_ = { key, at: now, p };
-  p.catch(() => { if (badgeCache_ && badgeCache_.p === p) badgeCache_ = null; });
+  const drop = () => { if (badgeCache_ && badgeCache_.p === p) badgeCache_ = null; };
+  // พลาด หรือมีแหล่งพลาดแล้วถูกกลืนเป็น 0 = ไม่เก็บ (คำขอนี้ได้ผลแบบเดิมคนเดียว ไม่แจกเลข 0 ให้ทุกแท็บ 3 นาที)
+  p.then(() => { if (deg.v) drop(); }, drop);
   return p;
 }
 
-async function computeNavBadges_(since: string): Promise<NavBadges> {
+async function computeNavBadges_(since: string, deg: { v: boolean }): Promise<NavBadges> {
   const [alertState, adRows] = await Promise.all([
     db.from('sync_state').select('value').eq('key', 'unit_loss_alerts').maybeSingle(),
     // หน้าต่าง 7 วันเดียวกับค่าเริ่มต้นของหน้า Content & Ads — เลขบน badge ต้องตรงกับที่เห็นเมื่อเปิดหน้า
     fetchAll<any>(() => db.from('ad_daily')
       .select('ad_id,status,spend,pos_orders,meta_purchase_value')
       .gte('date', since), 'date,ad_id')
-      .catch(() => [] as any[]),
+      .catch(() => { deg.v = true; return [] as any[]; }),
   ]);
+  if (alertState.error) deg.v = true;
 
   // ---- Sales: ยูนิตขาดทุน (จาก sync_state ที่งาน unit-alerts คำนวณไว้แล้ว) ----
   let salesUrgent = 0, salesWarn = 0;

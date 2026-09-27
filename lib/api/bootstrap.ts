@@ -63,9 +63,13 @@ export async function apiBootstrap(_params?: unknown) {
   const msgById: Record<string, unknown> = {};
   const lastIds = Object.keys(lastIdByJob).map((j) => lastIdByJob[j]);
   if (lastIds.length) {
-    // พลาด = ข้อความว่าง (สถานะ/เวลายังถูก) — ข้อความโชว์แค่ในหน้าต่างปัญหา sync ของผู้ดูแล
-    const { data: msgRows } = await Promise.resolve(db.from('sync_log').select('id,message').in('id', lastIds as any[]))
-      .catch(() => ({ data: null }));
+    // ข้อความใช้ตัดสินสถานะด้วย (เช่น "ข้าม...") — ดึงตามหลังพลาด ถอยไปอ่านแบบเดิมทั้งก้อน (มีข้อความ) ไม่ปล่อยว่าง
+    let { data: msgRows } = await Promise.resolve(db.from('sync_log').select('id,message').in('id', lastIds as any[]))
+      .catch(() => ({ data: null as any }));
+    if (!msgRows) {
+      ({ data: msgRows } = await Promise.resolve(db.from('sync_log')
+        .select('id,message').order('id', { ascending: false }).limit(2500)).catch(() => ({ data: null as any })));
+    }
     ((msgRows || []) as any[]).forEach((m) => { msgById[String(m.id)] = m.message; });
   }
   const lastByJob: Record<string, { job: string; ts: string; ok: boolean; message: string }> = {};

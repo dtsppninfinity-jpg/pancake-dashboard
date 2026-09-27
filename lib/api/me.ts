@@ -32,7 +32,9 @@ function teamPerf_(q: { preset: string; from: unknown; to: unknown; channel: str
   if (hit) return hit.p;
   const p = apiAdminPerf(q, { skipHourly: true });   // สถิติแชทรายชั่วโมงทั้งทีม — หน้านี้ไม่ได้ใช้
   perfMemo_[key] = { at: now, p };
-  p.catch(() => { if (perfMemo_[key] && perfMemo_[key].p === p) delete perfMemo_[key]; });
+  const drop = () => { if (perfMemo_[key] && perfMemo_[key].p === p) delete perfMemo_[key]; };
+  // พลาด หรือมีแหล่งรองพลาดแล้วถูกกลืนเป็นค่าว่าง (__degraded) = ไม่เก็บไว้แจกคนอื่น — คำขอนี้ได้ผลแบบเดิมคนเดียว
+  p.then((v: any) => { if (v && v.__degraded) drop(); }, drop);
   return p;
 }
 

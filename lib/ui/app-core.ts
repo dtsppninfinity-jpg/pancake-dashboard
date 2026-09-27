@@ -7,7 +7,7 @@
    ============================================================ */
 
 import {
-  serverCall, dataEpoch, esc, relTime, openModal, closeTopModal as closeTopModalLayer, modalCloseBtn, thaiDateShort,
+  serverCall, dataEpoch, failEpoch, esc, relTime, openModal, closeTopModal as closeTopModalLayer, modalCloseBtn, thaiDateShort,
   floaterIsOpen, closeTopFloater,
 } from '@/lib/ui/helpers';
 import { icon, statusPill, ICON_FOR, type StatusKind } from '@/lib/ui/icons';
@@ -1080,6 +1080,7 @@ const App = {
       v.load(container, force);
       loadedAt_[view] = Date.now();
       loadedEpoch_[view] = dataEpoch();
+      loadedFail_[view] = failEpoch();
       loadedWide_[view] = wideNow_();
     }
   },
@@ -1095,16 +1096,20 @@ const App = {
 const FRESH_MS = 90 * 1000;
 const loadedAt_: Record<string, number> = {};
 const loadedEpoch_: Record<string, number> = {};
+const loadedFail_: Record<string, number> = {};
+/** หน้าที่มีทาง "ตั้งใจไม่วาดผลใหม่" (มีหน้าต่าง/เมนูเปิด กำลังพิมพ์ กำลังบันทึก) หรือมีรอบอัปเดตของตัวเอง
+ *  → ผ่าน load ทุกครั้งแบบเดิม (ไม่รู้ว่าผลรอบล่าสุดวาดจริงไหม) */
+const NO_FRESH_VIEWS: Record<string, 1> = { adminperf: 1, admins: 1, umap: 1, users: 1, me: 1 };
 const loadedWide_: Record<string, boolean> = {};
 function wideNow_(): boolean {
   try { return window.matchMedia('(min-width: 600px)').matches; } catch (e) { return true; }
 }
 function viewIsFresh_(view: string): boolean {
-  // หน้าอันดับแอดมินมีรอบอัปเดตของตัวเอง 75 วิ ที่หยุดตอนออกจากหน้าและตั้งใหม่ตอนวาด — ต้องผ่าน load ทุกครั้ง
-  if (view === 'adminperf') return false;
+  if (NO_FRESH_VIEWS[view]) return false;
   const t = loadedAt_[view];
   if (!t || Date.now() - t >= FRESH_MS) return false;
   if (loadedEpoch_[view] !== dataEpoch()) return false;     // มีการบันทึก/แก้ข้อมูลหลังโหลด → ดึงใหม่
+  if (loadedFail_[view] !== failEpoch()) return false;      // มีคำขอพลาดหลังโหลด (อาจเป็นของหน้านี้) → ดึงใหม่
   const box = document.getElementById('view-' + view);
   if (!box || !box.firstElementChild) return false;
   // ยังโหลดไม่เสร็จ หรือโหลดพลาด → ทำแบบเดิม (ส่วนที่โหลดแยกทีหลังโดยตั้งใจ เช่นซื้อซ้ำ/ค่าคอม ไม่นับ)

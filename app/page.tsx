@@ -32,7 +32,10 @@ function prefetchInit(allowed: string[], firstView: string): string {
   try {
     var C = ${JSON.stringify(calls)}, h = '';
     try { h = location.hash; if (h.charAt(0) === '#') h = h.slice(1); if (h.charAt(0) === '/') h = h.slice(1); h = decodeURIComponent(h).trim(); } catch (e) { h = ''; }
-    var v = Object.prototype.hasOwnProperty.call(C, h) ? h : ${JSON.stringify(firstView)};
+    var first = ${JSON.stringify(firstView)};
+    var v = Object.prototype.hasOwnProperty.call(C, h) ? h : first;
+    // # ชี้หน้าแรกของสิทธิ์อยู่แล้ว (รีเฟรชหน้าแรก) = ชื่อหน้า/โครงร่างที่ server วาดถูกหน้า → ไม่ต้องซ่อนรอ app-core
+    if (v === first) document.documentElement.removeAttribute('data-boot-view');
     var P = {};
     (C[v] || []).forEach(function (x) {
       var p = fetch('/api/' + x[0], { method: 'POST', headers: { 'content-type': 'application/json' }, body: x[1] });

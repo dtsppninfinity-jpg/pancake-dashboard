@@ -47,6 +47,9 @@ function takePrefetch_(fn: string, body: string): Promise<Response> | null {
  * ⚠️ นับเป็น "อ่านอย่างเดียว" เฉพาะที่อยู่ในรายการข้างล่าง — API ใหม่/คำสั่งใหม่ที่ไม่อยู่ในรายการ = ถือว่าแก้ข้อมูล (ปลอดภัยไว้ก่อน) */
 let dataEpoch_ = 0;
 export function dataEpoch(): number { return dataEpoch_; }
+/** นับคำขอที่พลาด (ทุกชนิด) — หน้าที่ดึงเบื้องหลังพลาดแล้วโชว์ของเดิมค้างไว้ ต้องไม่ถูกนับว่า "สด" */
+let failEpoch_ = 0;
+export function failEpoch(): number { return failEpoch_; }
 const READ_ONLY_FNS: Record<string, 1> = {
   apiDashboard: 1, apiSales: 1, apiContentAds: 1, apiUnitPerf: 1, apiReport: 1, apiAdminPerf: 1, apiKpi: 1,
   apiProfit: 1, apiAdmins: 1, apiBootstrap: 1, apiNavBadges: 1, apiPageMedia: 1, apiMe: 1,
@@ -66,9 +69,9 @@ export async function serverCall<T = any>(fn: string, params?: unknown): Promise
     // นับทั้งตอนเริ่มและตอนจบ — หน้าที่โหลดระหว่างกำลังบันทึกก็ต้องถือว่าเก่า
     dataEpoch_++;
     const done = () => { dataEpoch_++; };
-    return serverCallRaw_<T>(fn, body).then((v) => { done(); return v; }, (e) => { done(); throw e; });
+    return serverCallRaw_<T>(fn, body).then((v) => { done(); return v; }, (e) => { done(); failEpoch_++; throw e; });
   }
-  return serverCallRaw_<T>(fn, body);
+  return serverCallRaw_<T>(fn, body).catch((e) => { failEpoch_++; throw e; });
 }
 
 async function serverCallRaw_<T>(fn: string, body: string): Promise<T> {

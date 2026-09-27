@@ -221,6 +221,9 @@ async function loadAdSpend_(fromDate: string, toDate: string): Promise<{ byAd: R
  * ซึ่งป้อนแค่ newCustomers/teamHourly ระดับทีม — ฟิลด์ที่หน้า "ผลงานของฉัน" ไม่ได้ใช้ (แถวรายคนไม่แตะ)
  */
 export async function apiAdminPerf(params: any, opts?: { skipHourly?: boolean }) {
+  // มีแหล่งข้อมูลรองที่พลาดแล้วถูกกลืนเป็นค่าว่างไหม — ไม่ส่งออกไปหน้าเว็บ (ดู __degraded ท้ายฟังก์ชัน)
+  // ใช้กันไม่ให้ me.ts เอาผลรอบที่พลาดไปแจกทุกคนซ้ำ 60 วิ
+  let degraded = false;
   const r = resolveRange_(params);
   const channel = (params && params.channel) || '';
 
@@ -246,7 +249,7 @@ export async function apiAdminPerf(params: any, opts?: { skipHourly?: boolean })
         if (s.product_groups) groupsById[String(s.user_id)] = String(s.product_groups);
         if (s.nickname) nickById[String(s.user_id)] = String(s.nickname);
       });
-    } catch { /* ยังไม่มีตาราง */ }
+    } catch { degraded = true; /* ยังไม่มีตาราง / พลาดชั่วคราว */ }
   })();
 
   // ⚡ ทุกตารางอิสระต่อกัน — ยิงขนานทีเดียว (เดิมรอทีละตาราง: ช่วงยาวๆ orders กิน 30-40s เอง
@@ -271,7 +274,7 @@ export async function apiAdminPerf(params: any, opts?: { skipHourly?: boolean })
         .select('date,page_id,new_inbox,comment,order_count,old_order_count')
         .gte('date', chatFrom).lte('date', chatTo),
       'key'
-    ).catch(() => [] as any[]),
+    ).catch(() => { degraded = true; return [] as any[]; }),
     // ไม่ catch: ตาราง chat_hourly มีแน่นอน — error จริง (503/timeout) ต้องดังให้หน้าเว็บโชว์ retry
     // ไม่ใช่แสดง "0" เนียนๆ เหมือนเป็นข้อมูลจริง
     // หั่นตามวัน — ตารางนี้แถวเยอะสุดในกลุ่มแชท (~1,200/วัน → 35 วัน = 43k แถว เคยทำ 500 ทั้งหน้า)
@@ -293,10 +296,10 @@ export async function apiAdminPerf(params: any, opts?: { skipHourly?: boolean })
     getKpiTargets(),
     // ยูนิตของแต่ละแอดมิน — มาจากหน้า U Map (sync_state 'u_map') แหล่งเดียวกับที่หน้า Sales ใช้
     // ใช้โชว์บนการ์ด "ต่ำสุด 5" ว่าคนที่ต้องดูแลอยู่ยูนิตไหน (หัวหน้ายูนิตจะได้รู้ตัว)
-    getUMapDoc().catch(() => ({ units: [], updatedAt: '' })),
+    getUMapDoc().catch(() => { degraded = true; return { units: [], updatedAt: '' }; }),
     // ชีทค่าคอมบอกยูนิตของแต่ละคนไว้ด้วย (คีย์ = ชื่อเล่น) — ใช้เป็นแหล่งสำรองเมื่อ U Map ยังไม่ได้จับคู่
     // ตารางเล็ก (หลักร้อยแถว) และเป็นข้อมูลที่ทีมกรอกเอง เชื่อถือได้พอๆ กับ U Map
-    fetchAll<any>(() => db.from('admin_commission').select('u,month,admin'), 'key').catch(() => [] as any[]),
+    fetchAll<any>(() => db.from('admin_commission').select('u,month,admin'), 'key').catch(() => { degraded = true; return [] as any[]; }),
   ]);
   await settingsJob;
 
@@ -778,7 +781,7 @@ export async function apiAdminPerf(params: any, opts?: { skipHourly?: boolean })
     offline: adminRows.filter((a) => !disabledIds[String(a.user_id)] && !toBool_(a.is_online)).length,
   };
 
-  return {
+  const out = {
     rangeLabel: r.label,
     rows: rows,
     team: team,
@@ -797,4 +800,7 @@ export async function apiAdminPerf(params: any, opts?: { skipHourly?: boolean })
     // ยังไม่ได้รัน migration ad_daily (หรือยังไม่มี sync รอบแรก) → ROAS รายคนคิดไม่ได้ทั้งกระดาน
     adSetupNeeded: adSpendData === null,
   };
+  // non-enumerable = ไม่ไปโผล่ใน JSON ที่ส่งหน้าเว็บ (ผลลัพธ์ API เหมือนเดิมทุกไบต์)
+  Object.defineProperty(out, '__degraded', { value: degraded, enumerable: false });
+  return out;
 }

@@ -953,10 +953,13 @@ function comSectionHtml(): string {
 
 /** ค่าคอมเดือนล่าสุดที่เริ่มดึงไว้ตั้งแต่เปิดหน้า (ดู load) — เดิมรอให้อันดับโหลดเสร็จก่อนค่อยเริ่มดึง */
 let comPrefetch: Promise<ComData> | null = null;
+let comPrefetchAt = 0;
 
 function fetchCom(container: HTMLElement, month: string): void {
   const seq = ++comReq;
-  const req = month === '' && comPrefetch ? comPrefetch : serverCall<ComData>('apiAdminCom', { month: month });
+  // ใช้ของที่ยิงไว้ล่วงหน้าเฉพาะที่เพิ่งยิงไม่เกิน 30 วิ (รอบเปิดหน้านี้) — เก่ากว่านั้น/รอบที่พลาดไปแล้ว ขอใหม่
+  const fresh = !!comPrefetch && Date.now() - comPrefetchAt < 30000;
+  const req = month === '' && fresh ? comPrefetch! : serverCall<ComData>('apiAdminCom', { month: month });
   comPrefetch = null;
   req.then(function (d) {
     if (seq !== comReq) return;
@@ -1757,8 +1760,11 @@ export const adminperf = {
   load: async (container: HTMLElement, force?: boolean): Promise<void> => {
     // ค่าคอมเดือนล่าสุด: เริ่มดึงตั้งแต่ตอนนี้ ขนานกับอันดับ (render ครั้งแรกจะหยิบคำขอนี้ไปใช้)
     if (!comData && !comPrefetch) {
-      comPrefetch = serverCall<ComData>('apiAdminCom', { month: '' });
-      comPrefetch.catch(function () { /* จัดการตอน fetchCom — กันขึ้น unhandled ถ้าออกจากหน้าก่อน */ });
+      const cp = serverCall<ComData>('apiAdminCom', { month: '' });
+      comPrefetch = cp;
+      comPrefetchAt = Date.now();
+      // พลาด = ทิ้ง (render ครั้งหน้าขอใหม่เอง) · กันขึ้น unhandled ถ้าออกจากหน้าก่อน
+      cp.catch(function () { if (comPrefetch === cp) comPrefetch = null; });
     }
     if (lastData && !force) {
       await ensureConfig();                     // เกณฑ์ต้องพร้อมก่อน render (โหลดแล้ว = คืนทันที)
