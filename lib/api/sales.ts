@@ -333,25 +333,27 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
     // meta_purchases/value อาจยังไม่มีคอลัมน์ (ยังไม่รัน migration 2026-07-24) → ลองแบบเต็มก่อน
     // หั่นตามวัน — ช่วงนี้กิน "ช่วงที่เลือก + ช่วงเทียบ" (เลือก 35 วัน = ดึง 70 วัน ~56k แถว)
     // OFFSET ลึกช้าและโดน statement timeout ตัดจนหน้า 500 ทั้งหน้า (ดู fetchAllDateSliced)
-    let rows: Row[];
-    try {
-      rows = await fetchAllDateSliced<Row>((f, t) =>
-        db.from('ad_daily')
-          .select('date,ad_id,page_id,name,status,spend,pos_orders,meta_purchases,meta_purchase_value,msgs_started,updated_at')
-          .gte('date', f).lte('date', t),
-        dateOf(r.prevStart), dateOf(r.end), { orderColumn: 'date,ad_id' }
-      );
-    } catch (e2: any) {
-      if (!String((e2 && e2.message) || '').includes('meta_purchase')) throw e2;
-      rows = await fetchAllDateSliced<Row>((f, t) =>
-        db.from('ad_daily')
-          .select('date,ad_id,page_id,name,status,spend,pos_orders,msgs_started,updated_at')
-          .gte('date', f).lte('date', t),
-        dateOf(r.prevStart), dateOf(r.end), { orderColumn: 'date,ad_id' }
-      );
-    }
     const curFrom = dateOf(r.start), curTo = dateOf(r.end);
     const prevFrom = dateOf(r.prevStart), prevTo = dateOf(r.prevEnd);
+    // ⚡ แยกดึง 2 ช่วงพร้อมกัน — เดิมดึง [ต้นช่วงเทียบ..ท้ายช่วงที่เลือก] ก้อนเดียวด้วยคอลัมน์เต็ม 11 ตัว
+    //    แต่ช่วงเทียบใช้แค่ spend + meta_purchase_value และใช้เฉพาะวัน [prevFrom, prevTo) (วันคั่นกลางถูกทิ้ง)
+    //    → ช่วงเทียบดึง 4 คอลัมน์ (ไม่มีชื่อแอด/สถานะ/เวลา) · 30 วัน = ข้อมูลช่วงเทียบเล็กลงหลายเท่า
+    //    ลำดับแถวในแต่ละช่วงเหมือนเดิม (date,ad_id) ผลรวมทุกตัวเท่าเดิม · วันเดียวกันไม่มีทางอยู่ทั้งสองช่วง (prevTo <= curFrom)
+    const loadAds_ = (cols: string, colsNoMeta: string, f0: string, t0: string): Promise<Row[]> => fetchAllDateSliced<Row>((f, t) =>
+      db.from('ad_daily').select(cols).gte('date', f).lte('date', t), f0, t0, { orderColumn: 'date,ad_id' }
+    ).catch((e2: any) => {
+      if (!String((e2 && e2.message) || '').includes('meta_purchase')) throw e2;
+      return fetchAllDateSliced<Row>((f, t) =>
+        db.from('ad_daily').select(colsNoMeta).gte('date', f).lte('date', t), f0, t0, { orderColumn: 'date,ad_id' });
+    });
+    const prevLast = prevTo > prevFrom ? fmtDateBkk(new Date(new Date(prevTo + 'T00:00:00+07:00').getTime() - 86400000)) : '';
+    const [curRows, prevRows] = await Promise.all([
+      loadAds_('date,ad_id,page_id,name,status,spend,pos_orders,meta_purchases,meta_purchase_value,msgs_started,updated_at',
+        'date,ad_id,page_id,name,status,spend,pos_orders,msgs_started,updated_at', curFrom, curTo),
+      prevLast ? loadAds_('date,ad_id,spend,meta_purchase_value', 'date,ad_id,spend', prevFrom, prevLast)
+        : Promise.resolve([] as Row[]),
+    ]);
+    const rows = prevRows.concat(curRows);
     let spend = 0, spendPrev = 0, syncedAt: string | null = null;
     let metaValue = 0, metaValuePrev = 0, metaPurchases = 0, metaMsgs = 0;
     const activeIds: Record<string, 1> = {};
@@ -1225,6 +1227,20 @@ export async function apiSales(params: any) {
     db.from('conversations').select('id,type').eq('waiting', true).gte('updated_at', new Date(alertCutoff).toISOString())
   );
   waitingRowsP.catch(noop_);
+  // ---- ลูกค้าเก่า (RPC สแกนออเดอร์ย้อน 95 วัน) — เริ่มพร้อมตัวอื่นตั้งแต่ต้น ----
+  // (RPC ไม่ผ่าน semaphore ใน db.ts) เดิมรอท้ายฟังก์ชันหลังทุกอย่างเสร็จ — ช่วง 30 วันตัวนี้ใช้ ~5 วิ ต่อท้ายออเดอร์
+  mark_('before-rpc');
+  const rpcLookback = new Date(r.start.getTime() - 95 * 86400000);
+  // abort 30s — RPC สแกน orders ย้อน 95 วัน ช่วงยาวอาจอืด และ supabase-js ไม่มี timeout เอง
+  // ถ้าแขวนจะลากทั้ง apiSales ค้างเกิน maxDuration (%ซื้อซ้ำเป็นการ์ดรอง เสียได้ ไม่คุ้มพังทั้งหน้า)
+  const returningRpcP = Promise.resolve(db.rpc('sales_returning_customers', {
+    p_start: r.start.toISOString(),
+    p_end: r.end.toISOString(),
+    p_lookback: rpcLookback.toISOString(),
+    p_channel: channel,
+    p_excluded: EXCLUDED_STATUSES,
+  }).abortSignal(AbortSignal.timeout(30_000)));
+  returningRpcP.catch(noop_);
   // adCostP (ข้างบน) โยน error ต่อได้ — แปะ catch เปล่ากัน unhandled ระหว่างรอออเดอร์ (await จริงข้างล่างยังโยนต่อเหมือนเดิม)
   adCostP.catch(noop_);
 
@@ -1249,20 +1265,6 @@ export async function apiSales(params: any) {
   const orders = prevRows.concat(curRows, todayChunk);
   mark_(`orders prev=${prevRows.length} cur=${curRows.length}`);
 
-  // ---- ลูกค้าเก่า (RPC สแกนออเดอร์ย้อน 95 วัน) — เริ่มหลังออเดอร์เสร็จ ไม่แย่งฐานช่วงดึงออเดอร์หนักๆ ----
-  // (RPC ไม่ผ่าน semaphore ใน db.ts) เดิมรอท้ายฟังก์ชันหลังทุกอย่างเสร็จ
-  mark_('before-rpc');
-  const rpcLookback = new Date(r.start.getTime() - 95 * 86400000);
-  // abort 30s — RPC สแกน orders ย้อน 95 วัน ช่วงยาวอาจอืด และ supabase-js ไม่มี timeout เอง
-  // ถ้าแขวนจะลากทั้ง apiSales ค้างเกิน maxDuration (%ซื้อซ้ำเป็นการ์ดรอง เสียได้ ไม่คุ้มพังทั้งหน้า)
-  const returningRpcP = Promise.resolve(db.rpc('sales_returning_customers', {
-    p_start: r.start.toISOString(),
-    p_end: r.end.toISOString(),
-    p_lookback: rpcLookback.toISOString(),
-    p_channel: channel,
-    p_excluded: EXCLUDED_STATUSES,
-  }).abortSignal(AbortSignal.timeout(30_000)));
-  returningRpcP.catch(noop_);
 
   // เป้ายอด/เปอร์บิลรายยูนิตจากชีท KPI — เทียบกับ "ช่วงวันที่ที่เลือก" (ดู rangeTargets_)
   // เดิมเป็นเป้ากรอกมือใน U Map เทียบกับเดือนปัจจุบันเสมอ ซึ่งไม่มีใครกรอก และต้องยิงคิวรีออเดอร์ทั้งเดือนเพิ่ม
