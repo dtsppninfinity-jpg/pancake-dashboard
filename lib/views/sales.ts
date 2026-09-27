@@ -2140,6 +2140,7 @@ function buildReportRows(): unknown[][] | null {
 /* ---------------- register view ---------------- */
 
 export const sales = {
+  redraw: (container: HTMLElement): void => { if (lastData) render(container, lastData); },
   load: async (container: HTMLElement, force: boolean): Promise<void> => {
     if (lastData && !force) {
       // มี cache → แสดงทันที แล้วดึงข้อมูลใหม่เบื้องหลัง

@@ -30,6 +30,8 @@ import { users } from '@/lib/views/users';
 
 interface ViewModule {
   load: (container: HTMLElement, force: boolean) => void | Promise<void>;
+  /** วาดใหม่จากข้อมูลที่มีอยู่ ไม่ยิง server (หมุนจอข้ามเส้น 600px — กราฟเลือกขนาดตอนวาด) */
+  redraw?: (container: HTMLElement) => void;
 }
 
 interface SyncLogEntry {
@@ -899,8 +901,11 @@ const App = {
       window.matchMedia('(min-width: 600px)').addEventListener('change', function () {
         clearTimeout(rt);
         rt = window.setTimeout(function () {
+          // วาดจากข้อมูลเดิมอย่างเดียว — เดิม loadView ดึงใหม่ทุกครั้งที่หมุน (ยอดขาย ~0.5MB/รอบ กินโควตา Supabase)
           const v = self.state.view;
-          if (v === 'dashboard' || v === 'sales' || v === 'adminperf') self.loadView(v, false);
+          const mod = Views[v];
+          const box = document.getElementById('view-' + v) as HTMLElement | null;
+          if (mod && mod.redraw && box) mod.redraw(box);
         }, 300);
       });
     } catch (e) {}

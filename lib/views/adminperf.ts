@@ -1740,6 +1740,7 @@ function refetch(container: HTMLElement): void {
 /* ---------- register view ---------- */
 
 export const adminperf = {
+  redraw: (container: HTMLElement): void => { if (lastData) render(container, lastData); },
   load: async (container: HTMLElement, force?: boolean): Promise<void> => {
     if (!configLoaded) await loadConfig();     // ดึงเกณฑ์ที่บันทึกไว้ก่อน render
     if (lastData && !force) {

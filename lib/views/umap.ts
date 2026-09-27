@@ -51,6 +51,8 @@ interface Job {
   onErr?: (msg: string) => void;
 }
 const pending: Job[] = [];
+/** คำสั่งที่กำลังยิงอยู่ (ออกจากคิวแล้ว) — ใช้กันแตะการ์ดซ้ำระหว่างรอผล */
+let inFlightSig = '';
 
 /** ผู้ดูแลระบบเท่านั้นที่เห็นรายละเอียดเทคนิค — page.tsx ใส่ data-role ไว้ที่ #app */
 function isSuperadmin(): boolean {
@@ -226,6 +228,7 @@ function mutateAsync(container: HTMLElement, params: Record<string, unknown>, ok
 
 function drainQueue_(container: HTMLElement): void {
   const next = pending.shift();
+  inFlightSig = next ? JSON.stringify(next.params) : '';
   if (!next) { saving = false; return; }
   saving = true;
   const fail = (msg: string) => {
@@ -517,6 +520,12 @@ function bindEvents(container: HTMLElement): void {
       again.focus({ preventScroll: true });
       const dy = again.getBoundingClientRect().top - y0;
       if (Math.abs(dy) > 1) window.scrollBy(0, dy);
+      // แถบ "กำลังจับคู่" ติดจอ (สูง ~120px) — รายชื่ออยู่ชิดบนจอ ชื่อที่แตะจะจมใต้แถบ → เลื่อนลงให้พ้นแถบ
+      const hint = container.querySelector('.umap-hint') as HTMLElement | null;
+      if (hint) {
+        const gap = again.getBoundingClientRect().top - hint.getBoundingClientRect().bottom - 8;
+        if (gap < 0) window.scrollBy(0, gap);
+      }
     }
   });
 
@@ -564,6 +573,9 @@ function bindEvents(container: HTMLElement): void {
     // ทำทันที + แถบ "เลิกทำ" (เหมือนตอนเอาออก) — แตะการ์ดพลาดบนมือถือแก้ได้ในแตะเดียว
     const userId = selected.id;
     const name = selected.name;
+    // แตะการ์ดเดิมซ้ำก่อนผลกลับ — ตัวกันซ้ำใน mutate() ข้ามงานที่มี callback จึงกันเองที่นี่ (ทั้งที่รอคิวและที่กำลังยิง)
+    const sig = JSON.stringify({ action: 'assign', u, userId });
+    if (sig === inFlightSig || pending.some((p) => JSON.stringify(p.params) === sig)) return;
     mutate(container, { action: 'assign', u, userId }, '', {
       onOk: () => undoToast('จับคู่ ' + name + ' ↔ ' + u + ' แล้ว', () =>
         mutate(container, { action: 'unassign', u, userId }, 'เอา ' + name + ' ออกจาก ' + u + ' แล้ว')),
@@ -572,12 +584,33 @@ function bindEvents(container: HTMLElement): void {
   });
 
   const cancelSel = container.querySelector('#u-cancel-sel');
-  if (cancelSel) cancelSel.addEventListener('click', () => { selected = null; render(container); });
+  // เลิกเลือก = แถบหายไป ทุกอย่างข้างล่างกระโดดขึ้น ~130px และรายชื่อเด้งกลับบนสุด → ตรึงการ์ดยูนิตที่เห็นอยู่ไว้ที่เดิม
+  if (cancelSel) cancelSel.addEventListener('click', () => {
+    keepPlace_(container, () => { selected = null; render(container); });
+  });
 
   const add = container.querySelector('#u-add');
   if (add) add.addEventListener('click', () => openAddUnit(container));
   const api = container.querySelector('#u-api');
   if (api) api.addEventListener('click', copyApiLink);
+}
+
+/** วาดใหม่โดยไม่เสียตำแหน่ง: คืนตำแหน่งเลื่อนของรายชื่อ + ตรึงการ์ดยูนิตใบแรกที่เห็นบนจอไว้ที่เดิม */
+function keepPlace_(container: HTMLElement, redraw: () => void): void {
+  const list = container.querySelector('#u-admin-list') as HTMLElement | null;
+  const listTop = list ? list.scrollTop : 0;
+  const anchor = Array.from(container.querySelectorAll<HTMLElement>('#u-board .u-card'))
+    .find((c) => c.getBoundingClientRect().bottom > 0);
+  const u = anchor ? anchor.getAttribute('data-u') || '' : '';
+  const y0 = anchor ? anchor.getBoundingClientRect().top : 0;
+  redraw();
+  const nl = container.querySelector('#u-admin-list') as HTMLElement | null;
+  if (nl && listTop) nl.scrollTop = listTop;
+  if (!u) return;
+  const again = container.querySelector('#u-board .u-card[data-u="' + (window.CSS && CSS.escape ? CSS.escape(u) : u) + '"]');
+  if (!again) return;
+  const dy = again.getBoundingClientRect().top - y0;
+  if (Math.abs(dy) > 1) window.scrollBy(0, dy);
 }
 
 function render(container: HTMLElement): void {

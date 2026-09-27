@@ -549,6 +549,7 @@ function fetchAndRender(container: HTMLElement): void {
 /* ---------------- ลงทะเบียน view ---------------- */
 
 export const dashboard = {
+  redraw: (container: HTMLElement): void => { if (lastData) render(container, lastData); },
   load: async (container: HTMLElement, force?: boolean): Promise<void> => {
     if (lastData && !force) {
       render(container, lastData);      // แสดงจาก cache ทันที

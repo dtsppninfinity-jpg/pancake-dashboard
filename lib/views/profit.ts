@@ -281,7 +281,8 @@ function syncRetCut_(root: ParentNode): void {
   const btn = root.querySelector('#pf-ret-more') as HTMLButtonElement | null;
   if (!box || !btn) return;
   const n = box.querySelectorAll('#pf-ret-body > tr:not(.tbl-total)').length;
-  const cut = !retShowAll_ && n > 10 && !window.matchMedia('(min-width: 600px)').matches;
+  // ไม่เช็คความกว้างจอที่นี่ — CSS ≥600 ยกเลิกการตัดเอง (หมุนจอ/ขยายหน้าต่างทีหลังจะได้ไม่ค้างเป็นกล่อง 10 แถว)
+  const cut = !retShowAll_ && n > 10;
   box.classList.toggle('pf-ret-cut', cut);
   btn.hidden = !cut;
   btn.textContent = 'ดูทั้งหมด (' + fmtNum(n) + ' คน)';

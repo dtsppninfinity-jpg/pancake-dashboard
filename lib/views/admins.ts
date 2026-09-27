@@ -804,11 +804,14 @@ function openMenu(btn: HTMLElement, a: Admin, container: HTMLElement): void {
   // ใกล้ขอบล่างจอ → เด้งขึ้นด้านบนปุ่มแทน (ไม่ต้องเลื่อนจอตามหาเมนู)
   const r = pop.getBoundingClientRect();
   if (r.bottom > window.innerHeight - 8) {
-    if (btn.getBoundingClientRect().top > r.height + 8) pop.classList.add('up');
+    const b = btn.getBoundingClientRect();
+    if (b.top > r.height + 8) pop.classList.add('up');
     else {
-      // มือถือแนวนอน (สูง ~390px): ข้างบน-ข้างล่างไม่พอทั้งคู่ → จำกัดสูงตามที่ว่างข้างล่าง แล้วเลื่อนในเมนูเอง
-      // เดิมเมนูยาวเลยขอบล่างจอ "พัก / ไม่ว่าง / ระงับบัญชี" มองไม่เห็น
-      pop.style.maxHeight = Math.max(160, Math.floor(window.innerHeight - r.top - 8)) + 'px';
+      // มือถือแนวนอน (สูง ~390px): ข้างบน-ข้างล่างไม่พอทั้งคู่ → เปิดไปฝั่งที่ว่างมากกว่า จำกัดสูงตามที่ว่าง แล้วเลื่อนในเมนูเอง
+      // เดิมเมนูยาวเลยขอบล่างจอ "พัก / ไม่ว่าง / ระงับบัญชี" มองไม่เห็น · ปุ่มครึ่งล่างจอต้องเปิดขึ้น ไม่งั้นทะลุขอบล่าง
+      const up = b.top > window.innerHeight - b.bottom;
+      if (up) pop.classList.add('up');
+      pop.style.maxHeight = Math.floor(up ? b.top - 16 : window.innerHeight - r.top - 8) + 'px';
       pop.style.overflowY = 'auto';
     }
   }

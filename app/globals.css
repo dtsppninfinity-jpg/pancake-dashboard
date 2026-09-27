@@ -274,8 +274,10 @@ input, select { font-family: inherit; }
 button, a, summary, label, [role="button"] { touch-action: manipulation; }
 /* ลิ้นชักเมนูเปิดอยู่ = ล็อกไม่ให้พื้นหลังเลื่อนตามนิ้ว (ปลดล็อกเองที่ ≥900) */
 body.nav-locked { overflow: hidden; }
-/* มีหน้าต่าง/แผ่นเปิดอยู่ (app-core syncOverlayHistory ตั้งให้เฉพาะจอ <900) — หน้าข้างหลังห้ามเลื่อนตามนิ้ว */
-html.modal-locked, html.modal-locked body { overflow: hidden; }
+/* มีหน้าต่าง/แผ่นเปิดอยู่ (app-core syncOverlayHistory ตั้งให้เฉพาะจอ <900) — หน้าข้างหลังห้ามเลื่อนตามนิ้ว
+   ⚠️ ล็อกที่ body ตัวเดียว (แบบ nav-locked) — ถ้าล็อก html ด้วย คู่กับ html,body{height:100%} หน้าข้างหลัง
+   เด้งกลับบนสุดทุกครั้งที่เปิดหน้าต่าง ปิดแล้วก็ไม่กลับที่เดิม (ตรวจซ้ำ 27 ก.ย. 69: ยอดขาย 4050→0) */
+html.modal-locked body { overflow: hidden; }
 
 /* ---------- layout ---------- */
 #app { display: flex; min-height: 100vh; }
@@ -1139,7 +1141,9 @@ table.tbl.ds-tbl tbody tr:hover td {
 /* เลขหลักเดียวกว้างแค่ ~8px — พื้นที่กดล่องหนรอบตัวเลข ให้นิ้วโดนง่าย (ไม่ขยับเลย์เอาต์) */
 .sr-needcheck { position: relative; }
 .sr-needcheck::after { content: ''; position: absolute; inset: -4px -18px; }
-@media (min-width: 900px) { .sr-needcheck::after { inset: 0 -4px; } }
+/* ท้ายการ์ดคำสั่งซื้อ: ป้าย ▼% อยู่ติดขวา — ขยายทางซ้าย/บนล่างแทน กดป้ายแล้วต้องไม่เปิดตารางออเดอร์ */
+.foot .sr-needcheck::after { inset: -8px -4px -8px -12px; }
+@media (min-width: 900px) { .sr-needcheck::after, .foot .sr-needcheck::after { inset: 0 -4px; } }
 /* hbar ที่ตัวเลขยาว (฿x,xxx,xxx) — ขยายช่องเลขจาก 48px */
 /* ชื่อสินค้าไทยยาวกว่าอังกฤษมาก — ให้คอลัมน์ชื่อยืดตามการ์ด (สูงสุด 42%) แทน 140px ตายตัว
    ที่ตัดคำทิ้งตั้งแต่การ์ดยังกว้างอยู่ • เพดาน 280px กันชื่อกินครึ่งจอตอนการ์ดเต็มความกว้าง */
@@ -3010,6 +3014,9 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
      เหลือเนื้อหา 774px ซึ่งแคบจนข้อความไทยในการ์ดแอดตัดทีละตัวอักษร
      ปุ่ม ☰ จึงกลายเป็นปุ่มพับ/กางแถบเมนู และจำค่าที่เลือกไว้ (ดู applyNavPref ใน app-core) */
   .nav-backdrop { display: none; }
+  /* ปุ่มท้ายหน้าต่างบนจอคอม = หน้าตาเดิมที่พีอนุมัติ (ไม่มีเส้นคั่น ระยะเท่าเดิม) — ยังติดขอบล่างตอนเนื้อหายาวเหมือนเดิม */
+  .modal-actions { border-top: 0; padding-top: 0; margin-top: var(--sp-4); }
+  .confirm-actions.modal-actions { margin-top: var(--sp-5); }
   /* ⚠️ เลื่อนด้วย margin-left ไม่ใช่ display:none และไม่ใช่ width:0
      display เปลี่ยนแบบทันทีทันใด ทำแอนิเมชันไม่ได้เลย
      ส่วน width:0 จะบีบเนื้อหาข้างในแถบเมนูให้ยับระหว่างทาง (ชื่อเมนูหักบรรทัดมั่ว)
@@ -3153,6 +3160,8 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
   .umap-layout { grid-template-columns: 300px minmax(0, 1fr); }
   /* ต้องพ้นหัวเว็บที่ sticky อยู่ ไม่งั้นการ์ดมุดเข้าไปข้างใต้ */
   .umap-side { position: sticky; top: calc(var(--topbar-h) + var(--sp-3)); }
+  /* แผงแอดมินติดจอและโชว์คนที่เลือกอยู่แล้ว — แถบ "กำลังจับคู่" ไม่ต้องติด (ติดแล้วทับหัวแผง "แอดมิน (N)") */
+  .umap-hint { position: static; box-shadow: none; }
   .u-admin-list { max-height: 62vh; }
 }
 
@@ -3751,7 +3760,7 @@ table.tbl.ca-media-tbl.tbl-scroll-x tr:hover td:first-child {
 #view-admins .adm-perm-cell { text-align: center; }
 /* ช่องติ๊กในตาราง: label เต็มช่อง ≥44px — แตะตรงไหนในช่องก็ติ๊กได้ */
 #view-admins .perm-hit { display: flex; align-items: center; justify-content: center; min-height: 44px; cursor: pointer; }
-@media (min-width: 900px) { #view-admins .perm-hit { min-height: 0; } }
+@media (min-width: 900px) { #view-admins .perm-hit { display: inline; min-height: 0; } }
 /* มือถือ (<600): เลือกตำแหน่งทีละตำแหน่ง แทนตาราง 880px ที่มองไม่เห็นช่องติ๊ก (รีวิวมือถือ 27 ก.ย. 69) */
 #view-admins .adm-perm-matrix { display: none; }
 #view-admins .adm-perm-pick { margin: var(--sp-2) 0 var(--sp-1); }
@@ -4062,8 +4071,11 @@ table.tbl.ca-media-tbl.tbl-scroll-x tr:hover td:first-child {
 .pf-ret-cut #pf-ret-body > tr:nth-child(n+11):not(.tbl-total) { display: none; }
 .pf-ret-more { width: 100%; margin-top: var(--sp-3); }
 @media (min-width: 600px) {
+  /* ≥600 มีกล่องเลื่อนแล้ว — ยกเลิกการตัด 10 คน (JS ติด class ไว้เสมอ หมุนจอ/ขยายหน้าต่างจะได้ไม่ค้างเป็นกล่องมี 10 แถว) */
+  .pf-ret-cut #pf-ret-body > tr:nth-child(n+11):not(.tbl-total) { display: table-row; }
+  .pf-ret-more { display: none; }
   .pf-ret-scroll {
-    max-height: 52vh; overflow-y: auto; overscroll-behavior: contain; padding-bottom: var(--sp-6);
+    max-height: 52vh; overflow-y: auto; padding-bottom: var(--sp-6);
     /* ขอบล่างจาง = ยังเลื่อนลงได้อีก · เว้นท้ายไว้ให้แถวสุดท้ายไม่จมในส่วนที่จาง */
     mask-image: linear-gradient(to bottom, black calc(100% - var(--sp-6)), transparent);
   }
