@@ -1,6 +1,6 @@
 // lib/api/dashboard.ts — port ของ apiDashboard จาก WebApi.gs
 // อ่านจาก Supabase (server-side) แทนการอ่านชีต — output ตรง CONTRACT.md ทุก key
-import { db, fetchAll } from '@/lib/db';
+import { db, fetchAll, fetchAllDateSliced } from '@/lib/db';
 import { fmtDateBkk, fmtDateTimeBkk, daysAgo, parsePancakeTime, num, TZ } from '@/lib/config';
 
 /* ---------------- utilities (port จาก WebApi.gs) ---------------- */
@@ -220,38 +220,56 @@ export async function apiDashboard(
   // คิวรีที่ await ก่อนล้ม → อีกตัวยังวิ่งต่อ แต่ต้องไม่กลายเป็น unhandled rejection
   convRowsP.catch(() => {});
   convWaitP.catch(() => {});
-  const chatRows = await fetchAll<any>(() =>
-    db
-      .from('chat_hourly')
-      .select(
-        'platform,page_name,date,customer_inbox_count,customer_comment_count,page_inbox_count,page_comment_count,new_inbox_count,new_customer_count,uniq_phone_number_count'
-      )
-      .gte('date', fetchStartStr)
-      .lte('date', range.endStr),
-    'key'
-  );
-  const chat = chatRows.filter((r: any) => {
+  // แชทรายชั่วโมงแยก 2 คิวรีขนาน (~1,200 แถว/วัน × 7-14 วัน):
+  //   ตัวเลข = ทุกแถว ไม่ลากชื่อเพจภาษาไทยมาด้วย (เดิมลากทุกแถว ~1 MB ต่อการเปิด/รีเฟรช 5 นาที) · หั่นตามวันกัน OFFSET ลึก
+  //     ผลรวมเป็นจำนวนเต็มล้วน ลำดับแถวไม่มีผลกับตัวเลข
+  //   คอมเมนต์รายเพจ = เฉพาะแถวในช่วงที่มีคอมเมนต์ (เงื่อนไขเดียวกับที่ลูปเดิมใช้) เรียง key แบบเดิมคิวรีเดียว
+  //     → เพจที่เจอก่อน (platform / ลำดับเสมอกัน) เหมือนเดิมทุกตัว
+  const chatFilter_ = (r: any) => {
     if (commentMode) return true; // มุมคอมเมนต์ = ทุก platform
     if (channel && platformChannel_(r.platform) !== channel) return false;
     return true;
-  });
+  };
+  const commentRowsP = fetchAll<any>(() =>
+    db
+      .from('chat_hourly')
+      .select('platform,page_name,date,customer_comment_count')
+      .gt('customer_comment_count', 0)
+      .gte('date', range.startStr)
+      .lte('date', range.endStr),
+    'key'
+  );
+  commentRowsP.catch(() => {});
+  const chatRows = await fetchAllDateSliced<any>((f, t) =>
+    db
+      .from('chat_hourly')
+      .select(
+        'platform,date,customer_inbox_count,customer_comment_count,page_inbox_count,page_comment_count,new_inbox_count,new_customer_count,uniq_phone_number_count'
+      )
+      .gte('date', f)
+      .lte('date', t),
+    fetchStartStr, range.endStr, { orderColumn: 'key' }
+  );
+  const chat = chatRows.filter(chatFilter_);
 
   // KPI ของ "ช่วงที่เลือก" (โหมดคอมเมนต์นับเฉพาะคู่ *_comment_count)
   // weekMap เก็บทุกวันที่ดึงมา เพราะกราฟอาจกว้างกว่าช่วงที่เลือก (ช่วงสั้นกว่า 7 วัน)
   const k = { convsToday: 0, custMsgs: 0, newCustomers: 0, pageReplies: 0, phones: 0 };
   const weekMap: Record<string, { total: number; replied: number }> = {}; // date -> {total, replied}
   const commentPage: Record<string, { count: number; platform: string }> = {}; // คอมเมนต์ในช่วงต่อเพจ
+  (await commentRowsP).filter(chatFilter_).forEach((r: any) => {
+    const dateStr = toDateStr_(r.date);
+    if (!(dateStr >= range.startStr && dateStr <= range.endStr)) return;
+    const cc = toNum_(r.customer_comment_count);
+    if (cc > 0) {
+      const pn = String(r.page_name || 'ไม่ระบุเพจ');
+      if (!commentPage[pn]) commentPage[pn] = { count: 0, platform: String(r.platform || '') };
+      commentPage[pn].count += cc;
+    }
+  });
   chat.forEach((r: any) => {
     const dateStr = toDateStr_(r.date);
     const inRange = dateStr >= range.startStr && dateStr <= range.endStr; // 'YYYY-MM-DD' เทียบสตริงได้ตรงๆ
-    if (inRange) {
-      const cc = toNum_(r.customer_comment_count);
-      if (cc > 0) {
-        const pn = String(r.page_name || 'ไม่ระบุเพจ');
-        if (!commentPage[pn]) commentPage[pn] = { count: 0, platform: String(r.platform || '') };
-        commentPage[pn].count += cc;
-      }
-    }
     const total = commentMode
       ? toNum_(r.customer_comment_count)
       : toNum_(r.customer_inbox_count) + toNum_(r.customer_comment_count);
