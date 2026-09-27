@@ -93,12 +93,57 @@ export async function apiUnitPerf(params: any) {
   // ออเดอร์จริงเริ่ม 23 พ.ค. 69 — เดือนก่อนหน้านั้นไม่ใช่ "ขายไม่ได้" แต่คือไม่มีข้อมูล
   const beforeData = monthEnd < DATA_START_YMD;
 
-  /* ---- แผนที่เพจ → ยูนิต + จำนวนเพจ/แอดมินต่อยูนิต ---- */
-  const [pageUnit, doc, pagesRows] = await Promise.all([
+  /* ---- ดึงทุกแหล่งพร้อมกัน ----
+     ทุกคิวรีข้างล่างไม่ขึ้นกับผลของกันและกัน (ใช้แค่ช่วงวันที่) — เดิมรอทีละตัว 6 ต่อ รวม ~3-8 วิ
+     ยิงพร้อมกันเหลือเท่าตัวที่ช้าสุดตัวเดียว · ลำดับแถวในแต่ละผลเหมือนเดิม (order ของแต่ละคิวรีไม่เปลี่ยน) */
+  const [pageUnit, doc, pagesRows, salesRes, adsRes, engRows, profitRows, lossAlerts, goals] = await Promise.all([
+    /* แผนที่เพจ → ยูนิต + จำนวนเพจ/แอดมินต่อยูนิต */
     getPageUnitMap().catch(() => ({} as Record<string, { u: string; product: string }>)),
     getUMapDoc().catch(() => ({ units: [] as any[], updatedAt: '' })),
     fetchAll<any>(() => db.from('pages').select('page_id,platform'), 'page_id').catch(() => [] as any[]),
+    /* ยอดขาย/ออเดอร์ รายวันต่อเพจ (กติกาเดียวกับหน้า Sales) */
+    rpcAll_('sales_daily_by_page', {
+      p_from: bkkDayIso_(monthStart),
+      p_to: bkkDayIso_(ymdShift_(lastYmd, 1)),
+      p_excluded: EXCLUDED_STATUSES,
+      p_needcheck: NEED_CHECK_STATUSES,
+    }, ['d', 'page_id', 'channel']),
+    /* ค่าแอดรายวันต่อเพจ */
+    rpcAll_('ads_daily_by_page', { p_from: monthStart, p_to: lastYmd }, ['d', 'page_id']),
+    /* คนทักรายวันต่อเพจ (เฉพาะเพจ Facebook — ตัวหารเดียวกับ %ปิด หน้า Sales) */
+    fetchAll<any>(
+      () => db.from('chat_engagement_daily').select('key,date,page_id,new_inbox,comment')
+        .gte('date', monthStart).lte('date', lastYmd),
+      'key',
+    ).catch(() => [] as any[]),
+    /* กำไรรายวันต่อยูนิต (ชีท) */
+    fetchAll<any>(
+      () => db.from('unit_daily').select('key,u,date,profit').gte('date', monthStart).lte('date', lastYmd),
+      'key',
+    ).catch(() => [] as any[]),
+    /* ขาดทุนต่อเนื่อง (งาน sync คำนวณไว้แล้ว) */
+    (async () => {
+      try {
+        const { data } = await db.from('sync_state').select('value').eq('key', 'unit_loss_alerts').maybeSingle();
+        if (!data || !data.value) return null;
+        const j = JSON.parse(String(data.value));
+        const byU: Record<string, any> = {};
+        (j.alerts || []).forEach((a: any) => { byU[String(a.u)] = a; });
+        return { throughDate: String(j.throughDate || ''), byU };
+      } catch { return null; }
+    })(),
+    /* เป้าเดือนจากชีท KPI */
+    (async () => {
+      try {
+        const { data } = await db.from('sync_state').select('value').eq('key', 'unit_goals').maybeSingle();
+        if (!data || !data.value) return null;
+        const g = JSON.parse(String(data.value));
+        return { year: num_(g.year), sheetId: String(g.sheetId || ''), targets: g.targets || {} as Record<string, number[]> };
+      } catch { return null; }
+    })(),
   ]);
+  const salesRows = salesRes.rows;
+  const adsRows = adsRes.rows;
   const platformOf: Record<string, string> = {};
   pagesRows.forEach((r) => { platformOf[String(r.page_id)] = String(r.platform || '').toLowerCase(); });
   const UNMAPPED = '__none__';
@@ -120,53 +165,6 @@ export async function apiUnitPerf(params: any) {
     };
   });
 
-  /* ---- ยอดขาย/ออเดอร์ รายวันต่อเพจ (กติกาเดียวกับหน้า Sales) ---- */
-  const salesRes = await rpcAll_('sales_daily_by_page', {
-    p_from: bkkDayIso_(monthStart),
-    p_to: bkkDayIso_(ymdShift_(lastYmd, 1)),
-    p_excluded: EXCLUDED_STATUSES,
-    p_needcheck: NEED_CHECK_STATUSES,
-  }, ['d', 'page_id', 'channel']);
-  const salesRows = salesRes.rows;
-
-  /* ---- ค่าแอดรายวันต่อเพจ ---- */
-  const adsRes = await rpcAll_('ads_daily_by_page', { p_from: monthStart, p_to: lastYmd }, ['d', 'page_id']);
-  const adsRows = adsRes.rows;
-
-  /* ---- คนทักรายวันต่อเพจ (เฉพาะเพจ Facebook — ตัวหารเดียวกับ %ปิด หน้า Sales) ---- */
-  const engRows = await fetchAll<any>(
-    () => db.from('chat_engagement_daily').select('key,date,page_id,new_inbox,comment')
-      .gte('date', monthStart).lte('date', lastYmd),
-    'key',
-  ).catch(() => [] as any[]);
-
-  /* ---- กำไรรายวันต่อยูนิต (ชีท) ---- */
-  const profitRows = await fetchAll<any>(
-    () => db.from('unit_daily').select('key,u,date,profit').gte('date', monthStart).lte('date', lastYmd),
-    'key',
-  ).catch(() => [] as any[]);
-
-  /* ---- ขาดทุนต่อเนื่อง (งาน sync คำนวณไว้แล้ว) ---- */
-  const lossAlerts = await (async () => {
-    try {
-      const { data } = await db.from('sync_state').select('value').eq('key', 'unit_loss_alerts').maybeSingle();
-      if (!data || !data.value) return null;
-      const j = JSON.parse(String(data.value));
-      const byU: Record<string, any> = {};
-      (j.alerts || []).forEach((a: any) => { byU[String(a.u)] = a; });
-      return { throughDate: String(j.throughDate || ''), byU };
-    } catch { return null; }
-  })();
-
-  /* ---- เป้าเดือนจากชีท KPI ---- */
-  const goals = await (async () => {
-    try {
-      const { data } = await db.from('sync_state').select('value').eq('key', 'unit_goals').maybeSingle();
-      if (!data || !data.value) return null;
-      const g = JSON.parse(String(data.value));
-      return { year: num_(g.year), sheetId: String(g.sheetId || ''), targets: g.targets || {} as Record<string, number[]> };
-    } catch { return null; }
-  })();
   const monthTargetOf = (u: string): number => {
     if (!goals || goals.year !== year) return 0;
     return num_((goals.targets[u] || [])[mon - 1]);
