@@ -174,8 +174,13 @@ let filtersOpen = false;
 let scoreCfg: MetricConfig[] | null = null;
 let scoreCfgLoaded = false;
 
-async function loadScoreCfg(): Promise<void> {
-  if (scoreCfgLoaded) return;
+let scoreCfgP: Promise<void> | null = null;
+/** เกณฑ์คะแนนรวม — โหลดครั้งเดียว คำขอซ้อนกันใช้คำขอเดียวกัน · ไม่มีทาง reject (พลาด = เกณฑ์ default) */
+function loadScoreCfg(): Promise<void> {
+  if (scoreCfgLoaded) return Promise.resolve();
+  return scoreCfgP || (scoreCfgP = loadScoreCfg_());
+}
+async function loadScoreCfg_(): Promise<void> {
   try {
     const res = await serverCall<{ config: unknown }>('apiScoreConfig', {});
     scoreCfg = normalizeConfig(res && res.config);
@@ -1665,7 +1670,8 @@ function openSlaEditor(container: HTMLElement): void {
 
 function fetchData(container: HTMLElement, silent: boolean): void {
   const seqAtStart = dataSeq;
-  serverCall<AdminsData>('apiAdmins').then(function (data) {
+  // เกณฑ์คะแนนกับข้อมูลแอดมินดึงพร้อมกัน (เดิมรอเกณฑ์ก่อน) — วาดเมื่อได้ครบทั้งคู่
+  Promise.all([serverCall<AdminsData>('apiAdmins'), loadScoreCfg()]).then(function ([data]) {
     if (silent) {
       // refetch เบื้องหลัง: ห้ามทับ state ถ้า (ก) ผู้ใช้เพิ่งแก้อะไรไป (ข้อมูลที่ได้มาเก่ากว่า)
       // (ข) มี save ค้างอยู่ (ค) modal เปิดอยู่ (ปิด modal ทิ้งกลางคันไม่ได้ — ถือ object เดิมอยู่)
@@ -1698,8 +1704,8 @@ function fetchData(container: HTMLElement, silent: boolean): void {
 export const admins = {
   load: async (container: HTMLElement, force?: boolean): Promise<void> => {
     if (!viewMode) viewMode = readViewMode();
-    await loadScoreCfg(); // เกณฑ์คะแนนรวม (โหลดครั้งเดียว — ใช้ใน stats modal + CSV)
     if (lastData && !force) {
+      await loadScoreCfg(); // เกณฑ์คะแนนรวม (โหลดแล้ว = คืนทันที) — ใช้ใน stats modal + CSV
       render(container);
       fetchData(container, true); /* อัปเดตเบื้องหลัง */
     } else {

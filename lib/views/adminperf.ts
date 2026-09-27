@@ -951,9 +951,14 @@ function comSectionHtml(): string {
       : stateHtml('nodata', { title: 'เดือนนี้ยังไม่มีข้อมูลค่าคอมในชีท', body: 'ลองเลือกเดือนอื่น' }));
 }
 
+/** ค่าคอมเดือนล่าสุดที่เริ่มดึงไว้ตั้งแต่เปิดหน้า (ดู load) — เดิมรอให้อันดับโหลดเสร็จก่อนค่อยเริ่มดึง */
+let comPrefetch: Promise<ComData> | null = null;
+
 function fetchCom(container: HTMLElement, month: string): void {
   const seq = ++comReq;
-  serverCall<ComData>('apiAdminCom', { month: month }).then(function (d) {
+  const req = month === '' && comPrefetch ? comPrefetch : serverCall<ComData>('apiAdminCom', { month: month });
+  comPrefetch = null;
+  req.then(function (d) {
     if (seq !== comReq) return;
     comData = d;
     const box = container.querySelector('#rk-com') as HTMLElement | null;
@@ -1688,12 +1693,13 @@ function startAuto(container: HTMLElement): void {
 
 function fetchData(container: HTMLElement, background: boolean): void {
   const seq = ++reqSeq;
-  serverCall<PerfData>('apiAdminPerf', {
+  // เกณฑ์คะแนนกับอันดับดึงพร้อมกัน (เดิมรอเกณฑ์เสร็จก่อนค่อยเริ่มดึงอันดับ) — วาดเมื่อได้ครบทั้งคู่
+  Promise.all([serverCall<PerfData>('apiAdminPerf', {
     preset: state.preset,
     from: state.from,
     to: state.to,
     channel: state.channel,
-  }).then(function (data) {
+  }), ensureConfig()]).then(function ([data]) {
     if (seq !== reqSeq) return; // มี request ใหม่กว่าแล้ว — ทิ้งผลนี้
     lastData = data;
     lastFetchAt = Date.now();
@@ -1716,7 +1722,14 @@ function fetchData(container: HTMLElement, background: boolean): void {
   });
 }
 
-/** โหลด scoreConfig ที่บันทึกไว้ (ครั้งเดียว) */
+/** โหลด scoreConfig ครั้งเดียว — คำขอซ้อนกันใช้คำขอเดียวกัน */
+let configP: Promise<void> | null = null;
+function ensureConfig(): Promise<void> {
+  if (configLoaded) return Promise.resolve();
+  return configP || (configP = loadConfig());
+}
+
+/** โหลด scoreConfig ที่บันทึกไว้ (ครั้งเดียว) — ไม่มีทาง reject (พลาด = ใช้เกณฑ์ default) */
 async function loadConfig(): Promise<void> {
   try {
     const res = await serverCall<{ config: unknown; rank: unknown }>('apiScoreConfig', {});
@@ -1742,8 +1755,13 @@ function refetch(container: HTMLElement): void {
 export const adminperf = {
   redraw: (container: HTMLElement): void => { if (lastData) render(container, lastData); },
   load: async (container: HTMLElement, force?: boolean): Promise<void> => {
-    if (!configLoaded) await loadConfig();     // ดึงเกณฑ์ที่บันทึกไว้ก่อน render
+    // ค่าคอมเดือนล่าสุด: เริ่มดึงตั้งแต่ตอนนี้ ขนานกับอันดับ (render ครั้งแรกจะหยิบคำขอนี้ไปใช้)
+    if (!comData && !comPrefetch) {
+      comPrefetch = serverCall<ComData>('apiAdminCom', { month: '' });
+      comPrefetch.catch(function () { /* จัดการตอน fetchCom — กันขึ้น unhandled ถ้าออกจากหน้าก่อน */ });
+    }
     if (lastData && !force) {
+      await ensureConfig();                     // เกณฑ์ต้องพร้อมก่อน render (โหลดแล้ว = คืนทันที)
       render(container, lastData);              // แสดงจากแคชทันที
       fetchData(container, true);               // แล้วดึงข้อมูลใหม่เบื้องหลัง
     } else {

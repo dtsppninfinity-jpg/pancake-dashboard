@@ -41,6 +41,10 @@ export async function apiAdminCom(params: any) {
   }
 
   const askMonth = /^\d{4}-\d{2}$/.test(String(params?.month || '')) ? String(params.month) : '';
+  // ชื่อเล่น + หมายเหตุ ไม่ขึ้นกับเดือนที่เลือก — เริ่มดึงตั้งแต่ตอนนี้ ขนานกับตารางค่าคอม (เดิมรอคิวทีละตัว)
+  // ทั้งคู่ไม่มีทาง reject (พลาด = ค่าว่าง เหมือนเดิม)
+  const nickByP = nicknameByName().catch(() => ({} as Record<string, string>));
+  const comNotesP = loadComNotes_();
 
   // ตารางเล็ก (หลักร้อยแถว) — ดึงทั้งหมดทีเดียว ได้ทั้งรายการเดือนและข้อมูลเดือนที่เลือก
   let comAll: any[];
@@ -98,19 +102,22 @@ export async function apiAdminCom(params: any) {
    * วิธีเดียวกับหน้า Ranking: spend_admin = Σ_ad spend(ad) × rev_admin_ad / rev_ad_total
    * เดือนก่อนพ.ค. 2026 ไม่มีออเดอร์ใน DB → ทุกคนได้ null (หน้าเว็บโชว์ "—")
    */
-  const nickBy = await nicknameByName().catch(() => ({} as Record<string, string>));
+  const nickBy = await nickByP;
   const mStart = new Date(`${month}-01T00:00:00+07:00`);
   const [y, mo] = month.split('-').map(Number);
   const mEnd = new Date(`${mo === 12 ? y + 1 : y}-${String(mo === 12 ? 1 : mo + 1).padStart(2, '0')}-01T00:00:00+07:00`);
 
   const [orders, adRows] = await Promise.all([
     // หั่นเดือนเป็นก้อนดึงขนาน — เดือนเต็ม ~80k แถว OFFSET ลึกช้า+เสี่ยง statement timeout
+    // pool 4: เวลาหมดไปกับรอ round-trip ไม่ใช่ฐานคิดหนัก — คิวรีพร้อมกันจริงยังโดน MAX_INFLIGHT ใน db.ts คุม
+    // (seller_id ไม่ได้ใช้ในฟังก์ชันนี้ — ไม่ต้องดึง)
     fetchAllSliced<any>((f, t) =>
       db.from('orders')
-        .select('inserted_at,status,total_price,items_count,seller_id,seller_name,creator_name,ad_id')
+        .select('inserted_at,status,total_price,items_count,seller_name,creator_name,ad_id')
         .gte('inserted_at', f)
         .lt('inserted_at', t),
-      mStart, new Date(mEnd.getTime() - 1)
+      mStart, new Date(mEnd.getTime() - 1),
+      { pool: 4 },
     ),
     fetchAll<any>(() =>
       db.from('ad_daily').select('date,ad_id,spend').gte('date', `${month}-01`).lte('date', `${month}-31`),
@@ -158,7 +165,7 @@ export async function apiAdminCom(params: any) {
   }
 
   /* ---------- ประกอบแถว ---------- */
-  const comNotes = await loadComNotes_();
+  const comNotes = await comNotesP;
   const rows = Object.keys(byAdmin).map((k) => {
     const a = byAdmin[k];
     const ad = roasOf_(adRevByNick[k]);
