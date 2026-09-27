@@ -2,12 +2,19 @@
    me — "ผลงานของฉัน" สำหรับผู้ใช้ระดับแอดมิน
    เห็นเฉพาะตัวเลขของตัวเอง + อันดับ + ค่าเฉลี่ยทีม (ไม่เห็นยอดของเพื่อนร่วมงาน)
    ข้อมูลมาจาก apiMe ซึ่ง scope ด้วย session ฝั่ง server แล้ว
+
+   ตรวจ UI รอบ 3 (26 ก.ย. 69)
+   - C4/F1: ช่วงเวลาอยู่ในแถวเครื่องมือมาตรฐาน (บนมือถือยุบเป็นปุ่มเดียวจากตัวช่วยกลาง)
+   - E2: %ปิด ทศนิยม 2 ตำแหน่ง · ROAS "x" 2 ตำแหน่ง · %เทียบเป้า 1 ตำแหน่ง (ตัวจัดรูปแบบกลาง)
+   - E3: สีแถบเทียบเป้าใช้เกณฑ์กลาง (100 / 80) เดิมหน้านี้ใช้ 70 คนละเกณฑ์กับหน้าอื่น
    ============================================================ */
 
 import {
-  serverCall, esc, fmtNum, THB, pctFmt, showError, toast,
+  serverCall, esc, fmtNum, THB, pct1, pct2, roasFmt, dash, showError, toast, stateHtml,
   rangeControlsHtml, bindRangeControls, type RangeState,
 } from '@/lib/ui/helpers';
+import { attainKind, kindClass, legendHtml, LEGEND } from '@/lib/ui/color-rules';
+import { meSkel } from '@/lib/ui/skeletons';
 
 interface MeRow {
   id?: string;
@@ -49,9 +56,9 @@ const state: RangeState = { preset: 'today', from: '', to: '' };
 
 /* ---------------- ชิ้นส่วน HTML ---------------- */
 
-/** การ์ดตัวเลขใหญ่ 1 ตัว — ป้ายคำ + ตัวเลข ไม่มีรูปนำหน้า (ตรวจ UI รอบ 2: เลิกใช้อีโมจิ การ์ดตัวเลขที่ไม่มีกรอบไอคอนใช้คำล้วน) */
-function bigCard(label: string, value: string, sub: string, tone = ''): string {
-  return '<div class="card me-card' + (tone ? ' ' + tone : '') + '">' +
+/** การ์ดตัวเลขใหญ่ 1 ตัว — ป้ายคำ + ตัวเลข + บรรทัดเทียบ (กล่องตัวเลขมาตรฐาน C3 ผ่าน .me-card) */
+function bigCard(label: string, value: string, sub: string): string {
+  return '<div class="card me-card">' +
     '<div class="me-card-top">' + esc(label) + '</div>' +
     '<div class="me-card-val">' + value + '</div>' +
     (sub ? '<div class="card-sub">' + sub + '</div>' : '') +
@@ -59,18 +66,20 @@ function bigCard(label: string, value: string, sub: string, tone = ''): string {
 }
 
 /**
- * แถบความคืบหน้าเทียบเป้า — ไม่มีเป้าก็ยังใช้เทียบค่าเฉลี่ยทีมได้
+ * แถบความคืบหน้าเทียบเป้า — ไม่มีเป้าก็ไม่แสดง (ไม่เดาเป้าเอง)
  * pct เกิน 100 ให้เต็มแถบแต่โชว์ตัวเลขจริง (คนทำเกินเป้าต้องเห็นว่าเกินเท่าไร)
+ * สีตามเกณฑ์กลาง attainKind: ถึงเป้า = เขียว · 80–99% = ส้ม · ต่ำกว่า = แดง
  */
 function progressRow(label: string, value: number, target: number, fmt: (n: number) => string): string {
   if (!target) return '';
-  const pct = Math.round((value / target) * 100);
-  const tone = pct >= 100 ? 'ok' : pct >= 70 ? 'warn' : 'bad';
+  const pct = (value / target) * 100;
+  const kind = attainKind(value, target);
+  const tone = kind === 'good' ? 'ok' : kind === 'warn' ? 'warn' : kind === 'bad' ? 'bad' : '';
   return '<div class="me-prog">' +
     '<div class="me-prog-head"><span>' + esc(label) + '</span>' +
       '<b>' + fmt(value) + ' <span class="me-prog-target">/ ' + fmt(target) + '</span></b></div>' +
-    '<div class="me-bar"><i class="me-bar-fill ' + tone + '" style="width:' + Math.min(100, Math.max(0, pct)) + '%"></i></div>' +
-    '<div class="me-prog-pct ' + tone + '">' + pct + '% ของเป้า</div>' +
+    '<div class="me-bar"><i class="me-bar-fill ' + tone + '" style="width:' + Math.min(100, Math.max(0, pct)).toFixed(1) + '%"></i></div>' +
+    '<div class="me-prog-pct ' + kindClass(kind) + '">' + pct1(pct) + ' ของเป้า</div>' +
     '</div>';
 }
 
@@ -85,13 +94,21 @@ function timeLeftToday(): string {
 }
 
 function bodyHtml(d: MeData): string {
-  const controls = '<div class="pg-controls">' + rangeControlsHtml(state, 'me') + '</div>';
+  // C4 แถวเครื่องมือมาตรฐาน — หน้านี้มีแค่ช่วงเวลา (ไม่มีตัวกรอง/ไฟล์ดาวน์โหลด)
+  const controls = '<div class="toolbar me-tb"><div class="tb-range">' + rangeControlsHtml(state, 'me') + '</div></div>';
 
   if (d.linked === false) {
-    return controls + '<div class="card"><div class="empty">' + esc(d.message || 'บัญชียังไม่ได้ผูกกับแอดมิน') + '</div></div>';
+    return controls + '<div class="card">' + stateHtml('notready', {
+      title: 'บัญชีนี้ยังไม่ได้ผูกกับแอดมิน',
+      // ข้อความจากเซิร์ฟเวอร์พูดเรื่องเดียวกับหัวข้อ — ใช้ประโยคบอกทางแก้แทน ไม่ให้อ่านซ้ำ 2 รอบ
+      body: 'ติดต่อผู้ดูแลระบบให้ผูกบัญชีนี้กับชื่อแอดมินของคุณ แล้วเปิดหน้านี้ใหม่',
+    }) + '</div>';
   }
   if (d.empty || !d.me) {
-    return controls + '<div class="card"><div class="empty">ยังไม่มีข้อมูลของคุณในช่วง ' + esc(d.rangeLabel || '') + '</div></div>';
+    return controls + '<div class="card">' + stateHtml('nodata', {
+      title: 'ยังไม่มีข้อมูลของคุณในช่วง' + (d.rangeLabel ? ' ' + d.rangeLabel : 'นี้'),
+      body: 'ลองเลือกช่วงเวลาอื่นด้านบน',
+    }) + '</div>';
   }
 
   const m = d.me;
@@ -99,7 +116,7 @@ function bodyHtml(d: MeData): string {
   const rev = Number(m.revenue) || 0;
   const tg = d.targets || {};
 
-  // ชื่อที่แสดง: ใช้ชื่อเล่นถ้ามี (ตั้งจากหน้า Admin Management)
+  // ชื่อที่แสดง: ใช้ชื่อเล่นถ้ามี (ตั้งจากหน้าจัดการแอดมิน)
   const shown = esc(m.nickname || m.name || '');
 
   const head = '<div class="card me-hero">' +
@@ -116,40 +133,46 @@ function bodyHtml(d: MeData): string {
     progressRow('คนทัก', Number(m.chats) || 0, Number(tg.chats) || 0, (n) => fmtNum(n)),
   ].filter(Boolean).join('');
   const progCard = progs
-    ? '<div class="card"><h3>เทียบเป้าหมาย</h3>' + progs + '</div>'
+    ? '<div class="card"><h3>เทียบเป้าหมาย</h3>' + legendHtml(LEGEND.attain) + progs + '</div>'
     : '';
 
+  // ตัวเลขที่ไม่ได้ตัดสินอะไร = สีปกติ (E3) — เทียบค่าเฉลี่ยทีมอยู่บรรทัดล่างแทนการทาสี
+  const hasRoas = !(m.roas === null || m.roas === undefined);
   const cards = '<div class="me-grid">' +
     bigCard('ยอดขาย', THB(rev), 'เฉลี่ยทีม ' + THB(avg.revenue)) +
     bigCard('ออเดอร์', fmtNum(m.orders || 0), 'เฉลี่ยทีม ' + fmtNum(avg.orders)) +
     bigCard('คนทัก', fmtNum(m.chats || 0), 'เฉลี่ยทีม ' + fmtNum(avg.chats)) +
-    bigCard('% ปิดการขาย', pctFmt(m.closeRate),
-      avg.closeRate === null ? '' : 'เฉลี่ยทีม ' + pctFmt(avg.closeRate)) +
+    bigCard('%ปิด', pct2(m.closeRate),
+      avg.closeRate === null ? '' : 'เฉลี่ยทีม ' + pct2(avg.closeRate)) +
     bigCard('เปอร์บิล', THB(m.avgOrder || 0), 'ยอดขายเฉลี่ยต่อบิล') +
-    bigCard('ROAS',
-      (m.roas === null || m.roas === undefined) ? '—' : (Math.round(Number(m.roas) * 100) / 100) + 'x',
-      (m.roas === null || m.roas === undefined) ? 'ยอดขายไม่ได้มาจากแอด' : 'ยอดขาย ÷ ค่าแอดที่จัดสรร') +
+    bigCard('ROAS', hasRoas ? roasFmt(Number(m.roas)) : dash(),
+      hasRoas ? 'ยอดขาย ÷ ค่าแอดที่จัดสรร' : 'ยอดขายไม่ได้มาจากแอด') +
     bigCard('ตอบเฉลี่ย',
-      (m.avgRespMins === null || m.avgRespMins === undefined) ? '—' : m.avgRespMins + ' น.', 'ยิ่งน้อยยิ่งดี') +
+      (m.avgRespMins === null || m.avgRespMins === undefined) ? dash() : fmtNum(m.avgRespMins) + ' น.', 'ยิ่งน้อยยิ่งดี') +
     bigCard('ข้อความที่ตอบ', fmtNum(m.replies || 0), 'เบอร์ใหม่ ' + fmtNum(m.phones || 0)) +
     '</div>';
 
   // งานค้างตอนนี้ — ค่า "ตอนนี้" ไม่ขึ้นกับช่วงที่เลือก บอกให้ชัดกันเข้าใจผิด
+  // ส้ม = เรื่องที่ต้องจับตา (ไม่ใช่แดง — งบสีแดง B3)
   const now = '<div class="card">' +
     '<h3>งานค้างตอนนี้</h3>' +
     '<div class="card-sub">24 ชม. ล่าสุด — ไม่ขึ้นกับช่วงเวลาที่เลือกด้านบน</div>' +
-    '<div class="pg-summary">' +
+    '<div class="pg-summary me-now">' +
       '<div class="pgs-item"><b>' + fmtNum(m.activeNow || 0) + '</b><span>แชทที่ดูแล</span></div>' +
       '<div class="pgs-item' + ((m.waitingNow || 0) > 0 ? ' warn' : '') + '"><b>' + fmtNum(m.waitingNow || 0) + '</b><span>รอตอบ</span></div>' +
       '<div class="pgs-item' + ((m.overSla || 0) > 0 ? ' warn' : '') + '"><b>' + fmtNum(m.overSla || 0) + '</b><span>เกิน SLA</span></div>' +
     '</div></div>';
 
+  // แถว "หัวข้อ : ค่า" มาตรฐาน (.kv — C3)
+  const kvRow = (k: string, v: string) =>
+    '<div class="kv-row"><span class="kv-k">' + esc(k) + '</span><span class="kv-v">' + (v ? esc(v) : dash()) + '</span></div>';
   const detail = '<div class="card">' +
     '<h3>รายละเอียด</h3>' +
-    '<div class="me-kv"><span>สินค้าขายดีของคุณ</span><b>' + esc(m.topProduct || '-') + '</b></div>' +
-    '<div class="me-kv"><span>เพจที่ทำยอดดีสุด</span><b>' + esc(m.topPage || '-') + '</b></div>' +
-    '<div class="me-kv"><span>ออเดอร์ล่าสุด</span><b>' + esc(m.lastOrderAt || '-') + '</b></div>' +
-    '</div>';
+    '<div class="kv">' +
+      kvRow('สินค้าขายดีของคุณ', m.topProduct || '') +
+      kvRow('เพจที่ทำยอดดีสุด', m.topPage || '') +
+      kvRow('ออเดอร์ล่าสุด', m.lastOrderAt || '') +
+    '</div></div>';
 
   return controls + head + progCard + cards + now + detail;
 }
@@ -178,7 +201,7 @@ function fetchAndRender(container: HTMLElement): void {
     .catch((err) => {
       if (seq !== reqSeq) return;
       if (lastData) {
-        toast('โหลดข้อมูลใหม่ไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
+        toast('โหลดข้อมูลใหม่ไม่สำเร็จ', 'error', { action: { label: 'ลองใหม่', fn: () => me.load(container, true) } });
       } else {
         showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', () => me.load(container, true));
       }
@@ -191,7 +214,7 @@ export const me = {
       render(container);
       fetchAndRender(container);
     } else {
-      container.innerHTML = '<div class="card"><div class="skel-line"></div><div class="skel-line"></div></div>';
+      container.innerHTML = meSkel();
       fetchAndRender(container);
     }
   },

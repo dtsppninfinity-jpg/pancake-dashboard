@@ -1,4 +1,4 @@
-// lib/api/unitperf.ts — หน้า "🎯 ผลงานราย Unit" (พีสั่ง 21 ก.ย. 2569)
+// lib/api/unitperf.ts — หน้า "ผลงานรายยูนิต" (พีสั่ง 21 ก.ย. 2569)
 //
 // การ์ดใบละยูนิต: ยอดเดือนนี้ vs เป้า · คาดการณ์สิ้นเดือน · สัญญาณเตือนที่ระบบตรวจเจอ · จัดอันดับความเสี่ยง
 //
@@ -8,7 +8,7 @@
 //   คนทัก           ฐาน Meta จาก ads_daily_by_page (ถอยไป chat_engagement_daily ถ้า Meta ไม่ครบ)
 //                   — ตัวหารเดียวกับ %ปิด หน้า Sales เสมอ ห้ามให้สองหน้าใช้คนละฐาน
 //   กำไร            unit_daily.profit จากชีทสรุปรายสินค้า (แหล่งเดียวกับหน้า กำไร & ตีกลับ)
-//   ขาดทุนต่อเนื่อง  sync_state 'unit_loss_alerts' (งาน sync คำนวณวันละครั้ง — กติกาเดียวกับการ์ด 🚨 หน้า Sales)
+//   ขาดทุนต่อเนื่อง  sync_state 'unit_loss_alerts' (งาน sync คำนวณวันละครั้ง — กติกาเดียวกับการ์ดเตือนขาดทุนหน้ายอดขาย)
 //   เป้าเดือน        sync_state 'unit_goals' (ชีท KPI แท็บ เป้ายอดขาย)
 import { db, fetchAll } from '@/lib/db';
 import { getUMapDoc, getPageUnitMap } from '@/lib/api/umap';
@@ -279,7 +279,7 @@ export async function apiUnitPerf(params: any) {
       if (rate >= UNIT_CLOSE_TARGET) break;
       closeStreak++;
     }
-    // ---- ROAS ต่ำกว่าจุดคุ้มทุนติดต่อกันกี่วัน (กติกาเดียวกับการ์ด 🚨 — งาน sync คำนวณไว้) ----
+    // ---- ROAS ต่ำกว่าจุดคุ้มทุนติดต่อกันกี่วัน (กติกาเดียวกับการ์ดเตือนขาดทุน — งาน sync คำนวณไว้) ----
     const la = lossUsable && lossAlerts ? lossAlerts.byU[k] : null;
     const lossStreak = la ? num_(la.days || la.streak) : 0;
     // basis บอกว่าวันขาดทุนตัดสินด้วยอะไร: 'profit' = กำไรจริงจากชีท · 'roas' = ยอดขายต่ำกว่าค่าแอด × จุดคุ้มทุน
@@ -306,7 +306,7 @@ export async function apiUnitPerf(params: any) {
     }
     if (closeStreak >= 2) {
       signals.push({
-        text: '%ปิดการขายต่ำกว่า ' + UNIT_CLOSE_TARGET + '% ' + closeStreak + ' วันติด',
+        text: '%ปิดต่ำกว่า ' + UNIT_CLOSE_TARGET + '% ' + closeStreak + ' วันติด',
         level: closeStreak >= 7 ? 'urgent' : 'watch',
       });
     }

@@ -1,13 +1,20 @@
 /* ============================================================
-   umap — หน้า 6: U Map (แอดมินอยู่ U ไหน)
+   umap — หน้า "จับคู่ยูนิต" (แอดมินอยู่ยูนิตไหน)
    หน้าอ้างอิงกันลืม สไตล์ "เกมจับคู่": คลิกเลือกแอดมินฝั่งซ้าย
-   แล้วคลิกการ์ด U ฝั่งขวาเพื่อจับคู่ — ข้อมูลเก็บใน DB (sync_state)
+   แล้วคลิกการ์ดยูนิตฝั่งขวาเพื่อจับคู่ — ข้อมูลเก็บใน DB (sync_state)
    มี API สาธารณะ /api/public/umap ให้ระบบภายนอกดึงไปใช้
    + โหมดทดสอบความจำ (ทายคู่ U ↔ ผลิตภัณฑ์) ไว้ท่องจำกันลืม
+
+   ตรวจ UI รอบ 3 (26 ก.ย. 69)
+   - F4: ลบยูนิตใช้กล่องยืนยันของเว็บ (ปุ่มแดง "ลบยูนิต Uxx") · ปุ่มบันทึกขึ้น "กำลังบันทึก…" และรอผลจริงก่อนปิด
+         ข้อผิดพลาดของฟอร์มขึ้นใต้ช่องนั้น · เอาแอดมินออกจากยูนิต = ทำทันที + "เลิกทำ"
+         คัดลอกลิงก์ไม่ได้ → แผ่นที่มีช่องลิงก์ + ปุ่มคัดลอก (copyText) แทน window.prompt
+   - D2: "U" ที่เป็นคำนาม → "ยูนิต" (รหัสอย่าง U4 / UN8 คงเดิม) · ไม่มีคำช่าง (sync / API) บนจอ
    ============================================================ */
 
 import {
-  serverCall, esc, relTime, showError, toast, openModal, closeModal, tagColor,
+  serverCall, esc, dash, relTime, showError, toast, undoToast, withBusy, confirmDialog, copyText, stateHtml,
+  openModal, closeModal, modalCloseBtn, tagColor,
 } from '@/lib/ui/helpers';
 import { umapSkel } from '@/lib/ui/skeletons';
 import { icon, brandIcon, ICON_FOR } from '@/lib/ui/icons';
@@ -36,28 +43,48 @@ let reqSeq = 0;                       // กันผลลัพธ์เก่
 let saving = false;                   // มีคำสั่งกำลังยิงอยู่ (คิวกำลังไหล)
 // คิว FIFO ของคำสั่งแก้ข้อมูล — hint บอกว่า "คลิกได้หลายการ์ดติดกัน" ดังนั้นคลิกระหว่าง
 // รอ server ต้องเข้าคิวยิงตามลำดับ ไม่ใช่ถูกทิ้งเงียบๆ (server ~1-3 วิ/คำสั่ง)
-const pending: Array<{ params: Record<string, unknown>; okMsg: string }> = [];
+// onOk / onErr = ให้คนสั่งรู้ผล (ฟอร์มที่รอผลจริงก่อนปิด / แถบเลิกทำ) · มี onErr = ไม่ขึ้นข้อความเด้งเอง
+interface Job {
+  params: Record<string, unknown>;
+  okMsg: string;
+  onOk?: () => void;
+  onErr?: (msg: string) => void;
+}
+const pending: Job[] = [];
+
+/** ผู้ดูแลระบบเท่านั้นที่เห็นรายละเอียดเทคนิค — page.tsx ใส่ data-role ไว้ที่ #app */
+function isSuperadmin(): boolean {
+  const app = document.getElementById('app');
+  return !!app && app.dataset.role === 'superadmin';
+}
+
+/** เดสก์ท็อปเท่านั้นที่โฟกัสช่องกรอกให้เอง — มือถือโฟกัสแล้วแป้นพิมพ์เด้งบังฟอร์มทันที */
+const autoFocusAttr = () => (window.matchMedia('(min-width: 900px)').matches ? ' data-autofocus' : '');
 
 /* ---------------- ชิ้นส่วน HTML ---------------- */
 
-/** จำนวน U ที่แอดมินแต่ละคนถืออยู่ (id → จำนวน) */
+/** จำนวนยูนิตที่แอดมินแต่ละคนถืออยู่ (id → จำนวน) */
 function unitCountByAdmin_(units: UUnit[]): Map<string, number> {
   const m = new Map<string, number>();
   units.forEach((x) => x.admins.forEach((a) => m.set(a.id, (m.get(a.id) || 0) + 1)));
   return m;
 }
 
+/** C4 แถวเครื่องมือ: ค้นหาแอดมิน → ปุ่มสร้าง/เกม · ขวาสุด = คัดลอกลิงก์ข้อมูล (ตำแหน่งเดียวกับปุ่มดาวน์โหลดหน้าอื่น) */
 function toolbarHtml(): string {
-  return '<div class="pg-controls">' +
-    // ขนาดช่องค้นหาตั้งที่กรอบ .search-box (แว่นขยายวาดซ้อนในกรอบ เพราะ placeholder ใส่รูปไม่ได้)
-    '<div class="search-box" style="flex:1 1 220px;max-width:100%">' + icon(ICON_FOR.search) +
-      '<input class="input" id="u-search" placeholder="ค้นหาแอดมิน..." aria-label="ค้นหาแอดมิน" value="' + esc(search) + '">' +
+  return '<div class="toolbar umap-tb">' +
+    '<div class="tb-filters umap-filters">' +
+      // ขนาดช่องค้นหาตั้งที่กรอบ .search-box (แว่นขยายวาดซ้อนในกรอบ เพราะ placeholder ใส่รูปไม่ได้)
+      '<div class="search-box umap-search">' + icon(ICON_FOR.search) +
+        '<input class="input" id="u-search" placeholder="ค้นหาแอดมิน..." aria-label="ค้นหาแอดมิน" value="' + esc(search) + '">' +
+      '</div>' +
+      '<button type="button" class="btn primary" id="u-add">' + icon(ICON_FOR.add) + 'เพิ่มยูนิต</button>' +
+      '<button type="button" class="btn" id="u-quiz" title="เกมทายคู่ยูนิต ↔ ผลิตภัณฑ์ ไว้ท่องจำ">' + icon('list-checks') + 'ทดสอบความจำ</button>' +
     '</div>' +
-    '<button class="btn primary" id="u-add">' + icon(ICON_FOR.add) + 'เพิ่ม U</button>' +
-    '<button class="btn" id="u-quiz" title="เกมทายคู่ U ↔ ผลิตภัณฑ์ ไว้ท่องจำ">' + icon('list-checks') + 'ทดสอบความจำ</button>' +
-    '<div class="spacer"></div>' +
-    '<button class="btn" id="u-api" title="API สาธารณะสำหรับระบบภายนอก (GET, ไม่ต้องใส่รหัสทีม)">' + icon(ICON_FOR.link) + 'คัดลอกลิงก์ API</button>' +
-    '</div>';
+    '<div class="tb-actions">' +
+      '<button type="button" class="btn" id="u-api" title="ลิงก์ให้ระบบอื่นดึงรายการจับคู่ยูนิตไปใช้">' + icon(ICON_FOR.link) + 'คัดลอกลิงก์ข้อมูล</button>' +
+    '</div>' +
+  '</div>';
 }
 
 /** id แอดมินที่ยังทำงานอยู่จริง (อยู่ใน roster) — ใช้แยก "แอดมินผี" ที่ถูกปิด/ออกไปแล้ว */
@@ -68,7 +95,7 @@ function rosterIds_(roster: UMember[]): Set<string> {
 function statsHtml(units: UUnit[], roster: UMember[]): string {
   const ids = rosterIds_(roster);
   // นับเฉพาะแอดมินที่ยังทำงานอยู่ — คนที่ถูกปิดใช้งาน/ออกแล้วไม่ถือว่า "ประจำ"
-  // (ถ้า roster ว่าง = sync ยังไม่มา ตรวจไม่ได้ ให้นับตามที่บันทึกไว้)
+  // (ถ้า roster ว่าง = ข้อมูลรายชื่อยังไม่มา ตรวจไม่ได้ ให้นับตามที่บันทึกไว้)
   const isActive = (m: UMember) => !roster.length || ids.has(m.id);
   const withAdmin = units.filter((x) => x.admins.some(isActive)).length;
   const assigned = new Set<string>();
@@ -77,49 +104,52 @@ function statsHtml(units: UUnit[], roster: UMember[]): string {
   const pagesMapped = units.reduce((s, x) => s + (x.pages || []).length, 0);
   const totalPages = (lastData && lastData.pageRoster || []).length;
   return '<div class="umap-stats">' +
-    '<div class="tile">U ทั้งหมด<b>' + units.length + '</b></div>' +
-    '<div class="tile">มีแอดมินประจำแล้ว<b>' + withAdmin + ' / ' + units.length + ' U</b></div>' +
-    '<div class="tile">แอดมินที่ยังไม่มี U<b>' + freeAdmins + ' คน</b></div>' +
-    '<div class="tile" title="ใช้จัดกลุ่มยอดขายตามยูนิตในหน้า Sales">เพจจับคู่แล้ว<b>' +
+    '<div class="tile">ยูนิตทั้งหมด<b>' + units.length + '</b></div>' +
+    '<div class="tile">มีแอดมินประจำแล้ว<b>' + withAdmin + ' / ' + units.length + ' ยูนิต</b></div>' +
+    '<div class="tile">แอดมินที่ยังไม่มียูนิต<b>' + freeAdmins + ' คน</b></div>' +
+    '<div class="tile" title="ใช้จัดกลุ่มยอดขายตามยูนิตในหน้ายอดขาย">เพจจับคู่แล้ว<b>' +
       pagesMapped + (totalPages ? ' / ' + totalPages : '') + ' เพจ</b></div>' +
     '</div>';
 }
 
 function hintHtml(): string {
   if (!selected) return '';
-  return '<div class="umap-hint">' + icon('mouse-pointer-click') + ' กำลังจับคู่: <b>' + esc(selected.name) + '</b>' +
-    ' — คลิกการ์ด U ฝั่งขวาเพื่อวางลง (คลิกได้หลายการ์ดติดกัน)' +
-    '<button class="btn-mini" id="u-cancel-sel" style="margin-left:10px">' + icon(ICON_FOR.close) + 'เลิกเลือก</button></div>';
+  return '<div class="umap-hint" role="status">' + icon('mouse-pointer-click') + ' กำลังจับคู่: <b>' + esc(selected.name) + '</b>' +
+    ' — คลิกการ์ดยูนิตฝั่งขวาเพื่อวางลง (คลิกได้หลายการ์ดติดกัน)' +
+    '<button type="button" class="btn-mini umap-cancel" id="u-cancel-sel">' + icon(ICON_FOR.close) + 'เลิกเลือก</button></div>';
 }
 
 function adminListHtml(units: UUnit[], roster: UMember[]): string {
   const counts = unitCountByAdmin_(units);
   const q = search.trim().toLowerCase();
   const list = q ? roster.filter((a) => a.name.toLowerCase().includes(q)) : roster;
-  if (!roster.length) return '<div class="empty-note">ยังไม่มีรายชื่อแอดมิน (รอ sync จาก Pancake)</div>';
+  if (!roster.length) {
+    return stateHtml('wait', { title: 'ยังไม่มีรายชื่อแอดมิน', body: 'รอข้อมูลรอบถัดไปจาก Pancake' });
+  }
   if (!list.length) return '<div class="empty-note">ไม่พบแอดมินชื่อ "' + esc(search) + '"</div>';
   return list.map((a) => {
     const n = counts.get(a.id) || 0;
-    const sel = selected && selected.id === a.id;
-    return '<button class="admin-pick' + (sel ? ' selected' : '') + '" data-id="' + esc(a.id) + '">' +
+    const sel = !!selected && selected.id === a.id;
+    // aria-pressed = บอกโปรแกรมอ่านหน้าจอว่าคนนี้ถูกเลือกรอจับคู่อยู่ (F5)
+    return '<button type="button" class="admin-pick' + (sel ? ' selected' : '') + '" data-id="' + esc(a.id) + '"' +
+      ' aria-pressed="' + (sel ? 'true' : 'false') + '">' +
       '<span class="pdot" style="background:' + tagColor(a.name) + '"></span>' +
       '<span class="nm">' + esc(a.name) + '</span>' +
       (n > 0
-        ? '<span class="cnt">' + n + ' U</span>'
-        : '<span class="cnt none">ยังไม่มี U</span>') +
+        ? '<span class="cnt">' + n + ' ยูนิต</span>'
+        : '<span class="cnt none">ยังไม่มียูนิต</span>') +
       '</button>';
   }).join('');
 }
 
 function memberChip_(u: string, m: UMember, ghost: boolean): string {
-  // กากบาทเป็นไอคอนล้วน — ใส่ label ที่ตัวไอคอน (role=img) ให้โปรแกรมอ่านหน้าจออ่านว่า "เอา … ออกจาก …"
-  // (icon() escape ค่า label เอง จึงส่งชื่อดิบ ไม่ต้อง esc ซ้ำ)
+  // ปุ่มกากบาทเป็นไอคอนล้วน — ชื่อปุ่มบอกชัดว่า "เอา … ออกจาก …" (เดิมเป็น <span> กด Tab ไม่ถึง)
   return '<span class="u-member' + (ghost ? ' ghost" title="ไม่อยู่ในรายชื่อแอดมินแล้ว (ถูกปิดใช้งาน/ออก) — กดกากบาทเพื่อเอาออก' : '') + '">' +
     '<span class="pdot" style="background:' + tagColor(m.name) + '"></span>' +
     (ghost ? '<span class="tx-bad">' + icon('ban', { size: 12, label: 'ออกแล้ว' }) + '</span> ' : '') + esc(m.name) +
-    '<span class="x" data-u="' + esc(u) + '" data-id="' + esc(m.id) + '" title="เอา ' +
-      esc(m.name) + ' ออกจาก ' + esc(u) + '">' +
-      icon(ICON_FOR.close, { size: 12, label: 'เอา ' + m.name + ' ออกจาก ' + u }) + '</span>' +
+    '<button type="button" class="x" data-u="' + esc(u) + '" data-id="' + esc(m.id) + '"' +
+      ' aria-label="' + esc('เอา ' + m.name + ' ออกจาก ' + u) + '" title="' + esc('เอา ' + m.name + ' ออกจาก ' + u) + '">' +
+      icon(ICON_FOR.close, { size: 12 }) + '</button>' +
     '</span>';
 }
 
@@ -130,17 +160,17 @@ function uCardHtml(x: UUnit, ids: Set<string>, hasRoster: boolean): string {
     : '<span class="u-empty">ยังว่าง — ไม่มีแอดมินประจำ</span>';
   const nPages = (x.pages || []).length;
   return '<div class="u-card' + (droppable ? ' droppable' : '') + '" data-u="' + esc(x.u) + '">' +
-    // ปุ่มมุมการ์ดมีแต่ไอคอน (ใส่คำไม่พอที่ — จะไปทับรหัส U ตัวใหญ่) จึงต้องมี aria-label + title ครบ
+    // ปุ่มมุมการ์ดมีแต่ไอคอน (ใส่คำไม่พอที่ — จะไปทับรหัสยูนิตตัวใหญ่) จึงต้องมี aria-label + title ครบ
     '<div class="u-tools">' +
-      '<button class="u-tool-btn btn-icon" data-act="edit" data-u="' + esc(x.u) + '" aria-label="แก้ชื่อผลิตภัณฑ์ของ ' + esc(x.u) +
+      '<button type="button" class="u-tool-btn btn-icon" data-act="edit" data-u="' + esc(x.u) + '" aria-label="แก้ชื่อผลิตภัณฑ์ของ ' + esc(x.u) +
         '" title="แก้ชื่อผลิตภัณฑ์">' + icon(ICON_FOR.edit, { size: 14 }) + '</button>' +
-      '<button class="u-tool-btn btn-icon danger" data-act="del" data-u="' + esc(x.u) + '" aria-label="ลบ ' + esc(x.u) +
-        '" title="ลบ U นี้">' + icon(ICON_FOR.delete, { size: 14 }) + '</button>' +
+      '<button type="button" class="u-tool-btn btn-icon danger" data-act="del" data-u="' + esc(x.u) + '" aria-label="ลบยูนิต ' + esc(x.u) +
+        '" title="ลบยูนิตนี้">' + icon(ICON_FOR.delete, { size: 14 }) + '</button>' +
     '</div>' +
     '<div class="u-code">' + esc(x.u) + '</div>' +
-    '<div class="u-product">' + esc(x.product || '—') + '</div>' +
+    '<div class="u-product">' + (x.product ? esc(x.product) : dash()) + '</div>' +
     '<div class="u-members">' + members + '</div>' +
-    '<button class="u-pages-btn" data-act="pages" data-u="' + esc(x.u) + '" title="จับคู่เพจของยูนิตนี้ (ใช้จัดกลุ่มยอดขาย)">' +
+    '<button type="button" class="u-pages-btn" data-act="pages" data-u="' + esc(x.u) + '" title="จับคู่เพจของยูนิตนี้ (ใช้จัดกลุ่มยอดขาย)">' +
       icon(ICON_FOR.page, { size: 14 }) + ' ' + (nPages ? nPages + ' เพจ' : 'ยังไม่จับคู่เพจ') + ' • จัดการ' +
     '</button>' +
     '</div>';
@@ -148,7 +178,10 @@ function uCardHtml(x: UUnit, ids: Set<string>, hasRoster: boolean): string {
 
 function boardHtml(units: UUnit[], roster: UMember[]): string {
   if (!units.length) {
-    return '<div class="card"><div class="empty-note">ยังไม่มี U — กดปุ่ม “เพิ่ม U” ด้านบนเพื่อเริ่มต้น</div></div>';
+    return '<div class="card">' + stateHtml('nodata', {
+      title: 'ยังไม่มียูนิต',
+      body: 'กดปุ่ม “เพิ่มยูนิต” ด้านบนเพื่อเริ่มต้น',
+    }) + '</div>';
   }
   const ids = rosterIds_(roster);
   return '<div class="u-grid">' +
@@ -164,7 +197,7 @@ function bodyHtml(data: UMapData): string {
     '<div class="umap-layout">' +
       '<div class="card umap-side">' +
         '<h3>แอดมิน (' + roster.length + ')</h3>' +
-        '<div class="card-sub">คลิกเลือกแอดมิน แล้วคลิกการ์ด U ฝั่งขวาเพื่อจับคู่</div>' +
+        '<div class="card-sub">คลิกเลือกแอดมิน แล้วคลิกการ์ดยูนิตฝั่งขวาเพื่อจับคู่</div>' +
         '<div id="u-admin-list" class="u-admin-list">' + adminListHtml(units, roster) + '</div>' +
         '<div class="umap-upd">อัปเดตล่าสุด ' + esc(relTime(data.updatedAt)) + '</div>' +
       '</div>' +
@@ -175,21 +208,34 @@ function bodyHtml(data: UMapData): string {
 /* ---------------- mutations ---------------- */
 
 /** เข้าคิวคำสั่งแก้ข้อมูล — ยิงตามลำดับทีละคำสั่ง res.units คือความจริงเสมอ (server ตัดสิน) */
-function mutate(container: HTMLElement, params: Record<string, unknown>, okMsg: string): void {
-  // กันคำสั่งซ้ำเป๊ะที่ค้างคิวอยู่แล้ว (เช่น ดับเบิลคลิกการ์ดเดิมก่อนผลกลับ)
+function mutate(container: HTMLElement, params: Record<string, unknown>, okMsg: string,
+  cb?: { onOk?: () => void; onErr?: (msg: string) => void }): void {
+  // กันคำสั่งซ้ำเป๊ะที่ค้างคิวอยู่แล้ว (เช่น ดับเบิลคลิกการ์ดเดิมก่อนผลกลับ) — งานที่รอผล (มี callback) ไม่ตัดทิ้ง
+  // เพราะคนสั่งรอฟังผลอยู่ ถ้าตัดทิ้งปุ่ม "กำลังบันทึก…" จะค้างตลอดไป
   const sig = JSON.stringify(params);
-  if (pending.some((p) => JSON.stringify(p.params) === sig)) return;
-  pending.push({ params, okMsg });
+  if (!cb && pending.some((p) => JSON.stringify(p.params) === sig)) return;
+  pending.push({ params, okMsg, onOk: cb && cb.onOk, onErr: cb && cb.onErr });
   if (!saving) drainQueue_(container);
+}
+
+/** แบบรอผล — คืน '' ถ้าสำเร็จ หรือข้อความผิดพลาด (ใช้กับฟอร์มที่ต้องบอกผลใต้ช่องก่อนปิดหน้าต่าง) */
+function mutateAsync(container: HTMLElement, params: Record<string, unknown>, okMsg: string): Promise<string> {
+  return new Promise<string>((resolve) => {
+    mutate(container, params, okMsg, { onOk: () => resolve(''), onErr: (m) => resolve(m || 'บันทึกไม่สำเร็จ') });
+  });
 }
 
 function drainQueue_(container: HTMLElement): void {
   const next = pending.shift();
   if (!next) { saving = false; return; }
   saving = true;
+  const fail = (msg: string) => {
+    if (next.onErr) next.onErr(msg);
+    else toast(msg, 'error');
+  };
   serverCall<UMapData>('apiUMap', next.params).then((res) => {
     if (!res || res.ok === false) {
-      toast((res && res.error) || 'บันทึกไม่สำเร็จ', 'error');
+      fail((res && res.error) || 'บันทึกไม่สำเร็จ');
     } else {
       reqSeq++; // ตัด read เก่าที่ค้างกลางอากาศทิ้ง — กันข้อมูล stale มาทับผลที่เพิ่งบันทึก
       if (lastData) {
@@ -198,46 +244,76 @@ function drainQueue_(container: HTMLElement): void {
       }
       if (next.okMsg) toast(next.okMsg, 'ok');
       render(container);
+      if (next.onOk) next.onOk();
     }
     drainQueue_(container);
   }).catch((err) => {
-    toast('บันทึกไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'), 'error');
+    fail('บันทึกไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
     drainQueue_(container);
   });
 }
 
-/* ---------------- modals: เพิ่ม / แก้ / ลบ U ---------------- */
+/* ---------------- ข้อผิดพลาดของฟอร์ม (F4 ข้อ 5): ตัวแดงใต้ช่องนั้น ---------------- */
 
-/** ปุ่มกากบาทมุมบนของ modal — มีแต่ไอคอน จึงต้องมี aria-label + title ให้โปรแกรมอ่านหน้าจอ/คนชี้เมาส์รู้ว่าคือ "ปิด" */
-const CLOSE_BTN = '<button class="modal-close btn-icon" aria-label="ปิด" title="ปิด">' + icon(ICON_FOR.close) + '</button>';
+function fieldErrSlot(id: string): string {
+  return '<span class="um-field-err" id="' + id + '-err" role="alert" hidden></span>';
+}
+function setFieldErr(fieldId: string, msg: string): void {
+  const inp = document.getElementById(fieldId);
+  const slot = document.getElementById(fieldId + '-err');
+  if (!slot) return;
+  slot.innerHTML = msg ? icon('circle-alert', { size: 14 }) + '<span>' + esc(msg) + '</span>' : '';
+  slot.hidden = !msg;
+  if (inp) {
+    if (msg) { inp.setAttribute('aria-invalid', 'true'); inp.setAttribute('aria-describedby', fieldId + '-err'); }
+    else { inp.removeAttribute('aria-invalid'); inp.removeAttribute('aria-describedby'); }
+  }
+}
+/** พิมพ์แก้แล้วข้อความแดงหายเอง */
+function clearOnInput(ids: string[]): void {
+  ids.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', () => setFieldErr(id, ''));
+  });
+}
+
+/* ---------------- modals: เพิ่ม / แก้ / ลบยูนิต ---------------- */
 
 function openAddUnit(container: HTMLElement): void {
   openModal(
-    '<div class="modal-head"><h3>เพิ่ม U ใหม่</h3>' + CLOSE_BTN + '</div>' +
-    '<div style="display:flex;flex-direction:column;gap:10px">' +
-      '<label style="font-size:12.5px;color:var(--text-2)">รหัส U (เช่น U27, UN12)' +
-        '<input class="input" id="uadd-code" maxlength="12" placeholder="U27" style="width:100%;margin-top:5px"></label>' +
-      '<label style="font-size:12.5px;color:var(--text-2)">ชื่อผลิตภัณฑ์' +
-        '<input class="input" id="uadd-product" maxlength="120" placeholder="ชื่อสินค้า/แบรนด์" style="width:100%;margin-top:5px"></label>' +
+    '<div class="modal-head"><h3>เพิ่มยูนิตใหม่</h3>' + modalCloseBtn() + '</div>' +
+    '<div class="adm-form umap-form">' +
+      '<label class="adm-field"><span>รหัสยูนิต (เช่น U27, UN12)</span>' +
+        '<input class="input" id="uadd-code" maxlength="12" placeholder="U27" autocapitalize="characters" spellcheck="false"' + autoFocusAttr() + '>' +
+        fieldErrSlot('uadd-code') + '</label>' +
+      '<label class="adm-field"><span>ชื่อผลิตภัณฑ์</span>' +
+        '<input class="input" id="uadd-product" maxlength="120" placeholder="ชื่อสินค้า/แบรนด์">' +
+        fieldErrSlot('uadd-product') + '</label>' +
     '</div>' +
     '<div class="modal-actions">' +
-      '<button class="btn" id="uadd-cancel">ยกเลิก</button>' +
-      '<button class="btn primary" id="uadd-save">' + icon(ICON_FOR.add) + 'เพิ่ม</button>' +
+      '<button type="button" class="btn modal-close">ยกเลิก</button>' +
+      '<button type="button" class="btn primary" id="uadd-save">' + icon(ICON_FOR.add) + 'เพิ่ม</button>' +
     '</div>'
   );
   const root = document.getElementById('modal-root')!;
-  const cancel = root.querySelector('#uadd-cancel');
-  if (cancel) cancel.addEventListener('click', closeModal);
-  const code = root.querySelector('#uadd-code') as HTMLInputElement | null;
-  if (code) code.focus();
+  clearOnInput(['uadd-code', 'uadd-product']);
   const save = root.querySelector('#uadd-save') as HTMLButtonElement | null;
-  if (save) save.addEventListener('click', () => {
+  if (save) save.addEventListener('click', async () => {
     const u = ((root.querySelector('#uadd-code') as HTMLInputElement | null)?.value || '').trim().toUpperCase();
     const product = ((root.querySelector('#uadd-product') as HTMLInputElement | null)?.value || '').trim();
-    if (!/^[A-Z0-9-]{1,12}$/.test(u)) { toast('รหัส U ใช้ได้เฉพาะตัวอักษร/ตัวเลข เช่น U27, UN12', 'warn'); return; }
-    if (!product) { toast('กรอกชื่อผลิตภัณฑ์ด้วย', 'warn'); return; }
-    closeModal();
-    mutate(container, { action: 'addUnit', u, product }, 'เพิ่ม ' + u + ' — ' + product + ' แล้ว');
+    let bad = false;
+    if (!/^[A-Z0-9-]{1,12}$/.test(u)) { setFieldErr('uadd-code', 'รหัสยูนิตใช้ได้เฉพาะตัวอักษรอังกฤษ/ตัวเลข เช่น U27, UN12'); bad = true; }
+    if (!product) { setFieldErr('uadd-product', 'กรอกชื่อผลิตภัณฑ์ด้วย'); bad = true; }
+    if (bad) {
+      const first = root.querySelector('.umap-form [aria-invalid="true"]') as HTMLElement | null;
+      if (first) first.focus();
+      return;
+    }
+    // รอผลจริงก่อนปิด — ถ้าเซิร์ฟเวอร์ไม่รับ (เช่น รหัสซ้ำ) ข้อความขึ้นใต้ช่อง ไม่ต้องกรอกใหม่ทั้งฟอร์ม
+    const err = await withBusy(save, 'กำลังบันทึก…', () =>
+      mutateAsync(container, { action: 'addUnit', u, product }, 'เพิ่ม ' + u + ' — ' + product + ' แล้ว'));
+    if (!err) { closeModal(); return; }
+    setFieldErr(/รหัส|ซ้ำ|มีอยู่แล้ว/.test(err) || err.indexOf(u) >= 0 ? 'uadd-code' : 'uadd-product', err);
   });
 }
 
@@ -245,53 +321,55 @@ function openEditUnit(container: HTMLElement, u: string): void {
   const unit = (lastData && lastData.units || []).find((x) => x.u === u);
   if (!unit) return;
   openModal(
-    '<div class="modal-head"><h3>แก้ชื่อผลิตภัณฑ์ของ ' + esc(u) + '</h3>' + CLOSE_BTN + '</div>' +
-    '<input class="input" id="uedit-product" maxlength="120" value="' + esc(unit.product) + '" style="width:100%">' +
+    '<div class="modal-head"><h3>แก้ชื่อผลิตภัณฑ์ของ ' + esc(u) + '</h3>' + modalCloseBtn() + '</div>' +
+    '<div class="adm-form umap-form">' +
+      '<label class="adm-field"><span>ชื่อผลิตภัณฑ์</span>' +
+        '<input class="input" id="uedit-product" maxlength="120" value="' + esc(unit.product) + '"' + autoFocusAttr() + '>' +
+        fieldErrSlot('uedit-product') + '</label>' +
+    '</div>' +
     '<div class="modal-actions">' +
-      '<button class="btn" id="uedit-cancel">ยกเลิก</button>' +
-      '<button class="btn primary" id="uedit-save">' + icon(ICON_FOR.save) + 'บันทึก</button>' +
+      '<button type="button" class="btn modal-close">ยกเลิก</button>' +
+      '<button type="button" class="btn primary" id="uedit-save">' + icon(ICON_FOR.save) + 'บันทึก</button>' +
     '</div>'
   );
   const root = document.getElementById('modal-root')!;
-  const cancel = root.querySelector('#uedit-cancel');
-  if (cancel) cancel.addEventListener('click', closeModal);
+  clearOnInput(['uedit-product']);
   const save = root.querySelector('#uedit-save') as HTMLButtonElement | null;
-  if (save) save.addEventListener('click', () => {
+  if (save) save.addEventListener('click', async () => {
     const product = ((root.querySelector('#uedit-product') as HTMLInputElement | null)?.value || '').trim();
-    if (!product) { toast('กรอกชื่อผลิตภัณฑ์ด้วย', 'warn'); return; }
-    closeModal();
-    mutate(container, { action: 'editUnit', u, product }, 'แก้ ' + u + ' เป็น "' + product + '" แล้ว');
+    if (!product) {
+      setFieldErr('uedit-product', 'กรอกชื่อผลิตภัณฑ์ด้วย');
+      const el = root.querySelector('#uedit-product') as HTMLElement | null;
+      if (el) el.focus();
+      return;
+    }
+    const err = await withBusy(save, 'กำลังบันทึก…', () =>
+      mutateAsync(container, { action: 'editUnit', u, product }, 'แก้ ' + u + ' เป็น "' + product + '" แล้ว'));
+    if (!err) { closeModal(); return; }
+    setFieldErr('uedit-product', err);
   });
 }
 
-function openRemoveUnit(container: HTMLElement, u: string): void {
+/** ลบยูนิต — กล่องยืนยันของเว็บ ปุ่มแดงบอกชัดว่าจะลบอะไร (F4) */
+async function openRemoveUnit(container: HTMLElement, u: string): Promise<void> {
   const unit = (lastData && lastData.units || []).find((x) => x.u === u);
   if (!unit) return;
-  const warn = unit.admins.length
-    ? '<div style="font-size:12.5px;color:var(--amber);margin-top:8px">' + icon(ICON_FOR.alert, { size: 14 }) + ' มีแอดมินประจำอยู่ ' +
-      unit.admins.length + ' คน — การจับคู่ของ U นี้จะหายไปด้วย</div>'
-    : '';
-  openModal(
-    '<div class="modal-head"><h3>ลบ ' + esc(u) + '?</h3>' + CLOSE_BTN + '</div>' +
-    '<div style="font-size:13px">' + esc(u) + ' — ' + esc(unit.product || '(ไม่มีชื่อผลิตภัณฑ์)') + '</div>' + warn +
-    '<div class="modal-actions">' +
-      '<button class="btn" id="udel-cancel">ยกเลิก</button>' +
-      '<button class="btn primary danger" id="udel-yes" style="background:var(--red);border-color:var(--red)">' + icon(ICON_FOR.delete) + 'ลบเลย</button>' +
-    '</div>'
-  );
-  const root = document.getElementById('modal-root')!;
-  const cancel = root.querySelector('#udel-cancel');
-  if (cancel) cancel.addEventListener('click', closeModal);
-  const yes = root.querySelector('#udel-yes');
-  if (yes) yes.addEventListener('click', () => {
-    closeModal();
-    mutate(container, { action: 'removeUnit', u }, 'ลบ ' + u + ' แล้ว');
+  const ok = await confirmDialog({
+    title: 'ลบยูนิต ' + u + '?',
+    body: u + ' — ' + (unit.product || '(ไม่มีชื่อผลิตภัณฑ์)') +
+      (unit.admins.length
+        ? '\nมีแอดมินประจำอยู่ ' + unit.admins.length + ' คน — การจับคู่ของยูนิตนี้จะหายไปด้วย'
+        : ''),
+    confirmText: 'ลบยูนิต ' + u,
+    danger: true,
   });
+  if (!ok) return;
+  mutate(container, { action: 'removeUnit', u }, 'ลบ ' + u + ' แล้ว');
 }
 
-/* ---------------- จับคู่เพจ → U (ใช้จัดกลุ่มยอดขายในหน้า Sales) ---------------- */
+/* ---------------- จับคู่เพจ → ยูนิต (ใช้จัดกลุ่มยอดขายในหน้ายอดขาย) ---------------- */
 
-/** map page_id → รหัส U ที่เพจนั้นถูกจับคู่อยู่ (จาก lastData.units) */
+/** map page_id → รหัสยูนิตที่เพจนั้นถูกจับคู่อยู่ (จาก lastData.units) */
 function pageUnitLookup_(): Record<string, string> {
   const m: Record<string, string> = {};
   ((lastData && lastData.units) || []).forEach((x) => (x.pages || []).forEach((p) => { m[p.id] = x.u; }));
@@ -315,7 +393,7 @@ let pageSearch = '';
 function openPageManager(container: HTMLElement, u: string): void {
   pageSearch = '';
   openModal(
-    '<div class="modal-head"><h3>จับคู่เพจ — ' + esc(u) + '</h3>' + CLOSE_BTN + '</div>' +
+    '<div class="modal-head"><h3>จับคู่เพจ — ' + esc(u) + '</h3>' + modalCloseBtn() + '</div>' +
     '<div id="pm-body"></div>'
   );
   const root = document.getElementById('modal-root')!;
@@ -335,14 +413,14 @@ function openPageManager(container: HTMLElement, u: string): void {
       const rb = lookup[b.id] === u ? 0 : (lookup[b.id] ? 2 : 1);
       return ra !== rb ? ra - rb : a.name.localeCompare(b.name, 'th');
     });
-    if (!roster.length) return '<div class="empty-note">ยังไม่มีรายชื่อเพจ (รอ sync)</div>';
+    if (!roster.length) return '<div class="empty-note">ยังไม่มีรายชื่อเพจ (รอข้อมูลรอบถัดไป)</div>';
     const rows = list.map((p) => {
       const cur = lookup[p.id];
       const here = cur === u;
       const other = (cur && cur !== u) ? cur : '';
       // วงติ๊ก = อยู่ในยูนิตนี้แล้ว · วงเปล่า = ยังไม่อยู่ — aria-pressed บอกสถานะเดียวกันให้โปรแกรมอ่านหน้าจอ
       // โลโก้ LINE อยู่นอกช่องชื่อ ไม่งั้นชื่อเพจยาวจะตัด "…" ทับโลโก้หายไป
-      return '<button class="page-pick' + (here ? ' selected' : '') + '" data-pid="' + esc(p.id) +
+      return '<button type="button" class="page-pick' + (here ? ' selected' : '') + '" data-pid="' + esc(p.id) +
         '" data-name="' + esc(p.name) + '" aria-pressed="' + (here ? 'true' : 'false') + '">' +
         (here
           ? '<span class="chk tx-brand">' + icon(ICON_FOR.ok, { size: 18 }) + '</span>'
@@ -359,10 +437,10 @@ function openPageManager(container: HTMLElement, u: string): void {
     const unit = (lastData && lastData.units || []).find((x) => x.u === u);
     const n = unit ? (unit.pages || []).length : 0;
     body!.innerHTML =
-      '<div class="card-sub" style="margin-bottom:8px">คลิกเพจเพื่อจับคู่/เอาออกจาก <b>' + esc(u) +
+      '<div class="card-sub umap-pm-sub">คลิกเพจเพื่อจับคู่/เอาออกจาก <b>' + esc(u) +
         '</b>' + (unit && unit.product ? ' — ' + esc(unit.product) : '') + ' • ตอนนี้ ' + n + ' เพจ • ' +
         '1 เพจอยู่ได้ยูนิตเดียว (จับที่นี่จะย้ายออกจากยูนิตเดิมให้)</div>' +
-      '<div class="search-box" style="margin-bottom:var(--sp-2)">' + icon(ICON_FOR.search) +
+      '<div class="search-box umap-pm-search">' + icon(ICON_FOR.search) +
         '<input class="input" id="pm-search" placeholder="ค้นหาเพจ..." aria-label="ค้นหาเพจ" value="' + esc(pageSearch) + '">' +
       '</div>' +
       '<div class="page-pick-list">' + listHtml() + '</div>';
@@ -406,14 +484,14 @@ function shuffle_<T>(arr: T[]): T[] {
 
 function openQuiz(): void {
   const pool = ((lastData && lastData.units) || []).filter((x) => x.product);
-  if (pool.length < 4) { toast('ต้องมี U ที่มีชื่อผลิตภัณฑ์อย่างน้อย 4 ตัวถึงจะเล่นได้', 'warn'); return; }
+  if (pool.length < 4) { toast('ต้องมียูนิตที่มีชื่อผลิตภัณฑ์อย่างน้อย 4 ตัวถึงจะเล่นได้', 'warn'); return; }
   const total = Math.min(10, pool.length);
   const qs = shuffle_(pool).slice(0, total);
   let idx = 0;
   let score = 0;
 
   openModal(
-    '<div class="modal-head"><h3>ทดสอบความจำ U</h3>' + CLOSE_BTN + '</div>' +
+    '<div class="modal-head"><h3>ทดสอบความจำยูนิต</h3>' + modalCloseBtn() + '</div>' +
     '<div id="quiz-body"></div>'
   );
   const root = document.getElementById('modal-root')!;
@@ -426,13 +504,13 @@ function openQuiz(): void {
       pct >= 70 ? 'เก่งมาก เกือบครบแล้ว' :
       pct >= 50 ? 'ครึ่งๆ — เล่นอีกรอบให้จำขึ้นใจ' : 'ยังจำสลับอยู่ ลองอีกรอบ!';
     body!.innerHTML =
-      '<div style="text-align:center;padding:18px 6px">' +
-        '<div style="font-size:38px;font-weight:800">' + score + ' / ' + total + '</div>' +
-        '<div style="font-size:13px;color:var(--text-2);margin-top:8px">' + verdict + '</div>' +
+      '<div class="umq-end">' +
+        '<div class="t-num umq-score">' + score + ' / ' + total + '</div>' +
+        '<div class="umq-verdict">' + verdict + '</div>' +
       '</div>' +
       '<div class="modal-actions">' +
-        '<button class="btn" id="quiz-close">ปิด</button>' +
-        '<button class="btn primary" id="quiz-again">' + icon('rotate-ccw') + 'เล่นอีกรอบ</button>' +
+        '<button type="button" class="btn" id="quiz-close">ปิด</button>' +
+        '<button type="button" class="btn primary" id="quiz-again">' + icon('rotate-ccw') + 'เล่นอีกรอบ</button>' +
       '</div>';
     const c = body!.querySelector('#quiz-close');
     if (c) c.addEventListener('click', closeModal);
@@ -443,11 +521,11 @@ function openQuiz(): void {
   function renderQ(): void {
     if (idx >= total) { renderEnd(); return; }
     const unit = qs[idx];
-    // สลับ 2 แบบ: เห็นชื่อสินค้า→ทาย U | เห็น U→ทายชื่อสินค้า
+    // สลับ 2 แบบ: เห็นชื่อสินค้า→ทายรหัสยูนิต | เห็นรหัสยูนิต→ทายชื่อสินค้า
     const askCode = Math.random() < 0.5;
     const correct = askCode ? unit.u : unit.product;
     // ตัวหลอกต้องไม่ซ้ำกันเอง และห้ามเป็นคำตอบที่ "ถูกจริง" อีกทาง
-    // (สินค้าชื่อเดียวกันอยู่หลาย U — ถามชื่อสินค้านั้นแล้ว U อื่นก็ถูกด้วย ห้ามเอามาหลอก)
+    // (สินค้าชื่อเดียวกันอยู่หลายยูนิต — ถามชื่อสินค้านั้นแล้วยูนิตอื่นก็ถูกด้วย ห้ามเอามาหลอก)
     const seen = new Set<string>([correct]);
     const others: string[] = [];
     for (const x of shuffle_(pool)) {
@@ -461,13 +539,13 @@ function openQuiz(): void {
     }
     const choices = shuffle_([correct].concat(others));
     const question = askCode
-      ? '«<b>' + esc(unit.product) + '</b>» อยู่ U ไหน?'
+      ? '«<b>' + esc(unit.product) + '</b>» อยู่ยูนิตไหน?'
       : '<b>' + esc(unit.u) + '</b> คือผลิตภัณฑ์อะไร?';
     body!.innerHTML =
-      '<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-3);margin-bottom:10px">' +
+      '<div class="umq-meta">' +
         '<span>ข้อ ' + (idx + 1) + ' / ' + total + '</span><span>คะแนน ' + score + '</span></div>' +
-      '<div style="font-size:15px;margin-bottom:6px">' + question + '</div>' +
-      choices.map((c) => '<button class="quiz-opt" data-v="' + esc(c) + '">' + esc(c) + '</button>').join('');
+      '<div class="umq-q">' + question + '</div>' +
+      choices.map((c) => '<button type="button" class="quiz-opt" data-v="' + esc(c) + '">' + esc(c) + '</button>').join('');
     body!.querySelectorAll<HTMLButtonElement>('.quiz-opt').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (body!.querySelector('.quiz-opt.correct')) return; // ตอบไปแล้ว — รอข้อถัดไป
@@ -488,20 +566,17 @@ function openQuiz(): void {
   renderQ();
 }
 
-/* ---------------- คัดลอกลิงก์ API สาธารณะ ---------------- */
+/* ---------------- คัดลอกลิงก์ข้อมูล (API สาธารณะ) ---------------- */
 
 function copyApiLink(): void {
   const url = location.origin + '/api/public/umap';
   // ถ้า server ตั้ง UMAP_PUBLIC_KEY ไว้ ลิงก์เปล่าๆ จะโดน 401 — บอกความจริง อย่าโม้ว่าเปิดฟรี
+  // ชื่อค่าตั้งระบบ (UMAP_PUBLIC_KEY) เป็นคำช่าง — บอกเฉพาะผู้ดูแลระบบ
   const note = (lastData && lastData.publicNeedsKey)
-    ? ' (ต้องแนบ ?key=<รหัส> ที่ตั้งไว้ใน UMAP_PUBLIC_KEY ด้วย)'
-    : ' (ไม่ต้องใส่รหัสทีม)';
-  const fallback = () => { window.prompt('คัดลอกลิงก์ API (Ctrl+C):', url); };
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(url)
-      .then(() => toast('คัดลอกแล้ว — GET ' + url + note, 'ok'))
-      .catch(fallback);
-  } else fallback();
+    ? ' (ต้องแนบรหัสลับต่อท้ายลิงก์' + (isSuperadmin() ? ' ?key= ตามค่า UMAP_PUBLIC_KEY' : '') + ')'
+    : '';
+  // คัดลอกไม่ได้ (เบราว์เซอร์ไม่ให้สิทธิ์) → copyText เปิดแผ่นที่มีช่องลิงก์เลือกไว้ + ปุ่มคัดลอก
+  copyText(url, 'คัดลอกลิงก์แล้ว — ระบบอื่นเปิดลิงก์นี้เพื่อดึงรายการจับคู่ยูนิตได้' + note, 'ลิงก์ข้อมูลจับคู่ยูนิต');
 }
 
 /* ---------------- render + events ---------------- */
@@ -524,23 +599,35 @@ function bindEvents(container: HTMLElement): void {
     const a = (lastData.roster || []).find((x) => x.id === id) || null;
     selected = (selected && selected.id === id) ? null : a;
     render(container);
+    // วาดทั้งหน้าใหม่ = ปุ่มเดิมหายไป — คืนโฟกัสให้ปุ่มแอดมินคนเดิม (คนใช้คีย์บอร์ดไม่หลุดกลับไปบนสุด)
+    const again = container.querySelector('.admin-pick[data-id="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]') as HTMLElement | null;
+    if (again) again.focus({ preventScroll: true });
   });
 
-  // กระดาน U: จับคู่ / เอาออก / แก้ / ลบ (delegate)
+  // กระดานยูนิต: จับคู่ / เอาออก / แก้ / ลบ (delegate)
   const board = container.querySelector('#u-board');
   if (board) board.addEventListener('click', (e) => {
     const t = e.target as HTMLElement;
     const x = t.closest('.x') as HTMLElement | null;
     if (x) {
-      mutate(container, { action: 'unassign', u: x.getAttribute('data-u'), userId: x.getAttribute('data-id') },
-        'เอาออกจาก ' + (x.getAttribute('data-u') || '') + ' แล้ว');
+      const u = x.getAttribute('data-u') || '';
+      const userId = x.getAttribute('data-id') || '';
+      const unit = (lastData && lastData.units || []).find((it) => it.u === u);
+      const m = unit ? unit.admins.find((a) => a.id === userId) : null;
+      const name = m ? m.name : 'แอดมิน';
+      // เอาออกทันที + แถบ "เลิกทำ" (F4) — กดพลาดแล้วใส่กลับได้ในคลิกเดียว ไม่ต้องไปหาแอดมินคนนั้นใหม่
+      mutate(container, { action: 'unassign', u, userId }, '', {
+        onOk: () => undoToast('เอา ' + name + ' ออกจาก ' + u + ' แล้ว', () =>
+          mutate(container, { action: 'assign', u, userId }, 'ใส่ ' + name + ' กลับเข้า ' + u + ' แล้ว')),
+        onErr: (msg) => toast(msg, 'error'),
+      });
       return;
     }
     const tool = t.closest('.u-tool-btn') as HTMLElement | null;
     if (tool) {
       const u = tool.getAttribute('data-u') || '';
       if (tool.getAttribute('data-act') === 'edit') openEditUnit(container, u);
-      else openRemoveUnit(container, u);
+      else void openRemoveUnit(container, u);
       return;
     }
     // ปุ่มจัดการเพจ — ต้องดักก่อน .u-card ไม่งั้นจะไปเข้า logic จับคู่แอดมิน
@@ -552,10 +639,10 @@ function bindEvents(container: HTMLElement): void {
     const card = t.closest('.u-card') as HTMLElement | null;
     if (!card) return;
     const u = card.getAttribute('data-u') || '';
-    if (!selected) { toast('เลือกแอดมินฝั่งซ้ายก่อน แล้วค่อยคลิกการ์ด U', 'warn'); return; }
+    if (!selected) { toast('เลือกแอดมินฝั่งซ้ายก่อน แล้วค่อยคลิกการ์ดยูนิต', 'info'); return; }
     const unit = (lastData && lastData.units || []).find((it) => it.u === u);
     if (unit && unit.admins.some((m) => m.id === selected!.id)) {
-      toast(selected.name + ' อยู่ใน ' + u + ' อยู่แล้ว', 'warn');
+      toast(selected.name + ' อยู่ใน ' + u + ' อยู่แล้ว', 'info');
       return;
     }
     mutate(container, { action: 'assign', u, userId: selected.id },
@@ -597,7 +684,7 @@ function fetchAndRender(container: HTMLElement): void {
   }).catch((err) => {
     if (seq !== reqSeq) return;
     if (lastData) {
-      toast('โหลดข้อมูลใหม่ไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'), 'error');
+      toast('โหลดข้อมูลใหม่ไม่สำเร็จ', 'error', { action: { label: 'ลองใหม่', fn: () => umap.load(container, true) } });
     } else {
       showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', () => {
         umap.load(container, true);

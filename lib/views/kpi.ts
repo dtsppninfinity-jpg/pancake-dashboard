@@ -2,9 +2,20 @@
 // — การ์ดสรุป + สูตรน้ำหนักตามระดับ + ตารางประเมินตามสายบังคับบัญชา (หัวหน้า→รอง→ลูกทีม)
 // + เกรด A-D + แนวโน้มเทียบเดือนก่อน + สัดส่วนเกรด + แจ้งเตือน — แต่หน้าตาเป็นธีมของเรา)
 // คะแนนจากชีท KPI กลางของทีม (สูตรอยู่ในชีท — หน้านี้คือกระจก + จัดอันดับ)
+//
+// UI รอบ 2 (26 ก.ย. 69): แถวเครื่องมือกลาง (C4) · ตารางกดเรียง + แถวรวม + หัวตารางค้าง (G2)
+// · กราฟคะแนนตัวกลาง svgScoreLine แกน 0-100 + เส้นประ 70 (G3) · ตัวจัดรูปแบบกลาง (E2) · สีตามเกรดชุดเดียว (E3)
+// · "เฝ้าระวัง" เป็นส้มไม่ใช่แดง (B3) · คำอธิบายยาวย้ายเข้า ⓘ (D3)
 
-import { serverCall, esc, fmtNum, THB, kFmt, pctFmt, avatarHtml, showError, downloadCSV, toast } from '@/lib/ui/helpers';
+import {
+  serverCall, esc, fmtNum, THB, THBk, pct1, pct2, dash, dateTh, monthTh, avatarHtml, showError, downloadCSV, downloadXLS,
+  toast, infoTip, stateHtml, downloadMenuHtml, bindDownloadMenu,
+} from '@/lib/ui/helpers';
 import { icon, statusPill, rankBadge, ICON_FOR } from '@/lib/ui/icons';
+import { kindClass, legendHtml, type ColorKind } from '@/lib/ui/color-rules';
+import { makeSortable, sortTh } from '@/lib/ui/table-sort';
+import { svgScoreLine, bindChartTips } from '@/lib/ui/charts';
+import { kpiSkel } from '@/lib/ui/skeletons';
 
 interface AdminRow {
   id: string; name: string; nick: string; unit: string; unitFull: string;
@@ -55,6 +66,9 @@ const state = {
 };
 
 const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+/** "ส.ค. 69" ของเดือนที่เลือก (ตัวจัดรูปแบบกลาง monthTh) */
+const monthOf_ = (d: KpiData, m?: number) => monthTh(d.year + '-' + String(m || d.month).padStart(2, '0'));
+const yearTh_ = (year: string | number) => String(Number(year) + 543);
 
 /* ---------- คะแนน / เกรด / แนวโน้ม ---------- */
 
@@ -68,22 +82,22 @@ const pts = (v: number | null | undefined): number | null =>
  */
 function sheetVal_(v: number | null | undefined, fmt: (n: number) => string): string {
   return (v === null || v === undefined || isNaN(Number(v)))
-    ? '<span class="txt-dim" title="ชีท KPI ยังไม่กรอกช่องนี้ของเดือนนี้">—</span>'
+    ? '<span class="tx-muted" title="ชีท KPI ยังไม่กรอกช่องนี้ของเดือนนี้">—</span>'
     : fmt(Number(v));
 }
-/** ค่าที่แดงเมื่อเกินเกณฑ์ • ว่าง = ขีด */
+/** ค่าที่แดงเมื่อเกินเกณฑ์ (%Error / %ตีกลับ ทศนิยม 2 ตำแหน่งตามสเปกทีม) • ว่าง = ขีด */
 const overHtml_ = (v: number | null | undefined, limit: number, abs = false): string =>
-  sheetVal_(v, (n) => ((abs ? Math.abs(n) : n) > limit ? '<span class="txt-bad">' + pctFmt(n) + '</span>' : pctFmt(n)));
+  sheetVal_(v, (n) => ((abs ? Math.abs(n) : n) > limit ? '<span class="' + kindClass('bad') + '">' + pct2(n) + '</span>' : pct2(n)));
 /** ตัวเลขล้วนจากชีท (เปอร์บิล) — ว่าง = ขีด */
 const numVal_ = (v: number | null | undefined): string => sheetVal_(v, (n) => fmtNum(Math.round(n)));
 
 /** ค่าแอด/ยอด: ว่าง = ขีด • เกิน 33% = แดง */
 const adCostHtml_ = (v: number | null | undefined): string =>
-  sheetVal_(v, (n) => (n > 33 ? '<span class="txt-bad">' + pctFmt(n) + '</span>' : pctFmt(n)));
+  sheetVal_(v, (n) => (n > 33 ? '<span class="' + kindClass('bad') + '">' + pct1(n) + '</span>' : pct1(n)));
 
+/** คะแนน KPI เป็น % ทศนิยม 1 ตำแหน่งเสมอ (เดิม "85%" ปน "158.8%" ในคอลัมน์เดียวกัน) */
 function scorePct(v: number | null | undefined): string {
-  const p = pts(v);
-  return p === null ? '-' : p + '%';
+  return pct1(pts(v));
 }
 
 /** เกรดตามเกณฑ์ทีม: A ≥80 • B 70-79.9 • C 60-69.9 • D <60 */
@@ -93,6 +107,20 @@ function gradeOf(p: number | null): 'A' | 'B' | 'C' | 'D' | '-' {
 }
 const GRADE_CLS: Record<string, string> = { A: 'g-a', B: 'g-b', C: 'g-c', D: 'g-d' };
 
+/**
+ * สีตัวเลขคะแนน = สีเดียวกับป้ายเกรดข้างๆ (กติกาสีชุดเดียวของหน้านี้ — E3)
+ * A (≥80) เขียว · B (70-79.9 ผ่าน) ไม่มีสี · C (60-69.9) ส้ม · D (<60) แดง
+ * ไม่ใช้เกณฑ์ %เทียบเป้า (100/80) ของ color-rules เพราะคะแนน KPI มีเกณฑ์เกรดของทีมเอง — 85 คือเกรด A ไม่ใช่ "ส้ม"
+ */
+function scoreKind_(v: number | null | undefined): ColorKind {
+  const g = gradeOf(pts(v));
+  return g === 'A' ? 'good' : g === 'C' ? 'warn' : g === 'D' ? 'bad' : 'none';
+}
+const scoreHtml_ = (v: number | null | undefined): string =>
+  pts(v) === null ? dash() : '<span class="' + (kindClass(scoreKind_(v)) || 'v-plain') + '">' + esc(scorePct(v)) + '</span>';
+const SCORE_LEGEND = '<div class="color-legend"><span class="lg lg-good">เกรด A (80 ขึ้นไป)</span>' +
+  '<span class="lg">เกรด B (70–79.9) ผ่าน</span><span class="lg lg-warn">เกรด C (60–69.9)</span><span class="lg lg-bad">เกรด D (ต่ำกว่า 60)</span></div>';
+
 function gradeChip(p: number | null): string {
   const g = gradeOf(p);
   return g === '-' ? '—' : '<span class="grade ' + GRADE_CLS[g] + '">' + g + '</span>';
@@ -101,20 +129,25 @@ function gradeChip(p: number | null): string {
 /** แนวโน้ม = แต้มเดือนนี้ − เดือนก่อน (จุด) — '—' เมื่อไม่มีเดือนก่อนเทียบ */
 function trendHtml(cur: number | null | undefined, prev: number | null | undefined): string {
   const c = pts(cur), p = pts(prev);
-  if (c === null || p === null) return '<span style="opacity:.4">—</span>';
+  if (c === null || p === null) return dash();
   const d = Math.round((c - p) * 10) / 10;
-  if (d > 0) return '<span class="txt-good">▲ +' + d + '</span>';
-  if (d < 0) return '<span class="txt-bad">▼ ' + Math.abs(d) + '</span>'; // ลูกศรบอกทิศแล้ว ไม่ต้องติดลบซ้ำ
-  return '<span style="opacity:.6">• 0</span>';
+  // ขึ้น = ดี (เขียว) · ลง = แดง — ตัวเลขแนวโน้มไม่หนา (ไม่แย่งสายตาจากคะแนน)
+  if (d > 0) return '<span class="tx-good">▲ +' + d.toFixed(1) + '</span>';
+  if (d < 0) return '<span class="tx-bad">▼ ' + Math.abs(d).toFixed(1) + '</span>'; // ลูกศรบอกทิศแล้ว ไม่ต้องติดลบซ้ำ
+  return '<span class="tx-muted">• 0</span>';
 }
 
-/** สถานะ: เฝ้าระวัง = คะแนนต่ำกว่า 60 หรือร่วงแรง (≥3 จุด) / นอกนั้น = มาตรฐาน */
+/**
+ * สถานะ: เฝ้าระวัง = คะแนนต่ำกว่า 60 หรือร่วงแรง (≥3 จุด) / นอกนั้น = มาตรฐาน (เกณฑ์เดิมทุกข้อ)
+ * งบสีแดง (B3): "เฝ้าระวัง" แปลว่าเฝ้าดู = ส้ม — เดิมเป็นป้ายแดงทุกแถวของตาราง (4 ใน 4 แถว) แดงจนไม่มีความหมาย
+ * เกรด D สีแดงอยู่ที่ป้ายเกรดข้างๆ แล้ว
+ */
 function statusBadge(cur: number | null | undefined, prev: number | null | undefined): string {
   const c = pts(cur), p = pts(prev);
-  if (c === null) return '—';
+  if (c === null) return dash();
   const drop = (p !== null && c - p <= -3);
-  if (c < 60 || drop) return '<span class="badge urgent">เฝ้าระวัง</span>';
-  return '<span class="badge ai">มาตรฐาน</span>';
+  if (c < 60 || drop) return statusPill('warn', 'เฝ้าระวัง');
+  return statusPill('good', 'มาตรฐาน');
 }
 
 /** วงแหวนคะแนน (0-100+) — สีตามเกรด ตรงกลางโชว์ตัวเกรด (เลขเต็มอยู่ข้างๆ แล้ว ไม่โชว์ซ้ำ) */
@@ -122,8 +155,9 @@ function ring(p: number | null): string {
   if (p === null) return '<div class="kpi-ico">' + icon(ICON_FOR.leader, { size: 22 }) + '</div>';
   const g = gradeOf(p);
   const color = g === 'A' ? 'var(--green)' : g === 'B' ? 'var(--blue)' : g === 'C' ? 'var(--amber)' : 'var(--red)';
+  // --p / --rc เป็นค่าที่เปลี่ยนตามคน ต้องอยู่ใน style · สีตัวอักษรเกรดใช้ var(--rc) จาก pw-kpr.css
   return '<div class="kpi-ring" style="--p:' + Math.max(0, Math.min(100, p)) + ';--rc:' + color + '">' +
-    '<span style="color:' + color + '">' + g + '</span></div>';
+    '<span>' + g + '</span></div>';
 }
 
 /* ---------- แถบเตือน "ชีทเดือนนี้ยังกรอกไม่ครบ" ---------- */
@@ -155,9 +189,9 @@ function gapBanner_(d: KpiData): string {
     '<div><b><span class="tx-warn">' + icon(ICON_FOR.alert, { size: 16 }) + '</span> ชีท KPI เดือน ' +
       esc(TH_MONTHS[d.month - 1]) + ' ยังกรอกไม่ครบ — คะแนน/เกรด' +
       (partial ? 'ของคนที่แถวว่าง' : 'ในหน้านี้') + 'จึงต่ำกว่าจริง</b>' +
-      '<div class="card-sub" style="margin:6px 0 0">ช่องที่ว่าง: ' +
+      '<div class="card-sub kpi-gap-line">ช่องที่ว่าง: ' +
         hit.map((k) => esc(GAP_LABEL[k] || k) + ' (' + g[k].missing + '/' + g[k].total + ' แถว)').join(' · ') + '</div>' +
-      '<div class="card-sub" style="margin:4px 0 0">ผลกระทบ: ' + esc(lost) +
+      '<div class="card-sub kpi-gap-line">ผลกระทบ: ' + esc(lost) +
         ' — ตัวเลขที่หน้านี้ดึงมาถูกต้องตรงชีททุกช่อง เติมสูตรในชีทแล้วรีเฟรชได้เลย</div></div></div>';
 }
 
@@ -169,21 +203,23 @@ function summaryCards_(d: KpiData): string {
   const subIds = new Set(d.sub.map((r) => r.id || r.name));
   const passN = d.persons.filter((p) => (pts(p.score) || 0) >= 70).length;
   const passPct = d.persons.length ? Math.round((passN / d.persons.length) * 100) : 0;
+  // สัดส่วนคนผ่าน: ถึง 70% = เขียว · ต่ำกว่าครึ่ง = แดง · ระหว่างนั้นไม่ระบายสี (เกณฑ์เดิม)
+  const passKind: ColorKind = passPct >= 70 ? 'good' : passPct < 50 ? 'bad' : 'none';
   return '<div class="kpi-cards">' +
     '<div class="card kpi-card">' +
       ring(hp) +
       '<div><div class="kpi-big">' + (hp === null ? '—' : hp) + '<span class="kpi-max">/100</span> ' + gradeChip(hp) + '</div>' +
-      '<div class="card-sub" style="margin:0">คะแนนหัวหน้า' + (h ? ' — ' + esc(h.nick || h.name) : '') + '</div></div>' +
+      '<div class="card-sub">คะแนนหัวหน้า' + (h ? ' — ' + esc(h.nick || h.name) : '') + '</div></div>' +
     '</div>' +
     '<div class="card kpi-card"><div class="kpi-ico">' + icon('compass', { size: 22 }) + '</div><div>' +
       '<div class="kpi-big">' + fmtNum(subIds.size) + '</div>' +
-      '<div class="card-sub" style="margin:0">รองหัวหน้า</div></div></div>' +
+      '<div class="card-sub">รองหัวหน้า</div></div></div>' +
     '<div class="card kpi-card"><div class="kpi-ico">' + icon(ICON_FOR.admins, { size: 22 }) + '</div><div>' +
       '<div class="kpi-big">' + fmtNum(d.persons.length) + '</div>' +
-      '<div class="card-sub" style="margin:0">แอดมิน (มีคะแนนเดือนนี้)</div></div></div>' +
+      '<div class="card-sub">แอดมิน (มีคะแนนเดือนนี้)</div></div></div>' +
     '<div class="card kpi-card"><div class="kpi-ico">' + icon(ICON_FOR.ok, { size: 22 }) + '</div><div>' +
-      '<div class="kpi-big ' + (passPct >= 70 ? 'txt-good' : passPct < 50 ? 'txt-bad' : '') + '">' + passPct + '%</div>' +
-      '<div class="card-sub" style="margin:0">ผ่าน KPI ' + fmtNum(passN) + '/' + fmtNum(d.persons.length) + ' คน (เกรด B ขึ้นไป)</div></div></div>' +
+      '<div class="kpi-big ' + kindClass(passKind) + '">' + passPct + '%</div>' +
+      '<div class="card-sub">ผ่าน KPI ' + fmtNum(passN) + '/' + fmtNum(d.persons.length) + ' คน (เกรด B ขึ้นไป)</div></div></div>' +
   '</div>';
 }
 
@@ -194,13 +230,13 @@ const WEIGHTS: Array<{ role: string; items: Array<[string, number]> }> = [
   { role: 'รองหัวหน้า', items: [['ยอดยูนิต', 30], ['ลูกทีมถึงเป้า', 20], ['%ปิดเฉลี่ย', 20], ['ค่าแอด ≤33%', 20], ['เปอร์บิล', 10]] },
   { role: 'แอดมิน', items: [['ยอดขาย', 35], ['%ปิด', 35], ['เปอร์บิล', 20], ['%Error', 5], ['%ตีกลับ', 5]] },
 ];
-// สีตามตัวชี้วัด (ไม่ใช่ตามตำแหน่งลำดับ) — ตัวเดียวกันสีเดียวกันทุกระดับ
+// สีตามตัวชี้วัด (ไม่ใช่ตามตำแหน่งลำดับ) — ตัวเดียวกันสีเดียวกันทุกระดับ (คลาส .wt-c-* อยู่ใน pw-kpr.css)
 const WT_COLOR_BY_NAME: Record<string, string> = {
-  'ยอดขายรวม': 'var(--green)', 'ยอดยูนิต': 'var(--green)', 'ยอดขาย': 'var(--green)',
-  '%ปิดเฉลี่ย': 'var(--blue)', '%ปิด': 'var(--blue)',
-  'ค่าแอด ≤33%': 'var(--red)',
-  'ลูกทีมถึงเป้า': 'var(--primary)', 'KPI รองที่ดูแล': 'var(--primary)',
-  'เปอร์บิล': 'var(--amber)', '%Error': 'var(--amber)', '%ตีกลับ': 'var(--red)',
+  'ยอดขายรวม': 'green', 'ยอดยูนิต': 'green', 'ยอดขาย': 'green',
+  '%ปิดเฉลี่ย': 'blue', '%ปิด': 'blue',
+  'ค่าแอด ≤33%': 'red',
+  'ลูกทีมถึงเป้า': 'primary', 'KPI รองที่ดูแล': 'primary',
+  'เปอร์บิล': 'amber', '%Error': 'amber', '%ตีกลับ': 'red',
 };
 
 function weightStrip_(): string {
@@ -208,14 +244,13 @@ function weightStrip_(): string {
     const items = w.items.map(function (it) {
       return '<div class="wt-item"><div class="wt-num">' + it[1] + '</div>' +
         '<div class="wt-name">' + esc(it[0]) + '</div>' +
-        '<div class="wt-bar" style="background:' + (WT_COLOR_BY_NAME[it[0]] || 'var(--primary)') + '"></div></div>';
+        '<div class="wt-bar wt-c-' + (WT_COLOR_BY_NAME[it[0]] || 'primary') + '"></div></div>';
     }).join('');
     return '<div class="wt-group"><div class="wt-role">' + esc(w.role) + '</div><div class="wt-row">' + items + '</div></div>';
   }).join('');
-  return '<div class="card" style="margin-top:14px">' +
-    '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap">' +
-      '<h3 style="margin:0">สูตรคะแนนตามระดับ</h3>' +
-      '<span class="card-sub" style="margin:0">น้ำหนักจากแท็บ "ตัวชี้วัด" ของชีท KPI — สูตรคิดในชีท เว็บอ่านผลอย่างเดียว</span></div>' +
+  return '<div class="card">' +
+    '<div class="card-head"><h3>สูตรคะแนนตามระดับ' +
+      infoTip('น้ำหนักจากแท็บ "ตัวชี้วัด" ของชีท KPI • สูตรคิดในชีท เว็บอ่านผลอย่างเดียว • คะแนนเต็มของแต่ละระดับ = 100', 'สูตรคะแนน') + '</h3></div>' +
     '<div class="wt-strip">' + cols + '</div></div>';
 }
 
@@ -283,28 +318,15 @@ function personDetail_(d: KpiData): Record<string, PersonDetail> {
 
 const passOf_ = (list: Person[]) => list.filter((p) => (pts(p.score) || 0) >= 70).length;
 
-/** กราฟเส้นเล็ก ใช้ซ้ำทุกที่ — คืน svg + แถวป้ายเดือน (ต้น/กลาง/ท้าย) */
-function sparkSvg_(hist: Array<{ m: number; s: number }>): string {
-  if (hist.length < 2) return '<div class="empty-note">มีข้อมูลเดือนเดียว — กราฟขึ้นเมื่อมี 2 เดือนขึ้นไป</div>';
-  const W = 260, H = 64, PAD = 6;
-  const vals = hist.map((x) => pts(x.s) as number);
-  const min = Math.min(...vals), max = Math.max(...vals);
-  const span = (max - min) || 1;
-  const xy = hist.map(function (x, i) {
-    const px = PAD + (i / (hist.length - 1)) * (W - PAD * 2);
-    const py = PAD + (1 - ((pts(x.s) as number) - min) / span) * (H - PAD * 2);
-    return [Math.round(px * 10) / 10, Math.round(py * 10) / 10];
-  });
-  const last = xy[xy.length - 1];
-  return '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto" preserveAspectRatio="none">' +
-      '<polyline points="' + xy.map((p) => p.join(',')).join(' ') + '" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
-      '<circle cx="' + last[0] + '" cy="' + last[1] + '" r="3.5" fill="var(--primary)"/></svg>' +
-    '<div style="display:flex;justify-content:space-between" class="kpi-subnum">' +
-      hist.map(function (x, i) {
-        const show = i === 0 || i === hist.length - 1 || i === Math.floor((hist.length - 1) / 2);
-        return '<span>' + (show ? esc(TH_MONTHS[x.m - 1]) : '') + '</span>';
-      }).join('') + '</div>';
+/**
+ * กราฟคะแนนรายเดือน — ใช้ตัวเดียวทุกที่ในหน้านี้ (หัวหน้า / รอง / แอดมิน) ผ่าน svgScoreLine ของกลาง (G3)
+ * เดิมมีโค้ดวาดเส้น 2 ชุดก๊อปกัน และแกนยืดตามค่าต่ำสุด-สูงสุดของคนนั้น คะแนน 68→71 ดูพุ่งทะลุฟ้า
+ * ตอนนี้แกนคงที่ 0-100 + เส้นประเกณฑ์ผ่าน 70 + ตัวเลขที่จุดล่าสุด · หลังวาดต้อง bindChartTips (ทำใน render)
+ */
+function scoreChart_(hist: Array<{ m: number; s: number }>): string {
+  return svgScoreLine(hist.map((x) => ({ label: TH_MONTHS[x.m - 1], value: pts(x.s) as number })));
 }
+const CHART_KEY = '<div class="kpi-chart-key">เส้นประ = เกณฑ์ผ่าน 70 (เกรด B)</div>';
 
 /* ---------- ตารางประเมินตามสายบังคับบัญชา (หัวหน้า → รอง → ลูกทีม) ---------- */
 
@@ -324,16 +346,16 @@ function hierarchyHtml_(d: KpiData): string {
     rows.push('<tr class="kpi-head-row">' +
       // ป้ายตำแหน่งสีหลักแทน 👑 — คำ "หัวหน้าฝ่าย" ย้ายเข้าป้าย (ไม่เขียนซ้ำเป็นตัวจางข้างหลังอีก)
       '<td><b>' + esc(h.nick || h.name) + '</b> <span class="rank-fullname">หัวหน้าฝ่าย</span></td>' +
-      '<td><span class="chip">ทุกยูนิต</span></td>' +
-      '<td class="num"><b>' + (attain === null ? '—' : pctFmt(attain)) + '</b>' +
-        '<div class="kpi-subnum" title="' + esc(THB(h.sales) + ' / เป้า ' + THB(h.target)) + '">' + kFmt(h.sales) + ' / ' + kFmt(h.target) + '</div></td>' +
+      '<td class="kpi-units"><span class="chip">ทุกยูนิต</span></td>' +
+      '<td class="num"><b>' + (attain === null ? '—' : pct1(attain)) + '</b>' +
+        '<div class="kpi-subnum" title="' + esc(THB(h.sales) + ' / เป้า ' + THB(h.target)) + '">' + THBk(h.sales) + ' / ' + THBk(h.target) + '</div></td>' +
       '<td class="num">' + adCostHtml_(h.adCost) + '</td>' +
       '<td class="num">' + fmtNum(passOf(persons)) + '/' + fmtNum(persons.length) + '</td>' +
-      '<td class="num"><b>' + esc(scorePct(hp)) + '</b></td>' +
+      '<td class="num">' + scoreHtml_(hp) + '</td>' +
       '<td>' + gradeChip(pts(hp)) + '</td>' +
       '<td class="num">' + trendHtml(hp, hprev) + '</td>' +
       '<td>' + statusBadge(hp, hprev) + '</td>' +
-      '<td><button class="btn-mini" data-coach="head">ดูผล</button></td></tr>');
+      '<td class="kpi-acts"><button type="button" class="btn-mini btn-text" data-coach="head">ดูผล</button></td></tr>');
   }
 
   // แถวรอง + ลูกทีมพับได้
@@ -346,47 +368,50 @@ function hierarchyHtml_(d: KpiData): string {
     const adCost = s._aw ? s.adCost / s._aw : null;
     rows.push('<tr class="kpi-sub-row">' +
       '<td><span class="kpi-rank">' + (si + 1) + '</span> <b>' + esc(s.nick) + '</b> <span class="rank-fullname">รองหัวหน้า</span></td>' +
-      '<td>' + s.units.map((u) => '<span class="chip">' + esc(u) + '</span>').join(' ') + '</td>' +
-      '<td class="num"><b>' + (attain === null ? '—' : pctFmt(attain)) + '</b>' +
-        '<div class="kpi-subnum" title="' + esc(THB(s.teamSales) + ' / เป้า ' + THB(s.target)) + '">' + kFmt(s.teamSales) + ' / ' + kFmt(s.target) + '</div></td>' +
+      '<td class="kpi-units">' + s.units.map((u) => '<span class="chip">' + esc(u) + '</span>').join(' ') + '</td>' +
+      '<td class="num"><b>' + (attain === null ? '—' : pct1(attain)) + '</b>' +
+        '<div class="kpi-subnum" title="' + esc(THB(s.teamSales) + ' / เป้า ' + THB(s.target)) + '">' + THBk(s.teamSales) + ' / ' + THBk(s.target) + '</div></td>' +
       '<td class="num">' + adCostHtml_(adCost) + '</td>' +
       '<td class="num">' + fmtNum(passOf(team)) + '/' + fmtNum(team.length) + '</td>' +
-      '<td class="num"><b>' + esc(scorePct(score)) + '</b>' +
-        (close === null ? '' : '<div class="kpi-subnum">%ปิด ' + pctFmt(close) + '</div>') + '</td>' +
+      '<td class="num">' + scoreHtml_(score) +
+        (close === null ? '' : '<div class="kpi-subnum">%ปิด ' + pct2(close) + '</div>') + '</td>' +
       '<td>' + gradeChip(pts(score)) + '</td>' +
       '<td class="num">' + trendHtml(score, prev) + '</td>' +
       '<td>' + statusBadge(score, prev) + '</td>' +
-      '<td>' +
-        (team.length ? '<button class="btn-mini" data-subtoggle="' + si + '">ดูทีม ▾</button> ' : '') +
-        '<button class="btn-mini" data-coach="sub:' + esc(s.id) + '" title="เจาะทีม & Coaching">' +
+      // ปุ่มที่ซ้ำทุกแถว = ปุ่มแบบข้อความ (C2) — ปุ่มกรอบ 6-8 อันซ้อนกันทั้งคอลัมน์เสียงดังเกินเนื้อหา
+      '<td class="kpi-acts">' +
+        (team.length ? '<button type="button" class="btn-mini btn-text" data-subtoggle="' + si + '" aria-expanded="false">ดูทีม' +
+          icon(ICON_FOR.expand, { size: 14 }) + '</button>' : '') +
+        '<button type="button" class="btn-mini btn-text" data-coach="sub:' + esc(s.id) + '" title="เจาะทีม & Coaching">' +
           icon(ICON_FOR.target, { size: 14 }) + 'โค้ช</button></td></tr>');
     team
       .slice().sort((a, b) => b.score - a.score)
       .forEach(function (p) {
-        rows.push('<tr class="kpi-child kpi-team-' + si + '" style="display:none">' +
-          '<td style="padding-left:34px">' + esc(p.nick || p.name) + ' <span class="rank-fullname">' + esc(p.name) + '</span></td>' +
-          '<td>' + p.units.map((u) => '<span class="chip">' + esc(u) + '</span>').join(' ') + '</td>' +
+        rows.push('<tr class="kpi-child kpi-team-' + si + ' is-collapsed">' +
+          '<td class="kpi-child-name">' + esc(p.nick || p.name) + ' <span class="rank-fullname">' + esc(p.name) + '</span></td>' +
+          '<td class="kpi-units">' + p.units.map((u) => '<span class="chip">' + esc(u) + '</span>').join(' ') + '</td>' +
           '<td class="num">' + THB(p.sales) + '</td>' +
-          '<td class="num">—</td><td class="num">—</td>' +
-          '<td class="num">' + esc(scorePct(p.score)) + '</td>' +
+          '<td class="num">' + dash() + '</td><td class="num">' + dash() + '</td>' +
+          '<td class="num">' + scoreHtml_(p.score) + '</td>' +
           '<td>' + gradeChip(pts(p.score)) + '</td>' +
           '<td class="num">' + trendHtml(p.score, d.prevPersons[p.id]) + '</td>' +
           '<td>' + statusBadge(p.score, d.prevPersons[p.id]) + '</td>' +
-          '<td><button class="btn-mini" data-coach="' + esc(p.id) + '">ดูผล</button></td></tr>');
+          '<td class="kpi-acts"><button type="button" class="btn-mini btn-text" data-coach="' + esc(p.id) + '">ดูผล</button></td></tr>');
       });
   });
 
+  // ตารางนี้ไม่ทำกดเรียง: เป็นสายบังคับบัญชา (หัวหน้า → รอง → ลูกทีมที่กางอยู่ใต้รอง) เรียงแล้วสายขาด
   return '<div class="card">' +
-    '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-      '<h3 style="margin:0">ประเมินตามสายบังคับบัญชา — ' + esc(TH_MONTHS[d.month - 1] + ' ' + d.year) + '</h3>' +
-      '<div class="spacer" style="flex:1"></div><button class="btn-mini" id="kpi-csv">' + icon(ICON_FOR.csv) + 'CSV</button></div>' +
+    '<div class="card-head"><h3>ประเมินตามสายบังคับบัญชา — ' + esc(monthOf_(d)) + '</h3></div>' +
     '<div class="card-sub">เกรด: <span class="grade g-a">A</span> ≥80 • <span class="grade g-b">B</span> 70-79.9 • ' +
       '<span class="grade g-c">C</span> 60-69.9 • <span class="grade g-d">D</span> &lt;60 • ' +
       'ผ่าน KPI = เกรด B ขึ้นไป • แนวโน้มเทียบ ' + (d.prevMonth ? esc(TH_MONTHS[d.prevMonth - 1]) : 'เดือนก่อน') +
       ' • กด "ดูทีม" เพื่อกางลูกทีมของรองคนนั้น</div>' +
-    '<div class="table-scroll"><table class="tbl"><thead><tr>' +
-      '<th>บุคลากร</th><th>ยูนิต</th><th class="num">ยอด vs เป้า</th><th class="num">ค่าแอด/ยอด</th>' +
-      '<th class="num">ลูกทีมผ่าน KPI</th><th class="num">คะแนน</th><th>เกรด</th>' +
+    '<div class="color-legend"><span>คะแนนสีตามเกรด</span><span class="lg lg-bad">ค่าแอด/ยอด เกิน 33%</span></div>' +
+    '<div class="table-scroll"><table class="tbl kpi-hier"><thead><tr>' +
+      '<th>บุคลากร</th><th>ยูนิต</th><th class="num">ยอดเทียบเป้า</th><th class="num">ค่าแอด/ยอด</th>' +
+      // หัวคอลัมน์ 2 บรรทัด — บรรทัดเดียวกว้าง 100px ทั้งที่ตัวเลขข้างใต้แค่ "19/29" ดันตารางล้นการ์ด
+      '<th class="num">ลูกทีม<br>ผ่าน KPI</th><th class="num">คะแนน</th><th>เกรด</th>' +
       '<th class="num">แนวโน้ม</th><th>สถานะ</th><th></th>' +
     '</tr></thead><tbody>' + rows.join('') + '</tbody></table></div></div>';
 }
@@ -408,14 +433,15 @@ function gradeDonut_(d: KpiData): string {
     acc += share;
   });
   const legend = (['A', 'B', 'C', 'D'] as const).map(function (g) {
-    return '<div class="kpi-lg"><span class="kpi-dot" style="background:' + colors[g] + '"></span>' +
+    return '<div class="kpi-lg"><span class="kpi-dot kpi-dot-' + g.toLowerCase() + '"></span>' +
       '<span class="grade ' + GRADE_CLS[g] + '">' + g + '</span> ' + fmtNum(counts[g]) + ' คน (' +
       (total ? Math.round((counts[g] / total) * 100) : 0) + '%)</div>';
   }).join('');
-  return '<div class="card"><h3>สัดส่วนเกรดแอดมิน</h3>' +
-    '<div style="display:flex;gap:14px;align-items:center;margin-top:12px">' +
+  // สัดส่วนวงโดนัทเปลี่ยนตามข้อมูล จึงต้องอยู่ใน style (conic-gradient) — ที่เหลือเป็นคลาสใน pw-kpr.css
+  return '<div class="card"><div class="card-head"><h3>สัดส่วนเกรดแอดมิน</h3></div>' +
+    '<div class="kpi-donut-row">' +
       '<div class="kpi-donut" style="background:conic-gradient(' + segs.join(',') + ')"><span>' + fmtNum(total) + '<small>คน</small></span></div>' +
-      '<div style="display:flex;flex-direction:column;gap:4px">' + legend + '</div></div></div>';
+      '<div class="kpi-lg-list">' + legend + '</div></div></div>';
 }
 
 function alertsCard_(d: KpiData): string {
@@ -423,67 +449,52 @@ function alertsCard_(d: KpiData): string {
   if (d.noComAlerts.length) {
     items.push('<div class="kpi-alert"><span class="tx-warn">' + icon('bell', { size: 14 }) + '</span> ' +
       '<b>' + fmtNum(d.noComAlerts.length) + ' คน</b> ไม่ได้ค่าคอม 2 เดือนปิดยอดติดกัน' +
-      '<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">' +
+      '<div class="kpi-chips-row">' +
       d.noComAlerts.slice(0, 10).map((a) => '<span class="chip">' + esc(a.admin) + '</span>').join('') +
       (d.noComAlerts.length > 10 ? ' <span class="chip">+' + (d.noComAlerts.length - 10) + '</span>' : '') + '</div>' +
-      '<div class="kpi-subnum">รายละเอียดอยู่ส่วนค่าคอม หน้า Admin Performance</div></div>');
+      '<div class="kpi-subnum">รายละเอียดอยู่ส่วนค่าคอม หน้า อันดับแอดมิน</div></div>');
   }
   const urgent = d.unitAlerts.filter((a) => a.level === 'urgent');
   if (urgent.length) {
-    items.push('<div class="kpi-alert"><span class="tx-bad">' + icon(ICON_FOR.alert, { size: 14 }) + '</span> ' +
+    // งบสีแดง (B3): ไอคอนแดงเฉพาะตอนมีไม่กี่ยูนิต (≤3 — เกณฑ์เดียวกับป้ายเมนู) ถ้าเยอะเป็นส้ม
+    const few = urgent.length <= 3;
+    items.push('<div class="kpi-alert"><span class="' + (few ? 'tx-bad' : 'tx-warn') + '">' + icon(ICON_FOR.alert, { size: 14 }) + '</span> ' +
       '<b>' + fmtNum(urgent.length) + ' ยูนิต</b> ขาดทุน ≥2 วันติด' +
-      '<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap">' +
+      '<div class="kpi-chips-row">' +
       urgent.slice(0, 10).map((a) => '<span class="chip">' + esc(a.u) + ' ' + fmtNum(a.days) + ' วัน</span>').join('') + '</div>' +
-      '<div class="kpi-subnum">รายละเอียด + ผู้รับผิดชอบ อยู่บนสุดหน้า Sales</div></div>');
+      '<div class="kpi-subnum">รายละเอียด + ผู้รับผิดชอบ อยู่บนสุดหน้า ยอดขาย</div></div>');
   }
-  if (!items.length) items.push('<div class="empty-note">ไม่มีเรื่องเร่งด่วน</div>');
-  return '<div class="card"><h3>แจ้งเตือนหัวหน้า</h3><div style="margin-top:8px">' + items.join('') + '</div></div>';
+  if (!items.length) items.push('<div class="kpi-none">' + icon(ICON_FOR.ok, { size: 14 }) + ' ไม่มีเรื่องเร่งด่วน</div>');
+  return '<div class="card"><div class="card-head"><h3>แจ้งเตือนหัวหน้า</h3></div><div>' + items.join('') + '</div></div>';
 }
 
 function historyCard_(d: KpiData): string {
   const ptsArr = d.headHistory.filter((x) => x.score !== null);
   if (ptsArr.length < 2) return '';
-  const W = 260, H = 64, PAD = 6;
-  const vals = ptsArr.map((x) => (pts(x.score) as number));
-  const min = Math.min(...vals), max = Math.max(...vals);
-  const span = (max - min) || 1;
-  const xy = ptsArr.map(function (x, i) {
-    const px = PAD + (i / (ptsArr.length - 1)) * (W - PAD * 2);
-    const py = PAD + (1 - (((pts(x.score) as number)) - min) / span) * (H - PAD * 2);
-    return [Math.round(px * 10) / 10, Math.round(py * 10) / 10];
-  });
-  const line = xy.map((p) => p.join(',')).join(' ');
-  const last = xy[xy.length - 1];
   const h = d.head[0];
-  return '<div class="card"><h3>ประวัติคะแนนหัวหน้า' + (h ? ' — ' + esc(h.nick || h.name) : '') + '</h3>' +
-    '<div class="card-sub">' + esc(TH_MONTHS[ptsArr[0].month - 1] + ' – ' + TH_MONTHS[ptsArr[ptsArr.length - 1].month - 1] + ' ' + d.year) +
-      ' • ล่าสุด <b>' + vals[vals.length - 1] + '</b></div>' +
-    '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto" preserveAspectRatio="none">' +
-      '<polyline points="' + line + '" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>' +
-      '<circle cx="' + last[0] + '" cy="' + last[1] + '" r="3.5" fill="var(--primary)"/></svg>' +
-    // ป้ายเดือนโชว์แค่ ต้น/กลาง/ท้าย — ครบทุกเดือนแล้วล้นการ์ดแคบ 300px
-    '<div style="display:flex;justify-content:space-between" class="kpi-subnum">' +
-      ptsArr.map(function (x, i) {
-        const show = i === 0 || i === ptsArr.length - 1 || i === Math.floor((ptsArr.length - 1) / 2);
-        return '<span>' + (show ? esc(TH_MONTHS[x.month - 1]) : '') + '</span>';
-      }).join('') + '</div></div>';
+  const lastV = pts(ptsArr[ptsArr.length - 1].score);
+  return '<div class="card"><div class="card-head"><h3>ประวัติคะแนนหัวหน้า' + (h ? ' — ' + esc(h.nick || h.name) : '') + '</h3></div>' +
+    '<div class="card-sub">' + esc(TH_MONTHS[ptsArr[0].month - 1] + ' – ' + monthOf_(d, ptsArr[ptsArr.length - 1].month)) +
+      ' • ล่าสุด <b>' + (lastV === null ? '—' : lastV.toFixed(1)) + '</b> • เส้นประ = เกณฑ์ผ่าน 70</div>' +
+    scoreChart_(ptsArr.map((x) => ({ m: x.month, s: x.score as number }))) + '</div>';
 }
 
 /* ---------- แถบสลับมุมมอง 3 แท็บ + ปุ่มค่าคอม ---------- */
 
 function tabBar_(): string {
-  // [คีย์, ชื่อไอคอน, คำบนแท็บ]
+  // [คีย์, ชื่อไอคอน, คำบนแท็บ] — ชื่อไทยล้วน (D2) เดิม "ตารางประเมิน HR" / "เจาะทีม & Coaching"
   const tabs: Array<[string, string, string]> = [
     ['structure', 'building-2', 'โครงสร้างทีม'],
-    ['matrix', 'clipboard-list', 'ตารางประเมิน HR'],
-    ['coaching', ICON_FOR.target, 'เจาะทีม & Coaching'],
+    ['matrix', 'clipboard-list', 'ตารางประเมิน'],
+    ['coaching', ICON_FOR.target, 'เจาะทีม & โค้ช'],
   ];
-  return '<div class="kpi-tabbar">' +
+  // role=tablist ครอบเฉพาะแท็บ — ปุ่มค่าคอมเป็นปุ่มพาไปหน้าอื่น ไม่ใช่แท็บ จึงอยู่นอก tablist (F5)
+  return '<div class="kpi-tabbar"><div class="kpi-tablist" role="tablist" aria-label="มุมมองหน้า KPI">' +
     tabs.map(([k, ic, t]) =>
-      '<button class="kpi-tab' + (state.tab === k ? ' active' : '') + '" data-kpitab="' + k + '">' +
+      '<button type="button" role="tab" aria-selected="' + (state.tab === k ? 'true' : 'false') + '" class="kpi-tab' + (state.tab === k ? ' active' : '') + '" data-kpitab="' + k + '">' +
         icon(ic) + esc(t) + '</button>').join('') +
-    '<div class="spacer" style="flex:1"></div>' +
-    '<button class="btn-mini" id="kpi-goto-com" title="ตารางค่าคอมอยู่หน้า Admin Performance">' +
+    '</div><div class="spacer kpi-tab-gap"></div>' +
+    '<button type="button" class="btn-mini" id="kpi-goto-com" title="ตารางค่าคอมอยู่หน้า อันดับแอดมิน">' +
       icon('hand-coins') + 'ค่าคอมมิชชัน →</button>' +
   '</div>';
 }
@@ -494,16 +505,18 @@ function structureTab_(d: KpiData): string {
   const h = d.head[0];
   const subs = computeSubs_(d);
   const hp = h ? pts(h.score) : null;
+  const headHist = d.headHistory.filter((x) => x.score !== null).map((x) => ({ m: x.month, s: x.score as number }));
 
   const headCard = h
-    ? '<div class="card" style="margin-top:14px"><div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">' +
+    ? '<div class="card"><div class="kpi-headcard">' +
         ring(hp) +
-        '<div style="flex:1;min-width:200px"><div class="card-sub" style="margin:0">คะแนนหัวหน้าฝ่าย</div>' +
+        '<div class="kpi-headcard-main"><div class="card-sub">คะแนนหัวหน้าฝ่าย</div>' +
           '<div class="kpi-big">' + esc(h.nick || h.name) + ' — ' + (hp === null ? '—' : hp) + '<span class="kpi-max">/100</span> ' +
-          gradeChip(hp) + ' ' + trendHtml(h.score, d.prevHead[h.id || h.name]) + '</div>' +
-          '<div class="card-sub" style="margin:4px 0 0">KPI รองเฉลี่ย ' + esc(scorePct(h.kpiSub)) + ' • ยอด ' + kFmt(h.sales) +
-            ' / เป้า ' + kFmt(h.target) + ' • ค่าแอด/ยอด ' + adCostHtml_(h.adCost) + '</div></div>' +
-        '<div style="width:280px;max-width:100%">' + sparkSvg_(d.headHistory.filter((x) => x.score !== null).map((x) => ({ m: x.month, s: x.score as number }))) + '</div>' +
+          // แนวโน้มตัวเล็กกว่าคะแนน — เดิมใหญ่เท่าคะแนน ลูกศรแดงตัวโตแย่งสายตา (มือถือตกบรรทัดเป็นเลขแดงโดดๆ)
+          gradeChip(hp) + ' <span class="kpi-head-trend">' + trendHtml(h.score, d.prevHead[h.id || h.name]) + '</span></div>' +
+          '<div class="card-sub kpi-headcard-sub">KPI รองเฉลี่ย ' + esc(scorePct(h.kpiSub)) + ' • ยอด ' + THBk(h.sales) +
+            ' / เป้า ' + THBk(h.target) + ' • ค่าแอด/ยอด ' + adCostHtml_(h.adCost) + '</div></div>' +
+        (headHist.length > 1 ? '<div class="kpi-headcard-chart">' + scoreChart_(headHist) + CHART_KEY + '</div>' : '') +
       '</div></div>'
     : '';
 
@@ -514,41 +527,40 @@ function structureTab_(d: KpiData): string {
     const passN = passOf_(team);
     const passPct = team.length ? Math.round((passN / team.length) * 100) : 0;
     const tone = p === null ? '' : p >= 80 ? 'ok' : p >= 70 ? 'watch' : 'risk';
+    // แถบสัดส่วนคนผ่าน: ความกว้างเปลี่ยนตามข้อมูล (style) · สีเป็นคลาส (เกณฑ์เดิม 70 / 50)
+    const barCls = passPct >= 70 ? 'kpi-bar-good' : passPct >= 50 ? 'kpi-bar-warn' : 'kpi-bar-bad';
     return '<div class="card dep-card ' + tone + '">' +
-      '<div style="display:flex;align-items:center;gap:8px">' +
+      '<div class="dep-head">' +
         avatarHtml(s.id, s.nick, undefined, 'sm') +
-        '<div style="flex:1;min-width:0"><b>' + esc(s.nick) + '</b><div class="card-sub" style="margin:0">รองหัวหน้า • ' +
+        '<div class="dep-name"><b>' + esc(s.nick) + '</b><div class="card-sub">รองหัวหน้า • ' +
           s.units.map((u) => esc(u)).join(' ') + '</div></div>' +
-        '<div style="text-align:right"><b style="font-size:18px">' + (p === null ? '—' : p) + '</b> ' + gradeChip(p) + '</div>' +
+        '<div class="dep-score"><b class="' + (kindClass(scoreKind_(score)) || 'v-plain') + '">' + (p === null ? '—' : p.toFixed(1)) + '</b> ' + gradeChip(p) + '</div>' +
       '</div>' +
-      '<div class="card-sub" style="margin:8px 0 4px">ลูกทีม ' + fmtNum(team.length) + ' คน • ผ่าน KPI ' +
+      '<div class="card-sub dep-team">ลูกทีม ' + fmtNum(team.length) + ' คน • ผ่าน KPI ' +
         fmtNum(passN) + '/' + fmtNum(team.length) + ' (' + passPct + '%)</div>' +
-      '<div class="dep-bar"><div style="width:' + Math.min(100, passPct) + '%;background:' +
-        (passPct >= 70 ? 'var(--green)' : passPct >= 50 ? 'var(--amber)' : 'var(--red)') + '"></div></div>' +
-      '<div style="margin-top:10px;display:flex;gap:6px">' +
-        '<button class="btn-mini" data-coach="sub:' + esc(s.id) + '">' + icon(ICON_FOR.target) + 'ดูทีม & Coaching</button>' +
+      '<div class="dep-bar"><div class="' + barCls + '" style="width:' + Math.min(100, passPct) + '%"></div></div>' +
+      '<div class="dep-foot">' +
+        '<button type="button" class="btn-mini btn-text" data-coach="sub:' + esc(s.id) + '">' + icon(ICON_FOR.target) + 'ดูทีม & โค้ช</button>' +
         '<span class="chip">' + trendHtml(score, s.prevN ? s.prevSum / s.prevN : null) + '</span>' +
       '</div></div>';
   }).join('');
 
   const low = d.persons.slice().sort((a, b) => a.score - b.score).slice(0, 4);
   const lowRows = low.map(function (p) {
-    return '<div class="low-row" data-coach="' + esc(p.id) + '" title="คลิกดูแผน Coaching">' +
+    return '<div class="low-row" data-coach="' + esc(p.id) + '" role="button" tabindex="0" title="กดดูแผนโค้ช">' +
       avatarHtml(p.id, p.nick || p.name, undefined, 'sm') +
-      '<div style="flex:1;min-width:0"><b>' + esc(p.nick || p.name) + '</b>' +
-        '<div class="card-sub" style="margin:0">' + p.units.map((u) => esc(u)).join(' • ') + '</div></div>' +
-      '<b>' + esc(scorePct(p.score)) + '</b> ' + gradeChip(pts(p.score)) +
-      '<span>' + trendHtml(p.score, d.prevPersons[p.id]) + '</span><span style="opacity:.5">›</span></div>';
+      '<div class="low-name"><b>' + esc(p.nick || p.name) + '</b>' +
+        '<div class="card-sub">' + p.units.map((u) => esc(u)).join(' • ') + '</div></div>' +
+      scoreHtml_(p.score) + ' ' + gradeChip(pts(p.score)) +
+      '<span>' + trendHtml(p.score, d.prevPersons[p.id]) + '</span><span class="low-chev">' + icon(ICON_FOR.next, { size: 16 }) + '</span></div>';
   }).join('');
 
   return headCard +
     '<div class="dep-grid">' + depCards + '</div>' +
-    '<div class="card" style="margin-top:14px">' +
-      '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">' +
-        '<h3 style="margin:0">คนที่ต้องเห็นก่อนในการประเมินรอบนี้</h3>' +
-        '<div class="spacer" style="flex:1"></div>' +
-        '<button class="btn-mini" data-kpitab="matrix">ดูพนักงานทั้งหมด →</button></div>' +
-      '<div class="card-sub">4 คนคะแนนต่ำสุดของเดือน — คลิกเพื่อเปิดแผน Coaching</div>' +
+    '<div class="card">' +
+      '<div class="card-head"><h3>คนที่ต้องเห็นก่อนในการประเมินรอบนี้</h3>' +
+        '<div class="card-actions"><button type="button" class="btn-mini btn-text" data-kpitab="matrix">ดูพนักงานทั้งหมด →</button></div></div>' +
+      '<div class="card-sub">4 คนคะแนนต่ำสุดของเดือน — กดเพื่อเปิดแผนโค้ช</div>' +
       lowRows + '</div>';
 }
 
@@ -560,28 +572,28 @@ function coachTips_(d: KpiData, p: Person, det: PersonDetail | undefined): Array
   const noCom = d.noComAlerts.some((a) => a.admin === p.nick || a.admin === p.name);
   if (noCom) tips.push({ sev: 'risk', txt: 'ไม่ได้ค่าคอม 2 เดือนปิดยอดติดกัน — เปิดแผนกู้ยอดกับรองหัวหน้า + นัดติดตามภายใน 7 วัน' });
   if (det && det.close !== null) {
-    if (det.close < 33) tips.push({ sev: 'risk', txt: '%ปิด ' + pctFmt(det.close) + ' ต่ำกว่า 33% — สุ่มตรวจแชตที่ไม่ปิดอย่างน้อย 10 เคส + โค้ชสคริปต์แก้ข้อโต้แย้งจากเคสจริง' });
-    else if (det.close < 40) tips.push({ sev: 'watch', txt: '%ปิด ' + pctFmt(det.close) + ' ยังไม่ถึงเป้า 40% — วัดเวลาตอบครั้งแรก + ตามลูกค้าค้างแชตให้จบในวัน' });
+    if (det.close < 33) tips.push({ sev: 'risk', txt: '%ปิด ' + pct2(det.close) + ' ต่ำกว่า 33% — สุ่มตรวจแชตที่ไม่ปิดอย่างน้อย 10 เคส + โค้ชสคริปต์แก้ข้อโต้แย้งจากเคสจริง' });
+    else if (det.close < 40) tips.push({ sev: 'watch', txt: '%ปิด ' + pct2(det.close) + ' ยังไม่ถึงเป้า 40% — วัดเวลาตอบครั้งแรก + ตามลูกค้าค้างแชตให้จบในวัน' });
   }
   if (det && det.perBill !== null && det.perBill > 0) {
-    if (det.perBill < 450) tips.push({ sev: 'risk', txt: 'เปอร์บิล ฿' + fmtNum(Math.round(det.perBill)) + ' ต่ำ — ทำชุดขาย 2-3 ชิ้น + Upsell ตามขั้นยอด ดันให้ถึง ฿500' });
-    else if (det.perBill < 500) tips.push({ sev: 'watch', txt: 'เปอร์บิล ฿' + fmtNum(Math.round(det.perBill)) + ' — ใส่ชุดแนะนำในสคริปต์ก่อนเสนอขายชิ้นเดียว' });
+    if (det.perBill < 450) tips.push({ sev: 'risk', txt: 'เปอร์บิล ' + THB(det.perBill) + ' ต่ำ — ทำชุดขาย 2-3 ชิ้น + Upsell ตามขั้นยอด ดันให้ถึง ฿500' });
+    else if (det.perBill < 500) tips.push({ sev: 'watch', txt: 'เปอร์บิล ' + THB(det.perBill) + ' — ใส่ชุดแนะนำในสคริปต์ก่อนเสนอขายชิ้นเดียว' });
   }
-  if (det && det.ret !== null && det.ret > 5) tips.push({ sev: 'risk', txt: '%ตีกลับ ' + pctFmt(det.ret) + ' เกินเกณฑ์ 5% — ยืนยันที่อยู่/เบอร์/นัดรับก่อนส่งทุกออเดอร์' });
-  if (det && det.err !== null && Math.abs(det.err) > 5) tips.push({ sev: 'watch', txt: '%Error ' + pctFmt(det.err) + ' เกิน ±5% — ตรวจการคีย์ออเดอร์/ราคาก่อนยืนยัน' });
+  if (det && det.ret !== null && det.ret > 5) tips.push({ sev: 'risk', txt: '%ตีกลับ ' + pct2(det.ret) + ' เกินเกณฑ์ 5% — ยืนยันที่อยู่/เบอร์/นัดรับก่อนส่งทุกออเดอร์' });
+  if (det && det.err !== null && Math.abs(det.err) > 5) tips.push({ sev: 'watch', txt: '%Error ' + pct2(det.err) + ' เกิน ±5% — ตรวจการคีย์ออเดอร์/ราคาก่อนยืนยัน' });
   const p100 = pts(p.score);
   if (p100 !== null && p100 < 60) tips.push({ sev: 'risk', txt: 'คะแนนรวมต่ำกว่าเกรด C — นัดทำแผนกู้ยอดกับหัวหน้าภายใน 3 วันทำการ' });
   if (!tips.length) tips.push({ sev: 'watch', txt: 'ผ่านเกณฑ์หลักครบ — รักษามาตรฐาน และให้ช่วยแชร์วิธีทำงานกับเพื่อนร่วมทีม' });
   return tips;
 }
 
-/** แถวตัวชี้วัด: ค่า vs เป้า + แถบสี */
+/** แถวตัวชี้วัด: ค่า vs เป้า + แถบสี (ความกว้างเปลี่ยนตามข้อมูลจึงอยู่ใน style · สีเป็นคลาส) */
 function metricRow_(label: string, valueTxt: string, targetTxt: string, ratioPct: number | null, good: boolean | null): string {
-  const color = good === null ? 'var(--track)' : good ? 'var(--green)' : 'var(--red)';
+  const cls = good === null ? 'kpi-bar-none' : good ? 'kpi-bar-good' : 'kpi-bar-bad';
   const w = ratioPct === null ? 0 : Math.max(4, Math.min(100, ratioPct));
   return '<div class="metric-row"><div class="metric-head"><span>' + esc(label) + '</span>' +
     '<span><b>' + valueTxt + '</b> <small class="kpi-subnum">' + esc(targetTxt) + '</small></span></div>' +
-    '<div class="metric-bar"><div style="width:' + w + '%;background:' + color + '"></div></div></div>';
+    '<div class="metric-bar"><div class="' + cls + '" style="width:' + w + '%"></div></div></div>';
 }
 
 function coachingTab_(d: KpiData): string {
@@ -601,19 +613,22 @@ function coachingTab_(d: KpiData): string {
 
   /* ---- ซ้าย: ต้นไม้ทีม ---- */
   // ป้าย "หัวหน้าฝ่าย" แทน 👑 — คะแนนต้องเป็น span ตัวสุดท้ายเสมอ (CSS .tree-btn span:last-child ดันไปชิดขวา)
-  let tree = '<button class="tree-btn' + (state.sel === 'head' ? ' active' : '') + '" data-coach="head">' +
-    esc(h ? (h.nick || h.name) : 'หัวหน้า') + (h ? ' ' + statusPill('brand', 'หัวหน้าฝ่าย') : '') +
+  // ชื่อห่อด้วย .kpi-tree-name ไม่ให้ตัดกลางชื่อ (เดิม "ไท/เกอร์" "วุ้น/เส้น" เพราะรายชื่อยูนิตยาวเบียด)
+  // aria-pressed บอกโปรแกรมอ่านหน้าจอว่าตอนนี้ดูใครอยู่ (สีพื้นอย่างเดียวคนตาบอดไม่รู้ — F5)
+  const pressed = (on: boolean) => ' aria-pressed="' + (on ? 'true' : 'false') + '"';
+  let tree = '<button type="button" class="tree-btn' + (state.sel === 'head' ? ' active' : '') + '"' + pressed(state.sel === 'head') + ' data-coach="head">' +
+    '<span class="kpi-tree-name">' + esc(h ? (h.nick || h.name) : 'หัวหน้า') + '</span>' + (h ? ' ' + statusPill('brand', 'หัวหน้าฝ่าย') : '') +
     '<span>' + (h ? esc(scorePct(h.score)) : '—') + '</span></button>';
   subs.forEach(function (s) {
     const key = 'sub:' + s.id;
     const team = personsInUnits_(d, s.units);
-    tree += '<button class="tree-btn sub' + (state.sel === key ? ' active' : '') + '" data-coach="' + esc(key) + '">' +
-      esc(s.nick) + ' <small>' + fmtNum(team.length) + ' คน • ' + s.units.map((u) => esc(u)).join(' ') + '</small>' +
+    tree += '<button type="button" class="tree-btn sub' + (state.sel === key ? ' active' : '') + '"' + pressed(state.sel === key) + ' data-coach="' + esc(key) + '">' +
+      '<span class="kpi-tree-name">' + esc(s.nick) + '</span> <small>' + fmtNum(team.length) + ' คน • ' + s.units.map((u) => esc(u)).join(' ') + '</small>' +
       '<span>' + Math.round(pts(s.score / s.n) || 0) + '</span></button>';
     if (expandSub && expandSub.id === s.id) {
       team.slice().sort((a, b) => b.score - a.score).forEach(function (p) {
-        tree += '<button class="tree-btn staff' + (state.sel === p.id ? ' active' : '') + '" data-coach="' + esc(p.id) + '">' +
-          esc(p.nick || p.name) + '<span>' + Math.round(pts(p.score) || 0) + '</span></button>';
+        tree += '<button type="button" class="tree-btn staff' + (state.sel === p.id ? ' active' : '') + '"' + pressed(state.sel === p.id) + ' data-coach="' + esc(p.id) + '">' +
+          '<span class="kpi-tree-name">' + esc(p.nick || p.name) + '</span><span>' + Math.round(pts(p.score) || 0) + '</span></button>';
       });
     }
   });
@@ -627,7 +642,7 @@ function coachingTab_(d: KpiData): string {
     hist = d.headHistory.filter((x) => x.score !== null).map((x) => ({ m: x.month, s: x.score as number }));
     const attain = h.target > 0 ? (h.sales / h.target) * 100 : null;
     rows = metricRow_('KPI รองที่ดูแล (น้ำหนัก 40)', esc(scorePct(h.kpiSub)), 'เฉลี่ยรองทุกคน', pts(h.kpiSub), (pts(h.kpiSub) || 0) >= 70) +
-      metricRow_('ยอดขายรวม (น้ำหนัก 40)', kFmt(h.sales), '/ เป้า ' + kFmt(h.target), attain, attain !== null ? attain >= 100 : null) +
+      metricRow_('ยอดขายรวม (น้ำหนัก 40)', THBk(h.sales), '/ เป้า ' + THBk(h.target), attain, attain !== null ? attain >= 100 : null) +
       metricRow_('ค่าแอดต่อยอด (น้ำหนัก 20)', adCostHtml_(h.adCost), 'เป้า ≤33%',
         h.adCost ? Math.min(100, (33 / h.adCost) * 100) : null, h.adCost === null ? null : h.adCost <= 33);
     tipsHtml = '<div class="kpi-alert">ดูภาพรวมลูกทีมในแท็บ โครงสร้างทีม — โค้ชผ่านรองหัวหน้ารายทีม</div>';
@@ -641,19 +656,19 @@ function coachingTab_(d: KpiData): string {
     const adCost = s._aw ? s.adCost / s._aw : null;
     const team = personsInUnits_(d, s.units);
     const passN = passOf_(team);
-    rows = metricRow_('ยอดทีม (น้ำหนัก 30)', kFmt(s.teamSales), '/ เป้า ' + kFmt(s.target), attain, attain !== null ? attain >= 100 : null) +
+    rows = metricRow_('ยอดทีม (น้ำหนัก 30)', THBk(s.teamSales), '/ เป้า ' + THBk(s.target), attain, attain !== null ? attain >= 100 : null) +
       metricRow_('ลูกทีมผ่าน KPI (น้ำหนัก 20)', fmtNum(passN) + '/' + fmtNum(team.length), 'เกรด B ขึ้นไป', team.length ? (passN / team.length) * 100 : null, team.length ? passN / team.length >= 0.7 : null) +
-      metricRow_('%ปิดเฉลี่ย (น้ำหนัก 20)', pctFmt(close), 'เป้า ≥40%', close !== null ? (close / 40) * 100 : null, close !== null ? close >= 40 : null) +
+      metricRow_('%ปิดเฉลี่ย (น้ำหนัก 20)', pct2(close), 'เป้า ≥40%', close !== null ? (close / 40) * 100 : null, close !== null ? close >= 40 : null) +
       metricRow_('ค่าแอดต่อยอด (น้ำหนัก 20)', adCostHtml_(adCost), 'เป้า ≤33%',
         adCost !== null && adCost > 0 ? Math.min(100, (33 / adCost) * 100) : null, adCost !== null ? adCost <= 33 : null) +
       (s._pw > 0
-        ? metricRow_('เปอร์บิล (น้ำหนัก 10)', '฿' + fmtNum(Math.round(s.perBill / s._pw)), 'เป้า ≥฿500', (s.perBill / s._pw / 500) * 100, s.perBill / s._pw >= 500)
+        ? metricRow_('เปอร์บิล (น้ำหนัก 10)', THB(s.perBill / s._pw), 'เป้า ≥฿500', (s.perBill / s._pw / 500) * 100, s.perBill / s._pw >= 500)
         : '');
     const weak = team.slice().sort((a, b) => a.score - b.score).slice(0, 3);
     tipsHtml = weak.map(function (p) {
       const t = coachTips_(d, p, details[p.id])[0];
       return '<div class="kpi-alert ' + t.sev + '"><b>' + esc(p.nick || p.name) + '</b> (' + esc(scorePct(p.score)) + ') — ' + esc(t.txt) + '</div>';
-    }).join('') || '<div class="empty-note">ทีมนี้ผ่านเกณฑ์ครบ</div>';
+    }).join('') || '<div class="kpi-none">' + icon(ICON_FOR.ok, { size: 14 }) + ' ทีมนี้ผ่านเกณฑ์ครบ</div>';
   } else if (selPerson) {
     const p = selPerson;
     const det = details[p.id];
@@ -661,76 +676,84 @@ function coachingTab_(d: KpiData): string {
     score = p.score; prev = d.prevPersons[p.id];
     hist = d.personHistory[p.id] || [];
     rows = metricRow_('ยอดขาย (น้ำหนัก 35)', THB(p.sales), 'รวมทุกยูนิตเดือนนี้', null, null) +
-      metricRow_('%ปิด (น้ำหนัก 35)', sheetVal_(det ? det.close : null, pctFmt), 'เป้า ≥40%', det && det.close !== null ? (det.close / 40) * 100 : null, det && det.close !== null ? det.close >= 40 : null) +
-      metricRow_('เปอร์บิล (น้ำหนัก 20)', det && det.perBill !== null ? '฿' + fmtNum(Math.round(det.perBill)) : '—', 'เป้า ≥฿500', det && det.perBill !== null ? (det.perBill / 500) * 100 : null, det && det.perBill !== null ? det.perBill >= 500 : null) +
-      metricRow_('%Error (น้ำหนัก 5)', sheetVal_(det ? det.err : null, pctFmt), 'เป้า ±5%', det && det.err !== null ? Math.max(0, 100 - Math.abs(det.err) * 10) : null, det && det.err !== null ? Math.abs(det.err) <= 5 : null) +
-      metricRow_('%ตีกลับ (น้ำหนัก 5)', sheetVal_(det ? det.ret : null, pctFmt), 'เป้า <5%', det && det.ret !== null ? Math.max(0, 100 - det.ret * 10) : null, det && det.ret !== null ? det.ret < 5 : null);
+      metricRow_('%ปิด (น้ำหนัก 35)', sheetVal_(det ? det.close : null, pct2), 'เป้า ≥40%', det && det.close !== null ? (det.close / 40) * 100 : null, det && det.close !== null ? det.close >= 40 : null) +
+      metricRow_('เปอร์บิล (น้ำหนัก 20)', det && det.perBill !== null ? THB(det.perBill) : '—', 'เป้า ≥฿500', det && det.perBill !== null ? (det.perBill / 500) * 100 : null, det && det.perBill !== null ? det.perBill >= 500 : null) +
+      metricRow_('%Error (น้ำหนัก 5)', sheetVal_(det ? det.err : null, pct2), 'เป้า ±5%', det && det.err !== null ? Math.max(0, 100 - Math.abs(det.err) * 10) : null, det && det.err !== null ? Math.abs(det.err) <= 5 : null) +
+      metricRow_('%ตีกลับ (น้ำหนัก 5)', sheetVal_(det ? det.ret : null, pct2), 'เป้า <5%', det && det.ret !== null ? Math.max(0, 100 - det.ret * 10) : null, det && det.ret !== null ? det.ret < 5 : null);
     tipsHtml = coachTips_(d, p, det).map(function (t) {
       return '<div class="kpi-alert ' + t.sev + '">' + esc(t.txt) + '</div>';
     }).join('');
   }
   const sp = pts(score);
   const centerPanel = '<div class="card">' +
-    '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">' +
+    '<div class="kpi-person-head">' +
       ring(sp) +
-      '<div style="flex:1;min-width:160px"><div class="card-sub" style="margin:0">' + esc(role) + ' • ' + esc(unitTxt) + '</div>' +
+      '<div class="kpi-person-main"><div class="card-sub">' + esc(role) + ' • ' + esc(unitTxt) + '</div>' +
         '<div class="kpi-big">' + esc(title) + '</div>' +
-        '<div>' + gradeChip(sp) + ' ' + statusBadge(score, prev) + ' ' + trendHtml(score, prev) + '</div></div>' +
-      '<button class="btn-mini" id="kpi-person-csv">' + icon(ICON_FOR.csv) + 'ดาวน์โหลดผล</button>' +
+        '<div class="kpi-person-tags">' + gradeChip(sp) + ' ' + statusBadge(score, prev) + ' ' + trendHtml(score, prev) + '</div></div>' +
+      '<button type="button" class="btn-mini" id="kpi-person-csv">' + icon(ICON_FOR.csv) + 'ดาวน์โหลดผล</button>' +
     '</div>' +
-    '<div style="margin-top:12px">' + rows + '</div>' +
-    (hist.length > 1 ? '<div style="margin-top:12px"><div class="card-sub">ประวัติคะแนน</div>' + sparkSvg_(hist) + '</div>' : '') +
+    '<div class="kpi-metrics">' + rows + '</div>' +
+    (hist.length > 1 ? '<div class="kpi-person-chart"><div class="card-sub">ประวัติคะแนน • เส้นประ = เกณฑ์ผ่าน 70</div>' + scoreChart_(hist) + '</div>' : '') +
   '</div>';
 
   /* ---- ขวา: ต้องโค้ชก่อน + สิ่งที่ต้องจัดการ ---- */
   const low3 = d.persons.slice().sort((a, b) => a.score - b.score).slice(0, 3);
-  const coachFirst = '<div class="card"><h3>ต้องโค้ชก่อน</h3><div style="margin-top:8px">' +
+  const coachFirst = '<div class="card"><div class="card-head"><h3>ต้องโค้ชก่อน</h3></div><div>' +
     low3.map(function (p, i) {
-      return '<div class="low-row" data-coach="' + esc(p.id) + '"><span class="kpi-rank">' + (i + 1) + '</span>' +
-        '<div style="flex:1;min-width:0"><b>' + esc(p.nick || p.name) + '</b>' +
-        '<div class="card-sub" style="margin:0">' + p.units.map((u) => esc(u)).join(' • ') + '</div></div>' +
-        '<b>' + Math.round(pts(p.score) || 0) + '</b></div>';
+      return '<div class="low-row" data-coach="' + esc(p.id) + '" role="button" tabindex="0"><span class="kpi-rank">' + (i + 1) + '</span>' +
+        '<div class="low-name"><b>' + esc(p.nick || p.name) + '</b>' +
+        '<div class="card-sub">' + p.units.map((u) => esc(u)).join(' • ') + '</div></div>' +
+        '<b class="' + (kindClass(scoreKind_(p.score)) || 'v-plain') + '">' + Math.round(pts(p.score) || 0) + '</b></div>';
     }).join('') + '</div></div>';
   const todo: string[] = [];
   d.noComAlerts.slice(0, 3).forEach(function (a) {
     const p = d.persons.find((x) => x.nick === a.admin || x.name === a.admin);
-    todo.push('<div class="kpi-alert risk"' + (p ? ' data-coach="' + esc(p.id) + '" style="cursor:pointer"' : '') + '>' +
+    todo.push('<div class="kpi-alert risk' + (p ? ' kpi-alert-link" data-coach="' + esc(p.id) + '" role="button" tabindex="0"' : '"') + '>' +
       '<b>' + esc(a.admin) + '</b> ไม่ได้ค่าคอม 2 เดือนติด — เปิดแผนกู้ยอด</div>');
   });
   d.persons.filter((p) => (pts(p.score) || 100) < 60).slice(0, 3).forEach(function (p) {
-    todo.push('<div class="kpi-alert watch" data-coach="' + esc(p.id) + '" style="cursor:pointer"><b>' +
+    todo.push('<div class="kpi-alert watch kpi-alert-link" data-coach="' + esc(p.id) + '" role="button" tabindex="0"><b>' +
       esc(p.nick || p.name) + '</b> คะแนน ' + Math.round(pts(p.score) || 0) + ' ต่ำกว่าเกรด C — ต้องติดตาม</div>');
   });
-  const todoCard = '<div class="card"><h3>สิ่งที่ต้องจัดการ</h3><div style="margin-top:8px">' +
-    (todo.join('') || '<div class="empty-note">ไม่มีเรื่องค้าง</div>') + '</div></div>';
+  const todoCard = '<div class="card"><div class="card-head"><h3>สิ่งที่ต้องจัดการ</h3></div><div>' +
+    (todo.join('') || '<div class="kpi-none">' + icon(ICON_FOR.ok, { size: 14 }) + ' ไม่มีเรื่องค้าง</div>') + '</div></div>';
 
   /* ---- ตารางล่าง: พนักงานในสายงาน ---- */
   const teamList = (expandSub ? personsInUnits_(d, expandSub.units) : d.persons)
     .slice().sort((a, b) => a.score - b.score);
+  let teamSales = 0;
   const teamRows = teamList.map(function (p) {
     const det = details[p.id];
-    return '<tr' + (p.id === state.sel ? ' style="outline:1px solid var(--primary)"' : '') + '>' +
-      '<td><b>' + esc(p.nick || p.name) + '</b> <span class="rank-fullname">' + esc(p.name) + '</span></td>' +
-      '<td>' + p.units.map((u) => '<span class="chip">' + esc(u) + '</span>').join(' ') + '</td>' +
-      '<td class="num">' + THB(p.sales) + '</td>' +
-      '<td class="num">' + sheetVal_(det ? det.close : null, pctFmt) + '</td>' +
-      '<td class="num">' + numVal_(det ? det.perBill : null) + '</td>' +
-      '<td class="num">' + sheetVal_(det ? det.ret : null, pctFmt) + '</td>' +
-      '<td class="num ' + scoreCls(p.score) + '"><b>' + esc(scorePct(p.score)) + '</b></td>' +
+    teamSales += p.sales;
+    return '<tr' + (p.id === state.sel ? ' class="kpi-sel-row"' : '') + '>' +
+      '<td data-sort="' + esc(p.nick || p.name) + '"><b>' + esc(p.nick || p.name) + '</b> <span class="rank-fullname">' + esc(p.name) + '</span></td>' +
+      '<td class="kpi-units">' + p.units.map((u) => '<span class="chip">' + esc(u) + '</span>').join(' ') + '</td>' +
+      '<td class="num" data-sort="' + p.sales + '">' + THB(p.sales) + '</td>' +
+      '<td class="num" data-sort="' + (det && det.close !== null ? det.close : '') + '">' + sheetVal_(det ? det.close : null, pct2) + '</td>' +
+      '<td class="num" data-sort="' + (det && det.perBill !== null ? det.perBill : '') + '">' + numVal_(det ? det.perBill : null) + '</td>' +
+      '<td class="num" data-sort="' + (det && det.ret !== null ? det.ret : '') + '">' + sheetVal_(det ? det.ret : null, pct2) + '</td>' +
+      '<td class="num" data-sort="' + (pts(p.score) === null ? '' : pts(p.score)) + '">' + scoreHtml_(p.score) + '</td>' +
       '<td>' + gradeChip(pts(p.score)) + '</td>' +
       '<td>' + statusBadge(p.score, d.prevPersons[p.id]) + '</td>' +
-      '<td><button class="btn-mini" data-coach="' + esc(p.id) + '">ดูผล</button></td></tr>';
+      '<td class="kpi-acts"><button type="button" class="btn-mini btn-text" data-coach="' + esc(p.id) + '">ดูผล</button></td></tr>';
   }).join('');
-  const teamTable = '<div class="card" style="margin-top:14px">' +
-    '<h3>พนักงานในสายงาน — ' + esc(expandSub ? expandSub.nick : 'ทุกทีม') + '</h3>' +
-    '<div class="card-sub">เรียงคนคะแนนต่ำขึ้นก่อน เพื่อแก้ได้ทันที</div>' +
-    '<div class="table-scroll"><table class="tbl"><thead><tr>' +
-      '<th>ชื่อ</th><th>ยูนิต</th><th class="num">ยอด</th><th class="num">%ปิด</th><th class="num">เปอร์บิล</th>' +
-      '<th class="num">%ตีกลับ</th><th class="num">คะแนน</th><th>เกรด</th><th>สถานะ</th><th></th>' +
-    '</tr></thead><tbody>' + teamRows + '</tbody></table></div></div>';
+  const teamTotal = teamList.length
+    ? '<tr class="tbl-total"><td>รวม ' + fmtNum(teamList.length) + ' คน</td><td></td><td class="num">' + THB(teamSales) + '</td>' +
+      '<td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>'
+    : '';
+  const teamTable = '<div class="card">' +
+    '<div class="card-head"><h3>พนักงานในสายงาน — ' + esc(expandSub ? expandSub.nick : 'ทุกทีม') + '</h3></div>' +
+    '<div class="card-sub">เริ่มต้นเรียงคนคะแนนต่ำขึ้นก่อน เพื่อแก้ได้ทันที • กดหัวคอลัมน์เพื่อเรียงแบบอื่น</div>' +
+    SCORE_LEGEND +
+    '<div class="table-scroll"><table class="tbl kpi-team-tbl"><thead><tr>' +
+      sortTh('ชื่อ', 'name') + '<th>ยูนิต</th>' + sortTh('ยอด', 'sales', { num: true }) + sortTh('%ปิด', 'close', { num: true }) +
+      sortTh('เปอร์บิล', 'perBill', { num: true }) + sortTh('%ตีกลับ', 'ret', { num: true }) + sortTh('คะแนน', 'score', { num: true }) +
+      '<th>เกรด</th><th>สถานะ</th><th></th>' +
+    '</tr></thead><tbody>' + teamRows + teamTotal + '</tbody></table></div></div>';
 
   return '<div class="coach-grid">' +
-    '<div class="card coach-tree"><h3>โครงสร้างทีม</h3><div class="card-sub">คลิกชื่อเพื่อดูคะแนน + แผนแก้รายคน</div>' + tree + '</div>' +
+    '<div class="card coach-tree"><div class="card-head"><h3>โครงสร้างทีม</h3></div><div class="card-sub">กดชื่อเพื่อดูคะแนน + แผนแก้รายคน</div>' + tree + '</div>' +
     '<div>' + centerPanel + '</div>' +
     '<div class="kpi-side">' + todoCard + coachFirst + '</div>' +
   '</div>' + teamTable;
@@ -740,83 +763,95 @@ function coachingTab_(d: KpiData): string {
 
 function topCard_(title: string, sub: string, rows: Array<{ nick: string; name: string; id: string; big: string; small: string }>): string {
   const items = rows.map(function (r, i) {
-    // 1-3 = วงกลมเหรียญ (แทน 🥇🥈🥉) · ที่เหลือใช้วงเลขเดิม — กล่องนอกไม่ต้องตั้ง font-size ใหญ่แบบตอนเป็นอีโมจิแล้ว
-    return '<div style="display:flex;align-items:center;gap:8px;margin-top:8px">' +
-      '<div style="display:flex;flex:none">' + (i < 3 ? rankBadge(i + 1, 'md') : '<span class="kpi-rank">' + (i + 1) + '</span>') + '</div>' +
+    // 1-3 = วงกลมเหรียญ (แทน 🥇🥈🥉) · ที่เหลือใช้วงเลขเดิม
+    return '<div class="kpi-top-row">' +
+      '<div class="kpi-top-rank">' + (i < 3 ? rankBadge(i + 1, 'md') : '<span class="kpi-rank">' + (i + 1) + '</span>') + '</div>' +
       avatarHtml(r.id, r.nick || r.name, undefined, 'sm') +
-      '<div style="flex:1;min-width:0"><b>' + esc(r.nick || r.name) + '</b>' +
-        '<div class="card-sub" style="margin:0">' + esc(r.small) + '</div></div>' +
-      '<b>' + r.big + '</b>' +
+      '<div class="low-name"><b>' + esc(r.nick || r.name) + '</b>' +
+        '<div class="card-sub">' + esc(r.small) + '</div></div>' +
+      '<b class="v-plain">' + r.big + '</b>' +
     '</div>';
   }).join('');
-  return '<div class="card" style="flex:1;min-width:240px">' +
-    '<h3>' + title + '</h3><div class="card-sub">' + esc(sub) + '</div>' +
-    (items || '<div class="empty-note">ยังไม่มีข้อมูล</div>') + '</div>';
-}
-
-function scoreCls(v: number): string {
-  const p = pts(v);
-  if (p === null) return '';
-  if (p >= 80) return 'txt-good';
-  if (p < 60) return 'txt-bad';
-  return '';
+  return '<div class="card">' +
+    '<div class="card-head"><h3>' + title + '</h3></div><div class="card-sub">' + esc(sub) + '</div>' +
+    (items || '<div class="kpi-none">ยังไม่มีข้อมูล</div>') + '</div>';
 }
 
 function adminTableHtml_(d: KpiData): string {
+  let sum = 0;
+  const people = new Set<string>();
   const body = d.admin.map(function (r, i) {
+    sum += r.sales; people.add(r.id || r.name);
+    const p = pts(r.score);
     return '<tr>' +
-      '<td>' + (i + 1) + '</td>' +
-      '<td><b>' + esc(r.nick || r.name) + '</b> <span class="rank-fullname">' + esc(r.name) + '</span></td>' +
-      '<td><span class="badge neutral" title="' + esc(r.unitFull) + '">' + esc(r.unit) + '</span></td>' +
-      '<td class="num">' + THB(r.sales) + '</td>' +
-      '<td class="num">' + sheetVal_(r.close, pctFmt) + '</td>' +
-      '<td class="num">' + overHtml_(r.err, 5, true) + '</td>' +
-      '<td class="num">' + numVal_(r.perBill) + '</td>' +
-      '<td class="num">' + overHtml_(r.ret, 5) + '</td>' +
-      '<td class="num ' + scoreCls(r.score) + '"><b>' + esc(scorePct(r.score)) + '</b></td>' +
-      '<td>' + gradeChip(pts(r.score)) + '</td>' +
+      // อันดับตามคะแนนในชีท — ติดไปกับแถวเวลากดเรียงคอลัมน์อื่น (กด # เพื่อกลับลำดับเดิม)
+      '<td data-sort="' + (i + 1) + '">' + (i + 1) + '</td>' +
+      '<td data-sort="' + esc(r.nick || r.name) + '"><b>' + esc(r.nick || r.name) + '</b> <span class="rank-fullname">' + esc(r.name) + '</span></td>' +
+      '<td data-sort="' + esc(r.unit) + '"><span class="badge neutral" title="' + esc(r.unitFull) + '">' + esc(r.unit) + '</span></td>' +
+      '<td class="num" data-sort="' + r.sales + '">' + THB(r.sales) + '</td>' +
+      '<td class="num" data-sort="' + (r.close === null ? '' : r.close) + '">' + sheetVal_(r.close, pct2) + '</td>' +
+      '<td class="num" data-sort="' + (r.err === null ? '' : r.err) + '">' + overHtml_(r.err, 5, true) + '</td>' +
+      '<td class="num" data-sort="' + (r.perBill === null ? '' : r.perBill) + '">' + numVal_(r.perBill) + '</td>' +
+      '<td class="num" data-sort="' + (r.ret === null ? '' : r.ret) + '">' + overHtml_(r.ret, 5) + '</td>' +
+      '<td class="num" data-sort="' + (p === null ? '' : p) + '">' + scoreHtml_(r.score) + '</td>' +
+      '<td>' + gradeChip(p) + '</td>' +
     '</tr>';
   }).join('');
-  return '<div class="card" style="margin-top:14px">' +
-    '<h3>KPI แอดมินรายคน (ละเอียดตามชีท) — ' + esc(TH_MONTHS[d.month - 1] + ' ' + d.year) + '</h3>' +
-    '<div class="card-sub">คนเดียวหลายยูนิต = หลายแถวตามชีท • ตัวเลขทุกช่องมาจากชีท KPI ตรงๆ</div>' +
-    '<div class="table-scroll"><table class="tbl"><thead><tr>' +
-      '<th>#</th><th>แอดมิน</th><th>ยูนิต</th><th class="num">ยอดขาย</th><th class="num">%ปิด</th>' +
-      '<th class="num">%Error</th><th class="num">เปอร์บิล</th><th class="num">%ตีกลับ</th><th class="num">คะแนน KPI</th><th>เกรด</th>' +
-    '</tr></thead><tbody>' + body + '</tbody></table></div></div>';
+  const total = d.admin.length
+    ? '<tr class="tbl-total"><td></td><td>รวม ' + fmtNum(d.admin.length) + ' แถว (' + fmtNum(people.size) + ' คน)</td><td></td>' +
+      '<td class="num">' + THB(sum) + '</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>'
+    : '';
+  return '<div class="card">' +
+    '<div class="card-head"><h3>KPI แอดมินรายคน — ' + esc(monthOf_(d)) +
+      infoTip('ตัวเลขทุกช่องมาจากชีท KPI ตรงๆ • คนเดียวหลายยูนิต = หลายแถวตามชีท • ช่องขีด = ชีทยังไม่กรอก', 'KPI แอดมินรายคน') + '</h3></div>' +
+    '<div class="card-sub">ละเอียดตามชีท • กดหัวคอลัมน์เพื่อเรียง</div>' +
+    SCORE_LEGEND.replace('</div>', '<span class="lg lg-bad">%Error / %ตีกลับ เกิน 5%</span></div>') +
+    '<div class="table-scroll"><table class="tbl tbl-sticky kpi-admin"><thead><tr>' +
+      sortTh('#', 'rank', { num: true, dir: 'asc' }) + sortTh('แอดมิน', 'name') + sortTh('ยูนิต', 'unit') +
+      sortTh('ยอดขาย', 'sales', { num: true }) + sortTh('%ปิด', 'close', { num: true }) +
+      sortTh('%Error', 'err', { num: true }) + sortTh('เปอร์บิล', 'perBill', { num: true }) +
+      sortTh('%ตีกลับ', 'ret', { num: true }) + sortTh('คะแนน KPI', 'score', { num: true }) + '<th>เกรด</th>' +
+    '</tr></thead><tbody>' + body + total + '</tbody></table></div></div>';
 }
 
 function yearTableHtml_(d: KpiData): string {
   if (!d.adminYear.length) return '';
+  let sum = 0;
   const body = d.adminYear.map(function (r, i) {
+    sum += r.sales;
+    const p = pts(r.kpiAvg);
     return '<tr>' +
-      // 3 อันดับแรกเป็นวงกลมเหรียญที่มีเลขอยู่ในตัว (แทนเลข + 🥇🥈🥉)
-      '<td>' + (i < 3 ? rankBadge(i + 1, 'sm') : String(i + 1)) + '</td>' +
-      '<td><b>' + esc(r.nick || r.name) + '</b> <span class="rank-fullname">' + esc(r.name) + '</span></td>' +
-      '<td class="num">' + THB(r.sales) + '</td>' +
-      '<td class="num">' + sheetVal_(r.close, pctFmt) + '</td>' +
-      '<td class="num">' + numVal_(r.perBill) + '</td>' +
-      '<td class="num">' + sheetVal_(r.ret, pctFmt) + '</td>' +
-      '<td class="num ' + scoreCls(r.kpiAvg) + '"><b>' + esc(scorePct(r.kpiAvg)) + '</b></td>' +
-      '<td>' + gradeChip(pts(r.kpiAvg)) + '</td>' +
+      // 3 อันดับแรกเป็นวงกลมเหรียญที่มีเลขอยู่ในตัว (แทนเลข + 🥇🥈🥉) — ติดไปกับคนนั้นเวลากดเรียงคอลัมน์อื่น
+      '<td data-sort="' + (i + 1) + '">' + (i < 3 ? rankBadge(i + 1, 'sm') : String(i + 1)) + '</td>' +
+      '<td data-sort="' + esc(r.nick || r.name) + '"><b>' + esc(r.nick || r.name) + '</b> <span class="rank-fullname">' + esc(r.name) + '</span></td>' +
+      '<td class="num" data-sort="' + r.sales + '">' + THB(r.sales) + '</td>' +
+      '<td class="num" data-sort="' + (r.close === null ? '' : r.close) + '">' + sheetVal_(r.close, pct2) + '</td>' +
+      '<td class="num" data-sort="' + (r.perBill === null ? '' : r.perBill) + '">' + numVal_(r.perBill) + '</td>' +
+      '<td class="num" data-sort="' + (r.ret === null ? '' : r.ret) + '">' + sheetVal_(r.ret, pct2) + '</td>' +
+      '<td class="num" data-sort="' + (p === null ? '' : p) + '">' + scoreHtml_(r.kpiAvg) + '</td>' +
+      '<td>' + gradeChip(p) + '</td>' +
     '</tr>';
   }).join('');
+  const total = '<tr class="tbl-total"><td></td><td>รวม ' + fmtNum(d.adminYear.length) + ' คน</td>' +
+    '<td class="num">' + THB(sum) + '</td><td></td><td></td><td></td><td></td><td></td></tr>';
   const topSale = d.topSalesYear[0];
-  return '<div class="card" style="margin-top:14px">' +
-    '<h3>สรุปทั้งปี ' + esc(String(d.year)) + ' — ท็อปเซลประจำปี: <b>' +
-      esc(topSale ? (topSale.nick || topSale.name) : '—') + '</b>' +
-      (topSale ? ' (' + THB(topSale.sales) + ')' : '') + '</h3>' +
-    '<div class="card-sub">เรียงตาม KPI เฉลี่ยรวม (เฉพาะเดือนที่มีข้อมูล) • ตัดคนไม่มียอดทั้งปีออก</div>' +
-    '<div class="table-scroll"><table class="tbl"><thead><tr>' +
-      '<th>#</th><th>แอดมิน</th><th class="num">ยอดขายรวมปี</th><th class="num">%ปิด</th>' +
-      '<th class="num">เปอร์บิล</th><th class="num">%ตีกลับ</th><th class="num">KPI เฉลี่ยปี</th><th>เกรด</th>' +
-    '</tr></thead><tbody>' + body + '</tbody></table></div></div>';
+  return '<div class="card">' +
+    '<div class="card-head"><h3>สรุปทั้งปี ' + esc(yearTh_(d.year)) +
+      infoTip('เรียงตาม KPI เฉลี่ยรวม (เฉพาะเดือนที่มีข้อมูล) • ตัดคนไม่มียอดทั้งปีออก', 'สรุปทั้งปี') + '</h3></div>' +
+    '<div class="card-sub">ท็อปเซลประจำปี: <b>' + esc(topSale ? (topSale.nick || topSale.name) : '—') + '</b>' +
+      (topSale ? ' (' + THB(topSale.sales) + ')' : '') + '</div>' +
+    SCORE_LEGEND +
+    '<div class="table-scroll"><table class="tbl tbl-sticky kpi-year"><thead><tr>' +
+      sortTh('#', 'rank', { num: true, dir: 'asc' }) + sortTh('แอดมิน', 'name') + sortTh('ยอดขายรวมปี', 'sales', { num: true }) +
+      sortTh('%ปิด', 'close', { num: true }) + sortTh('เปอร์บิล', 'perBill', { num: true }) + sortTh('%ตีกลับ', 'ret', { num: true }) +
+      sortTh('KPI เฉลี่ยปี', 'score', { num: true }) + '<th>เกรด</th>' +
+    '</tr></thead><tbody>' + body + total + '</tbody></table></div></div>';
 }
 
 /** CSV ผลประเมินรายคน (ปุ่ม ดาวน์โหลดผล ในแท็บ Coaching) */
 function personCsv_(): void {
   const d = lastData;
-  if (!d) { toast('ยังไม่มีข้อมูล'); return; }
+  if (!d) { toast('ยังไม่มีข้อมูล', 'warn'); return; }
   const subs = computeSubs_(d);
   const details = personDetail_(d);
   const monthTxt = TH_MONTHS[d.month - 1] + ' ' + d.year;
@@ -830,14 +865,14 @@ function personCsv_(): void {
       ['ค่าแอดต่อยอด (%)', 20, h.adCost === null ? 'ชีทยังไม่กรอก' : h.adCost]);
   } else if (state.sel.startsWith('sub:')) {
     const s = subs.find((x) => 'sub:' + x.id === state.sel);
-    if (!s) { toast('ไม่พบข้อมูล'); return; }
+    if (!s) { toast('ไม่พบข้อมูลของคนนี้', 'warn'); return; }
     name = s.nick; role = 'รองหัวหน้า'; unit = s.units.join(' '); score = pts(s.score / s.n);
     metric.push(['ยอดทีม', 30, Math.round(s.teamSales)], ['เป้ายอด', '', Math.round(s.target)],
       ['%ปิดเฉลี่ย', 20, s._cw ? Math.round((s.close / s._cw) * 10) / 10 : ''],
       ['ค่าแอดต่อยอด (%)', 20, s._aw ? Math.round((s.adCost / s._aw) * 10) / 10 : 'ชีทยังไม่กรอก']);
   } else {
     const p = d.persons.find((x) => x.id === state.sel);
-    if (!p) { toast('ไม่พบข้อมูล'); return; }
+    if (!p) { toast('ไม่พบข้อมูลของคนนี้', 'warn'); return; }
     const det = details[p.id];
     name = p.nick || p.name; role = 'แอดมิน'; unit = p.units.join(' '); score = pts(p.score);
     metric.push(['ยอดขาย', 35, p.sales],
@@ -857,25 +892,50 @@ function personCsv_(): void {
     ['ตัวชี้วัด', 'น้ำหนัก', 'ค่าที่ทำได้'],
     ...metric,
   ];
+  // downloadCSV ขึ้นข้อความ "Export CSV แล้ว" ให้เอง — เดิมมีข้อความเด้งซ้อนอีกอัน (2 อันต่อการกดครั้งเดียว)
   downloadCSV(out, 'kpi-' + name + '-' + d.year + '-' + String(d.month).padStart(2, '0'));
-  toast('ดาวน์โหลดผลประเมิน ' + name + ' แล้ว');
 }
 
 /* ---------- render ---------- */
 
+/** แถวไฟล์ดาวน์โหลด KPI แอดมินรายคน (CSV/Excel ชุดเดียวกัน) — ตัวเลขดิบ ช่องว่างในชีท = คำว่า "ชีทยังไม่กรอก" (เหมือนเดิม) */
+function adminRows_(d: KpiData): (string | number)[][] {
+  const out: (string | number)[][] = [
+    ['KPI แอดมิน ' + TH_MONTHS[d.month - 1] + ' ' + d.year],
+    ['ชื่อเล่น', 'ชื่อจริง', 'ยูนิต', 'ยอดขาย', '%ปิด', '%Error', 'เปอร์บิล', '%ตีกลับ', 'คะแนน KPI (%)', 'เกรด'],
+  ];
+  d.admin.forEach(function (r) {
+    const cell = (v: number | null, dp: number) => (v === null ? 'ชีทยังไม่กรอก' : Math.round(v * dp) / dp);
+    out.push([r.nick, r.name, r.unit, r.sales, cell(r.close, 10),
+      cell(r.err, 100), cell(r.perBill, 1), cell(r.ret, 100),
+      Math.round(r.score * 1000) / 10, gradeOf(pts(r.score))]);
+  });
+  return out;
+}
+
+/** เวลาอัปเดตจากชีท "26 ก.ย. 69 15:53" (เวลาเครื่องผู้ใช้) */
+function updatedTxt_(iso: string): string {
+  const t = new Date(String(iso));
+  if (isNaN(t.getTime())) return dateTh(iso);
+  return dateTh(t) + ' ' + String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0') + ' น.';
+}
+
 function render(container: HTMLElement, d: KpiData | null): void {
   if (!d) return;
   if ((d as any).setupNeeded) {
-    container.innerHTML = '<div class="empty-note">ยังไม่มีข้อมูล KPI — รอ sync รอบชั่วโมง หรือรัน <code>npm run import:kpi</code></div>';
+    container.innerHTML = stateHtml('wait', {
+      body: 'ยังไม่มีคะแนน KPI — ระบบดึงจากชีท KPI ของทีมทุกชั่วโมง ลองกลับมาดูอีกครั้งในอีกสักครู่',
+      adminDetail: 'sync_state kpi_scores ว่าง — รอ sync รอบชั่วโมง หรือรัน npm run import:kpi',
+    });
     return;
   }
   const monthBtns = d.months.map(function (m) {
-    return '<button class="filter-btn' + (m === d.month ? ' active' : '') + '" data-kpimonth="' + m + '">' +
+    return '<button type="button" class="filter-btn' + (m === d.month ? ' active' : '') + '" data-kpimonth="' + m + '">' +
       esc(TH_MONTHS[m - 1]) + '</button>';
   }).join('');
 
   const tops =
-    '<div class="perf-row" style="display:flex;gap:14px;flex-wrap:wrap;margin-top:14px">' +
+    '<div class="kpi-tops">' +
       topCard_('ท็อป KPI ประจำเดือน', 'คะแนนรวมถ่วงตามยอดขายทุกยูนิตที่ประจำ',
         d.topKpi.map(function (p) {
           return { nick: p.nick, name: p.name, id: p.id, big: scorePct(p.score), small: p.units.join(' • ') + ' — ' + THB(p.sales) };
@@ -902,16 +962,20 @@ function render(container: HTMLElement, d: KpiData | null): void {
       yearTableHtml_(d);
   }
 
+  // C4: แถวเครื่องมือ = เดือน (มีปีกำกับ) ซ้าย · ดาวน์โหลดขวาสุด · บรรทัด "อัปเดตเมื่อไหร่" ใต้แถว
   container.innerHTML =
-    '<div class="pg-controls">' + monthBtns +
-      '<div class="spacer"></div>' +
-      '<span class="chip" title="ดึงจากชีท KPI กลางของทีมทุกชั่วโมง — แก้ชีทแล้วรออีกไม่เกิน 1 ชม.">อัปเดต ' +
-        esc(String(d.updatedAt).slice(8, 10) + ' ' + (TH_MONTHS[Number(String(d.updatedAt).slice(5, 7)) - 1] || '')) + '</span>' +
+    '<div class="toolbar">' +
+      '<div class="tb-range" role="group" aria-label="เลือกเดือน"><span class="kpr-year">ปี ' + esc(yearTh_(d.year)) + '</span>' + monthBtns + '</div>' +
+      (d.admin.length ? '<div class="tb-actions">' + downloadMenuHtml('kpi-dl', { excel: true }) + '</div>' : '') +
     '</div>' +
+    '<div class="data-asof">' + icon('calendar', { size: 14 }) +
+      '<span>คะแนนจากชีท KPI ของทีม • อัปเดต ' + esc(updatedTxt_(d.updatedAt)) + ' (ดึงทุกชั่วโมง แก้ชีทแล้วรอไม่เกิน 1 ชม.)</span></div>' +
     tabBar_() +
-    gapBanner_(d) +
-    summaryCards_(d) +
-    body;
+    '<div class="stack kpi-body">' +
+      gapBanner_(d) +
+      summaryCards_(d) +
+      body +
+    '</div>';
 
   bindEvents(container);
 }
@@ -923,59 +987,68 @@ function bindEvents(container: HTMLElement): void {
       fetchData(container);
     });
   });
-  // สลับแท็บย่อย (โครงสร้างทีม / ประเมิน HR / Coaching) — ข้อมูลอยู่ครบใน lastData ไม่ยิง API ซ้ำ
+  // สลับแท็บย่อย (โครงสร้างทีม / ตารางประเมิน / เจาะทีม & โค้ช) — ข้อมูลอยู่ครบใน lastData ไม่ยิง API ซ้ำ
   container.querySelectorAll('[data-kpitab]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       state.tab = (btn.getAttribute('data-kpitab') as typeof state.tab) || 'matrix';
       if (lastData) render(container, lastData);
     });
   });
-  // เลือกคนในแท็บ Coaching (จากทุกที่: ตาราง/ต้นไม้/การ์ด) — เด้งไปแท็บ Coaching เสมอ
+  // เลือกคนในแท็บโค้ช (จากทุกที่: ตาราง/ต้นไม้/การ์ด) — เด้งไปแท็บโค้ชเสมอ
+  const openCoach = function (el: Element) {
+    state.sel = el.getAttribute('data-coach') || '';
+    state.tab = 'coaching';
+    if (lastData) render(container, lastData);
+    const c = container.closest('.view') || container;
+    (c as HTMLElement).scrollTop = 0;
+    window.scrollTo({ top: 0 });
+  };
   container.querySelectorAll('[data-coach]').forEach(function (el) {
-    el.addEventListener('click', function () {
-      state.sel = el.getAttribute('data-coach') || '';
-      state.tab = 'coaching';
-      if (lastData) render(container, lastData);
-      const c = container.closest('.view') || container;
-      (c as HTMLElement).scrollTop = 0;
-      window.scrollTo({ top: 0 });
-    });
+    el.addEventListener('click', function () { openCoach(el); });
+    // แถวที่เป็น div (role=button) ต้องกด Enter/เว้นวรรคได้เหมือนปุ่มจริง (F5)
+    if (el.tagName !== 'BUTTON') {
+      el.addEventListener('keydown', function (e) {
+        const k = (e as KeyboardEvent).key;
+        if (k === 'Enter' || k === ' ') { e.preventDefault(); openCoach(el); }
+      });
+    }
   });
   const gotoCom = container.querySelector('#kpi-goto-com');
   if (gotoCom) gotoCom.addEventListener('click', function () {
     const app = (globalThis as any).App;
     if (app && app.switchView) app.switchView('adminperf');
-    toast('ตารางค่าคอมอยู่ล่างสุดของหน้า Admin Performance');
+    toast('ตารางค่าคอมอยู่ล่างสุดของหน้า อันดับแอดมิน', 'info');
   });
-  // ดาวน์โหลดผลรายคน (แท็บ Coaching)
+  // ดาวน์โหลดผลรายคน (แท็บโค้ช)
   const pcsv = container.querySelector('#kpi-person-csv');
   if (pcsv) pcsv.addEventListener('click', function () { personCsv_(); });
-  // กาง/พับลูกทีมของรองแต่ละคน
+  // กาง/พับลูกทีมของรองแต่ละคน (ซ่อนด้วยคลาส ไม่ใช่ style="display:none")
   container.querySelectorAll('[data-subtoggle]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       const i = btn.getAttribute('data-subtoggle');
       const rows = container.querySelectorAll('.kpi-team-' + i);
-      const opening = rows.length && (rows[0] as HTMLElement).style.display === 'none';
-      rows.forEach(function (r) { (r as HTMLElement).style.display = opening ? '' : 'none'; });
-      btn.textContent = opening ? 'ซ่อนทีม ▴' : 'ดูทีม ▾';
+      const opening = rows.length > 0 && rows[0].classList.contains('is-collapsed');
+      rows.forEach(function (r) { r.classList.toggle('is-collapsed', !opening); });
+      btn.setAttribute('aria-expanded', opening ? 'true' : 'false');
+      btn.innerHTML = opening ? 'ซ่อนทีม' + icon(ICON_FOR.collapse, { size: 14 }) : 'ดูทีม' + icon(ICON_FOR.expand, { size: 14 });
     });
   });
-  const csv = container.querySelector('#kpi-csv');
-  if (csv) csv.addEventListener('click', function () {
+  const guard = (fn: (d: KpiData) => void) => function () {
     const d = lastData;
-    if (!d || !d.admin.length) { toast('ยังไม่มีข้อมูลให้ Export'); return; }
-    const out: (string | number)[][] = [
-      ['KPI แอดมิน ' + TH_MONTHS[d.month - 1] + ' ' + d.year],
-      ['ชื่อเล่น', 'ชื่อจริง', 'ยูนิต', 'ยอดขาย', '%ปิด', '%Error', 'เปอร์บิล', '%ตีกลับ', 'คะแนน KPI (%)', 'เกรด'],
-    ];
-    d.admin.forEach(function (r) {
-      const cell = (v: number | null, dp: number) => (v === null ? 'ชีทยังไม่กรอก' : Math.round(v * dp) / dp);
-      out.push([r.nick, r.name, r.unit, r.sales, cell(r.close, 10),
-        cell(r.err, 100), cell(r.perBill, 1), cell(r.ret, 100),
-        Math.round(r.score * 1000) / 10, gradeOf(pts(r.score))]);
-    });
-    downloadCSV(out, 'kpi-admin-' + d.year + '-' + String(d.month).padStart(2, '0'));
+    if (!d || !d.admin.length) { toast('ยังไม่มีข้อมูลให้ดาวน์โหลด', 'warn'); return; }
+    fn(d);
+  };
+  const fname = (d: KpiData) => 'kpi-admin-' + d.year + '-' + String(d.month).padStart(2, '0');
+  bindDownloadMenu(container, 'kpi-dl', {
+    csv: guard(function (d) { downloadCSV(adminRows_(d), fname(d)); }),
+    xls: guard(function (d) { downloadXLS(adminRows_(d), fname(d), 'KPI แอดมิน'); }),
   });
+  // ตารางกดเรียงได้ — เรียกทุกรอบวาด (รวมรีเฟรชเอง 5 นาที) จำคอลัมน์ที่เลือกไว้
+  makeSortable(container, 'table.kpi-admin', { id: 'kpi-admin' });
+  makeSortable(container, 'table.kpi-year', { id: 'kpi-year' });
+  makeSortable(container, 'table.kpi-team-tbl', { id: 'kpi-team' });
+  // กราฟคะแนน: ชี้/แตะดูค่าแต่ละเดือน
+  bindChartTips(container);
 }
 
 function fetchData(container: HTMLElement): void {
@@ -988,7 +1061,7 @@ function fetchData(container: HTMLElement): void {
   }).catch(function (err) {
     if (seq !== reqSeq) return;
     showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', function () {
-      container.innerHTML = '<div class="loading"><div class="spinner"></div>กำลังโหลดข้อมูล...</div>';
+      container.innerHTML = kpiSkel();
       fetchData(container);
     });
   });
@@ -1004,7 +1077,7 @@ export const kpi = {
       fetchData(container);
       return;
     }
-    container.innerHTML = '<div class="loading"><div class="spinner"></div>กำลังโหลดข้อมูล KPI...</div>';
+    container.innerHTML = kpiSkel();
     fetchData(container);
   },
 };

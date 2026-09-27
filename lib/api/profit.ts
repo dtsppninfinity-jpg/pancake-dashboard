@@ -45,7 +45,13 @@ export async function apiProfit(params: any) {
 
   // สินค้าเทสประจำปี (✅ ติด / ❌ ไม่ติด) จากแท็บ 0.ข้อมูล ของชีท KPI
   let testProducts: Array<{ u: string; name: string; ok: boolean | null }> = [];
-  try { testProducts = JSON.parse(String(kpiState.data?.value || '{}')).testProducts || []; } catch { /* ยังไม่ sync */ }
+  // เป้ารายยูนิตจากชีท KPI (เอกสารเดียวกัน) — ใช้หายูนิตที่ทีมตั้งเป้าไว้แต่ชีทสรุปรายสินค้ายังไม่มีแถว (E1)
+  let kpiTargets: Record<string, number[]> = {};
+  try {
+    const kd = JSON.parse(String(kpiState.data?.value || '{}'));
+    testProducts = kd.testProducts || [];
+    kpiTargets = kd.targets || {};
+  } catch { /* ยังไม่ sync */ }
 
   const productOf: Record<string, string> = {};
   (umap.units || []).forEach((x: any) => { productOf[String(x.u)] = String(x.product || ''); });
@@ -60,9 +66,12 @@ export async function apiProfit(params: any) {
   const firstSale: Record<string, string> = {};
   const lastSale: Record<string, string> = {};
 
+  let asOf = '';          // วันล่าสุดที่ชีทสรุปรายสินค้ามีแถว (บรรทัด "ข้อมูลถึง")
+  const seenUnits = new Set<string>();   // ยูนิตที่มีแถวในชีทปีนี้ (ยอด 0 ก็นับ)
   rows.forEach((r) => {
     const d = String(r.date).slice(0, 10);
     const u = String(r.u);
+    if (d.startsWith(year)) { seenUnits.add(u); if (d > asOf) asOf = d; }
     if (num_(r.sales) > 0) {
       if (!firstSale[u] || d < firstSale[u]) firstSale[u] = d;
       if (!lastSale[u] || d > lastSale[u]) lastSale[u] = d;
@@ -85,9 +94,11 @@ export async function apiProfit(params: any) {
   // ตีกลับรายคน (แอดมิน + CRM — ชีทตีกลับมีคอลัมน์พนักงานอยู่แล้ว, CRM ขึ้นต้นด้วย "CRM")
   const personByMonth: Record<string, Record<string, { items: number; value: number; crm: boolean }>> = {};
   let retYearValue = 0, retYearItems = 0;
+  let retAsOf = '';       // วันล่าสุดที่ชีทตีกลับมีรายการ — เดือนหลังจากนี้ = "ยังไม่มีในชีท" ไม่ใช่ตีกลับ 0
   retRows.forEach((x) => {
     const d = String(x.return_date || '').slice(0, 10);
     if (!d.startsWith(year)) return;
+    if (d > retAsOf) retAsOf = d;
     const m = d.slice(0, 7);
     const v = num_(x.price) * (num_(x.qty) || 1);
     const crm = !!x.is_crm;
@@ -134,11 +145,21 @@ export async function apiProfit(params: any) {
     }))
     .sort((a, b) => b.total.profit - a.total.profit);
 
+  // ยูนิตที่ตั้งเป้าในชีท KPI ปีนี้ แต่ชีทสรุปรายสินค้ายังไม่มีแถวเลย → ไม่อยู่ในตาราง (ไม่ใช่กำไร 0)
+  // หน้าเว็บเขียนหมายเหตุใต้ตารางว่ายังไม่มีในชีท แทนที่จะหายไปเงียบๆ
+  const missingUnits = Object.keys(kpiTargets)
+    .filter((u) => !seenUnits.has(u) && (kpiTargets[u] || []).some((t) => num_(t) > 0))
+    .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
+    .map((u) => ({ u, product: productOf[u] || '' }));
+
   return {
     setupNeeded: false,
     year,
     months,
     units,
+    missingUnits,
+    asOf,
+    retAsOf,
     monthTotals: Object.fromEntries(months.map((m) => {
       const c = monthTotals[m];
       return [m, { profit: Math.round(c.profit), sales: Math.round(c.sales), ads: Math.round(c.ads) }];

@@ -1,0 +1,215 @@
+/* สไตล์เฉพาะหน้า (misc) ของงาน UI รอบ 2 — จะรวมเข้า globals.css ตอนจบงาน
+   หน้าในไฟล์นี้: ผลงานรายยูนิต (#view-unitperf .up-*) · จับคู่ยูนิต (#view-umap / .umap-*) ·
+                 บัญชีผู้ใช้ (#view-users / .us-*) · ผลงานของฉัน (#view-me / .me-*)
+   ทุกกฎผูกกับ id ของหน้า หรือคลาสที่มีเฉพาะหน้านั้น — ไม่กระทบหน้าอื่น
+   กติกา: mobile-first (min-width 600/900/1200 เท่านั้น) · สีจาก token เท่านั้น · จุดกด ≥44px บนมือถือ */
+
+/* ซ่อนจากตาแต่โปรแกรมอ่านหน้าจอยังอ่าน (เช่น หัวคอลัมน์ของปุ่มท้ายแถวที่ไม่มีคำบนจอ) */
+.misc-vh {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
+/* ============================================================
+   ผลงานรายยูนิต (#view-unitperf)
+   ============================================================ */
+
+/* แถวเครื่องมือ (C4): เดือน | ค้นหา (กินที่ที่เหลือ) | ชิประดับ — มือถือชิปลงบรรทัดของตัวเอง */
+#view-unitperf .up-tb .tb-filters { flex: 1 1 200px; }
+#view-unitperf .up-tb .up-search { flex: 1 1 auto; }
+#view-unitperf .up-tb .up-chips { flex: 1 1 100%; }
+@media (min-width: 900px) {
+  #view-unitperf .up-tb .up-chips { flex: 0 1 auto; }
+}
+
+/* ---- ระดับสัญญาณ 4 ชั้น (B3 งบสีแดง) ----
+   แดง = หนักสุด (มีไม่กี่ยูนิต) · ส้มทึบ = ต้องแก้ · วงส้ม = เฝ้าระวัง · เขียว = ปกติ (ดี)
+   วงกลวงแยก "เฝ้าระวัง" ออกจาก "ต้องแก้" โดยไม่ต้องเพิ่มสีที่ 5 */
+#view-unitperf .up-dot { width: 10px; height: 10px; }
+#view-unitperf .up-dot.tier-top { background: var(--red); }
+#view-unitperf .up-dot.tier-urgent { background: var(--amber-bar); }
+#view-unitperf .up-dot.tier-watch { background: transparent; box-shadow: inset 0 0 0 2px var(--amber-bar); }
+#view-unitperf .up-dot.tier-ok { background: var(--green); }
+
+/* ป้ายจำนวนเรื่องในตาราง + ป้ายสัญญาณในแถวที่กาง: พื้นเทา + จุดสีตามระดับ
+   พื้นแดงอ่อนเฉพาะกลุ่มหนักสุด — เดิมทุกแถวเป็นป้ายแดง 20 แถว */
+#view-unitperf .up-sig.tier-top { background: var(--red-soft); color: var(--red); }
+#view-unitperf .up-sig.tier-urgent,
+#view-unitperf .up-sig.tier-watch { background: var(--surface-2); color: var(--text-2); }
+#view-unitperf .up-sig.tier-urgent::before { background: var(--amber-bar); }
+#view-unitperf .up-sig.tier-watch::before { background: transparent; box-shadow: inset 0 0 0 2px var(--amber-bar); }
+#view-unitperf .up-sig.tier-ok { background: var(--green-soft); color: var(--green); }
+#view-unitperf .up-detail .up-sig.tier-urgent,
+#view-unitperf .up-detail .up-sig.tier-watch { background: var(--surface); }
+
+/* ---- กล่องตัวเลขสรุป ----
+   กล่องแรก (สัญญาณเตือน) เต็มแถวบนมือถือ — ข้างในมีรายชื่อยูนิตหนักสุด ต้องการที่มากกว่าครึ่งจอ */
+#view-unitperf .up-stats > .up-sigbox { grid-column: 1 / -1; }
+@media (min-width: 600px) {
+  #view-unitperf .up-stats > .up-sigbox { grid-column: auto; }
+}
+#view-unitperf .sb-label { display: flex; align-items: center; }
+#view-unitperf .up-unitword { font-size: var(--fs-label); font-weight: 500; color: var(--text-3); letter-spacing: 0; }
+#view-unitperf .up-sigsub { display: flex; flex-wrap: wrap; align-items: center; gap: 0 var(--sp-1); }
+#view-unitperf .up-sigsub .up-dot { margin-right: 2px; }
+/* ชื่อยูนิตกลุ่มหนักสุด = ปุ่มพาไปแถวนั้น (ปุ่มแบบข้อความ C2) */
+.up-toplink {
+  display: inline-flex; align-items: center; min-height: 44px; padding: 0 var(--sp-2);
+  background: none; border: 0; border-radius: 8px;
+  color: var(--primary-ink); font-size: var(--fs-2); font-weight: 700;
+  text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px;
+}
+.up-toplink:hover { background: var(--primary-soft); }
+@media (min-width: 900px) { .up-toplink { min-height: 28px; } }
+
+/* บรรทัดแจ้งเตือนเหนือตาราง (ค่าแอดยังไม่พร้อม / เดือนก่อนเริ่มเก็บข้อมูล ฯลฯ) */
+.up-note {
+  display: flex; align-items: flex-start; gap: var(--sp-2);
+  margin-bottom: var(--sp-3); padding: var(--sp-2) var(--sp-3);
+  background: var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--amber-bar);
+  border-radius: 10px; font-size: var(--fs-3); color: var(--text-2); line-height: 1.55;
+}
+.up-note > .tx-warn { display: inline-flex; margin-top: 2px; }
+
+/* ---- การ์ดตาราง ---- (เดิม style="padding:0;overflow:hidden" ประกอบเองในหน้า) */
+#view-unitperf .up-card { padding: 0; overflow: hidden; }
+#view-unitperf .up-card-top {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--sp-1) var(--sp-3); padding: var(--sp-3) var(--sp-3) var(--sp-2);
+}
+#view-unitperf .up-legend { margin-bottom: 0; }
+#view-unitperf .up-legend-k { display: inline-flex; align-items: center; }
+@media (min-width: 900px) {
+  #view-unitperf .up-card-top { padding: var(--sp-3) var(--sp-4) var(--sp-2); }
+}
+#view-unitperf .up-foot { margin-top: var(--sp-3); display: flex; flex-wrap: wrap; align-items: center; }
+
+/* ตัวเลขที่ทาสีในตารางคงน้ำหนักเดิม (ปกติ) — .v-* ของกลางเป็นตัวหนา ถ้าใช้ตรงๆ ทั้งแถวจะหนาเกือบหมด
+   ยกเว้นเลขใหญ่ในช่อง "คาดสิ้นเดือน" ที่หนาอยู่แล้วตั้งแต่เดิม */
+#view-unitperf .up-tbl td > :is(.v-good, .v-warn, .v-bad):not(.up-big) { font-weight: inherit; }
+#view-unitperf .up-attain { color: var(--text-2); font-weight: 600; }
+
+/* หัวคอลัมน์: ปุ่ม ⓘ ชิดคำ ไม่ตกบรรทัด */
+#view-unitperf .up-tbl thead th { white-space: nowrap; }
+
+/* ปุ่ม "ดู / ปิด" ท้ายแถว = ปุ่มแบบข้อความ (C2) — ไอคอนลูกศรบอกว่ากางลง/พับขึ้น */
+#view-unitperf .up-more { gap: 2px; white-space: nowrap; }
+#view-unitperf .up-more:hover { color: var(--primary-ink); }
+
+/* ชื่อยูนิตเปลี่ยนสีตอนชี้เฉพาะอุปกรณ์ที่มีเมาส์ — บนจอสัมผัส :hover ค้างหลังแตะ ชื่อจะเป็นสีม่วงค้างไว้
+   (กฎกลางเดิมใช้ --primary ซึ่งคอนทราสต์ตัวอักษรไม่พอในโหมดสว่าง → ใช้ --primary-ink) */
+#view-unitperf .up-name:hover .up-code { color: inherit; }
+@media (hover: hover) {
+  #view-unitperf .up-name:hover .up-code { color: var(--primary-ink); }
+}
+
+/* ---- แถวที่กางออกบนมือถือ ----
+   ช่องรายละเอียด colspan ทั้งแถว = กว้างเท่าตาราง (942px บนจอ 390px) ป้ายสัญญาณ/ตัวเลขเลยล้นออกนอกจอ
+   → ให้กล่องเนื้อหาค้างซ้ายของกล่องเลื่อน (sticky) และกว้างเท่ากล่องเลื่อนพอดี
+   ความกว้างกล่องเลื่อนรู้ได้จาก container query (100cqw) — ไม่ต้องวัดด้วย JS
+   เบราว์เซอร์ที่ไม่รู้จัก cqw จะข้ามบรรทัด width ไป = กว้างเต็มช่องแบบเดิม (ไม่พัง แค่ต้องเลื่อน) */
+#view-unitperf .up-scroll { container-type: inline-size; }
+#view-unitperf .up-detail-in {
+  position: sticky; left: var(--sp-3);
+  width: calc(100cqw - 2 * var(--sp-3)); max-width: 100%;
+  box-sizing: border-box;
+}
+#view-unitperf .up-detail .up-sig { white-space: normal; }
+
+/* ============================================================
+   บัญชีผู้ใช้ (#view-users) + ฟอร์มในหน้าต่าง (.us-form — หน้าต่างอยู่นอก #view-users จึงผูกด้วยคลาส)
+   ============================================================ */
+
+/* แถวเครื่องมือ (C4): ค้นหากินที่ที่เหลือ · ปุ่มดาวน์โหลดขวาสุด */
+#view-users .us-tb .tb-filters { flex: 1 1 220px; }
+#view-users .us-tb .us-search { flex: 1 1 auto; max-width: 520px; }
+
+/* ปุ่มจัดการท้ายแถว
+   มือถือ (<900) ตารางเป็นการ์ด ปุ่มเรียง 2 ต่อแถว → มีกรอบ ให้เห็นชัดว่าเป็นปุ่มและแตะง่าย
+   ≥900 เป็นตาราง ปุ่มซ้ำทุกแถว → ปุ่มแบบข้อความไม่มีกรอบ (C2) ไม่งั้น 40 กรอบซ้อนกันเต็มคอลัมน์
+   ลบ = ตัวแดงเสมอ (ปุ่มอันตราย) แต่ไม่ทาพื้น — ปุ่มแดงทึบมีแค่ในกล่องยืนยัน */
+#view-users td.us-actions .btn-mini.btn-text {
+  min-height: 44px; background: var(--surface); border-color: var(--border); color: var(--text);
+}
+#view-users td.us-actions .btn-mini.btn-text.danger { color: var(--red); border-color: var(--red); }
+@media (min-width: 900px) {
+  #view-users td.us-actions { gap: 2px; }
+  #view-users td.us-actions .btn-mini.btn-text {
+    min-height: 32px; background: none; border-color: transparent; color: var(--primary-ink);
+  }
+  #view-users td.us-actions .btn-mini.btn-text:hover { background: var(--primary-soft); }
+  #view-users td.us-actions .btn-mini.btn-text.danger { color: var(--red); border-color: transparent; }
+  #view-users td.us-actions .btn-mini.btn-text.danger:hover { background: var(--red-soft); }
+  /* เส้นคั่นเหนือปุ่มลบมีไว้สำหรับแบบการ์ดบนมือถือ แต่กฎกลาง (table.tbl-cards …danger::before) ไม่ได้จำกัดขนาดจอ
+     บนจอคอมเลยเห็นเป็นขีดลอยเหนือปุ่ม "ลบ" ทุกแถว (มีมาตั้งแต่ก่อนรอบนี้) */
+  #view-users td.us-actions .btn-mini.danger { margin-top: 0; }
+  #view-users td.us-actions .btn-mini.danger::before { content: none; }
+}
+#view-users .us-empty .state { padding-top: var(--sp-5); padding-bottom: var(--sp-5); }
+
+/* ข้อผิดพลาดของฟอร์มใต้ช่อง (F4 ข้อ 5) — ตัวแดงเล็ก มีไอคอน · [hidden] = ยังไม่มีข้อผิดพลาด
+   เขียน span. นำหน้า: ช่องข้อผิดพลาดเป็นลูกตรงของ label.adm-field ซึ่งกฎกลาง ".adm-field > span"
+   (ป้ายชื่อช่อง สีเทา) แรงกว่า .us-field-err เฉยๆ — ไม่ใส่ span. ตัวหนังสือจะเป็นสีเทาแทนสีแดง */
+span.us-field-err, span.um-field-err {
+  display: flex; align-items: flex-start; gap: var(--sp-1);
+  margin-top: 2px; color: var(--red); font-size: var(--fs-2); font-weight: 600; line-height: 1.5;
+}
+span.us-field-err[hidden], span.um-field-err[hidden] { display: none; }
+.us-form .input[aria-invalid="true"], .umap-form .input[aria-invalid="true"] { border-color: var(--red); }
+/* ข้อผิดพลาดรวมท้ายฟอร์ม/รายการ (ไม่ผูกกับช่องไหน) — ฟอร์มเป็นตาราง 2 ช่องตั้งแต่ 600px ให้กินเต็มแถว */
+#us-f-form-err, #us-b-form-err { margin-top: var(--sp-2); grid-column: 1 / -1; }
+
+/* หน้าต่างรหัสผ่าน: แถว "หัวข้อ : ค่า" มาตรฐาน (.kv) ในกล่องเทา */
+.pw-box.kv .kv-row:last-child { border-bottom: 0; }
+.pw-box.kv .pw-val { font-weight: 700; }
+
+/* ============================================================
+   จับคู่ยูนิต (#view-umap) + หน้าต่างของหน้านี้ (.umap-form / .umq-* / .umap-pm-*)
+   ============================================================ */
+
+/* แถวเครื่องมือ (C4): ค้นหา + ปุ่มสร้าง/เกม ทางซ้าย · คัดลอกลิงก์ข้อมูลขวาสุด
+   กล่องตัวกรองเป็น display: contents = ปุ่มข้างในไหลเรียงกับปุ่มคัดลอกลิงก์ในแถวเดียวกัน
+   (ถ้าเป็นกล่อง flex แยก บนมือถือแถวเครื่องมือกลายเป็น 3 แถว: ค้นหา+เพิ่ม / ทดสอบ / คัดลอก — เดิมมี 2 แถว) */
+#view-umap .umap-tb .tb-filters { display: contents; }
+#view-umap .umap-tb .umap-search { flex: 1 1 200px; }
+/* เดิม style="margin-left:10px" บนปุ่มในแถบ "กำลังจับคู่" */
+#view-umap .umap-cancel { margin-left: var(--sp-2); }
+
+/* ปุ่มกากบาทบนชื่อแอดมินในการ์ด — เดิมเป็น <span> (กด Tab ไม่ถึง) ตอนนี้เป็น <button> จริง
+   ล้างหน้าตาปุ่มให้เหมือนเดิม · พื้นที่แตะขยายด้วย ::after ขึ้น-ลง-ขวา (ไม่ยื่นไปทับชิปคนถัดไปทางซ้าย) */
+#view-umap .u-member button.x {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; margin: -4px -4px -4px 0; padding: 0;
+  background: none; border: 0; border-radius: 50%; color: inherit; opacity: .6;
+}
+#view-umap .u-member button.x::after { content: ''; position: absolute; inset: -8px -8px -8px -2px; }
+#view-umap .u-member button.x:hover { opacity: 1; color: var(--red); background: var(--red-soft); }
+@media (min-width: 900px) { #view-umap .u-member button.x::after { inset: -2px; } }
+
+/* หน้าต่างจับคู่เพจ — เดิม style="margin-bottom:…" ในหน้า */
+.umap-pm-sub { margin-bottom: var(--sp-2); }
+.umap-pm-search { margin-bottom: var(--sp-2); }
+
+/* เกมทดสอบความจำ — เดิมประกอบด้วย style="" ทั้งก้อน (ตัวเลขคะแนน 38px หนา 800) → บทบาทตัวเลขเด่นของกลาง */
+.umq-meta { display: flex; justify-content: space-between; margin-bottom: var(--sp-3); font-size: var(--fs-label); color: var(--text-3); }
+.umq-q { margin-bottom: var(--sp-1); font-size: var(--fs-section); line-height: 1.5; }
+.umq-end { padding: var(--sp-5) var(--sp-2); text-align: center; }
+.umq-score { font-size: var(--fs-page); font-size: clamp(var(--fs-page), 9vw, 38px); }
+.umq-verdict { margin-top: var(--sp-2); font-size: var(--fs-body); color: var(--text-2); }
+
+/* ============================================================
+   ผลงานของฉัน (#view-me)
+   ============================================================ */
+/* แถวเครื่องมือมีแค่ช่วงเวลา ไม่มีบรรทัด "ข้อมูลถึง" ต่อท้าย — เว้นระยะเท่าระยะระหว่างส่วน (16px) ก่อนการ์ดทักทาย */
+#view-me .me-tb { margin-bottom: var(--gap-section, var(--sp-4)); }
+/* การ์ดแต่ละส่วนของหน้านี้วางเรียงกันตรงๆ ใน view (ไม่มี .stack) — การ์ดกลางไม่มีระยะล่าง
+   การ์ดทักทาย / เทียบเป้า / งานค้าง / รายละเอียด เลยชิดกันแทบติด (ห่าง 2px) → ระยะระหว่างส่วนค่าเดียวของเว็บ */
+#view-me > .card { margin-bottom: var(--gap-section, var(--sp-4)); }
+/* กล่องตัวเลข 8 กล่อง: มือถือ 2 ต่อแถว · จอคอม 4 ต่อแถว (2 แถวเต็ม) — เดิม auto-fit ได้ 7 + 1 กล่องเดี่ยวตกแถว */
+#view-me .me-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 900px) {
+  #view-me .me-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+#view-me .me-prog-pct { font-size: var(--fs-label); }
+/* งานค้างตอนนี้ 3 กล่อง ตัวเลขสั้น — 3 ต่อแถวทุกขนาดจอ ไม่ให้เหลือกล่องเดี่ยวบนมือถือ */
+#view-me .me-now { margin-bottom: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); }

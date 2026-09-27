@@ -1,0 +1,298 @@
+/* สไตล์เฉพาะหน้า (dashca) ของงาน UI รอบ 2 — จะรวมเข้า globals.css ตอนจบงาน
+   ขอบเขต: หน้าภาพรวมแชท (lib/views/dashboard.ts · คลาส .db-*) และหน้าโฆษณา & คอนเทนต์
+   (lib/views/contentads.ts · คลาส .ca-*) — ทุกกฎผูกกับคลาสของ 2 หน้านี้เท่านั้น ไม่กระทบหน้าอื่น
+   MOBILE FIRST: ค่าเริ่มต้น = มือถือ แล้วขยายที่ min-width 600 / 900 / 1200 */
+
+/* ============================================================
+   ภาพรวมแชท (dashboard)
+   ============================================================ */
+
+/* แถวเครื่องมือหน้าภาพรวมแชท: ช่วงเวลา กับ ช่องทาง เป็นชิปหน้าตาเดียวกัน วางบรรทัดเดียวกันแล้ว
+   "กำหนดเอง" ติดกับ "ทั้งหมด" จนดูเป็นชุดเดียว — แยกเป็น 2 บรรทัดเหมือนเดิม (ช่วงเวลาบน ช่องทางล่าง) */
+.db-toolbar { flex-direction: column; align-items: stretch; }
+.db-toolbar > .tb-filters { gap: var(--sp-2); }
+.db-nw { white-space: nowrap; }
+
+/* ข้อความในการ์ดตัวเลข — เดิมเป็น style="min-width:0" ฝังใน HTML (ต้องหดได้ ไม่งั้นป้ายยาวดันการ์ดล้น) */
+.db-stat-txt { min-width: 0; }
+
+/* ป้าย "ค่าตอนนี้" + ปุ่ม ⓘ ต่อกันเป็นก้อนเดียว ไม่ให้ ⓘ หล่นไปบรรทัดใหม่คนเดียว */
+.db-now { display: inline-flex; align-items: center; gap: 2px; vertical-align: middle; max-width: 100%; }
+.db-now .badge { white-space: normal; }
+
+/* ---------- แถบสัดส่วนการตอบ 24 ชม. (G1 — แทนโดนัท + การ์ดประเภทบทสนทนา) ----------
+   สีช่วงในแถบกับจุดในคำอธิบายมาจากตัวแปรเดียว (--seg) จึงตรงกันเสมอ — ต้นเหตุของข้อนี้คือ
+   คำอธิบายมี 3 สีแต่วงโดนัทวาดสีเดียว */
+.db-share { margin-top: var(--sp-4); }
+.db-share-head { margin-bottom: var(--sp-3); }
+.db-share-types { font-size: var(--fs-2); color: var(--text-3); }
+.db-share-types b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
+.db-s-admin { --seg: var(--green); }
+.db-s-ai { --seg: var(--primary); }
+.db-s-wait { --seg: var(--amber-bar); }
+/* ช่องว่าง 2px ระหว่างช่วง — สีเขียวกับม่วงติดกันตรงๆ แยกขอบไม่ออกบนจอสว่างจ้า */
+.db-share-bar {
+  display: flex; gap: 2px; height: 12px; border-radius: 99px; overflow: hidden; background: var(--track);
+}
+.db-share-bar > i { display: block; height: 100%; min-width: 3px; background: var(--seg); }
+.db-share-legend {
+  display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-5); margin-top: var(--sp-3);
+  font-size: var(--fs-3); color: var(--text-2);
+}
+.db-lg { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.db-lg::before { content: ''; width: 10px; height: 10px; border-radius: 3px; flex: none; background: var(--seg); }
+.db-lg b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
+.db-lg-pct { color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* ---------- แท็ก ---------- */
+.db-tag-dot { width: 8px; height: 8px; margin-right: 5px; vertical-align: middle; }
+.db-tag-n { opacity: .7; }
+
+/* ---------- แชทรอตอบ (B3) ----------
+   มือถือ: แชทละ 3 บรรทัดสั้น (ชื่อ+ป้ายเวลา / ข้อความล่าสุด / เพจ+ปุ่มเปิด)
+   จอคอม ≥900: แชทละ 1 บรรทัด — 10 แถวอ่านจบในจอเดียว ไม่ต้องไล่การ์ดสูง 30 ใบแบบเดิม */
+.db-attn-card .card-title { flex-wrap: wrap; }
+.db-attn-meta { font-size: var(--fs-3); font-weight: 500; color: var(--text-3); }
+.db-attn { display: flex; flex-direction: column; }
+.db-attn-row {
+  display: grid; align-items: center; gap: 2px var(--sp-3);
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  grid-template-areas: "av who wait" "av snip snip" "av page open";
+  padding: var(--sp-2) var(--sp-2); border-bottom: 1px solid var(--row-line);
+}
+.db-attn-row:last-child { border-bottom: 0; }
+.db-attn-row:hover { background: var(--row-hover); }
+.db-attn-row > .avatar { grid-area: av; align-self: start; }
+.db-attn-who { grid-area: who; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.db-attn-name { font-weight: 700; font-size: var(--fs-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.db-attn-snip {
+  grid-area: snip; min-width: 0; font-size: var(--fs-2); color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.db-attn-page {
+  grid-area: page; min-width: 0; font-size: var(--fs-1); color: var(--text-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.db-attn-wait { grid-area: wait; justify-self: end; }
+.db-attn-open { grid-area: open; justify-self: end; text-decoration: none; white-space: nowrap; }
+.db-attn-more { display: flex; justify-content: center; margin-top: var(--sp-2); }
+
+@media (min-width: 900px) {
+  .db-attn-row {
+    grid-template-columns: 34px minmax(120px, 200px) minmax(0, 1fr) minmax(0, 200px) auto auto;
+    grid-template-areas: "av who snip page wait open";
+    gap: var(--sp-3);
+  }
+  .db-attn-row > .avatar { align-self: center; }
+}
+
+@media (min-width: 1200px) {
+  /* กราฟ 7 วันได้ที่กว้างขึ้น (2 : 1 จากเดิม 1.55 : 1) เพราะโดนัทย้ายไปเป็นแถบสัดส่วนแล้ว (G1) */
+  .dash-row.db-row-main { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+}
+
+/* ============================================================
+   โฆษณา & คอนเทนต์ (contentads)
+   ============================================================ */
+
+/* ข้อความสำหรับโปรแกรมอ่านหน้าจออย่างเดียว (หัวคอลัมน์ปุ่มท้ายแถว) */
+.ca-vh {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
+}
+
+/* ---------- แถบแจ้งเหนือแท็บ (ค่าแอดไม่ครบช่วง / ยังไม่มีรูปครีเอทีฟ) ----------
+   เดิมเป็นกล่องข้อความสีแดงทั้งกล่อง + ชื่อไฟล์ .sql / คำสั่ง npm ที่ทีมทำอะไรไม่ได้
+   ตอนนี้ = แถบส้มซ้าย (เฝ้าดู ไม่ใช่ "ต้องแก้วันนี้") ส่วนคำสั่งพับไว้ให้ผู้ดูแลระบบเท่านั้น */
+.ca-notice {
+  display: flex; gap: var(--sp-3); align-items: flex-start; margin-bottom: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4); background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; font-size: var(--fs-3); color: var(--text-2);
+}
+.ca-notice-ic { flex: none; display: flex; padding-top: 2px; color: var(--text-3); }
+.ca-notice.sig-warn .ca-notice-ic { color: var(--amber); }
+.ca-notice-body { flex: 1; min-width: 0; }
+.ca-notice .state-admin { margin-top: var(--sp-2); text-align: left; }
+
+/* ---------- แท็บย่อย 3 แท็บ (B5) — หน้าตาแท็บกลาง .tab + ตัวเลขจำนวนเล็กๆ ท้ายคำ ---------- */
+.ca-tabs { margin-bottom: var(--sp-3); }
+.ca-tab-n {
+  padding: 0 var(--sp-2); border-radius: 99px; background: var(--track);
+  font-size: var(--fs-2); font-weight: 600; color: var(--text-3); font-variant-numeric: tabular-nums;
+}
+.tab[aria-selected="true"] .ca-tab-n { background: var(--primary-soft); color: var(--primary-ink); }
+/* มือถือ: 3 แท็บต้องพอดีจอ 390 — แท็บกลางเลื่อนซ้ายขวาได้ก็จริง แต่แท็บที่ 3 "สื่อรายเพจ" ตกขอบจอจนคนไม่รู้ว่ามี
+   → จอแคบซ่อนไอคอนหน้าแท็บ และตัวเลขจำนวนแอด (ซ้ำกับหัวการ์ด "30 จาก N แอด" อยู่แล้ว) · ≥600 กลับมาครบ */
+.ca-tabs .tab > .ic, .ca-tabs .ca-tab-n.ca-n-opt { display: none; }
+
+/* ---------- แถวเครื่องมือแท็บอันดับแอด ----------
+   มือถือ: ช่องค้นหา + ปุ่ม "ตัวกรอง (N)" · ช่องเลือก 4 ช่องซ่อน (อยู่ในแผ่นล่างแทน — F1)
+   ≥600: ช่องเลือกกลับมาเรียงในแถว ปุ่มตัวกรองหาย */
+.ca-toolbar .ca-filters { flex: 1 1 320px; }
+.ca-search { flex: 1 1 200px; min-width: 0; }
+.ca-sel-inline { display: none; }
+.ca-toolbar .btn.ca-filter-open { flex: none; }
+.ca-toolbar .btn.ca-filter-open.has-filter {
+  background: var(--primary-soft); border-color: var(--primary); color: var(--primary-ink);
+}
+
+/* ---------- แท็บแจ้งเตือน ---------- */
+.ca-sum { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); font-size: var(--fs-3); color: var(--text-2); }
+.ca-sum > span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.ca-sum b { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
+/* ระดับของแต่ละเรื่อง = จุดสี + คำ (ไม่มีพื้นสี) — แถบซ้าย + ไอคอนบอกสีอยู่แล้ว */
+.ca-lv {
+  display: inline-flex; align-items: center; gap: 6px; margin-left: var(--sp-2);
+  font-size: var(--fs-2); font-weight: 600; color: var(--text-2); white-space: nowrap; vertical-align: 1px;
+}
+/* มือถือ: ปุ่มดูรายละเอียดลงบรรทัดของตัวเอง ไม่บีบข้อความเหตุผลจนอ่านไม่ออก */
+.ca-alerts .alert-row { flex-wrap: wrap; }
+.ca-alert-act { flex: 1 1 100%; display: flex; justify-content: flex-end; margin-top: calc(var(--sp-2) * -1); }
+.ca-more { display: flex; justify-content: center; margin-top: var(--sp-3); }
+
+/* ---------- แท็บอันดับแอด: ตาราง (B5) ----------
+   จอคอม ≥1200 = ตารางจริง หัวคอลัมน์ชุดเดียว กดเรียงได้ แถวสูงราว 56px (รูปย่อ 40px)
+   จอแคบกว่านั้น = แถวละการ์ด (ชื่อแอดเต็มบรรทัด แล้วตัวเลขเรียงเป็นตาราง 3–6 ช่อง มีป้ายกำกับทุกช่อง)
+   — ตาราง 12 คอลัมน์บนมือถือต้องเลื่อนซ้ายขวาทีละคอลัมน์ อ่านแอดเดียวไม่จบในจอเดียว */
+.ca-count { margin-left: var(--sp-2); font-size: var(--fs-3); font-weight: 500; color: var(--text-3); }
+.ca-rank-pick { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
+.ca-rank-pick .input { min-width: 0; max-width: 100%; }
+.ca-foot { padding-top: var(--sp-3); text-align: center; font-size: var(--fs-2); color: var(--text-3); }
+
+.ca-ad { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; }
+.ca-tbl .ca-thumb { width: 40px; height: 40px; border-radius: 8px; }
+.ca-ad-txt { flex: 1; min-width: 0; }
+/* ชื่อแอดยาวติดกันไม่มีช่องว่าง (เช่น VP2_140926_SA_V041_…) ต้องหักบรรทัดได้ ไม่งั้นดันทั้งหน้าเลื่อนข้าง */
+.ca-ad-name { font-weight: 700; font-size: var(--fs-3); line-height: 1.4; overflow-wrap: anywhere; }
+.ca-ad-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); margin-top: 2px; min-width: 0; }
+.ca-ad-page { min-width: 0; max-width: 100%; font-size: var(--fs-2); color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-sub2 { display: block; font-size: var(--fs-1); font-weight: 500; color: var(--text-3); }
+.ca-rk-m {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 20px;
+  margin-right: var(--sp-2); padding: 0 var(--sp-1); border-radius: 6px; vertical-align: 1px;
+  background: var(--track); color: var(--text-2); font-size: var(--fs-1); font-weight: 700;
+}
+
+/* การ์ดต่อแถว (มือถือ/แท็บเล็ต) */
+table.tbl.ca-tbl, table.tbl.ca-tbl tbody { display: block; }
+table.tbl.ca-tbl thead { display: none; }
+table.tbl.ca-tbl tr {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-2); padding: var(--sp-3);
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px;
+}
+table.tbl.ca-tbl td { display: block; min-width: 0; padding: 0; border: 0; text-align: left; }
+table.tbl.ca-tbl tr:hover td { background: none; }
+table.tbl.ca-tbl td.ca-c-rk { display: none; }
+table.tbl.ca-tbl td.ca-c-ad { grid-column: 1 / -1; }
+table.tbl.ca-tbl td.num { text-align: left; white-space: nowrap; }
+table.tbl.ca-tbl td.num::before {
+  content: attr(data-label); display: block; font-size: var(--fs-1); font-weight: 600; color: var(--text-3);
+}
+table.tbl.ca-tbl td.ca-c-act { grid-column: 1 / -1; padding-top: var(--sp-1); border-top: 1px solid var(--row-line); }
+
+/* ---------- แท็บสื่อรายเพจ ---------- */
+/* หัวการ์ด: ช่องเลือกเพจกว้างตามชื่อเพจที่ยาวที่สุด (~500px) — มือถือเคยดันการ์ดล้นจอจนทั้งหน้าเลื่อนข้าง 154px
+   → มือถือให้ช่องเลือกเต็มบรรทัดของตัวเอง แล้วหดตามจอ */
+.ca-media-card > .card-head > .card-actions { flex: 1 1 100%; min-width: 0; }
+.ca-media-pick { width: 100%; min-width: 0; max-width: 100%; }
+/* ช่องแรกของตาราง = ก้อนสื่อ (ลำดับ + รูปย่อ + ชื่อ + บรรทัดรอง) กำหนดความกว้างที่ก้อนเอง
+   (td ในตารางไม่สน min-width) — เดิมถูกบีบเหลือ 150px ชื่อสื่อหักทีละ 2-3 ตัวอักษรยาวลงไป 5 บรรทัด */
+.ca-mblock { display: flex; align-items: center; gap: var(--sp-2); width: 200px; }
+/* มือถือซ่อนลำดับ (ตารางเรียงตามค่าแอดอยู่แล้ว) — เก็บที่ให้ชื่อสื่อ เพราะช่องนี้ถูกตรึงไว้ตอนเลื่อนดูเดือน */
+.ca-mrank { display: none; flex: none; min-width: 1.6em; text-align: right; font-size: var(--fs-2); font-weight: 700; color: var(--text-3); }
+.ca-media-tbl .ca-thumb.ca-mthumb { width: 32px; height: 32px; border-radius: 6px; }
+.ca-mtxt { flex: 1; min-width: 0; }
+/* ชื่อสื่อหักบรรทัดได้เสมอ (ชื่อแอดยาวติดกันไม่มีช่องว่าง) และตัดที่ 3 บรรทัดให้แถวสูงเท่าๆ กัน — ชื่อเต็มอยู่ใน title ของลิงก์ */
+.ca-mtitle {
+  font-size: var(--fs-3); line-height: 1.4; white-space: normal; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+/* ลิงก์สีตัวหนังสือปกติ (เดิมเป็นสีน้ำเงินของเบราว์เซอร์ทั้งคอลัมน์) — ชี้แล้วค่อยเป็นสีหลัก + เส้นใต้ */
+.ca-mtitle a { color: var(--text); text-decoration: none; }
+.ca-mtitle a:hover, .ca-mtitle a:focus-visible { color: var(--primary-ink); text-decoration: underline; }
+.ca-mmeta { margin-top: 2px; font-size: var(--fs-1); color: var(--text-3); white-space: normal; }
+/* ตารางกว้างเกินการ์ดทุกขนาดจอ (เดือนละคอลัมน์ ยาวขึ้นทุกเดือน) → ตรึงช่องสื่อไว้ซ้ายทุกขนาดจอ
+   ไม่งั้นเลื่อนไปดูเดือนหลังๆ แล้วไม่รู้ว่าแถวนี้สื่อไหน (แบบเดียวกับตารางยอดขายรายวัน)
+   ⚠️ กฎกลาง ≥900 ของ .tbl-scroll-x ปลดการตรึงคอลัมน์แรก — ต้องชนะด้วย specificity (.ca-media-tbl) ไม่ใช่ลำดับบรรทัด */
+table.tbl.ca-media-tbl.tbl-scroll-x th:first-child,
+table.tbl.ca-media-tbl.tbl-scroll-x td:first-child {
+  position: sticky; left: 0; z-index: 1; background: var(--surface);
+  box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px var(--pin-shadow);
+}
+table.tbl.ca-media-tbl.tbl-scroll-x thead th:first-child { z-index: 2; }
+table.tbl.ca-media-tbl.tbl-scroll-x tr:hover td:first-child {
+  background-color: var(--surface); background-image: linear-gradient(var(--row-hover), var(--row-hover));
+}
+
+/* ---------- หน้าต่างวิเคราะห์แอด ---------- */
+.modal-ca .modal-head h3 { min-width: 0; overflow-wrap: anywhere; }
+.ca-sec { margin: var(--sp-4) 0 var(--sp-1); font-size: var(--fs-4); font-weight: 700; }
+.ca-empty { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) 0; font-size: var(--fs-3); color: var(--text-3); }
+.ca-id { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: var(--fs-2); overflow-wrap: anywhere; }
+.ca-closer { max-width: 70%; }
+.ca-media-tags { margin: 0 0 var(--sp-2); }
+.ca-prob {
+  display: flex; gap: var(--sp-3); align-items: flex-start; padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--row-line); font-size: var(--fs-3);
+}
+.ca-prob-ic { flex: none; display: flex; padding-top: 2px; }
+.ca-prob-txt { flex: 1; min-width: 0; }
+.ca-prob-why { display: block; margin-top: 2px; font-size: var(--fs-2); color: var(--text-3); }
+.ca-acts { margin: 0; padding-left: 1.4em; font-size: var(--fs-3); }
+.ca-acts li { padding: 3px 0; }
+
+/* ---------- แผ่นตัวกรอง (มือถือ) ---------- */
+.ca-fsheet { display: flex; flex-direction: column; gap: var(--sp-3); margin: var(--sp-2) 0 var(--sp-3); }
+.ca-fld { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; }
+.ca-fld .input { width: 100%; }
+
+@media (min-width: 600px) {
+  .ca-tabs .tab > .ic { display: inline-block; }
+  .ca-tabs .ca-tab-n.ca-n-opt { display: inline; }
+  .ca-sel-inline { display: contents; }
+  /* ช่องเลือกกว้างตามตัวเลือกที่ยาวที่สุด — ชื่อเพจยาวเคยทำช่อง "ทุกเพจ" กว้าง 320px จนแถวแตกเป็น 2 บรรทัดไม่เป็นระเบียบ */
+  .ca-sel-inline .input { max-width: 190px; }
+  /* แถวบน = ช่วงเวลา (ซ้าย) + ดาวน์โหลด (ขวา) · แถวล่าง = ค้นหา + ตัวกรอง 4 ช่องเต็มบรรทัด
+     เดิมตัวกรองถูกบีบอยู่ตรงกลางระหว่างชิปช่วงเวลากับปุ่มดาวน์โหลด แตกเป็น 2 บรรทัดสั้นยาวไม่เท่ากัน */
+  .ca-toolbar .ca-filters { order: 3; flex: 1 1 100%; }
+  .ca-toolbar .btn.ca-filter-open { display: none; }
+  .ca-search { max-width: 360px; }
+  .ca-alerts .alert-row { flex-wrap: nowrap; }
+  .ca-alert-act { flex: none; margin-top: 0; }
+}
+
+@media (min-width: 900px) {
+  /* จอคอม: ช่องเลือกเพจกลับไปอยู่ขวาของหัวข้อ บรรทัดเดียวกัน */
+  .ca-media-card > .card-head > .card-actions { flex: 0 1 auto; max-width: 480px; }
+  .ca-media-pick { width: auto; }
+  .ca-mblock { width: 280px; }
+  .ca-mrank { display: block; }
+  .ca-media-tbl .ca-thumb.ca-mthumb { width: 44px; height: 44px; }
+}
+
+@media (min-width: 1200px) {
+  /* ตารางจริง — คืนค่าที่ปรับเป็นการ์ดไว้ข้างบน */
+  table.tbl.ca-tbl { display: table; }
+  table.tbl.ca-tbl thead { display: table-header-group; }
+  table.tbl.ca-tbl tbody { display: table-row-group; }
+  table.tbl.ca-tbl tr { display: table-row; margin: 0; padding: 0; background: none; border: 0; border-radius: 0; }
+  table.tbl.ca-tbl td, table.tbl.ca-tbl th {
+    display: table-cell; padding: var(--sp-2); border-bottom: 1px solid var(--row-line); vertical-align: middle;
+  }
+  table.tbl.ca-tbl th { border-bottom-color: var(--border); }
+  table.tbl.ca-tbl tr:hover td { background: var(--row-hover); }
+  table.tbl.ca-tbl td.ca-c-rk, table.tbl.ca-tbl th.ca-c-rk {
+    display: table-cell; width: 28px; text-align: center; color: var(--text-3); font-weight: 700;
+  }
+  table.tbl.ca-tbl td.num { text-align: right; }
+  table.tbl.ca-tbl td.num::before { content: none; }
+  table.tbl.ca-tbl td.ca-c-ad { min-width: 220px; }
+  table.tbl.ca-tbl td.ca-c-act { width: 1%; padding-top: var(--sp-2); border-top: 0; text-align: right; white-space: nowrap; }
+  .ca-rk-m { display: none; }
+  /* ชื่อยาวเกิน 2 บรรทัดตัดด้วย … ให้แถวสูงเท่าๆ กัน (ชื่อเต็มอยู่ในหน้าต่างวิเคราะห์) */
+  .ca-tbl .ca-ad-name {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .ca-tbl .ca-ad-page { max-width: 220px; }
+}

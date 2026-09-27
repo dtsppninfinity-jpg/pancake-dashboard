@@ -451,7 +451,9 @@ export async function apiContentAds(params?: any) {
   }> = [];
   items.forEach(function (it) {
     if (!it.active) return;
-    const nums = 'Spend ฿' + it.spend + ' • ' + it.orders + ' ออเดอร์ • ยอดขาย ฿' + it.revenue;
+    // ข้อความที่ทีมเห็น (ตรวจ UI ข้อ D2): "ค่าแอด" แทน Spend · เงินมีจุลภาคคั่นหลักพัน
+    const baht = function (n: number): string { return '฿' + Math.round(Number(n) || 0).toLocaleString('en-US'); };
+    const nums = 'ค่าแอด ' + baht(it.spend) + ' • ' + it.orders + ' ออเดอร์ • ยอดขาย ' + baht(it.revenue);
     if (it.roas !== null && it.roas < 1.5 && it.spend > 300) {
       alerts.push({
         id: 'AL-' + it.adId + '-roas', level: it.roas < 1 ? 'red' : 'orange', icon: '📉',
@@ -463,14 +465,14 @@ export async function apiContentAds(params?: any) {
     if (it.costPerOrder !== null && it.costPerOrder > 400) {
       alerts.push({
         id: 'AL-' + it.adId + '-cpo', level: 'orange', icon: '💸',
-        title: 'Cost per Order สูง', reason: '"' + it.name.slice(0, 40) + '" ฿' + it.costPerOrder + '/ออเดอร์', nums: nums,
+        title: 'ต้นทุนต่อออเดอร์สูง', reason: '"' + it.name.slice(0, 40) + '" ' + baht(it.costPerOrder) + '/ออเดอร์', nums: nums,
         recommend: 'แคบกลุ่มเป้าหมาย + ใส่ราคาบนภาพเพื่อกรองคนก่อนทัก', adId: it.adId
       });
     }
     if (it.spend > 800 && it.orders === 0) {
       alerts.push({
         id: 'AL-' + it.adId + '-zero', level: 'red', icon: '🕳',
-        title: 'Spend สูงแต่ไม่มีออเดอร์', reason: '"' + it.name.slice(0, 40) + '" ใช้ไป ฿' + it.spend, nums: nums,
+        title: 'ค่าแอดสูงแต่ไม่มีออเดอร์', reason: '"' + it.name.slice(0, 40) + '" ใช้ไป ' + baht(it.spend), nums: nums,
         recommend: 'หยุดแอดชั่วคราว เช็คสคริปต์แอดมิน + เทียบราคากับคู่แข่ง', adId: it.adId
       });
     }
@@ -484,14 +486,14 @@ export async function apiContentAds(params?: any) {
     if (it.roas !== null && it.roas >= 4) {
       alerts.push({
         id: 'AL-' + it.adId + '-scale', level: 'green', icon: '🏆',
-        title: 'แอดติด — ควร Scale', reason: '"' + it.name.slice(0, 40) + '" ROAS ' + it.roas, nums: nums,
+        title: 'แอดติด — ควรเพิ่มงบ', reason: '"' + it.name.slice(0, 40) + '" ROAS ' + it.roas, nums: nums,
         recommend: 'เพิ่มงบ 20-30% ทุก 2 วัน + เตรียมครีเอทีฟสำรอง', adId: it.adId
       });
     }
     if (it.roas !== null && it.roas < 0.6 && it.spend > 1200) {
       alerts.push({
         id: 'AL-' + it.adId + '-stop', level: 'red', icon: '🛑',
-        title: 'แอดแย่ — ควรหยุด', reason: '"' + it.name.slice(0, 40) + '" ROAS ' + it.roas + ' ใช้ไป ฿' + it.spend, nums: nums,
+        title: 'แอดแย่ — ควรหยุด', reason: '"' + it.name.slice(0, 40) + '" ROAS ' + it.roas + ' ใช้ไป ' + baht(it.spend), nums: nums,
         recommend: 'ปิดแอดแล้วย้ายงบไปตัวที่ ROAS ≥ 2', adId: it.adId
       });
     }
@@ -513,10 +515,11 @@ export async function apiContentAds(params?: any) {
     creativeCount,
     // ค่าแอดครอบคลุมกี่วันจากที่เลือก — น้อยกว่า days = ROAS สูงเกินจริง หน้าเว็บต้องเตือน
     adDaysCovered,
+    // ข้อความสำหรับทีม (ไม่มีคำสั่งเทคนิค) · คำสั่งเติมข้อมูลแยกไว้ใน adDaysFix ให้หน้าเว็บโชว์เฉพาะผู้ดูแลระบบ (D3)
     adDaysWarning: (ads.length > 0 && adDaysCovered < days)
-      ? 'ค่าแอดมีข้อมูลแค่ ' + adDaysCovered + ' วันจาก ' + days + ' วันที่เลือก — ROAS จะสูงเกินจริง ' +
-        '(รัน `npm run backfill:ads ' + days + '` เพื่อเติมย้อนหลัง)'
+      ? 'ค่าแอดมีข้อมูลแค่ ' + adDaysCovered + ' วันจาก ' + days + ' วันที่เลือก — ROAS ช่วงนี้จะสูงเกินจริง'
       : null,
+    adDaysFix: (ads.length > 0 && adDaysCovered < days) ? 'npm run backfill:ads ' + days : null,
     note: 'ทุกตัวเลขเป็นของ ' + (days === 1 ? 'วันนี้' : days + ' วันล่าสุด') +
       ' (วันปฏิทินไทยเต็มวัน — หน้าต่างเดียวกับหน้า Sales) • ' +
       'ยอดขาย / ROAS / %ปิด (ซื้อ÷ทัก) = ตัวเลขจาก Meta Ads โดยตรง ตรงกับหน้า Meta dashboard • ' +

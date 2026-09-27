@@ -14,11 +14,13 @@ const KPI_TARGETS_KEY = 'adminperf_kpi_targets';
  */
 const OPTIONAL_COLS = ['nickname', 'max_pending', 'pos_user_id', 'snap_name'];
 
-/** ป้ายอธิบาย migration ที่ยังไม่ได้รัน (ใช้ประกอบข้อความเตือนบนหน้าเว็บ) */
+/** ป้ายอธิบาย migration ที่ยังไม่ได้รัน — รายละเอียดเทคนิค (หน้าเว็บโชว์เฉพาะผู้ดูแลระบบ) */
 const COL_LABEL: Record<string, string> = {
   nickname: '"ชื่อเล่น" (migration 2026-07-27-admin-nickname.sql)',
   max_pending: '"เพดานแชทรอตอบ" (migration v3 max_pending)',
 };
+/** ชื่อช่องแบบภาษาคน — ข้อความเตือนที่ทีมเห็น (ตรวจ UI ข้อ D3: ห้ามมีชื่อไฟล์ .sql / คำว่า Supabase บนจอคนทั่วไป) */
+const COL_HUMAN: Record<string, string> = { nickname: '"ชื่อเล่น"', max_pending: '"เพดานแชทรอตอบ"' };
 
 /**
  * เดาชื่อเล่นจากชื่อเต็มของ Pancake = คำแรก
@@ -170,14 +172,17 @@ export async function apiAdminSettings(params: any) {
       return { ok: false, error: error.message };
     }
     // เตือนเฉพาะ field ที่ "ผู้ใช้ตั้งใจแก้รอบนี้" แล้วบันทึกไม่ได้จริง
-    const lostLabels = dropped
-      .filter((c) => p.admin[c] !== undefined && COL_LABEL[c])
-      .map((c) => COL_LABEL[c]);
+    const lostCols = dropped.filter((c) => p.admin[c] !== undefined && COL_LABEL[c]);
     return {
       ok: true,
       admin: clean,
-      warning: lostLabels.length
-        ? 'บันทึกแล้ว ยกเว้น ' + lostLabels.join(' และ ') + ' — ต้องรัน migration ใน Supabase ก่อน'
+      // warning = ภาษาคน (ทุกคนเห็น) · warningDetail = ชื่อ migration (หน้าเว็บโชว์เฉพาะผู้ดูแลระบบ)
+      warning: lostCols.length
+        ? 'บันทึกแล้ว ยกเว้น ' + lostCols.map((c) => COL_HUMAN[c] || COL_LABEL[c]).join(' และ ') +
+          ' — ส่วนนี้ยังไม่พร้อม กรุณาแจ้งผู้ดูแลระบบ'
+        : undefined,
+      warningDetail: lostCols.length
+        ? 'ต้องรัน migration ใน Supabase ก่อน: ' + lostCols.map((c) => COL_LABEL[c]).join(' และ ')
         : undefined,
     };
   }

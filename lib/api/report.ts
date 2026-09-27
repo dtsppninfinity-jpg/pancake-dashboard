@@ -88,15 +88,23 @@ export async function apiReport(params: any) {
   const year = String(rows.map((r) => String(r.date).slice(0, 4)).sort().pop() || '2026');
   // actual[u][m 1-12] + weekly[u][weekStart] ของเดือนที่เลือก
   const actual: Record<string, number[]> = {};
+  // เดือนที่ยูนิตนั้น "มีแถวในชีท" จริง (ยอด 0 ก็นับว่ามี) — แยก "ยังไม่มีในชีท" ออกจาก "ขายได้ 0 จริง" (ตรวจ UI ข้อ E1)
+  // เดิม actual ของยูนิตที่ชีทสรุปรายสินค้ายังไม่มีแท็บ = 0 → %บรรลุ 0% ป้ายแดง "ต่ำกว่าแผนมาก"
+  // ทั้งที่ยูนิตพวกนั้นขายได้จริง (เช่น U26/UN6/UN7 มีออเดอร์หลายพันในส่วนซื้อซ้ำ) แค่ชีทยังไม่มีแถว
+  const hasRows: Record<string, Set<number>> = {};
   const monthsSet = new Set<number>();
+  let asOf = '';
   rows.forEach((r) => {
     const d = String(r.date).slice(0, 10);
     if (!d.startsWith(year)) return;
     const m = Number(d.slice(5, 7));
     monthsSet.add(m);
+    if (d > asOf) asOf = d;
     const u = String(r.u);
     (actual[u] = actual[u] || new Array(13).fill(0))[m] += num_(r.sales);
+    (hasRows[u] = hasRows[u] || new Set<number>()).add(m);
   });
+  const has_ = (u: string, m: number): boolean => !!hasRows[u] && hasRows[u].has(m);
   const monthsAvail = Array.from(monthsSet).sort((a, b) => a - b);
   const curMonth = Number(new Date(Date.now() + 7 * 3600000).toISOString().slice(5, 7));
   const ask = Number(p.month);
@@ -122,29 +130,40 @@ export async function apiReport(params: any) {
   const unitRows = allUnits.map((u) => {
     const t = (targets[u] || [])[month - 1] || 0;
     const a = (actual[u] || [])[month] || 0;
-    const attain = t > 0 ? Math.round((a / t) * 1000) / 10 : null;
+    // ไม่มีแถวในชีทเดือนนี้ = ยังไม่รู้ยอด → null ทั้งชุด (ยอด/%บรรลุ/ขาดอีก/ต้องขายเพิ่ม) ไม่ใช่ 0
+    const noData = !has_(u, month);
+    const attain = !noData && t > 0 ? Math.round((a / t) * 1000) / 10 : null;
     const wk = weekly[u] || {};
     return {
       u,
       product: productOf[u] || '',
       target: Math.round(t),
-      actual: Math.round(a),
+      actual: noData ? null : Math.round(a),
       attain,
-      gap: t > 0 ? Math.round(Math.max(0, t - a)) : null,
+      gap: !noData && t > 0 ? Math.round(Math.max(0, t - a)) : null,
       // เดือนปัจจุบัน: ต้องขายเพิ่มวันละเท่าไหร่ถึงจะจบเดือนตรงเป้า
-      needPerDay: isCurrent && t > 0 && t > a ? Math.round((t - a) / daysLeft) : null,
+      needPerDay: !noData && isCurrent && t > 0 && t > a ? Math.round((t - a) / daysLeft) : null,
+      noData,
       weekly: Object.keys(wk).sort().map((w) => ({ week: w, sales: Math.round(wk[w]) })),
     };
   })
-    .filter((x) => x.target > 0 || x.actual > 0)
-    .sort((a, b) => (b.attain === null ? -1 : a.attain === null ? 1 : (b.attain - a.attain)));
+    .filter((x) => x.target > 0 || (x.actual || 0) > 0)
+    // มีข้อมูลก่อน (เรียง %บรรลุ มาก→น้อย, ไม่ตั้งเป้าท้ายกลุ่ม) แล้วค่อยยูนิตที่ยังไม่มีในชีท
+    .sort((a, b) => (Number(a.noData) - Number(b.noData)) ||
+      (b.attain === null ? -1 : a.attain === null ? 1 : (b.attain - a.attain)));
 
   // สรุปทั้งปี: รายเดือน เป้ารวม vs จริงรวม + จำนวนยูนิตถึงเป้า
+  // ยูนิตที่ตั้งเป้าแต่ชีทยังไม่มีแถวเดือนนั้น ไม่นับในเป้ารวม/ยูนิตที่ตัดสิน (E1) — เดิมนับเป็นยอด 0
+  // ทำให้ %บรรลุรวมต่ำกว่าจริง · เป้าที่ตัดออกส่งไปเป็น missingTarget ให้หน้าเว็บบอกไว้ใต้ตาราง (ไม่หายเงียบ)
   const yearSummary = monthsAvail.map((m) => {
-    let tSum = 0, aSum = 0, hit = 0, judged = 0;
+    let tSum = 0, aSum = 0, hit = 0, judged = 0, missN = 0, missT = 0;
     allUnits.forEach((u) => {
       const t = (targets[u] || [])[m - 1] || 0;
       const a = (actual[u] || [])[m] || 0;
+      if (!has_(u, m)) {
+        if (t > 0) { missN++; missT += t; }
+        return;
+      }
       tSum += t; aSum += a;
       if (t > 0) { judged++; if (a >= t) hit++; }
     });
@@ -153,6 +172,7 @@ export async function apiReport(params: any) {
       target: Math.round(tSum), actual: Math.round(aSum),
       attain: tSum > 0 ? Math.round((aSum / tSum) * 1000) / 10 : null,
       hitUnits: hit, judgedUnits: judged,
+      missingUnits: missN, missingTarget: Math.round(missT),
       closed: m < curMonth, // เดือนที่จบแล้วเท่านั้นถึงตัดสิน "สำเร็จ/ไม่สำเร็จ" ได้จริง
     };
   });
@@ -160,6 +180,7 @@ export async function apiReport(params: any) {
   return {
     setupNeeded: false,
     year, month, monthsAvail, isCurrent, daysLeft,
+    asOf, // วันล่าสุดที่ชีทสรุปรายสินค้ามีแถว — บรรทัด "ข้อมูลถึง" ใต้แถวเครื่องมือ
     hasTargets: Object.keys(targets).length > 0,
     units: unitRows,
     yearSummary,

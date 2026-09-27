@@ -8,12 +8,12 @@
    ============================================================ */
 
 import {
-  serverCall, esc, fmtNum, pctFmt, avatarHtml,
+  serverCall, esc, fmtNum, pct1, avatarHtml, infoTip, stateHtml,
   showError, toast, tagColor, rangeControlsHtml, bindRangeControls, RangeState,
 } from '@/lib/ui/helpers';
-import { svgWeekBars, svgDonut, hbarRows, bindChartTips, hideChartTip } from '@/lib/ui/charts';
+import { svgWeekBars, bindChartTips, hideChartTip } from '@/lib/ui/charts';
 import { dashboardSkel, dashboardBodySkel } from '@/lib/ui/skeletons';
-import { icon, brandIcon, statusPill, ICON_FOR } from '@/lib/ui/icons';
+import { icon, brandIcon, statusPill, ICON_FOR, type StatusKind } from '@/lib/ui/icons';
 
 /* ---------------- data types (apiDashboard) ---------------- */
 
@@ -105,6 +105,9 @@ const state: DashState = { preset: 'today', from: '', to: '', channel: '' };
 // (ตั้งค่าใหม่ทุกครั้งที่ bodyHtml() ถูกเรียก เหมือน channel ที่ helper อื่นอ่านจากตัวแปรระดับไฟล์)
 let rangeLabel = 'วันนี้';
 let rangeDays = 1;
+/** รายการแชทรอตอบ: false = 10 แถวแรก (รอนานสุด) · true = ทั้งหมดที่โหลดมา (สูงสุด 30) — จำไว้ข้ามรอบรีเฟรช */
+let attnAll = false;
+const ATTN_FIRST = 10;
 
 // ic = ไอคอนหน้าคำ (HTML) — ช่องทางใช้โลโก้แบรนด์จริง ไม่ใช้ 📘/🟢 แทน Facebook/LINE อีกแล้ว
 const CHANNELS: { key: string; label: string; ic?: string }[] = [
@@ -137,17 +140,19 @@ function rangeTitle_(base: string): string {
   return esc(isTodayRange_() ? base + 'วันนี้' : base + ' (' + rangeLabel + ')');
 }
 
-const NOW_TIP = 'ค่าตอนนี้จากบทสนทนา 24 ชม.ล่าสุด — ตาราง conversations เก็บ "สถานะล่าสุด" ' +
-  'ของแต่ละแชท ไม่ใช่ประวัติรายวัน จึงย้อนหลังตามช่วงที่เลือกไม่ได้';
+// ไม่มีคำเทคนิค (ชื่อตาราง) ในข้อความที่ทีมเห็น — ตรวจ UI ข้อ D2
+const NOW_TIP = 'ค่าตอนนี้จากแชท 24 ชม.ล่าสุด • ระบบเก็บแค่ "สถานะล่าสุด" ของแต่ละแชท ไม่ใช่ประวัติรายวัน ' +
+  'จึงย้อนดูตามช่วงที่เลือกไม่ได้';
 
 /**
  * ป้ายเตือนว่าวิดเจ็ตนี้ไม่ขึ้นกับช่วงที่เลือก (ค่าตอนนี้เสมอ)
  * เลือก "วันนี้" อยู่แล้วไม่ต้องขึ้น — หัวข้อการ์ดเขียน "(24 ชม.)" กำกับไว้อยู่แล้ว
+ * ป้ายสั้น + ปุ่ม ⓘ แทนป้ายยาวที่มีคำอธิบายซ่อนใน title (แตะบนมือถือไม่ได้ — D3)
  */
 function nowBadge_(): string {
   if (isTodayRange_()) return '';
-  // ป้ายยาวอยู่แล้ว — ถอด ⏱️ ออกเฉยๆ ไม่ใส่ไอคอนแทน (กว้างขึ้นจะล้นการ์ดตัวเลขบนมือถือ)
-  return ' <span class="badge info" title="' + esc(NOW_TIP) + '">ตอนนี้ (24 ชม.ล่าสุด) — ไม่ขึ้นกับช่วงที่เลือก</span>';
+  return ' <span class="db-now"><span class="badge info">ค่าตอนนี้ ไม่ขึ้นกับช่วงที่เลือก</span>' +
+    infoTip(NOW_TIP, 'ค่าตอนนี้ (24 ชม.)') + '</span>';
 }
 
 /** หมายเหตุตัวเลขรวมหลายวัน (คนเดิมที่ทักคนละวันถูกนับซ้ำ — endpoint ต้นทางไม่มี unique ข้ามวัน) */
@@ -159,35 +164,44 @@ function multiDayNote_(): string {
 
 function chipRowHtml(): string {
   const pills = CHANNELS.map((c) => {
-    return '<button class="filter-btn' + (state.channel === c.key ? ' active' : '') +
+    return '<button type="button" class="filter-btn' + (state.channel === c.key ? ' active' : '') +
       '" data-ch="' + esc(c.key) + '">' + (c.ic || '') + esc(c.label) + '</button>';
   }).join('');
-  return '<div class="conv-filters" id="dash-channels">' + pills + '</div>';
+  return '<div class="tb-filters" id="dash-channels" role="group" aria-label="ช่องทาง">' + pills + '</div>';
 }
 
-/** แถวควบคุม: ช่วงเวลา (idPrefix 'db') + ช่องทาง */
+/** แถวเครื่องมือมาตรฐาน (C4): ซ้าย = ช่วงเวลา (idPrefix 'db') · ถัดไป = ช่องทาง — หน้านี้ไม่มีไฟล์ให้ดาวน์โหลด */
 function controlsHtml(): string {
-  return '<div class="pg-controls" id="dash-range">' + rangeControlsHtml(state, 'db') + '</div>' +
-    chipRowHtml();
+  return '<div class="toolbar db-toolbar">' +
+    '<div class="tb-range" id="dash-range">' + rangeControlsHtml(state, 'db') + '</div>' +
+    chipRowHtml() +
+  '</div>';
 }
 
 /** การ์ดตัวเลขใหญ่ — ic = ชื่อไอคอนจาก ICON_FOR (วาดขนาด 22 ในกรอบสี ไอคอนรับสีจากกรอบเอง) */
 function statCard(ic: string, iconCls: string, label: string, valueHtml: string, hintHtml: string): string {
   return '<div class="stat-card">' +
     '<div class="stat-icon ' + iconCls + '">' + icon(ic, { size: 22 }) + '</div>' +
-    '<div style="min-width:0">' +
+    '<div class="db-stat-txt">' +
     '<div class="stat-label">' + label + '</div>' +
     '<div class="stat-value">' + valueHtml + '</div>' +
     '<div class="stat-hint">' + hintHtml + '</div>' +
     '</div></div>';
 }
 
+/** สัดส่วนบทสนทนา 24 ชม. (แอดมินตอบ / อัตโนมัติ / รอตอบ) — ใช้ร่วมทั้งการ์ดตัวเลขและแถบสัดส่วน */
+function share_(donut?: DonutData): { replied: number; ai: number; waiting: number; base: number } {
+  const d: DonutData = donut || {};
+  const replied = Number(d.replied) || 0;
+  const ai = Number(d.ai) || 0;
+  const waiting = Number(d.waiting) || 0;
+  return { replied, ai, waiting, base: replied + ai + waiting };
+}
+
 function statGridHtml(k: Kpis, donut?: DonutData): string {
   const waiting = Number(k.waiting) || 0;
-  const d: DonutData = donut || {};
-  const ai = Number(d.ai) || 0;
-  const convBase = (Number(d.replied) || 0) + ai + (Number(d.waiting) || 0);
-  const aiPct = convBase ? Math.round((ai / convBase) * 100) : 0;
+  const sh = share_(donut);
+  const ai = sh.ai;
   const commentMode = state.channel === 'comment';
   const cards: string[] = [];
   if (commentMode) {
@@ -205,7 +219,7 @@ function statGridHtml(k: Kpis, donut?: DonutData): string {
       ' data-tip="' + esc('จำนวนคนที่ทักเข้ามาใน' + (isTodayRange_() ? 'วันนี้' : 'ช่วง ' + rangeLabel) +
         ' = บทสนทนาอินบ็อกซ์ใหม่ + คอมเมนต์ (คนทักจริง ไม่ใช่ลูกค้าเก่าที่คุยต่อ) จากหน้าสถิติการมีส่วนร่วมของ Pancake' +
         multiDayNote_()) + '"' +
-      ' data-tip-src="Pancake · statistics/customer_engagements">';
+      ' data-tip-src="Pancake · หน้าสถิติการมีส่วนร่วม">';
     const convSub = hasEng
       ? 'อินบ็อกซ์ใหม่ ' + fmtNum(k.engNewInbox || 0) + ' + คอมเมนต์ ' + fmtNum(k.engComment || 0) +
         ' • เบอร์ใหม่ ' + fmtNum(k.phones)
@@ -216,64 +230,25 @@ function statGridHtml(k: Kpis, donut?: DonutData): string {
   // ⚠️ pageReplies = จำนวน "ข้อความ" ที่เพจส่งในช่วงที่เลือก (รวมบอต/ข้อความอัตโนมัติ/บรอดแคสต์)
   //    ไม่ใช่จำนวนบทสนทนาที่ตอบ — และคนละชุดข้อมูล/คนละช่วงเวลากับ replyRate (24 ชม. จาก conversations)
   //    เดิมเอามาแปะคู่กันในการ์ดเดียว ทำให้ดูเหมือน "ตอบ 94% จาก 47,375 ครั้ง" ซึ่งไม่จริง
-  //    replyRate ยังอยู่ในการ์ดโดนัทที่เขียน "(24 ชม.)" กำกับไว้ชัดเจนแล้ว
+  //    สัดส่วนการตอบ 24 ชม. อยู่ในแถบสัดส่วนใต้แถวการ์ดนี้ (ตรวจ UI ข้อ G1)
   cards.push(statCard('send', 'green', rangeTitle_('ข้อความที่เพจส่ง'), fmtNum(k.pageReplies),
     'รวมบอต/ข้อความอัตโนมัติ • ลูกค้าส่ง ' + fmtNum(k.custMsgs) + ' ข้อความ'));
   // 2 ใบนี้มาจาก conversations = ค่าตอนนี้เสมอ ไม่ขึ้นกับช่วงที่เลือก (ดูหมายเหตุหัวไฟล์)
+  // %อัตโนมัติ เป็นตัวหนาสีปกติ ไม่ใช่เขียว — สัดส่วนนี้ไม่ได้ตัดสินว่าดีหรือแย่ (E3: เขียว = ดีเท่านั้น)
   cards.push(statCard(ICON_FOR.autoReply, 'purple', 'ตอบอัตโนมัติ (24 ชม.)', fmtNum(ai),
-    (convBase ? '<b class="up">' + aiPct + '%</b> ของบทสนทนา 24 ชม.' : 'ยังไม่มีข้อมูล') + nowBadge_()));
-  cards.push(statCard(ICON_FOR.wait, 'amber', 'รอแอดมินตอบ (ตอนนี้)', fmtNum(k.waiting),
+    (sh.base ? '<b class="v-plain">' + pct1((ai / sh.base) * 100) + '</b> ของบทสนทนา 24 ชม.' : 'ยังไม่มีข้อมูล') + nowBadge_()));
+  // "(ตอนนี้)" ห้ามแยกบรรทัด — การ์ดแคบแล้วเคยหักเป็น "(ตอน" / "นี้)"
+  cards.push(statCard(ICON_FOR.wait, 'amber', 'รอแอดมินตอบ <span class="db-nw">(ตอนนี้)</span>', fmtNum(k.waiting),
     (waiting > 0 ? '<b class="warn">ต้องการความสนใจ</b>' : 'ไม่มีงานค้าง') + nowBadge_()));
   // ตัวเลขบรรทัดล่างมาจาก statistics/customer_engagements = ชุดเดียวกับหน้าสถิติแชทของ Pancake
   // ให้เทียบจอต่อจอได้ (บรรทัดบนมาจาก statistics/pages ซึ่งนับ "ลูกค้าใหม่" คนละนิยามเล็กน้อย)
   const engSub = (k.engNewInbox === null || k.engNewInbox === undefined)
-    ? (commentMode ? 'ทุกช่องทางรวมกัน (แยกเฉพาะคอมเมนต์ไม่ได้)' : 'จากทุกเพจที่ sync')
+    ? (commentMode ? 'ทุกช่องทางรวมกัน (แยกเฉพาะคอมเมนต์ไม่ได้)' : 'จากทุกเพจที่เชื่อมไว้')
     : 'Pancake นับ <b>' + fmtNum(k.engNewInbox) + '</b> คนเปิดแชทใหม่ • คุยทั้งหมด ' +
       fmtNum(k.engCustomers || 0) + ' คน';
   cards.push(statCard(ICON_FOR.newCustomer, 'blue', rangeTitle_('ลูกค้าใหม่'), fmtNum(k.newCustomers),
     engSub + esc(multiDayNote_())));
   return '<div class="stat-grid">' + cards.join('') + '</div>';
-}
-
-function weekCardHtml(data: DashData): string {
-  const week = data.week;
-  const body = (week && week.length)
-    ? svgWeekBars(week)
-    : '<div class="empty-note">ยังไม่มีข้อมูล</div>';
-  // กราฟยึดวันท้ายของช่วงที่เลือก แต่กว้าง 7-14 วันเสมอ (server เป็นคนตัดสิน + ส่ง weekLabel มา)
-  const note = data.weekNote
-    ? '<span style="margin-left:14px">' + esc(data.weekNote) + '</span>'
-    : '';
-  // ป้ายต้องบอกว่าเป็น "จำนวนข้อความ" ไม่ใช่บทสนทนา — เพจส่งสคริปต์ขายทีละหลายบับเบิล
-  // แท่งม่วงจึงสูงกว่าแท่งฟ้าหลายเท่าเป็นปกติ (ไม่ใช่ข้อมูลผิด)
-  return '<div class="card">' +
-    '<h3>ปริมาณข้อความ ' + esc(data.weekLabel || '7 วันล่าสุด') + '</h3>' +
-    '<div class="card-sub">' +
-    '<span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#3b82f6;vertical-align:middle;margin-right:5px"></span>ลูกค้าส่ง' +
-    '<span style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#6c5ce7;vertical-align:middle;margin:0 5px 0 14px"></span>เพจส่ง (รวมบอต/บรอดแคสต์)' +
-    note +
-    '</div>' +
-    body + '</div>';
-}
-
-function legendRow(color: string, label: string, value: number | undefined): string {
-  return '<div class="row"><span class="dot" style="background:' + color + '"></span>' +
-    esc(label) + '<b>' + fmtNum(value) + '</b></div>';
-}
-
-function donutCardHtml(k: Kpis, donut?: DonutData): string {
-  const rate = Number(k.replyRate) || 0;
-  const d: DonutData = donut || {};
-  return '<div class="card">' +
-    '<h3>สัดส่วนการตอบ (24 ชม.)</h3>' +
-    '<div class="card-sub">แอดมินตอบ vs ตอบอัตโนมัติ vs รอตอบ' + nowBadge_() + '</div>' +
-    '<div class="donut-wrap">' +
-    svgDonut(rate, esc(pctFmt(k.replyRate)), 'ตอบแล้ว') +
-    '<div class="donut-legend">' +
-    legendRow('#2dd4a0', 'แอดมินตอบ', d.replied) +
-    legendRow('#6c5ce7', 'ตอบอัตโนมัติ', d.ai) +
-    legendRow('#ff5d7a', 'รอตอบ', d.waiting) +
-    '</div></div></div>';
 }
 
 function typeLabel(t: string | undefined): string {
@@ -283,31 +258,82 @@ function typeLabel(t: string | undefined): string {
   return String(t || '-');
 }
 
-function byTypeCardHtml(byType?: ByTypeItem[]): string {
-  const items = (byType || []).slice().sort((a, b) => {
-    return (Number(b.count) || 0) - (Number(a.count) || 0);
-  }).map((t) => {
-    return { label: typeLabel(t.label), value: Number(t.count) || 0 };
-  });
-  return '<div class="card">' +
-    '<h3>ประเภทบทสนทนา (24 ชม.)</h3>' +
-    '<div class="card-sub">แยกตามช่องทางที่ลูกค้าทักเข้ามา' + nowBadge_() + '</div>' +
-    hbarRows(items, { empty: 'ยังไม่มีข้อมูล' }) + '</div>';
+/**
+ * แถบสัดส่วนการตอบ 24 ชม. (ตรวจ UI ข้อ G1) — แทนการ์ดโดนัท + การ์ด "ประเภทบทสนทนา"
+ * ทำไมเลิกใช้โดนัท: วงวาดแค่ส่วน "ตอบแล้ว" สีเดียว แต่คำอธิบายข้างวงมี 3 สี คนหาสีม่วง/แดงในวงไม่เจอ
+ * และการ์ดทั้ง 2 ใบว่างครึ่งกล่อง → รวมเป็นแถบเส้นเดียว 3 ช่วงตามสัดส่วนจริง สีจุดในคำอธิบาย = สีช่วงในแถบเสมอ
+ * วางต่อใต้แถวการ์ดตัวเลข (ติดการ์ด "รอแอดมินตอบ") ไม่ได้ยัดเข้าไปในการ์ดนั้น — การ์ดใบเดียวสูงขึ้น
+ * ทำให้การ์ดอีก 4 ใบในแถวยืดตามจนมีที่ว่างด้านล่างทุกใบ
+ * ประเภทบทสนทนา (ข้อความ/คอมเมนต์) เหลือเป็นบรรทัดเล็กในหัวแถบ — ตัวเลขชุดเดียวกัน (24 ชม.) ไม่ต้องมีการ์ดแยก
+ */
+function shareStripHtml(donut: DonutData | undefined, byType?: ByTypeItem[]): string {
+  const sh = share_(donut);
+  const parts: { key: string; label: string; n: number }[] = [
+    { key: 'admin', label: 'แอดมินตอบ', n: sh.replied },
+    { key: 'ai', label: 'ตอบอัตโนมัติ', n: sh.ai },
+    { key: 'wait', label: 'รอตอบ', n: sh.waiting },
+  ];
+  const pct = (n: number) => (sh.base ? (n / sh.base) * 100 : 0);
+  const types = (byType || []).slice().sort((a, b) => (Number(b.count) || 0) - (Number(a.count) || 0))
+    .map((t) => esc(typeLabel(t.label)) + ' <b>' + fmtNum(Number(t.count) || 0) + '</b>');
+  const aria = parts.map((p) => p.label + ' ' + pct1(pct(p.n))).join(' • ');
+  // ความกว้างแต่ละช่วงคำนวณจากข้อมูล จึงต้องอยู่ใน style ของช่วงนั้น (แบบเดียวกับ .hbar-fill)
+  const bar = '<div class="db-share-bar" role="img" aria-label="' + esc(aria) + '">' +
+    parts.map((p) => {
+      const w = pct(p.n);
+      // ช่วงที่เป็นศูนย์ไม่ต้องวาด — แต่ยังอยู่ในคำอธิบายพร้อม 0.0%
+      return w > 0 ? '<i class="db-s-' + p.key + '" style="width:' + w.toFixed(2) + '%"></i>' : '';
+    }).join('') +
+  '</div>';
+  const legend = '<div class="db-share-legend">' + parts.map((p) =>
+    '<span class="db-lg db-s-' + p.key + '">' + esc(p.label) + ' <b>' + fmtNum(p.n) + '</b>' +
+      '<span class="db-lg-pct">' + pct1(pct(p.n)) + '</span></span>').join('') +
+  '</div>';
+  return '<div class="card db-share">' +
+    '<div class="card-head db-share-head">' +
+      '<h3 class="card-title">สัดส่วนการตอบ (24 ชม.)' +
+        infoTip('แชททั้งหมดใน 24 ชม.ล่าสุด แบ่งตามสถานะตอนนี้ • แอดมินตอบ = แอดมินตอบแล้ว • ' +
+          'ตอบอัตโนมัติ = บอตตอบแล้ว • รอตอบ = ลูกค้าทักมาแล้วยังไม่มีใครตอบ', 'สัดส่วนการตอบ') +
+      '</h3>' +
+      (types.length ? '<div class="db-share-types">บทสนทนา: ' + types.join(' · ') + '</div>' : '') +
+      nowBadge_() +
+    '</div>' +
+    (sh.base ? bar + legend : stateHtml('wait', { title: 'ยังไม่มีแชทใน 24 ชม.ล่าสุด', body: '' })) +
+  '</div>';
+}
+
+function weekCardHtml(data: DashData): string {
+  const week = data.week;
+  const body = (week && week.length)
+    ? svgWeekBars(week)
+    : stateHtml('nodata', { body: 'ลองเลือกช่วงวันที่อื่น' });
+  // กราฟยึดวันท้ายของช่วงที่เลือก แต่กว้าง 7-14 วันเสมอ (server เป็นคนตัดสิน + ส่ง weekLabel มา)
+  const note = data.weekNote ? ' • ' + esc(data.weekNote) : '';
+  // กราฟเหลือชุดเดียว (ข้อความที่ลูกค้าส่ง) — เพจส่งเป็นอัตราส่วนใต้แต่ละวัน (lib/ui/charts.ts svgWeekBars)
+  // จึงไม่มีช่องสีคำอธิบาย 2 สีแบบเดิมอีกแล้ว
+  return '<div class="card db-week">' +
+    '<div class="card-head"><h3 class="card-title">ปริมาณข้อความ ' + esc(data.weekLabel || '7 วันล่าสุด') +
+      infoTip('ตัวเลขเป็นจำนวน "ข้อความ" ไม่ใช่จำนวนบทสนทนา • เพจส่งสคริปต์ขายทีละหลายข้อความ ' +
+        '(รวมบอต/บรอดแคสต์) จึงมากกว่าลูกค้าหลายเท่าเป็นปกติ ไม่ใช่ข้อมูลผิด • ' +
+        'เพจ 10.5:1 = เพจส่ง 10.5 ข้อความ ต่อลูกค้า 1 ข้อความ', 'ปริมาณข้อความ') +
+    '</h3></div>' +
+    '<div class="card-sub">แท่ง = ข้อความที่ลูกค้าส่ง · ใต้วัน = เพจส่งกี่ข้อความต่อ 1 ข้อความลูกค้า' + note + '</div>' +
+    body + '</div>';
 }
 
 function tagsCardHtml(tags?: TagItem[]): string {
   let body: string;
   if (tags && tags.length) {
+    // สีจุดของแท็กคำนวณจากชื่อแท็ก (tagColor) — ค่าเปลี่ยนตามข้อมูลจึงต้องอยู่ใน style ของแต่ละจุด
     body = '<div class="tag-cloud">' + tags.map((t) => {
-      return '<span class="chip"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;' +
-        'background:' + tagColor(t.name) + ';margin-right:5px;vertical-align:middle"></span>' + esc(t.name) +
-        ' <b style="opacity:.65">×' + fmtNum(t.count) + '</b></span>';
+      return '<span class="chip"><span class="tag-dot db-tag-dot" style="background:' + tagColor(t.name) + '"></span>' +
+        esc(t.name) + ' <b class="db-tag-n">×' + fmtNum(t.count) + '</b></span>';
     }).join('') + '</div>';
   } else {
-    body = '<div class="empty-note">ยังไม่มีแท็ก</div>';
+    body = stateHtml('nodata', { title: 'ยังไม่มีแท็กใน 24 ชม.ล่าสุด', body: '' });
   }
-  return '<div class="card">' +
-    '<h3>แท็กที่ใช้บ่อย</h3>' +
+  return '<div class="card db-tags">' +
+    '<div class="card-head"><h3 class="card-title">แท็กที่ใช้บ่อย</h3></div>' +
     '<div class="card-sub">นับจากบทสนทนาใน 24 ชม.ล่าสุด' + nowBadge_() + '</div>' +
     body + '</div>';
 }
@@ -316,31 +342,32 @@ function tagsCardHtml(tags?: TagItem[]): string {
  * แถบแนวนอนรายเพจ + โลโก้ช่องทางหน้าชื่อเพจ
  * ทำไมไม่ใช้ hbarRows(): มัน escape ป้ายทั้งก้อน ใส่ <svg> โลโก้ไม่ได้ (เดิมเลยใช้อีโมจิในป้ายแทน)
  * จึงประกอบเองด้วยโครง/คลาสเดียวกับ hbarRows ทุกตัว — CSS ของ .hbar-* ใช้ได้เหมือนเดิม
+ * ห่อด้วย .hbar-wide (ช่องชื่อยืดได้ถึง 280px) — ชื่อเพจไทยยาว ช่อง 130px เดิมตัดจนทุกแถวหน้าตาเหมือนกัน (G3)
  */
-function pageBarRows_(pages: ByPageItem[] | undefined, cls: string, empty: string): string {
+function pageBarRows_(pages: ByPageItem[] | undefined, cls: string, emptyTitle: string): string {
   const items = (pages || []).map((p) => ({ name: String(p.name || '-'), pf: p.platform, value: Number(p.count) || 0 }));
-  if (!items.length) return '<div class="empty-note">' + esc(empty) + '</div>';
+  if (!items.length) return stateHtml('nodata', { title: emptyTitle, body: '' });
   const max = Math.max(...items.map((it) => it.value).concat([1]));
-  return items.map((it) => {
+  return '<div class="hbar-wide">' + items.map((it) => {
     const w = Math.round((it.value / max) * 100);
     return '<div class="hbar-row">' +
       '<div class="hbar-label" title="' + esc(it.name) + '">' + channelIcon_(it.pf) + ' ' + esc(it.name) + '</div>' +
       '<div class="hbar-track"><div class="hbar-fill ' + cls + '" style="width:' + w + '%"></div></div>' +
       '<div class="hbar-num">' + esc(fmtNum(it.value)) + '</div></div>';
-  }).join('');
+  }).join('') + '</div>';
 }
 
 function byPageCardHtml(byPage?: ByPageItem[]): string {
   return '<div class="card">' +
-    '<h3>แชทแยกตามเพจ (24 ชม.)</h3>' +
-    '<div class="card-sub">เพจที่ลูกค้าทักเยอะที่สุด (top 8)' + nowBadge_() + '</div>' +
-    pageBarRows_(byPage, 'blue', 'ยังไม่มีข้อมูล') + '</div>';
+    '<div class="card-head"><h3 class="card-title">แชทแยกตามเพจ (24 ชม.)</h3></div>' +
+    '<div class="card-sub">เพจที่ลูกค้าทักเยอะที่สุด 8 เพจ' + nowBadge_() + '</div>' +
+    pageBarRows_(byPage, 'blue', 'ยังไม่มีแชทใน 24 ชม.ล่าสุด') + '</div>';
 }
 
 function commentByPageCardHtml(commentByPage?: ByPageItem[]): string {
   return '<div class="card">' +
-    '<h3>คอมเมนต์แยกตามเพจ (' + esc(rangeLabel) + ')</h3>' +
-    '<div class="card-sub">เพจที่ลูกค้าคอมเมนต์เยอะที่สุด (top 8) — จากสถิติรายชั่วโมงจริง</div>' +
+    '<div class="card-head"><h3 class="card-title">คอมเมนต์แยกตามเพจ (' + esc(rangeLabel) + ')</h3></div>' +
+    '<div class="card-sub">เพจที่ลูกค้าคอมเมนต์เยอะที่สุด 8 เพจ — จากสถิติรายชั่วโมงจริง</div>' +
     pageBarRows_(commentByPage, '', isTodayRange_() ? 'วันนี้ยังไม่มีคอมเมนต์' : 'ช่วงนี้ยังไม่มีคอมเมนต์') + '</div>';
 }
 
@@ -354,38 +381,58 @@ function waitLabel(mins: number | undefined): string {
   return 'รอ ' + fmtNum(m2) + ' นาที';
 }
 
-function attentionCardHtml(attention?: AttentionItem[]): string {
+/** สีของป้ายเวลารอ (B3 งบสีแดง): เกิน 4 ชม. = แดง · 1–4 ชม. = ส้ม · ไม่ถึงชั่วโมง = เทา
+ *  เดิมทุกแถวที่เกิน 1 ชม. ได้ป้าย "ด่วน" สีแดง + แถบแดงทุกแถว — 30 แถวแดงเท่ากันหมด ตาเลยไม่เห็นอะไร */
+function waitKind_(mins: number): StatusKind {
+  return mins > 240 ? 'bad' : mins >= 60 ? 'warn' : 'muted';
+}
+
+/**
+ * แชทรอตอบ (B3): หัวข้อบอกจำนวนทั้งหมด + แสดง 10 แชทที่รอนานที่สุด มีปุ่ม "ดูเพิ่ม" (ที่เหลือที่โหลดมา สูงสุด 30)
+ * แชทละ 1 แถว (จอคอม) — สีอยู่ที่ป้ายเวลารออย่างเดียว ไม่มีป้าย "ด่วน" และไม่มีแถบแดงทุกแถวแล้ว
+ */
+function attentionCardHtml(attention: AttentionItem[] | undefined, waitingTotal: number): string {
+  const all = attention || [];
+  const total = Math.max(waitingTotal, all.length);
+  const shown = attnAll ? all : all.slice(0, ATTN_FIRST);
   let body: string;
-  if (attention && attention.length) {
-    body = attention.slice(0, 30).map((a) => {
+  if (all.length) {
+    body = '<div class="db-attn">' + shown.map((a) => {
       const mins = Number(a.waitMins) || 0;
-      const urgent = mins >= 60; // รอเกิน 1 ชม. = ด่วน
       // เปิดแชทนี้ใน Pancake web (แท็บใหม่) — id บทสนทนา = "{pageId}_{เลขแชท}"
       const pancakeUrl = 'https://pancake.vn/' + encodeURIComponent(String(a.pageId || '')) +
         '?c_id=' + encodeURIComponent(String(a.id || ''));
-      return '<div class="attn-item' + (urgent ? ' urgent' : '') + '">' +
-        avatarHtml(a.id, a.customer) +
-        '<div class="attn-body">' +
-        '<div class="attn-name">' + esc(a.customer || '-') +
-        ' ' + channelIcon_(a.platform) +
-        (urgent ? ' ' + statusPill('bad', 'ด่วน') : '') +
-        ' <span class="badge admin">' + esc(waitLabel(a.waitMins)) + '</span></div>' +
-        '<div class="attn-snippet">' + esc(a.snippet || '') + '</div>' +
+      const who = String(a.customer || '-');
+      return '<div class="db-attn-row">' +
+        avatarHtml(a.id, a.customer, undefined, 'sm') +
+        '<div class="db-attn-who">' +
+          '<span class="db-attn-name">' + esc(who) + '</span>' + channelIcon_(a.platform) +
         '</div>' +
-        // ⚠️ ต้องเป็นคลาส ไม่ใช่ style="flex-shrink:0" ฝังใน HTML — บล็อกนี้ไม่ยอมหด
-        // ช่องชื่อจึงถูกบีบจนแคบกว่าป้าย "รอ 22 ชม." ป้ายเลยยื่นพ้นออกไปนอกกล่องบนมือถือ
-        '<div class="attn-actions">' +
-        '<a class="btn-mini" href="' + esc(pancakeUrl) + '" target="_blank" rel="noopener" ' +
-          'title="เปิดแชทนี้ใน Pancake (แท็บใหม่)">' + icon(ICON_FOR.open, { size: 14 }) + 'เปิดใน Pancake</a>' +
-        '<div class="attn-page">' + esc(a.pageName || '') + '</div>' +
-        '</div></div>';
-    }).join('');
+        '<div class="db-attn-snip">' + esc(a.snippet || '') + '</div>' +
+        '<div class="db-attn-page" title="' + esc(a.pageName || '') + '">' + esc(a.pageName || '') + '</div>' +
+        '<div class="db-attn-wait">' + statusPill(waitKind_(mins), esc(waitLabel(a.waitMins))) + '</div>' +
+        '<a class="btn-text db-attn-open" href="' + esc(pancakeUrl) + '" target="_blank" rel="noopener"' +
+          ' aria-label="' + esc('เปิดแชทของ ' + who + ' ใน Pancake (แท็บใหม่)') + '">' +
+          icon(ICON_FOR.open, { size: 14 }) + 'เปิดใน Pancake</a>' +
+      '</div>';
+    }).join('') + '</div>';
+    if (all.length > ATTN_FIRST) {
+      body += '<div class="db-attn-more"><button type="button" class="btn-text" id="db-attn-more" aria-expanded="' +
+        (attnAll ? 'true' : 'false') + '">' +
+        (attnAll ? icon(ICON_FOR.collapse, { size: 16 }) + 'ย่อเหลือ ' + ATTN_FIRST + ' แชท'
+          : icon(ICON_FOR.expand, { size: 16 }) + 'ดูเพิ่ม (อีก ' + fmtNum(all.length - ATTN_FIRST) + ' แชท)') +
+        '</button></div>';
+    }
   } else {
-    body = '<div class="empty-note">ไม่มีแชทค้างรอแอดมิน</div>';
+    body = stateHtml('nodata', { title: 'ไม่มีแชทค้างรอแอดมิน', body: 'ตอนนี้ตอบครบทุกแชทแล้ว' });
   }
-  return '<div class="card">' +
-    '<h3>แชทที่รอแอดมินตอบ</h3>' +
-    '<div class="card-sub">เรียงจากรอนานที่สุด — กด "เปิดใน Pancake" เพื่อไปตอบในแท็บใหม่' + nowBadge_() + '</div>' +
+  const meta = all.length
+    ? '<span class="db-attn-meta"> • แสดง ' + fmtNum(shown.length) + ' แชทที่รอนานที่สุด</span>'
+    : '';
+  return '<div class="card db-attn-card" id="db-attn-card">' +
+    '<div class="card-head"><h3 class="card-title">แชทรอตอบ ' + fmtNum(total) + meta + '</h3></div>' +
+    '<div class="card-sub">กด "เปิดใน Pancake" เพื่อไปตอบในแท็บใหม่ • สีป้ายเวลา: ส้ม = รอ 1–4 ชม. · แดง = เกิน 4 ชม.' +
+      nowBadge_() + '</div>' +
     body + '</div>';
 }
 
@@ -394,21 +441,20 @@ function bodyHtml(data: DashData): string {
   // ป้ายช่วงเวลาที่ helper ด้านล่างใช้ร่วมกัน — ตั้งก่อนประกอบ HTML ทุกครั้ง
   rangeLabel = (data && data.rangeLabel) || 'วันนี้';
   rangeDays = Number(data && data.rangeDays) || 1;
+  // ลำดับ: ตัวเลข → แถบสัดส่วนการตอบ → กราฟ 7 วัน (กว้างขึ้น เพราะไม่ต้องแบ่งที่ให้โดนัทแล้ว) คู่แท็ก
+  // → แชท/คอมเมนต์แยกเพจ → แชทรอตอบ
   return statGridHtml(k, data.donut) +
-    '<div class="dash-row">' +
+    shareStripHtml(data.donut, data.byType) +
+    '<div class="dash-row db-row-main">' +
       weekCardHtml(data) +
-      donutCardHtml(k, data.donut) +
-    '</div>' +
-    '<div class="dash-row">' +
-      byTypeCardHtml(data.byType) +
       tagsCardHtml(data.tags) +
     '</div>' +
-    '<div class="dash-row">' +
+    '<div class="dash-row half">' +
       byPageCardHtml(data.byPage) +
       commentByPageCardHtml(data.commentByPage) +
     '</div>' +
     '<div class="dash-row single">' +
-      attentionCardHtml(data.attention) +
+      attentionCardHtml(data.attention, Number(k.waiting) || 0) +
     '</div>';
 }
 
@@ -449,10 +495,28 @@ function bindControls(container: HTMLElement): void {
   });
 }
 
+/** ปุ่ม "ดูเพิ่ม / ย่อ" ของแชทรอตอบ — วาดใหม่เฉพาะการ์ดนี้ (กราฟข้างบนไม่ต้องวาดใหม่ ทูลทิปกราฟไม่หาย) */
+function bindAttnMore(container: HTMLElement): void {
+  const btn = container.querySelector<HTMLElement>('#db-attn-more');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    attnAll = !attnAll;
+    const card = container.querySelector<HTMLElement>('#db-attn-card');
+    const d = lastData;
+    if (!card || !d) return;
+    card.outerHTML = attentionCardHtml(d.attention, Number(d.kpis && d.kpis.waiting) || 0);
+    bindAttnMore(container);
+    // คืนโฟกัสให้ปุ่มเดิม (ปุ่มถูกวาดใหม่) — คนใช้คีย์บอร์ดกดสลับต่อได้ ไม่หลุดไปบนสุดของหน้า
+    const again = container.querySelector<HTMLElement>('#db-attn-more');
+    if (again) again.focus({ preventScroll: true });
+  });
+}
+
 function render(container: HTMLElement, data?: DashData | null): void {
   container.innerHTML = '<div id="dash-controls">' + controlsHtml() + '</div>' +
     '<div id="dash-body">' + bodyHtml(data || {}) + '</div>';
   bindControls(container);
+  bindAttnMore(container);
   bindChartTips(container); // ทูลทิป hover ของกราฟแท่งรายวัน
 }
 
@@ -466,7 +530,10 @@ function fetchAndRender(container: HTMLElement): void {
     if (seq !== reqSeq) return;
     if (lastData) {
       // มีข้อมูลเดิมแสดงอยู่ — แจ้งเตือนเฉยๆ ไม่ทำลายหน้า
-      toast('โหลดข้อมูลใหม่ไม่สำเร็จ: ' + ((err && err.message) || 'ไม่ทราบสาเหตุ'));
+      // ข้อความดิบจากเซิร์ฟเวอร์ไม่ขึ้นให้ทีมเห็น (D3) — มีปุ่มลองใหม่ในข้อความแทน
+      toast('โหลดข้อมูลใหม่ไม่สำเร็จ — ยังแสดงข้อมูลเดิมอยู่', 'error', {
+        action: { label: 'ลองใหม่', fn: () => fetchAndRender(container) },
+      });
     } else {
       hideChartTip(); // หน้าเปลี่ยนเป็นกล่อง error — ซ่อนทูลทิปที่อาจค้าง
       showError(container, (err && err.message) || 'เรียกข้อมูลไม่สำเร็จ', () => {
