@@ -1358,7 +1358,7 @@ function toolbarHtml(depts: string[], groups: string[], slaMins: number, d: Admi
       '</div>' +
       '<div class="tb-actions">' +
         '<div class="adm-viewsw" role="group" aria-label="รูปแบบการแสดง">' +
-          vsw('rows', 'list', 'แถว') + vsw('cards', 'layout-dashboard', 'การ์ด') +
+          vsw('cards', 'layout-dashboard', 'การ์ด') + vsw('rows', 'list', 'แถว') +   // การ์ด = ค่าเริ่มต้น จึงอยู่ซ้าย
         '</div>' +
         '<button type="button" class="btn" id="adm-sla" title="แชทที่ลูกค้ารอเกินกี่นาทีถือว่าเกิน SLA (ใช้ร่วมกับหน้าอันดับแอดมิน)">' +
           icon(ICON_FOR.time) + 'SLA ' + slaMins + ' น.</button>' +
