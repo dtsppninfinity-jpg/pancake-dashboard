@@ -45,6 +45,10 @@ let marketData: { sinceDate: string; units: MarketRow[] } | null = null;
 let marketFailed = false;
 let reqSeq = 0;
 let mkReq = 0;
+/** ส่วนซื้อซ้ำกำลังโหลดอยู่ไหม — กันรีเฟรชอัตโนมัติ 5 นาทีมาเริ่มคำขอใหม่ทับ (ตัวนี้สแกนออเดอร์ทุกใบตั้งแต่ 23 พ.ค.) */
+let mkLoading = false;
+/** ตัวเฝ้าว่าผู้ใช้เลื่อนมาใกล้ส่วนซื้อซ้ำหรือยัง (ดู watchMarket_) */
+let mkObserver: IntersectionObserver | null = null;
 const state = { month: 0 };
 
 const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
@@ -320,7 +324,28 @@ function render(container: HTMLElement, d: ReportData | null): void {
       marketHtml_() +
     '</div>';
   bindEvents(container);
-  if (!marketData && !marketFailed) fetchMarket(container); // โหลดครั้งแรกครั้งเดียว — แคชไว้ทั้ง session
+  if (!marketData && !marketFailed) watchMarket_(container); // โหลดครั้งแรกครั้งเดียว — แคชไว้ทั้ง session
+}
+
+/**
+ * ส่วนซื้อซ้ำอยู่ใต้ตาราง 2 ใบ และต้องสแกนออเดอร์ทุกใบตั้งแต่ 23 พ.ค. (~18 หมื่นแถว ~6 วิ ~20 MB จากฐาน)
+ * เดิมเริ่มโหลดทันทีที่เปิดหน้าแม้ผู้ใช้ไม่เลื่อนลงไปดู → เริ่มโหลดเมื่อเลื่อนมาใกล้ (เผื่อล่วงหน้า 800px)
+ * เบราว์เซอร์ที่ไม่มี IntersectionObserver = โหลดทันทีแบบเดิม
+ */
+function watchMarket_(container: HTMLElement): void {
+  if (mkObserver) { mkObserver.disconnect(); mkObserver = null; }
+  if (mkLoading) return;
+  const box = container.querySelector('#rp-market');
+  if (!box) return;
+  if (typeof IntersectionObserver === 'undefined') { fetchMarket(container); return; }
+  const ob = new IntersectionObserver(function (entries) {
+    if (!entries.some(function (e) { return e.isIntersecting; })) return;
+    ob.disconnect();
+    if (mkObserver === ob) mkObserver = null;
+    if (!marketData && !marketFailed && !mkLoading) fetchMarket(container);
+  }, { rootMargin: '800px 0px' });
+  mkObserver = ob;
+  ob.observe(box);
 }
 
 function bindMarket_(container: HTMLElement): void {
@@ -336,13 +361,16 @@ function bindMarket_(container: HTMLElement): void {
 
 function fetchMarket(container: HTMLElement): void {
   const seq = ++mkReq;
+  mkLoading = true;
   serverCall<any>('apiReport', { section: 'marketing' }).then(function (res) {
     if (seq !== mkReq) return;
+    mkLoading = false;
     marketData = res;
     const box = container.querySelector('#rp-market');
     if (box) { box.outerHTML = marketHtml_(); bindMarket_(container); }
   }).catch(function () {
     if (seq !== mkReq) return;
+    mkLoading = false;
     marketFailed = true;
     const box = container.querySelector('#rp-market');
     if (box) { box.outerHTML = marketHtml_(); bindMarket_(container); }

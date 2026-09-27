@@ -906,10 +906,6 @@ const App = {
     watchPressed(); // ชิปตัวกรอง .filter-btn → aria-pressed ตาม .active
     bindHistory();  // # ต่อหน้า + ปุ่มย้อนกลับ
     bindBackTop();  // ปุ่มกลับขึ้นบน
-    serverCall<Bootstrap>('apiBootstrap').then(function (b) {
-      self.state.bootstrap = b;
-      self.renderSyncInfo(b);
-    }).catch(function () { self.renderSyncInfo(null); });
     // หน้าแรก: # ในลิงก์ (รีเฟรช/ลิงก์ที่ส่งต่อกัน) ถ้าสิทธิ์นี้เปิดได้ — ไม่งั้นหน้าแรกของสิทธิ์
     // (page.tsx บอกมาทาง data-first-view · ระดับแอดมินเริ่มที่ "ผลงานของฉัน")
     // # ของหน้าที่เปิดไม่ได้ → เขียน # ใหม่เป็นหน้าแรกของเขา (replace — ไม่เพิ่มประวัติ)
@@ -917,7 +913,15 @@ const App = {
     const start = canOpenView(fromHash) ? fromHash : firstViewOf();
     this.switchView(start, { history: 'replace', initial: true });
     document.documentElement.removeAttribute('data-boot-view');   // ชื่อหน้าถูกแล้ว — โชว์หัวเว็บ (ดู page.tsx)
-    refreshNavBadges(); // ตัวเลขบนแท็บ ยอดขาย / โฆษณา
+    // สถานะความสดบนหัวเว็บ + ตัวเลขบนแท็บ ยอดขาย / โฆษณา — ยิงตามหลังหน้าแรก ~1.2 วิ
+    // เดิมยิงพร้อมกัน 3 คำขอตอนเปิดเว็บ สองตัวนี้ (sync_log 2,500 แถว + ค่าแอด 7 วัน) แย่งฐานกับข้อมูลหน้าแรกที่ผู้ใช้กำลังรอ
+    setTimeout(function () {
+      serverCall<Bootstrap>('apiBootstrap').then(function (b) {
+        self.state.bootstrap = b;
+        self.renderSyncInfo(b);
+      }).catch(function () { self.renderSyncInfo(null); });
+      refreshNavBadges();
+    }, 1200);
     try { localStorage.removeItem(OLD_BADGE_SEEN_KEY); } catch (e) {}
     // รีเฟรชหน้าปัจจุบันอัตโนมัติทุก 5 นาที — แบบเบื้องหลัง (force=false = render จาก cache
     // แล้วค่อยดึงใหม่) และข้ามรอบถ้าแท็บถูกซ่อนหรือผู้ใช้กำลังพิมพ์/เลือกค่าอยู่

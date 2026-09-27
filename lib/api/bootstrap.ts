@@ -29,6 +29,21 @@ function toBool_(v: unknown): boolean {
  * ================================================================ */
 
 export async function apiBootstrap(_params?: unknown) {
+  // 4 แหล่งข้างล่างไม่พึ่งกัน — เริ่มดึงพร้อมกันทั้งหมด (เดิมรอทีละตัว 4 ต่อ) แล้วใช้ตามลำดับเดิม
+  // พลาดแต่ละตัว = ทางเดิมของตัวนั้น (pages โยน error ต่อ / sync_log ว่าง / 2 ตัวหลังเงียบ)
+  const noop_ = () => undefined;
+  // sync_log: เอาเฉพาะช่วงท้าย (พอครอบ >26 ชม. = ทุกงานรวมงานรายวัน) แล้วเรียงเก่า→ใหม่
+  // เดิม fetchAll ทั้งตาราง (หลักหมื่นแถว) — เปลืองเวลาเปล่าเพราะใช้แค่แถวล่าสุดต่อ job
+  // 2500 แถว ≈ 2 วัน ที่อัตราปัจจุบัน (~1,200 แถว/วัน) — ต้องเกิน 26 ชม.เสมอ ไม่งั้นงานรายวันจะหลุดจอ
+  // ⚡ ไม่ดึง message ของทั้ง 2500 แถว (ข้อความไทยยาวถึง 1,000 ตัว = ก้อนใหญ่สุดของคำขอ เรียกทุก 5 นาทีต่อแท็บ)
+  //    ใช้จริงแค่ข้อความแถวล่าสุดของแต่ละงาน (~40 แถว) → ดึงตามหลังด้วย id
+  const logP = Promise.resolve(db.from('sync_log')
+    .select('id,ts,job,ok').order('id', { ascending: false }).limit(2500));
+  logP.catch(noop_);
+  const statP = Promise.resolve(db.from('sync_state').select('key,value').like('key', JOB_STAT_PREFIX + '%'));
+  statP.catch(noop_);
+  const deltaP = Promise.resolve(db.from('sync_state').select('value').eq('key', 'last_delta_at').maybeSingle());
+  deltaP.catch(noop_);
   // pages: ตารางเล็ก — แต่ใช้ fetchAll กันพลาด (คอลัมน์ = page_id, name, platform)
   const pageRows = await fetchAll<{ page_id: unknown; name: unknown; platform: unknown }>(
     () => db.from('pages').select('page_id,name,platform'),
@@ -40,12 +55,19 @@ export async function apiBootstrap(_params?: unknown) {
     platform: String(p.platform),
   }));
 
-  // sync_log: เอาเฉพาะช่วงท้าย (พอครอบ >26 ชม. = ทุกงานรวมงานรายวัน) แล้วเรียงเก่า→ใหม่
-  // เดิม fetchAll ทั้งตาราง (หลักหมื่นแถว) — เปลืองเวลาเปล่าเพราะใช้แค่แถวล่าสุดต่อ job
-  // 2500 แถว ≈ 2 วัน ที่อัตราปัจจุบัน (~1,200 แถว/วัน) — ต้องเกิน 26 ชม.เสมอ ไม่งั้นงานรายวันจะหลุดจอ
-  const { data: logRows } = await db.from('sync_log')
-    .select('ts,job,ok,message').order('id', { ascending: false }).limit(2500);
-  const logs = (logRows || []).slice().reverse();
+  const { data: logRows } = await logP;
+  const logs = ((logRows || []) as any[]).slice().reverse();
+  // ข้อความของแถวล่าสุดต่องาน (แถวที่ lastByJob ข้างล่างจะเก็บ) — ดึงเฉพาะ id พวกนั้น
+  const lastIdByJob: Record<string, unknown> = {};
+  logs.forEach((l) => { lastIdByJob[String(l.job)] = l.id; });
+  const msgById: Record<string, unknown> = {};
+  const lastIds = Object.keys(lastIdByJob).map((j) => lastIdByJob[j]);
+  if (lastIds.length) {
+    // พลาด = ข้อความว่าง (สถานะ/เวลายังถูก) — ข้อความโชว์แค่ในหน้าต่างปัญหา sync ของผู้ดูแล
+    const { data: msgRows } = await Promise.resolve(db.from('sync_log').select('id,message').in('id', lastIds as any[]))
+      .catch(() => ({ data: null }));
+    ((msgRows || []) as any[]).forEach((m) => { msgById[String(m.id)] = m.message; });
+  }
   const lastByJob: Record<string, { job: string; ts: string; ok: boolean; message: string }> = {};
   // นับ "ล้มติดกันกี่รอบล่าสุด" ต่อ job — Pancake ตอบ HTTP 500 เป็นครั้งคราวแล้วรอบถัดไปก็สำเร็จ
   // ถ้าเตือนตั้งแต่ครั้งแรกทีมจะเห็นไฟแดงกระพริบทั้งวันจนเลิกสนใจ (alarm fatigue)
@@ -58,7 +80,7 @@ export async function apiBootstrap(_params?: unknown) {
       job,
       ts: toDateTimeStr_(l.ts),
       ok,
-      message: String(l.message == null ? '' : l.message),
+      message: (function () { const m = msgById[String(l.id)]; return String(m == null ? '' : m); })(),
     };
   });
 
@@ -84,7 +106,7 @@ export async function apiBootstrap(_params?: unknown) {
   // ใบรายงานผลรอบล่าสุดของแต่ละงาน (เขียนโดย scripts/sync/index.ts) — ใช้แทนการ regex ข้อความ
   const jobStats: Record<string, StoredJobStat> = {};
   try {
-    const { data: statRows } = await db.from('sync_state').select('key,value').like('key', JOB_STAT_PREFIX + '%');
+    const { data: statRows } = await statP;
     (statRows || []).forEach((r: any) => {
       try {
         const s = JSON.parse(String(r.value || '{}')) as StoredJobStat;
@@ -96,7 +118,7 @@ export async function apiBootstrap(_params?: unknown) {
   // orders-delta ลงตาราง log เฉพาะตอนพัง (สำเร็จเก็บใน sync_state last_delta_at) — ต้องดูจาก state
   let deltaOkAgeMins: number | null = null;
   try {
-    const { data: dl } = await db.from('sync_state').select('value').eq('key', 'last_delta_at').maybeSingle();
+    const { data: dl } = await deltaP;
     const t = dl && dl.value ? new Date(String(dl.value)).getTime() : 0;
     if (t) deltaOkAgeMins = Math.round((nowMs - t) / 60000);
   } catch { /* ยังไม่เคยรัน */ }

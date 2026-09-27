@@ -10,13 +10,32 @@ const num_ = (v: unknown): number => {
   return isFinite(n) ? n : 0;
 };
 
-export async function apiNavBadges() {
+/* ---- แคชผลในหน่วยความจำของ server 3 นาที ----
+ * ทุกแท็บที่เปิดเว็บค้างไว้ยิงมาทุก 5 นาที และผลเหมือนกันทุกคน (ไม่ขึ้นกับผู้ใช้) — เดิมทุกครั้งไล่อ่าน ad_daily 7 วัน (~1 หมื่นแถว)
+ * ข้อมูลต้นทางอัปเดตทุก 15 นาทีอยู่แล้ว ป้ายช้ากว่าจริงได้ไม่เกิน 3 นาที · key = วันเริ่มหน้าต่าง 7 วัน (ข้ามเที่ยงคืนแล้วไม่ใช้ของเมื่อวาน)
+ * เก็บเป็น promise — คำขอที่มาพร้อมกันใช้การคำนวณเดียวกัน · พลาด = ไม่เก็บ (รอบหน้าคำนวณใหม่) */
+const BADGE_TTL_MS = 3 * 60 * 1000;
+let badgeCache_: { key: string; at: number; p: Promise<NavBadges> } | null = null;
+
+interface NavBadges { sales: { urgent: number; warn: number }; contentads: { urgent: number } }
+
+export function apiNavBadges(): Promise<NavBadges> {
+  const key = fmtDateBkk(daysAgo(6));
+  const now = Date.now();
+  if (badgeCache_ && badgeCache_.key === key && now - badgeCache_.at < BADGE_TTL_MS) return badgeCache_.p;
+  const p = computeNavBadges_(key);
+  badgeCache_ = { key, at: now, p };
+  p.catch(() => { if (badgeCache_ && badgeCache_.p === p) badgeCache_ = null; });
+  return p;
+}
+
+async function computeNavBadges_(since: string): Promise<NavBadges> {
   const [alertState, adRows] = await Promise.all([
     db.from('sync_state').select('value').eq('key', 'unit_loss_alerts').maybeSingle(),
     // หน้าต่าง 7 วันเดียวกับค่าเริ่มต้นของหน้า Content & Ads — เลขบน badge ต้องตรงกับที่เห็นเมื่อเปิดหน้า
     fetchAll<any>(() => db.from('ad_daily')
       .select('ad_id,status,spend,pos_orders,meta_purchase_value')
-      .gte('date', fmtDateBkk(daysAgo(6))), 'date,ad_id')
+      .gte('date', since), 'date,ad_id')
       .catch(() => [] as any[]),
   ]);
 

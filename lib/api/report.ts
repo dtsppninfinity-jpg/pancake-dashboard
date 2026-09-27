@@ -27,7 +27,8 @@ export async function apiReport(params: any) {
 
   /* ================= ส่วนการตลาด (ซื้อซ้ำรายยูนิต) — เรียกแยก หนักกว่าส่วนรายงาน ================= */
   if (p.section === 'marketing') {
-    const pageUnit = await getPageUnitMap().catch(() => ({} as Record<string, { u: string; product: string }>));
+    // แผนที่เพจ→ยูนิตไม่พึ่งออเดอร์ — เริ่มดึงพร้อมกัน (เดิมรอแผนที่เสร็จก่อนค่อยเริ่มสแกนออเดอร์)
+    const pageUnitP = getPageUnitMap().catch(() => ({} as Record<string, { u: string; product: string }>));
     // ออเดอร์ทั้งหมดตั้งแต่ระบบเริ่มมีข้อมูลจริง (23 พ.ค. 2026) — คอลัมน์น้อยที่สุด
     // ตัดออเดอร์เปล่า (ไม่มีสินค้า + ยอด 0) ที่ฐานเลย — เท่ากับ !isPlaceholderOrder ทุกกรณีรวม NULL
     // ออเดอร์เปล่ามี ~35% ของทั้งหมด (27 ก.ย.: 97k จาก 276k แถว) เดิมดึงมาทิ้งทุกครั้งที่เปิดหน้า
@@ -42,6 +43,7 @@ export async function apiReport(params: any) {
       // จำนวนคิวรีพร้อมกันจริงยังโดน MAX_INFLIGHT=12 ใน db.ts คุมอยู่ (ค่าที่วัดแล้วว่าฐานรับไหว)
       { pool: 4 },
     );
+    const pageUnit = await pageUnitP;
     // per unit per customer → รายการเวลาซื้อ
     const cust: Record<string, Record<string, number[]>> = {};
     orders.forEach((o) => {

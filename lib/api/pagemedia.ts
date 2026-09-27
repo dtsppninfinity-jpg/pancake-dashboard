@@ -61,16 +61,21 @@ export async function apiPageMedia(params: any) {
     db.from('ad_daily')
       .select('date,ad_id,name,status,spend,msgs_started,meta_purchases,meta_purchase_value')
       .eq('page_id', pageId).gte('date', f).lte('date', t),
-    `${year}-01-01`, `${year}-12-31`, { orderColumn: 'date,ad_id' });
+    // เพจเดียวทั้งปีมีแค่หลักพันแถว — ก้อนละ 92 วัน × 4 ก้อนพร้อมกัน (เดิมก้อนละ 7 วัน ทีละ 2 = 27 รอบรอ
+    // ครึ่งหนึ่งเป็นสัปดาห์อนาคตที่ว่างเปล่า) · ลำดับรวมยังเป็น date,ad_id เหมือนเดิม (ก้อนต่อกันตามวัน)
+    `${year}-01-01`, `${year}-12-31`, { orderColumn: 'date,ad_id', sliceDays: 92, pool: 4 });
 
   // creative ของแอดที่เกี่ยว — .in() ทีละก้อน 150 ตัว (URL ยาวเกินลิมิตถ้ายัดทีเดียว)
   const adIds = Array.from(new Set(rows.map((r) => String(r.ad_id)))).filter(Boolean);
+  // ทุกก้อนยิงพร้อมกัน (เดิมทีละก้อน) แล้วรวมตามลำดับก้อนเดิม — ก้อนที่พลาดตัดตั้งแต่ก้อนนั้น เหมือน break เดิม
   const creatives: Record<string, any> = {};
-  for (let i = 0; i < adIds.length; i += 150) {
-    const chunk = adIds.slice(i, i + 150);
-    const { data, error } = await db.from('ad_creative')
-      .select('ad_id,name,thumb_url,image_url,video_id,post_id,permalink,object_type')
-      .in('ad_id', chunk);
+  const crChunks: string[][] = [];
+  for (let i = 0; i < adIds.length; i += 150) crChunks.push(adIds.slice(i, i + 150));
+  const crRes = await Promise.all(crChunks.map((chunk) => db.from('ad_creative')
+    .select('ad_id,name,thumb_url,image_url,video_id,post_id,permalink,object_type')
+    .in('ad_id', chunk)
+    .then((x) => x, (e) => ({ data: null, error: e }))));
+  for (const { data, error } of crRes) {
     if (error) break; // ตารางยังไม่ถูกสร้าง → แสดงแบบไม่มีรูป/ไม่รวมโพสต์
     (data || []).forEach((c: any) => { creatives[String(c.ad_id)] = c; });
   }
