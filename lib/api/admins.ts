@@ -137,7 +137,7 @@ export async function apiAdmins(_params?: any) {
   // log ออนไลน์: เอาย้อนถึง 26 ชม.ก่อนต้นวัน เพื่อได้ baseline สถานะตอนเที่ยงคืน
   const logSinceIso = new Date(todayStartTime - 26 * 3600 * 1000).toISOString();
 
-  const [adminsRows, chatDailyRows, engDailyRows, orderRows, convRows, settingsRows, onlineLogRows, rolePermsRow, appSettings] =
+  const [adminsRows, chatDailyRows, engDailyRows, orderRows, convRows, settingsRows, onlineLogRows, rolePermsRow, appSettings, firstLogAt] =
     await Promise.all([
       // Admins — ตารางเล็ก
       fetchAll<any>(() =>
@@ -196,6 +196,18 @@ export async function apiAdmins(_params?: any) {
       db.from('sync_state').select('value').eq('key', 'admin_role_permissions').maybeSingle(),
       // ตั้งค่ากลาง (เกณฑ์ SLA เป็นนาที — แก้ได้จากหน้าเว็บ)
       getAppSettings(),
+      // log แถวแรกสุดของทั้งระบบ (ใช้ข้างล่าง) — เดิมรอให้ทุกตัวข้างบนเสร็จก่อนค่อยยิง เสีย 1 รอบรอเปล่าๆ
+      (async () => {
+        try {
+          const { data: b } = await db
+            .from('admin_online_log')
+            .select('changed_at')
+            .order('changed_at', { ascending: true })
+            .limit(1)
+            .maybeSingle();
+          return b ? toDate_(b.changed_at) : null;
+        } catch { return null; }
+      })(),
     ]);
 
   const setupNeeded = settingsRows === null; // ยังไม่ได้รัน migration
@@ -204,16 +216,8 @@ export async function apiAdmins(_params?: any) {
   // (กันเคสแอดมินที่ออนไลน์/ออฟไลน์ยาวๆ ไม่เคย flip เลย ค้างเป็น "รอเก็บข้อมูล" ตลอดกาล)
   let logAliveBeforeToday = false;
   if (onlineLogRows !== null) {
-    try {
-      const { data: b } = await db
-        .from('admin_online_log')
-        .select('changed_at')
-        .order('changed_at', { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      const bd = b ? toDate_(b.changed_at) : null;
-      logAliveBeforeToday = !!bd && bd.getTime() < todayStartTime;
-    } catch { logAliveBeforeToday = false; }
+    const bd = firstLogAt;
+    logAliveBeforeToday = !!bd && bd.getTime() < todayStartTime;
   }
 
   // สถิติแชทวันนี้ต่อ user_id (รวมทุกเพจ) + เร็วสุด/ช้าสุดรายเพจ (min/max ของ avg รายเพจ)
