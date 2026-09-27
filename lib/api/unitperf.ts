@@ -66,6 +66,29 @@ async function rpcAll_(fn: string, args: any, orderCols: string[]): Promise<RpcR
   return { rows: out, failed: null };
 }
 
+/**
+ * RPC รายวันต่อเพจ แบ่งช่วงวันเป็นก้อนละ 7 วันแล้วยิงพร้อมกัน
+ * ทำไม: ทั้งเดือน ~1,900 แถว เกินเพดาน 1,000 → rpcAll_ ต้องขอ 2-3 หน้า "ทีละหน้า" และทุกหน้าให้ฐานรวมยอด
+ * ทั้งเดือนใหม่ตั้งแต่ต้น (OFFSET บนผล GROUP BY) — วัดจริง 27 ก.ย.: ทั้งเดือน 0.7 วิ → 4 ก้อนพร้อมกัน 0.2 วิ แถวเท่ากันเป๊ะ
+ * ก้อนแบ่งที่เส้นวัน (กลุ่มของ RPC มีวันอยู่ในคีย์) ไม่มีกลุ่มคร่อมก้อน · ต่อก้อนเรียงตามวัน = ลำดับเดียวกับ ORDER BY ทั้งเดือน
+ * argsOf(fromYmd, toYmd) = args ของก้อน [fromYmd..toYmd] รวมปลายทั้งคู่ · ก้อนไหนพลาด = ทั้งชุดพลาดแบบเดิม
+ */
+async function rpcByWeek_(fn: string, fromYmd: string, toYmd: string,
+  argsOf: (f: string, t: string) => any, orderCols: string[]): Promise<RpcResult> {
+  const wins: Array<[string, string]> = [];
+  for (let f = fromYmd; f <= toYmd; f = ymdShift_(f, 7)) {
+    const t = ymdShift_(f, 6);
+    wins.push([f, t < toYmd ? t : toYmd]);
+  }
+  if (!wins.length) return rpcAll_(fn, argsOf(fromYmd, toYmd), orderCols);
+  const parts = await Promise.all(wins.map(([f, t]) => rpcAll_(fn, argsOf(f, t), orderCols)));
+  if (parts.some((p) => p.failed === 'migration')) return { rows: null, failed: 'migration' };
+  if (parts.some((p) => p.failed)) return { rows: null, failed: 'error' };
+  const rows: any[] = [];
+  parts.forEach((p) => { rows.push(...(p.rows || [])); });
+  return { rows, failed: null };
+}
+
 // pBase = คนทักฝั่ง Pancake (customer_engagements) · mBase = ฝั่ง Meta (first_reply + comment)
 // เก็บทั้งคู่เสมอ แล้วค่อยเลือกตอนรวมยอด — ดู metaOk ด้านล่าง (กติกาเดียวกับหน้า Sales)
 interface Daily { rev: number; orders: number; spend: number; pBase: number; mBase: number; profit: number | null }
@@ -102,14 +125,14 @@ export async function apiUnitPerf(params: any) {
     getUMapDoc().catch(() => ({ units: [] as any[], updatedAt: '' })),
     fetchAll<any>(() => db.from('pages').select('page_id,platform'), 'page_id').catch(() => [] as any[]),
     /* ยอดขาย/ออเดอร์ รายวันต่อเพจ (กติกาเดียวกับหน้า Sales) */
-    rpcAll_('sales_daily_by_page', {
-      p_from: bkkDayIso_(monthStart),
-      p_to: bkkDayIso_(ymdShift_(lastYmd, 1)),
+    rpcByWeek_('sales_daily_by_page', monthStart, lastYmd, (f, t) => ({
+      p_from: bkkDayIso_(f),
+      p_to: bkkDayIso_(ymdShift_(t, 1)),
       p_excluded: EXCLUDED_STATUSES,
       p_needcheck: NEED_CHECK_STATUSES,
-    }, ['d', 'page_id', 'channel']),
+    }), ['d', 'page_id', 'channel']),
     /* ค่าแอดรายวันต่อเพจ */
-    rpcAll_('ads_daily_by_page', { p_from: monthStart, p_to: lastYmd }, ['d', 'page_id']),
+    rpcByWeek_('ads_daily_by_page', monthStart, lastYmd, (f, t) => ({ p_from: f, p_to: t }), ['d', 'page_id']),
     /* คนทักรายวันต่อเพจ (เฉพาะเพจ Facebook — ตัวหารเดียวกับ %ปิด หน้า Sales) */
     fetchAll<any>(
       () => db.from('chat_engagement_daily').select('key,date,page_id,new_inbox,comment')

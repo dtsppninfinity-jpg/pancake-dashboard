@@ -773,13 +773,16 @@ async function loadDailyByPage_(r: Range): Promise<DailyRaw> {
   // (เจอจริง 21 ก.ย.: ช่วง 30 วัน = 2,074 แถว ได้มา 1,000 → ตารางโชว์ยอดหายไป 53% แบบเงียบๆ
   //  ตัวเลขยังดู "สมเหตุสมผล" เพราะหายกระจายทุกวัน ไม่ใช่หายทั้งวัน)
   // ต้องสั่ง order ครบทุกคอลัมน์ที่ group by ด้วย ไม่งั้นแบ่งหน้าแล้วแถวข้าม/ซ้ำ (group by ไม่การันตีลำดับ)
+  // ⚡ ช่วงยาว (30 วัน ~2,000 แถว) แบ่งเป็นก้อนละ 10 วันยิงพร้อมกัน — เดิมขอทีละหน้า และทุกหน้าให้ฐานรวมยอดทั้งช่วงใหม่
+  //    (OFFSET บนผล GROUP BY) · ก้อนแบ่งที่เส้นวัน (วันอยู่ในคีย์กลุ่ม) ต่อก้อนเรียงตามวัน = ลำดับเดียวกับ ORDER BY ทั้งช่วง
+  //    ช่วงสั้น (วันนี้ = 10 วัน) ยังเป็นก้อนเดียวเหมือนเดิม · ก้อนไหนพลาด = ทั้งชุดพลาดแบบเดิม
   const PAGE = 1000;
-  const rows: any[] = [];
-  try {
+  const loadWin = async (fromYmd: string, toYmd: string): Promise<{ rows: any[] | null; failed: 'migration' | 'error' | null }> => {
+    const rows: any[] = [];
     for (let off = 0; off <= 60000; off += PAGE) {
       const { data, error } = await db.rpc('sales_daily_by_page', {
-        p_from: bkkDayIso_(ymdShift_(startYmd, -1)),
-        p_to: bkkDayIso_(ymdShift_(endYmd, 1)),
+        p_from: bkkDayIso_(fromYmd),
+        p_to: bkkDayIso_(ymdShift_(toYmd, 1)),
         p_excluded: EXCLUDED_STATUSES,
         p_needcheck: NEED_CHECK_STATUSES,
       })
@@ -788,13 +791,25 @@ async function loadDailyByPage_(r: Range): Promise<DailyRaw> {
         .order('channel', { ascending: true })
         .range(off, off + PAGE - 1)
         .abortSignal(AbortSignal.timeout(20_000));
-      if (error) {
-        return { rows: null, failed: isMissingFunction_(error) ? 'migration' : 'error', startYmd, endYmd, widened };
-      }
+      if (error) return { rows: null, failed: isMissingFunction_(error) ? 'migration' : 'error' };
       const got = (data || []) as any[];
       rows.push(...got);
       if (got.length < PAGE) break;
     }
+    return { rows, failed: null };
+  };
+  try {
+    const firstYmd = ymdShift_(startYmd, -1);
+    const wins: Array<[string, string]> = [];
+    for (let f = firstYmd; f <= endYmd; f = ymdShift_(f, 10)) {
+      const t = ymdShift_(f, 9);
+      wins.push([f, t < endYmd ? t : endYmd]);
+    }
+    const parts = await Promise.all(wins.map(([f, t]) => loadWin(f, t)));
+    if (parts.some((p) => p.failed === 'migration')) return { rows: null, failed: 'migration', startYmd, endYmd, widened };
+    if (parts.some((p) => p.failed)) return { rows: null, failed: 'error', startYmd, endYmd, widened };
+    const rows: any[] = [];
+    parts.forEach((p) => { rows.push(...(p.rows || [])); });
     return { rows, failed: null, startYmd, endYmd, widened };
   } catch {
     return { rows: null, failed: 'error', startYmd, endYmd, widened };
