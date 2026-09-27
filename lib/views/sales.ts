@@ -1218,10 +1218,6 @@ function dsCell_(c: any, unitName: string, ymd: string, uCode?: string): string 
     dsDelta_(c && c.pct) + '</td>';
 }
 
-/** ป้ายสถานะรายวันจาก server (ถึงเป้า / ใกล้เป้า / ต่ำกว่าเป้า) → ป้ายสถานะกลาง
- *  ใกล้เป้า (80–99%) เดิมเป็นสีฟ้า → ส้ม ให้ตรงกติกาสีกลาง "ส้ม = เฝ้าดู" (ตรวจ UI ข้อ E3) */
-const DS_PILL: Record<string, StatusKind> = { ai: 'good', info: 'warn', urgent: 'bad', neutral: 'muted' };
-
 function dailySalesCard_(d: any, rangeLabel: string): string {
   const ds = d && d.dailySales;
   if (!ds) return '';
@@ -1269,19 +1265,14 @@ function dailySalesCard_(d: any, rangeLabel: string): string {
 
   const body = rows.map(function (row: any) {
     const isToday = row.date === todayYmd;
-    const st = row.status;
+    // คอลัมน์ "สถานะ" (ถึงเป้า/ต่ำกว่าเป้า รายวัน) เอาออกแล้ว — พีสั่ง 27 ก.ย. 69 (แดงทุกแถว ไม่ช่วยอะไร กินที่ตาราง)
+    // เป้ารวมของวันยังดูได้ใน tooltip ช่องรวมทุกยูนิต · server ยังส่ง row.status มา ถ้าจะเอากลับใช้ได้ทันที
     return '<tr>' +
       '<td class="ds-date"' + (isToday ? ' title="วันนี้ยังไม่จบวัน ตัวเลขยังขยับได้"' : '') + '>' +
         esc(dateTh(row.date)) + (isToday ? ' <span class="chip">วันนี้</span>' : '') + '</td>' +
       '<td class="num ds-cell ds-total' + dsTint_(row.pct) + '" title="' + esc('ยอดรวมทุกยูนิต ' + THB(row.total) +
         (row.target ? ' • เป้ารวมของวันนี้ ' + THB(row.target) : '')) + '">' +
         '<div class="ds-v">' + THB(row.total) + '</div>' + dsDelta_(row.pct) + '</td>' +
-      (ds.withTargets
-        ? '<td class="ds-st">' + (st
-          ? '<span title="' + esc('ยอด ' + THB(row.total) + ' • เป้ารายวัน ' + THB(row.target || 0)) + '">' +
-              statusPill(DS_PILL[String(st.cls)] || 'muted', esc(st.label)) + '</span>'
-          : '<span class="ds-zero">—</span>') + '</td>'
-        : '') +
       units.map(function (u: any, i: number) {
         return dsCell_(row.cells[i], u.mapped ? (u.product || u.u) : 'ยังไม่จัดกลุ่ม', row.date, u.u || '');
       }).join('') +
@@ -1290,7 +1281,6 @@ function dailySalesCard_(d: any, rangeLabel: string): string {
 
   const foot = '<tr class="ds-foot"><td class="ds-date">รวมช่วงนี้</td>' +
     '<td class="num"><div class="ds-v">' + THB(ds.totals.total) + '</div></td>' +
-    (ds.withTargets ? '<td></td>' : '') +
     units.map(function (u: any, i: number) {
       const c = ds.totals.cells[i] || { v: 0, orders: 0 };
       return '<td class="num" title="' + esc('ออเดอร์ ' + fmtNum(c.orders)) + '">' +
@@ -1312,7 +1302,7 @@ function dailySalesCard_(d: any, rangeLabel: string): string {
   return head + '<div class="card-sub">' + sub + '</div>' + legend +
     '<div class="table-scroll"><table class="tbl ds-tbl tbl-scroll-x" data-cards="off"><thead><tr>' +
       '<th class="ds-date">วันที่</th><th class="num">รวมทุกยูนิต</th>' +
-      (ds.withTargets ? '<th>สถานะ</th>' : '') + unitTh +
+      unitTh +
     '</tr></thead><tbody>' + body + '</tbody><tfoot>' + foot + '</tfoot></table></div></div>';
 }
 
