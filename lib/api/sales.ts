@@ -222,7 +222,9 @@ const TODAY_COLS = LIGHT_COLS + ',page_id,account_name,' + DETAIL_COLS;
 async function loadOrders_(sinceIso: string, untilIso: string | null, cols: string): Promise<Row[]> {
   // หั่นช่วงเป็นก้อนดึงขนาน — ช่วงยาวๆ OFFSET ลึกช้าและชน statement timeout (ดู fetchAllSliced)
   const rows = await fetchAllSliced<Row>(
-    (f, t) => db.from('orders').select(cols).gte('inserted_at', f).lt('inserted_at', t),
+    // ตัดออเดอร์เปล่าที่ฐานด้วย (เท่ากับ !isPlaceholderOrder ทุกกรณีรวม NULL — ตัวกรองใน JS ข้างล่างยังอยู่เป็นตาข่ายกันพลาด)
+    // เดิมดึงมาทิ้งทุกครั้งที่เปิดหน้า/รีเฟรช 75 วิ · ลำดับแถวที่เหลือเหมือนเดิม (inserted_at,id)
+    (f, t) => db.from('orders').select(cols).or('items_count.neq.0,total_price.neq.0').gte('inserted_at', f).lt('inserted_at', t),
     new Date(sinceIso),
     untilIso ? new Date(new Date(untilIso).getTime() - 1) : new Date(), // -1ms: ก้อนใช้ [from,to) อยู่แล้ว คงความหมาย lt เดิม
   );
@@ -483,17 +485,37 @@ type UnitCostByChannel = Record<string, Record<string, UnitCost>>;
  *
  * เพจที่ยังไม่จับคู่ยูนิตตกกลุ่ม UNMAPPED เหมือนฝั่งยอดขาย — ตัวเลขจึงบวกกลับได้ครบเสมอ
  */
+/** แถวดิบของค่าแอด/คนทักรายเพจ — null = ดึงไม่ได้ (ยังไม่มีตาราง ฯลฯ) ให้ส่วนนั้นเป็น 0 แบบเดิม
+ *  ดึงสองก้อนพร้อมกัน และไม่ต้องรอแผนที่เพจ→ยูนิต (เดิมรอ pages + U Map เสร็จก่อนค่อยเริ่ม แล้วยังดึงทีละก้อน) */
+interface UnitCostRaw { ads: Row[] | null; eng: Row[] | null }
+function loadUnitCostRaw_(r: Range): Promise<UnitCostRaw> {
+  const from = fmtDateBkk(r.start), to = fmtDateBkk(r.end);
+  // คอลัมน์ meta_first_replies/meta_comments เพิ่ม 2026-09-18 (ฐาน %ปิด ของทีมแอด)
+  // ถ้ายังไม่ได้รัน migration PostgREST จะฟ้องทั้งคำขอ → ถอยไปอ่านชุดเดิม ดีกว่าทิ้งค่าแอดทั้งก้อน
+  const AD_COLS = 'ad_id,date,page_id,spend,msgs_started,first_replies';
+  const loadAds_ = (cols: string) => fetchAllDateSliced<Row>((f, t) =>
+    db.from('ad_daily').select(cols).gte('date', f).lte('date', t), from, to, { orderColumn: 'date,ad_id' });
+  const adsP: Promise<Row[] | null> = loadAds_(AD_COLS + ',meta_first_replies,meta_comments')
+    .catch(() => loadAds_(AD_COLS))
+    .catch(() => null);   // ยังไม่มีตาราง ad_daily — ปล่อยค่าเป็น 0 แล้วให้ฝั่ง UI โชว์ "—"
+  const engP: Promise<Row[] | null> = fetchAll<Row>(() =>
+    db.from('chat_engagement_daily').select('key,date,page_id,new_inbox,comment,order_count,old_order_count')
+      .gte('date', from).lte('date', to), 'key')
+    .catch(() => null);   // ยังไม่มีตาราง chat_engagement_daily
+  return Promise.all([adsP, engP]).then(([ads, eng]) => ({ ads, eng }));
+}
+
 async function loadUnitCost_(
   r: Range,
   pageUnit: Record<string, { u: string; product: string }>,
   pagePlatform: Record<string, string>,
-  unmappedKey: string
+  unmappedKey: string,
+  rawP?: Promise<UnitCostRaw>,
 ): Promise<{
   byChannel: UnitCostByChannel;
   days: Record<string, { spend: number; metaBase: number; pancakeBase: number }>;
   noUnitPages: Record<string, { spend: number; metaBase: number; pancakeBase: number }>;
 }> {
-  const from = fmtDateBkk(r.start), to = fmtDateBkk(r.end);
   const out: UnitCostByChannel = { all: {}, facebook: {}, line: {} };
   // ค่าแอด + ตัวเลข Meta + ตัวเลข Pancake แยกรายวัน — ใช้ตัดสินว่าฐาน Meta ครบทั้งช่วงไหม (ดู metaBaseComplete_)
   const days: Record<string, { spend: number; metaBase: number; pancakeBase: number }> = {};
@@ -527,16 +549,9 @@ async function loadUnitCost_(
     }
   };
 
-  // คอลัมน์ meta_first_replies/meta_comments เพิ่ม 2026-09-18 (ฐาน %ปิด ของทีมแอด)
-  // ถ้ายังไม่ได้รัน migration PostgREST จะฟ้องทั้งคำขอ → ถอยไปอ่านชุดเดิม ดีกว่าทิ้งค่าแอดทั้งก้อน
-  const AD_COLS = 'ad_id,date,page_id,spend,msgs_started,first_replies';
-  const loadAds_ = (cols: string) => fetchAllDateSliced<Row>((f, t) =>
-    db.from('ad_daily').select(cols).gte('date', f).lte('date', t), from, to, { orderColumn: 'date,ad_id' });
-  try {
-    let ads: Row[];
-    try { ads = await loadAds_(AD_COLS + ',meta_first_replies,meta_comments'); }
-    catch { ads = await loadAds_(AD_COLS); }
-    ads.forEach((a) => {
+  const raw = await (rawP || loadUnitCostRaw_(r));
+  if (raw.ads) try {
+    raw.ads.forEach((a) => {
       const pid = String(a.page_id || '');
       if (!pid) return;   // แอดที่ Pancake ยังไม่ผูกเพจ — ยัดเข้ายูนิตไหนก็มั่ว ทิ้งดีกว่าเดา
       const spend = toNum_(a.spend);
@@ -550,13 +565,10 @@ async function loadUnitCost_(
         adInqPancake: toNum_(a.first_replies),
       });
     });
-  } catch { /* ยังไม่มีตาราง ad_daily — ปล่อยค่าเป็น 0 แล้วให้ฝั่ง UI โชว์ "—" */ }
+  } catch { /* แถวเพี้ยน — เก็บส่วนที่รวมไปแล้ว (เหมือนเดิม) */ }
 
-  try {
-    const eng = await fetchAll<Row>(() =>
-      db.from('chat_engagement_daily').select('key,date,page_id,new_inbox,comment,order_count,old_order_count')
-        .gte('date', from).lte('date', to), 'key');
-    eng.forEach((e) => {
+  if (raw.eng) try {
+    raw.eng.forEach((e) => {
       const pid = String(e.page_id || '');
       if (!pid) return;
       // นับเฉพาะเพจ Facebook ให้ตรงกับตัวหารจริง ไม่งั้นอัตราส่วน Meta/Pancake จะเพี้ยนเพราะอินบ็อกซ์ LINE
@@ -571,7 +583,7 @@ async function loadUnitCost_(
         engOldOrders: toNum_((e as any).old_order_count),
         engNewInbox: toNum_(e.new_inbox), engComment: toNum_(e.comment) });
     });
-  } catch { /* ยังไม่มีตาราง chat_engagement_daily */ }
+  } catch { /* แถวเพี้ยน — เก็บส่วนที่รวมไปแล้ว (เหมือนเดิม) */ }
 
   return { byChannel: out, days, noUnitPages };
 }
@@ -1167,6 +1179,37 @@ export async function apiSales(params: any) {
   const adCostP = loadAdCost_(r, compare).then((v) => { mark_('adCost'); return v; });
   // ตารางรายวัน — รวมยอดฝั่ง Postgres (ดู loadDailyByPage_) ยิงคู่ขนานไปเลย ไม่ต้องรอออเดอร์
   const dailyRawP = loadDailyByPage_(r).then((v) => { mark_('dailyRaw' + (v.rows ? '' : '-missing')); return v; });
+  // ⚡ ชุดที่ 2 — ตัวโหลดที่ไม่พึ่งออเดอร์และไม่พึ่งกันเอง เดิม await ทีละตัวหลังออเดอร์เสร็จ (ต่อกัน ~10 รอบ)
+  // ยิงตั้งแต่ตอนนี้ แล้วค่อย await ที่บรรทัดเดิมทุกตัว — คิวรี/การคำนวณ/ลำดับแถว/ทางพลาดเหมือนเดิมทุกอย่าง
+  // ตัวที่ไม่มี catch ของตัวเอง ต้องแปะ catch เปล่าไว้ก่อน (ไม่งั้นพลาดระหว่างรอ = unhandled rejection)
+  // ตอน await จริงยังโยน error ต่อเหมือนเดิม
+  const noop_ = () => undefined;
+  const unitGoalsP = loadUnitGoals_();
+  const unitNotesP = getUnitNotes().catch(() => ({} as Record<string, string>));
+  const unitRosterP = getUnitPages().catch(() => ({} as Record<string, Array<{ id: string; name: string }>>));
+  const nickByP = nicknameByName().catch(() => ({} as Record<string, string>));
+  const todayStr = fmtDateBkk(new Date());
+  const chatSince = fmtDateBkk(r.start) < todayStr ? fmtDateBkk(r.start) : todayStr;
+  const chatRowsP = fetchAllDateSliced<Row>((f, t) =>
+    db
+      .from('chat_hourly')
+      .select('date,platform,new_inbox_count,new_customer_count')
+      .gte('date', f).lte('date', t),
+    chatSince, todayStr
+  );
+  chatRowsP.catch(noop_);
+  const pageRowsP = fetchAll<Row>(() => db.from('pages').select('page_id,name,platform'), 'page_id');
+  pageRowsP.catch(noop_);
+  const pageUnitP = getPageUnitMap().catch(() => ({} as Record<string, { u: string; product: string }>));
+  const unitCostRawP = loadUnitCostRaw_(r);
+  const lossAlertRowP = db.from('sync_state').select('value').eq('key', 'unit_loss_alerts').maybeSingle()
+    .then((x) => x, () => null);
+  // แชทค้างรอตอบ (24 ชม.) — cutoff คิดตอนนี้แทนท้ายฟังก์ชัน (ต่างกันไม่กี่วินาที)
+  const alertCutoff = convCutoff_();
+  const waitingRowsP = fetchAll<Row>(() =>
+    db.from('conversations').select('id,type').eq('waiting', true).gte('updated_at', new Date(alertCutoff).toISOString())
+  );
+  waitingRowsP.catch(noop_);
 
   // orders ทั้งหมดที่อาจใช้ → กรองที่ query แยก 3 ก้อนกัน payload บวม:
   //   [prevStart, start)   คอลัมน์เบา (ช่วงเปรียบเทียบ)
@@ -1189,15 +1232,30 @@ export async function apiSales(params: any) {
   const orders = prevRows.concat(curRows, todayChunk);
   mark_(`orders prev=${prevRows.length} cur=${curRows.length}`);
 
+  // ---- ลูกค้าเก่า (RPC สแกนออเดอร์ย้อน 95 วัน) — เริ่มหลังออเดอร์เสร็จ ไม่แย่งฐานช่วงดึงออเดอร์หนักๆ ----
+  // (RPC ไม่ผ่าน semaphore ใน db.ts) เดิมรอท้ายฟังก์ชันหลังทุกอย่างเสร็จ
+  mark_('before-rpc');
+  const rpcLookback = new Date(r.start.getTime() - 95 * 86400000);
+  // abort 30s — RPC สแกน orders ย้อน 95 วัน ช่วงยาวอาจอืด และ supabase-js ไม่มี timeout เอง
+  // ถ้าแขวนจะลากทั้ง apiSales ค้างเกิน maxDuration (%ซื้อซ้ำเป็นการ์ดรอง เสียได้ ไม่คุ้มพังทั้งหน้า)
+  const returningRpcP = Promise.resolve(db.rpc('sales_returning_customers', {
+    p_start: r.start.toISOString(),
+    p_end: r.end.toISOString(),
+    p_lookback: rpcLookback.toISOString(),
+    p_channel: channel,
+    p_excluded: EXCLUDED_STATUSES,
+  }).abortSignal(AbortSignal.timeout(30_000)));
+  returningRpcP.catch(noop_);
+
   // เป้ายอด/เปอร์บิลรายยูนิตจากชีท KPI — เทียบกับ "ช่วงวันที่ที่เลือก" (ดู rangeTargets_)
   // เดิมเป็นเป้ากรอกมือใน U Map เทียบกับเดือนปัจจุบันเสมอ ซึ่งไม่มีใครกรอก และต้องยิงคิวรีออเดอร์ทั้งเดือนเพิ่ม
-  const unitGoals = await loadUnitGoals_();
+  const unitGoals = await unitGoalsP;
   // หมายเหตุยูนิต (เช่น "รอรีแบรนด์") — แปะทั้งตารางยูนิตและการ์ดแจ้งเตือน
-  const unitNotes = await getUnitNotes().catch(() => ({} as Record<string, string>));
+  const unitNotes = await unitNotesP;
   // เพจทั้งหมดของยูนิตตาม U Map — เพจที่ยังไม่มียอดในช่วงต้องโผล่เป็น ฿0 (ทีมทัก: ผูก 4 เพจแต่เห็น 3)
-  const unitRoster = await getUnitPages().catch(() => ({} as Record<string, Array<{ id: string; name: string }>>));
+  const unitRoster = await unitRosterP;
   // ชื่อเล่นแอดมิน — ทีมขอให้แสดงชื่อเล่นเป็นหลัก (ชื่อจริงยังเก็บไว้ ส่งไปด้วยเป็น fullName)
-  const nickBy = await nicknameByName().catch(() => ({} as Record<string, string>));
+  const nickBy = await nickByP;
   const nick_ = (n: unknown) => {
     const nm = String(n || '').replace(/\s+/g, ' ').trim();
     return nm ? (nickBy[nm] || nm) : '';
@@ -1259,16 +1317,8 @@ export async function apiSales(params: any) {
     return h.map((v) => Math.round(v));
   }
 
-  // สถิติแชท (ตัวหาร closeRate) — chat_hourly ~1,200 แถว/วัน หั่นตามวันกัน OFFSET ลึก
-  const todayStr = fmtDateBkk(new Date());
-  const chatSince = fmtDateBkk(r.start) < todayStr ? fmtDateBkk(r.start) : todayStr;
-  const chatRows = await fetchAllDateSliced<Row>((f, t) =>
-    db
-      .from('chat_hourly')
-      .select('date,platform,new_inbox_count,new_customer_count')
-      .gte('date', f).lte('date', t),
-    chatSince, todayStr
-  );
+  // สถิติแชท (ตัวหาร closeRate) — chat_hourly ~1,200 แถว/วัน หั่นตามวันกัน OFFSET ลึก (เริ่มดึงไว้ตั้งแต่ต้นฟังก์ชัน)
+  const chatRows = await chatRowsP;
   mark_('chat_hourly ' + chatRows.length);
   let newConvs = 0;
   const newConvsByCh: Record<string, number> = { facebook: 0, line: 0, other: 0 };
@@ -1340,7 +1390,7 @@ export async function apiSales(params: any) {
   const pageNames: Record<string, string> = {};
   const pagePlatform: Record<string, string> = {};
   {
-    const pageRows = await fetchAll<Row>(() => db.from('pages').select('page_id,name,platform'), 'page_id');
+    const pageRows = await pageRowsP;
     pageRows.forEach((p) => {
       pageNames[String(p.page_id)] = String(p.name || '');
       pagePlatform[String(p.page_id)] = String(p.platform || '');
@@ -1376,10 +1426,10 @@ export async function apiSales(params: any) {
   // แผนที่ เพจ→ยูนิต (U/สินค้า) จาก U Map — ใช้จัดกลุ่มยอดขายตามยูนิตแบบทีมแอด
   // เพจที่ยังไม่จับคู่ = กลุ่ม "ยังไม่จัดกลุ่ม" (บอสไปจับใน U Map ได้)
   let pageUnit: Record<string, { u: string; product: string }> = {};
-  try { pageUnit = await getPageUnitMap(); } catch { pageUnit = {}; }
+  pageUnit = await pageUnitP;
   const UNMAPPED = '__none__';
   // ค่าแอด/คนทัก รายยูนิต — โหลดครั้งเดียว ใช้ร่วมกันทั้ง 3 แท็บช่องทาง
-  const unitCostRes = await loadUnitCost_(r, pageUnit, pagePlatform, UNMAPPED);
+  const unitCostRes = await loadUnitCost_(r, pageUnit, pagePlatform, UNMAPPED, unitCostRawP);
   const unitCost = unitCostRes.byChannel;
   mark_('unitCost');
 
@@ -1663,7 +1713,8 @@ export async function apiSales(params: any) {
    */
   const unitAlerts = await (async () => {
     try {
-      const { data } = await db.from('sync_state').select('value').eq('key', 'unit_loss_alerts').maybeSingle();
+      const row = await lossAlertRowP;
+      const data = row && row.data;
       if (!data || !data.value) return null;
       const j = JSON.parse(String(data.value));
       // แปะหมายเหตุยูนิตสดๆ ตอนตอบ (ไม่รอรอบ sync) — ทีมแก้หมายเหตุแล้วเห็นผลทันทีที่รีเฟรช
@@ -1676,17 +1727,7 @@ export async function apiSales(params: any) {
   // RPC ยังไม่ถูกสร้าง (migration ไม่ได้รัน) → คืน null ให้หน้าเว็บแสดง "—" ไม่ใช่เลขปลอม
   let returning: { total: number; returning: number; pct: number | null } | null = null;
   {
-    mark_('before-rpc');
-    const lookback = new Date(r.start.getTime() - 95 * 86400000);
-    // abort 30s — RPC สแกน orders ย้อน 95 วัน ช่วงยาวอาจอืด และ supabase-js ไม่มี timeout เอง
-    // ถ้าแขวนจะลากทั้ง apiSales ค้างเกิน maxDuration (%ซื้อซ้ำเป็นการ์ดรอง เสียได้ ไม่คุ้มพังทั้งหน้า)
-    const { data: rc, error: rcErr } = await db.rpc('sales_returning_customers', {
-      p_start: r.start.toISOString(),
-      p_end: r.end.toISOString(),
-      p_lookback: lookback.toISOString(),
-      p_channel: channel,
-      p_excluded: EXCLUDED_STATUSES,
-    }).abortSignal(AbortSignal.timeout(30_000));
+    const { data: rc, error: rcErr } = await returningRpcP;
     mark_('rpc' + (rcErr ? '-err:' + String(rcErr.message || '').slice(0, 40) : ''));
     if (!rcErr && rc) {
       const row = Array.isArray(rc) ? rc[0] : rc;
@@ -1719,13 +1760,9 @@ export async function apiSales(params: any) {
       drill: 'needcheck',
     });
   }
-  const alertCutoff = convCutoff_();
-  // conversations เกิน 1000 แถวได้ → กรอง waiting + updated_at >= cutoff ที่ query แล้วนับ
+  // conversations เกิน 1000 แถวได้ → กรอง waiting + updated_at >= cutoff ที่ query แล้วนับ (เริ่มดึงไว้ตั้งแต่ต้นฟังก์ชัน)
   // ดึง type มาด้วยเพื่อแยก อินบ็อกซ์ / คอมเมนต์ (เดิมนับรวมกันหมด บอสอ่านแล้วแยกไม่ออกว่าค้างตรงไหน)
-  const cutoffIso = new Date(alertCutoff).toISOString();
-  const waitingRows = await fetchAll<Row>(() =>
-    db.from('conversations').select('id,type').eq('waiting', true).gte('updated_at', cutoffIso)
-  );
+  const waitingRows = await waitingRowsP;
   let waitingInbox = 0;
   let waitingComment = 0;
   waitingRows.forEach((c) => {
