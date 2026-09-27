@@ -2,6 +2,7 @@
 // อ่านจาก Supabase (orders + ads) แล้วรวมยอด/สร้าง alerts ตาม logic เดิมทุกตัวอักษร
 import { db, fetchAll, fetchAllSliced, fetchAllDateSliced } from '@/lib/db';
 import { EXCLUDED_STATUSES, money_, isPlaceholderOrder, fmtDateBkk, daysAgo } from '@/lib/config';
+import { loadCreatives, toMediaObj, hasAnyCreative, isMissingTable } from '@/lib/api/creatives';
 
 /** ค่าจาก Postgres อาจเป็น number/string/null — แปลงเป็นเลขเสมอ (NaN → 0) */
 function toNum_(v: unknown): number {
@@ -57,16 +58,6 @@ interface AdRow {
 }
 
 /**
- * error นี้แปลว่า "ยังไม่ได้สร้างตาราง" (ยังไม่รัน migration) เท่านั้นไหม
- * ⚠️ เดิมเช็คแค่ชื่อตาราง + 'does not exist' — "column ad_daily.x does not exist" ก็ผ่าน
- *    ชื่อคอลัมน์ผิดทีเดียว หน้าเว็บขึ้น "ยังไม่ได้เปิดใช้ข้อมูลค่าแอด" เงียบๆ ไม่มี error ให้เห็น
- */
-function isMissingTable_(msg: string, table: string): boolean {
-  if (!msg.includes(table) || /column/i.test(msg)) return false;
-  return /does not exist|schema cache|Could not find the table/i.test(msg);
-}
-
-/**
  * รวมค่าแอดจาก ad_daily ตามจำนวนวันย้อนหลัง แล้วคืนรูปเดียวกับตาราง `ads` เดิม
  * (metric สะสมบวกกัน / ctr,cpm คำนวณใหม่จากยอดรวม ห้ามเฉลี่ยค่าเฉลี่ย)
  * ตารางยังไม่ถูกสร้าง → คืน [] แล้วหน้าเว็บจะบอกให้รัน migration
@@ -92,7 +83,7 @@ async function loadAdsFromDaily_(start: Date): Promise<{ ads: AdRow[]; daysCover
     // ยังไม่รัน migration meta_purchase → ลองใหม่แบบไม่มี field นั้น (หน้าเว็บยังทำงานได้)
     if (m.includes('meta_purchase')) {
       rows = await load(COLS);
-    } else if (isMissingTable_(m, 'ad_daily')) {
+    } else if (isMissingTable(m, 'ad_daily')) {
       return { ads: [], daysCovered: 0 };
     } else {
       throw e;
@@ -151,38 +142,6 @@ async function loadAdsFromDaily_(start: Date): Promise<{ ads: AdRow[]; daysCover
   return { ads, daysCovered: Object.keys(seenDates).length };
 }
 
-/** สื่อ/ครีเอทีฟที่ผูกกับแอด (มาจาก Meta) — เก็บแยกตาราง เพราะไม่เปลี่ยนรายวัน */
-interface CreativeRow {
-  ad_id: string; name?: string | null; thumb_url?: string | null; image_url?: string | null;
-  video_id?: string | null; object_type?: string | null; post_id?: string | null;
-  permalink?: string | null; ig_permalink?: string | null; cta?: string | null; link_url?: string | null;
-}
-
-/**
- * ครีเอทีฟของ ad_id ที่ระบุ → map ต่อ ad_id
- * แบ่ง .in() ทีละ 300 id — ยัดหลายพัน id ใน URL เดียว PostgREST จะตอบ 414 (URI ยาวเกิน)
- * ตารางยังไม่ถูกสร้าง (ยังไม่รัน migration) → คืน {} เงียบๆ หน้าเว็บทำงานต่อได้แค่ไม่มีรูป
- */
-async function loadCreatives_(adIds: string[]): Promise<Record<string, CreativeRow>> {
-  const out: Record<string, CreativeRow> = {};
-  if (!adIds.length) return out;
-  const CHUNK = 300;
-  const cols = 'ad_id,name,thumb_url,image_url,video_id,object_type,post_id,permalink,ig_permalink,cta,link_url';
-  try {
-    // เดิมวนทีละก้อน (~36 ก้อน = 46% ของเวลาทั้งหน้า) → ยิงพร้อมกัน ให้ semaphore ใน db.ts คุมจำนวนที่วิ่งจริง
-    const parts: string[][] = [];
-    for (let i = 0; i < adIds.length; i += CHUNK) parts.push(adIds.slice(i, i + CHUNK));
-    const results = await Promise.all(parts.map((part) =>
-      fetchAll<CreativeRow>(() => db.from('ad_creative').select(cols).in('ad_id', part), 'ad_id')));
-    results.forEach(function (rows) { rows.forEach(function (r) { out[String(r.ad_id)] = r; }); });
-  } catch (e: any) {
-    const m = String((e && e.message) || e || '');
-    if (isMissingTable_(m, 'ad_creative')) return {};   // ยังไม่รัน 2026-07-27-ad-creative.sql
-    throw e;
-  }
-  return out;
-}
-
 /**
  * เรียงออเดอร์ตาม id กลับเป็นลำดับเดียวกับ query เดิม (fetchAll เรียง id) — ก้อนที่หั่นมาเรียงตาม inserted_at
  * ลำดับมีผลกับ "ค่าเสมอกัน เจอก่อนชนะ": คนปิดขายมากสุด / เพจหลัก / สินค้า 5 อันดับ / โพสต์ organic ตรงเส้นตัด 50
@@ -223,11 +182,11 @@ export async function apiContentAds(params?: any) {
   const pagesP = fetchAll<any>(() => db.from('pages').select('page_id,name'), 'page_id')
     .catch(function (e: any) { console.error('[contentads] pages', (e && e.message) || e); return [] as any[]; });
   // ค่าแอดจริงจาก ad_daily (รวมตามช่วงวันที่เลือก) — ตาราง `ads` เดิมว่างเปล่าถาวร
-  // เพราะ POS /ads_manager/ads_v2 คืน 0 แถวเสมอ · สื่อของแต่ละแอด (รูป/คลิป/ลิงก์โพสต์) — join ต่อ ad_id
-  const adsP = loadAdsFromDaily_(start).then(function (r) {
-    return loadCreatives_(r.ads.map(function (a) { return String(a.ad_id); }))
-      .then(function (creatives) { return { ads: r.ads, daysCovered: r.daysCovered, creatives: creatives }; });
-  });
+  // เพราะ POS /ads_manager/ads_v2 คืน 0 แถวเสมอ
+  const adsP = loadAdsFromDaily_(start);
+  // สื่อของแอด: ไม่ดึงทุกแอดแล้ว (เดิม ~11k แอด/7 วัน = 46% ของเวลา + 16MB ที่จอใช้แค่ ~30 รูป)
+  // ดึงเฉพาะชุดที่จอโชว์ทันทีท้ายฟังก์ชัน ที่เหลือหน้าเว็บขอเองผ่าน apiPageMedia {adIds} · ตรงนี้เช็คแค่ว่ามีครีเอทีฟในระบบไหม
+  const creativeP = hasAnyCreative();
   // แถว Organic: ออเดอร์ที่ผูกโพสต์ (post_id) แต่ไม่ได้มาจากแอด
   const organicP = fetchAllSliced<OrderRow>((f, t) =>
     db.from('orders').select('id,post_id,page_id,total_price,items_count,status,seller_name,creator_name,inserted_at')
@@ -237,7 +196,7 @@ export async function apiContentAds(params?: any) {
     start, end).then(byOrderId_)
     // แถว organic เป็นส่วนเสริม — ดึงไม่สำเร็จให้หน้าแอดยังใช้ได้ แล้วบอกหน้าเว็บ (organicError) ไม่ใช่หายเงียบ
     .catch(function (e: any) { console.error('[contentads] organic', (e && e.message) || e); organicError = true; return [] as OrderRow[]; });
-  const [orders, pageRows, adsRes, organicOrders] = await Promise.all([ordersP, pagesP, adsP, organicP]);
+  const [orders, pageRows, adsRes, organicOrders, anyCreative] = await Promise.all([ordersP, pagesP, adsP, organicP, creativeP]);
 
   // ชื่อเพจ (ให้ dropdown "ทุกเพจ" ใช้ชื่อจริงแทน page_id)
   const pageNames: Record<string, string> = {};
@@ -312,8 +271,7 @@ export async function apiContentAds(params?: any) {
       .slice(0, 6);
   }
 
-  const { ads, daysCovered: adDaysCovered, creatives } = adsRes;
-  let creativeCount = 0;
+  const { ads, daysCovered: adDaysCovered } = adsRes;
 
   const items = ads.map(function (a) {
     const adId = String(a.ad_id);
@@ -355,30 +313,12 @@ export async function apiContentAds(params?: any) {
     }
 
     const topPageId = topKey_(pageByAd[adId]);
-    // สื่อของแอด — image_url เป็นรูปคมสุด, thumb เป็นตัวสำรอง (URL ของ Meta มีวันหมดอายุ
-    // หน้าเว็บจึงต้องมี fallback ทั้งคู่ก่อนตกไปที่กล่องเปล่า)
-    const cr = creatives[adId];
-    let media: any = null;
-    if (cr && (cr.image_url || cr.thumb_url || cr.permalink || cr.ig_permalink)) {
-      creativeCount++;
-      media = {
-        img: String(cr.image_url || cr.thumb_url || ''),
-        imgAlt: String(cr.thumb_url || ''),
-        video: String(cr.video_id || ''),
-        type: String(cr.object_type || ''),
-        postId: String(cr.post_id || ''),
-        permalink: String(cr.permalink || ''),
-        ig: String(cr.ig_permalink || ''),
-        cta: String(cr.cta || ''),
-        link: String(cr.link_url || ''),
-        title: String(cr.name || ''),
-      };
-    }
 
     return {
       adId: adId,
       name: String(a.name || ''),
-      media: media,
+      // สื่อเติมท้ายฟังก์ชันเฉพาะชุดที่จอโชว์ทันที (mediaSeeded) — ที่เหลือ null หน้าเว็บขอเองผ่าน apiPageMedia {adIds}
+      media: null as ReturnType<typeof toMediaObj>,
       campaign: String(a.campaign_name || a.campaign_id || ''),
       adsetId: String(a.adset_id || ''),
       ageDays: ageDays,
@@ -535,6 +475,20 @@ export async function apiContentAds(params?: any) {
   const levelOrder: Record<string, number> = { red: 0, orange: 1, yellow: 2, green: 3 };
   alerts.sort(function (a, b) { return levelOrder[a.level] - levelOrder[b.level]; });
 
+  // ---- สื่อชุดแรกที่จอโชว์ทันที: แอดใน 30 แจ้งเตือนที่ส่งไป + 30 แอดยอดขายสูงสุด (ค่าเริ่มต้นของแท็บอันดับแอด) ----
+  // ≤60 id = query เดียวเล็กๆ — เปิดหน้าแล้วเห็นรูปเลย / เปิดวิเคราะห์จากแจ้งเตือนมีรูปทันที ไม่ต้องรอขอเพิ่ม
+  // (เรียงแบบเดียวกับ filteredItems ฝั่งหน้าเว็บ: revenue มาก→น้อย เสมอกันคงลำดับเดิม)
+  const seedIds: string[] = [];
+  const seen: Record<string, 1> = {};
+  const addSeed = function (id: string): void { if (id && !seen[id]) { seen[id] = 1; seedIds.push(id); } };
+  alerts.slice(0, 30).forEach(function (a) { addSeed(a.adId); });
+  items.slice().sort(function (a, b) { return b.revenue - a.revenue; }).slice(0, 30)
+    .forEach(function (it) { addSeed(it.adId); });
+  const seedCr = anyCreative ? await loadCreatives(seedIds) : {};
+  const byId: Record<string, (typeof items)[number]> = {};
+  items.forEach(function (it) { byId[it.adId] = it; });
+  seedIds.forEach(function (id) { if (byId[id]) byId[id].media = toMediaObj(seedCr[id]); });
+
   return {
     summary: {
       urgent: alerts.filter(function (a) { return a.level === 'red'; }).length,
@@ -545,8 +499,10 @@ export async function apiContentAds(params?: any) {
     items: (items as any[]).concat(organicItems),
     days,
     needAdSetup: ads.length === 0,   // ยังไม่ได้รัน migration ad_daily (หรือยังไม่มี sync รอบแรก)
-    // กี่แอดที่มีสื่อ/ลิงก์โพสต์แล้ว — 0 ทั้งที่มีแอด = ยังไม่รัน 2026-07-27-ad-creative.sql
-    creativeCount,
+    // มีครีเอทีฟในระบบไหม (0/1 — หน้าเว็บใช้แค่ > 0) · 0 ทั้งที่มีแอด = ยังไม่รัน 2026-07-27-ad-creative.sql
+    creativeCount: anyCreative,
+    // id ที่เช็คสื่อแล้วในรอบนี้ (media ของแถวพวกนี้ null = ไม่มีรูปจริง หน้าเว็บไม่ต้องขอซ้ำ)
+    mediaSeeded: anyCreative ? seedIds : [],
     // ค่าแอดครอบคลุมกี่วันจากที่เลือก — น้อยกว่า days = ROAS สูงเกินจริง หน้าเว็บต้องเตือน
     adDaysCovered,
     // ข้อความสำหรับทีม (ไม่มีคำสั่งเทคนิค) · คำสั่งเติมข้อมูลแยกไว้ใน adDaysFix ให้หน้าเว็บโชว์เฉพาะผู้ดูแลระบบ (D3)

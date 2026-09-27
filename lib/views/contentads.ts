@@ -27,6 +27,22 @@ let alertShowAll = false;
 let hasCreatives = false;
 /** ช่วงย้อนหลังที่ดึงจาก server (วัน) — เดิมหน้านี้ไม่มีตัวกรองเวลาเลย เป็นยอดสะสมตั้งแต่ต้น */
 let rangeDays = 7;
+/** ลำดับคำขอ apiContentAds ล่าสุด + ช่วงวันของคำขอที่กำลังวิ่ง (0 = ไม่มี) — ดู fetchFresh */
+let fetchSeq = 0;
+let fetchDays = 0;
+
+/* ---- สื่อของแอด: ขอเฉพาะแอดที่จอกำลังโชว์ (apiPageMedia {adIds}) ----
+ * เดิม server ส่งสื่อของทุกแอดมาในก้อนเดียว (~11k แอด / 7 วัน = 16MB และ 46% ของเวลาโหลด) ทั้งที่จอใช้ ~30 รูป
+ * ตอนนี้ server เติมให้แค่ชุดแรก (แจ้งเตือน + 30 แอดยอดขายสูงสุด) ที่เหลือขอตอนจะโชว์ แล้วจำไว้ที่นี่ข้ามรอบรีเฟรช/ช่วงวัน
+ * m = null → แอดนี้ไม่มีรูปจริง (จำไว้ 30 นาที — sync ครีเอทีฟรายชั่วโมงเติมรูปให้แอดใหม่ได้)
+ * URL รูปในฐานไม่ถูกเปลี่ยนหลังเขียนครั้งแรก (sync ดึงเฉพาะแอดที่ยังไม่มีแถว) จึงจำตัวที่มีรูปไว้ได้ทั้ง session */
+const mediaCache: Record<string, { m: any; at: number }> = {};
+const MEDIA_NONE_TTL = 30 * 60000;
+const mediaWant = new Set<string>();
+const mediaInflight = new Set<string>();
+let mediaTimer = 0;
+/** กล่องของหน้านี้ที่วาดล่าสุด — ผลสื่อมาถึงทีหลังให้แปะลงของที่อยู่บนจอจริงตอนนั้น (ไม่ถือ element เก่าไว้) */
+let caContainer: HTMLElement | null = null;
 
 type CaTab = 'alerts' | 'ads' | 'media';
 const TAB_KEY = 'pn-ca-tab';
@@ -214,13 +230,116 @@ function isSuperadmin_(): boolean {
 
 /* ---------------- สื่อ/ครีเอทีฟของแอด (รูป / คลิป / ลิงก์โพสต์จริง) ---------------- */
 
+/** สื่อของแถว: ของที่มากับข้อมูลหลัก (organic / ชุดแรกที่ server เติม) ก่อน แล้วค่อยดูที่ขอเพิ่มไว้ · null = ไม่มี/ยังไม่รู้ */
+function mediaOf_(it: any): any {
+  if (it && it.media) return it.media;
+  const e = it && it.adId !== undefined ? mediaCache[String(it.adId)] : undefined;
+  return e ? e.m : null;
+}
+
+/** แอดจริงที่ยังไม่รู้ว่ามีรูปไหม (กำลังขอ / จะขอ) — organic มีสื่อจาก server เสมอ */
+function mediaLoading_(it: any): boolean {
+  if (!it || it.organicPost || it.media) return false;
+  return !mediaCache[String(it.adId)];
+}
+
+/** จดสื่อที่มากับผลหลัก — ชุดที่ server เช็คแล้ว (mediaSeeded) ไม่ต้องขอซ้ำ แม้ไม่มีรูป */
+function seedMedia_(data: any): void {
+  const now = Date.now();
+  const byId: Record<string, any> = {};
+  ((data && data.items) || []).forEach(function (it: any) { if (!it.organicPost) byId[String(it.adId)] = it; });
+  ((data && data.mediaSeeded) || []).forEach(function (raw: any) {
+    const id = String(raw);
+    const it = byId[id];
+    mediaCache[id] = { m: (it && it.media) || null, at: now };
+  });
+}
+
+/** ขอสื่อของแอดชุดนี้ — รวบคำขอที่เกิดติดกันใน 150ms เป็นครั้งเดียว (เปลี่ยนตัวกรองรัวๆ / ตาราง+หน้าวิเคราะห์ ไม่ยิงรัว) */
+function ensureMedia_(ids: string[]): void {
+  const now = Date.now();
+  ids.forEach(function (raw) {
+    const id = String(raw || '');
+    if (!/^\d+$/.test(id) || mediaInflight.has(id)) return;
+    const e = mediaCache[id];
+    if (e && (e.m || now - e.at < MEDIA_NONE_TTL)) return;
+    mediaWant.add(id);
+  });
+  if (!mediaWant.size || mediaTimer) return;
+  mediaTimer = window.setTimeout(flushMedia_, 150);
+}
+
+function flushMedia_(): void {
+  mediaTimer = 0;
+  const ids = Array.from(mediaWant);
+  mediaWant.clear();
+  for (let i = 0; i < ids.length; i += 60) {            // เพดานของ server ต่อคำขอ
+    const chunk = ids.slice(i, i + 60);
+    chunk.forEach(function (id) { mediaInflight.add(id); });
+    serverCall<any>('apiPageMedia', { adIds: chunk }).then(function (res) {
+      const media = (res && res.media) || {};
+      const now = Date.now();
+      chunk.forEach(function (id) {
+        mediaInflight.delete(id);
+        // id ที่ไม่อยู่ในผล = ยังไม่รู้ (ห้ามจดว่า "ไม่มีรูป" ไม่งั้นรูปหายถาวร) — ขอใหม่รอบวาดถัดไป
+        if (Object.prototype.hasOwnProperty.call(media, id)) mediaCache[id] = { m: media[id] || null, at: now };
+      });
+      patchMedia_(chunk);
+    }).catch(function () {
+      // พลาด = ไม่จดอะไร เลิกวิบวับกลับเป็นไอคอน · รอบวาดถัดไป (รีเฟรช/เปลี่ยนตัวกรอง) ลองขอใหม่เอง
+      chunk.forEach(function (id) { mediaInflight.delete(id); });
+      patchMedia_(chunk);
+    });
+  }
+}
+
+/** แปะรูปที่เพิ่งมาถึงลงตาราง + หน้าวิเคราะห์ที่เปิดค้าง — แก้เฉพาะกล่องรูป ห้ามวาดทั้งหน้าใหม่ (ช่องค้นหาเสียโฟกัส/ข้อความที่พิมพ์ค้าง) */
+function patchMedia_(ids: string[]): void {
+  const root = caContainer;
+  if (root && root.isConnected) {
+    let added = false;
+    ids.forEach(function (id) {
+      const box = root.querySelector<HTMLElement>('[data-ca-thumb="' + id + '"]');
+      if (!box) return;
+      const e = mediaCache[id];
+      if (e && e.m) { box.outerHTML = mediaBoxHtml_({ media: e.m }, 'ca-thumb', id); added = true; }
+      else box.classList.remove('ca-loading');
+    });
+    if (added) bindImgFallback_(root);
+  }
+  const panel = document.querySelector<HTMLElement>('#modal-root [data-ca-media-for]');
+  const pid = panel ? panel.getAttribute('data-ca-media-for') || '' : '';
+  if (panel && ids.indexOf(pid) >= 0) {
+    const item = findItem_(lastData, pid);
+    if (!item) return;
+    if (mediaLoading_(item)) {           // พลาด — เลิกวิบวับ ปุ่ม Ads Manager ยังอยู่
+      panel.querySelectorAll('.ca-loading').forEach(function (el) { el.classList.remove('ca-loading'); });
+      return;
+    }
+    panel.outerHTML = mediaPanelHtml_(item);
+    const mr = document.getElementById('modal-root');
+    if (mr) bindImgFallback_(mr);
+    bindMediaFrame_(item);
+  }
+}
+
+function findItem_(data: any, adId: any): any {
+  const items = (data && data.items) || [];
+  for (let i = 0; i < items.length; i++) {
+    if (String(items[i].adId) === String(adId)) return items[i];
+  }
+  return null;
+}
+
 /**
  * กล่องรูปครีเอทีฟ — URL รูปจาก Meta มีวันหมดอายุ (ทั้ง scontent และ /ads/image)
  * จึงใส่ตัวสำรองไว้ใน data-ca-fallback แล้วให้ bindImgFallback_() สลับให้เมื่อโหลดพลาด
  * ถ้าพังทั้งคู่ → กล่องว่างมีไอคอน ไม่ปล่อยเป็นรูปแตก
  */
-function mediaBoxHtml_(it: any, cls: string): string {
-  const m = it && it.media;
+function mediaBoxHtml_(it: any, cls: string, thumbId?: string): string {
+  const m = mediaOf_(it);
+  // thumbId = รหัสแอดของกล่องรูปย่อในตาราง — patchMedia_ หากล่องนี้เจอเพื่อแปะรูปที่มาถึงทีหลัง
+  const attr = thumbId ? ' data-ca-thumb="' + esc(thumbId) + '"' : '';
   const isVid = !!(m && m.video);
   // ไอคอนในกล่องว่าง: คลิป / โพสต์ (organic) / รูป — ขนาดใหญ่ในหน้าวิเคราะห์ปรับด้วย CSS .ca-media-img .ca-ph .ic
   const ph = icon(isVid ? 'video' : (it && it.organicPost ? 'file-text' : 'image'), { size: 20 });
@@ -228,9 +347,11 @@ function mediaBoxHtml_(it: any, cls: string): string {
   const alt = safeUrl_(m && m.imgAlt);
   // ไม่มีรูปเลย → เรนเดอร์กล่องว่างตั้งแต่แรก (ไม่ต้องรอ error)
   if (!img) {
-    return '<div class="' + cls + ' broken"><span class="ca-ph">' + ph + '</span></div>';
+    // ยังรอรูป = กล่องวิบวับ (ไม่ใช่ไอคอนรูปแตก — ไม่งั้นดูเหมือนแอดไม่มีรูป)
+    const wait = thumbId && mediaLoading_(it) ? ' ca-loading' : '';
+    return '<div class="' + cls + ' broken' + wait + '"' + attr + '><span class="ca-ph">' + ph + '</span></div>';
   }
-  return '<div class="' + cls + '">' +
+  return '<div class="' + cls + '"' + attr + '>' +
     '<img src="' + esc(img) + '" alt="" loading="lazy" decoding="async"' +
     (alt && alt !== img ? ' data-ca-fallback="' + esc(alt) + '"' : ' data-ca-fallback=""') + '>' +
     '<span class="ca-ph">' + ph + '</span>' +
@@ -266,8 +387,8 @@ function safeUrl_(u: any): string {
 
 /** ลิงก์เปิดโพสต์จริง — dark post ใช้ effective_object_story_id จึงเปิดได้เหมือนกัน */
 function mediaLinksHtml_(it: any): string {
-  const m = it && it.media;
-  if (!m) return '';
+  // แอดที่ไม่มีสื่อ (หรือรูปยังมาไม่ถึง) ก็ต้องมีปุ่ม Ads Manager — เดิมจบฟังก์ชันตั้งแต่ไม่มีสื่อ ปุ่มหายไปด้วย
+  const m = mediaOf_(it) || {};
   // labelHtml = ไอคอน + คำ (ประกอบจากค่าคงที่ในไฟล์นี้เท่านั้น ไม่มีข้อมูลผู้ใช้ปน)
   const btn = function (href: any, labelHtml: string): string {
     const u = safeUrl_(href);
@@ -301,11 +422,17 @@ const MEDIA_WORD: Record<string, string> = {
 
 /** บล็อกสื่อในหน้าวิเคราะห์ (รูปใหญ่ + ปุ่มเล่นวิดีโอ + ลิงก์โพสต์) */
 function mediaPanelHtml_(it: any): string {
-  const m = it && it.media;
+  const m = mediaOf_(it) || {};
   const links = mediaLinksHtml_(it);
-  if (!m || (!m.img && !links)) return '';
-  let h = '<div class="ca-media">';
-  h += '<div class="ca-media-frame" id="ca-media-frame">' + mediaBoxHtml_(it, 'ca-media-img') + '</div>';
+  const wait = mediaLoading_(it);
+  if (!m.img && !links && !wait) return '';
+  // data-ca-media-for = ยังรอรูป — patchMedia_ แทนทั้งบล็อกเมื่อรูปมาถึง (เฉพาะหน้าวิเคราะห์ของแอดตัวนี้)
+  let h = '<div class="ca-media"' + (wait ? ' data-ca-media-for="' + esc(String(it.adId)) + '"' : '') + '>';
+  // แอดที่รู้แล้วว่าไม่มีรูป: ไม่วาดกรอบสี่เหลี่ยมใหญ่ว่างๆ — เหลือแค่ปุ่มเปิด Ads Manager
+  const frame = !!m.img || wait || !!it.organicPost;
+  if (frame) {
+    h += '<div class="ca-media-frame" id="ca-media-frame">' + mediaBoxHtml_(it, 'ca-media-img' + (wait ? ' ca-loading' : '')) + '</div>';
+  }
   h += '<div class="ca-media-side">';
   if (m.title) h += '<div class="ca-media-title">' + esc(String(m.title)) + '</div>';
   // ชนิดสื่อ / ปุ่มของแอด มาจาก Meta เป็นรหัสอังกฤษ (VIDEO, MESSAGE_PAGE) — แปลเป็นคำไทยสั้นตัวที่เจอบ่อย (D2)
@@ -323,8 +450,9 @@ function mediaPanelHtml_(it: any): string {
   // คลิปของแอดเป็น dark post ไม่ได้เผยแพร่สาธารณะ plugin จึงขึ้น "วิดีโอไม่พร้อมใช้งาน" เสมอ
   // และดึงไฟล์ตรงจาก Graph API ก็ไม่ได้ (error 10 — app ไม่มีสิทธิ์) จึงส่งไป Ads Manager แทน
   h += '<div class="ca-media-note">' +
-    (m.video ? 'คลิปของแอดดูได้ที่ <b>Ads Manager</b> (ต้องล็อกอิน Facebook ที่มีสิทธิ์บัญชีโฆษณา) — ' : '') +
-    'รูปดึงจาก Meta โดยตรง ลิงก์มีวันหมดอายุ ถ้าไม่ขึ้นให้กด "เปิดโพสต์จริง"</div>';
+    (!frame ? 'แอดนี้ยังไม่มีรูปครีเอทีฟในระบบ — ดูครีเอทีฟได้ที่ <b>Ads Manager</b> (ต้องล็อกอิน Facebook ที่มีสิทธิ์บัญชีโฆษณา)'
+      : (m.video ? 'คลิปของแอดดูได้ที่ <b>Ads Manager</b> (ต้องล็อกอิน Facebook ที่มีสิทธิ์บัญชีโฆษณา) — ' : '') +
+        'รูปดึงจาก Meta โดยตรง ลิงก์มีวันหมดอายุ ถ้าไม่ขึ้นให้กด "เปิดโพสต์จริง"') + '</div>';
   h += '</div></div>';
   return h;
 }
@@ -390,11 +518,7 @@ function kvRow_(label: string, valHtml: string): string {
  * โพสต์ออร์แกนิกไม่มีค่าแอด → ไม่มีส่วน "ปัญหาที่พบ / สิ่งที่ควรทำ" (กฎพวกนั้นคิดจากค่าแอดทั้งหมด)
  */
 function openAnalysis(data: any, adId: any): void {
-  const items = (data && data.items) || [];
-  let item: any = null;
-  for (let i = 0; i < items.length; i++) {
-    if (String(items[i].adId) === String(adId)) { item = items[i]; break; }
-  }
+  const item = findItem_(data, adId);
   if (!item) { toast('ไม่พบข้อมูลแอดนี้', 'warn'); return; }
   const isOrganic = !!item.organicPost;
 
@@ -494,9 +618,16 @@ function openAnalysis(data: any, adId: any): void {
   const modalRoot = document.getElementById('modal-root');
   if (modalRoot) bindImgFallback_(modalRoot);
 
-  // รูปครีเอทีฟกดได้ = เปิดโพสต์จริง (ทางลัดแทนการไล่หาปุ่มด้านขวา)
+  bindMediaFrame_(item);
+  // แอดนอกชุดแรก (เช่นเปิดจากแจ้งเตือน/อันดับแบบอื่น) — ขอรูปตอนนี้ แล้ว patchMedia_ แปะลงหน้าต่างที่เปิดอยู่
+  if (!isOrganic && mediaLoading_(item)) ensureMedia_([String(item.adId)]);
+}
+
+/** รูปครีเอทีฟกดได้ = เปิดโพสต์จริง (ทางลัดแทนการไล่หาปุ่มด้านขวา) — ผูกใหม่ทุกครั้งที่วาดบล็อกสื่อ */
+function bindMediaFrame_(item: any): void {
   const frame = document.getElementById('ca-media-frame');
-  const post = item.media && item.media.permalink;
+  const m = mediaOf_(item);
+  const post = m && m.permalink;
   if (frame && post && /^https?:\/\//i.test(String(post))) {
     frame.classList.add('clickable');
     frame.setAttribute('title', 'กดเพื่อเปิดโพสต์จริงบน Facebook');
@@ -750,7 +881,7 @@ function adRowHtml(it: any, rank: number): string {
   h += '<td class="ca-c-rk"><span class="sort-rank">' + rank + '</span></td>';
   h += '<td class="ca-c-ad" data-sort="' + esc(name) + '"><div class="ca-ad">';
   // รูปครีเอทีฟย่อ — ทีมแอดจำแอดจาก "ภาพ" ไม่ใช่ชื่อแอดที่ตั้งว่า VP4/A1
-  if (hasCreatives) h += mediaBoxHtml_(it, 'ca-thumb');
+  if (hasCreatives) h += mediaBoxHtml_(it, 'ca-thumb', isOrganic ? '' : String(it.adId));
   h += '<div class="ca-ad-txt">' +
     '<div class="ca-ad-name"><span class="sort-rank ca-rk-m">' + rank + '</span>' + esc(name) + '</div>' +
     '<div class="ca-ad-meta">' + statusBadge_(st) +
@@ -1079,7 +1210,14 @@ function render(container: HTMLElement, data: any): void {
   }
   html += '</div>';
   container.innerHTML = html;
+  caContainer = container;
   bind(container, data);
+  // รูปย่อในตาราง: ขอเฉพาะ 30 แถวที่เห็นและยังไม่มี (ตัวกรอง/อันดับเปลี่ยน = ชุดใหม่ ขอเฉพาะตัวที่ขาด)
+  if (caTab === 'ads' && hasCreatives) {
+    ensureMedia_(list.slice(0, TOP_N)
+      .filter(function (it: any) { return !it.organicPost && !it.media; })
+      .map(function (it: any) { return String(it.adId); }));
+  }
   if (caTab === 'media') {
     bindMedia(container);
     if (!mediaPages) fetchMediaPages(container);
@@ -1176,10 +1314,20 @@ function bind(container: HTMLElement, data: any): void {
 /* ---------------- fetch + register ---------------- */
 
 function fetchFresh(container: HTMLElement, background: boolean): void {
+  // รีเฟรชเบื้องหลัง (ทุก 5 นาที / กลับเข้าหน้านี้) ระหว่างที่คำขอช่วงเดียวกันยังวิ่งอยู่ = ข้าม — เดิมยิงซ้อน กินคิวฐานข้อมูลเป็นเท่าตัว
+  if (background && fetchDays === rangeDays) return;
+  const seq = ++fetchSeq;
+  fetchDays = rangeDays;
   serverCall('apiContentAds', { days: rangeDays }).then(function (data) {
+    // มีคำขอใหม่กว่าแล้ว (กดเปลี่ยนช่วงวันรัวๆ) — ผลที่มาช้าห้ามทับ (เดิมป้าย "7 วัน" ขึ้นทับตัวเลข 30 วันได้)
+    if (seq !== fetchSeq) return;
+    fetchDays = 0;
     lastData = data || {};
+    seedMedia_(lastData);
     render(container, lastData);
   }).catch(function (err: any) {
+    if (seq !== fetchSeq) return;
+    fetchDays = 0;
     if (background) {
       toast('โหลดข้อมูลแอดใหม่ไม่สำเร็จ — แสดงข้อมูลเดิมไปก่อน', 'error', {
         action: { label: 'ลองใหม่', fn: function () { fetchFresh(container, true); } },

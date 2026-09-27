@@ -3,6 +3,7 @@
 // สื่อ = โพสต์ (post_id จาก ad_creative) — 1 โพสต์มักมีหลายแอดยิง จึงรวมเป็นแถวเดียว
 // ตัวเลขค่าแอด/ทัก/ซื้อ มาจาก ad_daily (Meta ทับรายวัน) กรองทั้งปีของเพจที่เลือก
 import { db, fetchAll, fetchAllDateSliced } from '@/lib/db';
+import { loadCreatives, toMediaObj, type MediaObj } from '@/lib/api/creatives';
 
 const num_ = (v: unknown): number => {
   const n = Number(v);
@@ -11,6 +12,21 @@ const num_ = (v: unknown): number => {
 
 export async function apiPageMedia(params: any) {
   const p = params || {};
+
+  // ---- โหมดสื่อรายแอด: หน้าโฆษณา & คอนเทนต์ขอรูปเฉพาะแอดที่กำลังจะโชว์ (เปลี่ยนตัวกรอง/อันดับ, เปิดหน้าวิเคราะห์) ----
+  // ⚠️ ต้องอยู่ก่อนทางรายชื่อเพจ — {adIds} ที่ไม่มี pageId จะหล่นไปสแกน ad_daily 60 วันแล้วคืนรายชื่อเพจแทน
+  // ใช้ endpoint เดิม (ไม่สร้างใหม่) เพราะสิทธิ์ exec อนุญาตรายชื่อ endpoint ไว้ใน lib/auth-session.ts — ของใหม่ลืมใส่ = รูปหายทั้ง role
+  if (Array.isArray(p.adIds)) {
+    // id แอดของ Meta เป็นตัวเลขล้วน (แถว 'post:...' ของ organic มีสื่อจาก server แล้ว) · เพดาน 60 ต่อคำขอ
+    const ids = Array.from(new Set((p.adIds as unknown[]).map((x) => String(x || ''))))
+      .filter((x) => /^\d{1,32}$/.test(x)).slice(0, 60);
+    const crs = await loadCreatives(ids);
+    // คืนครบทุก id ที่รับไว้ (null = ไม่มีรูปจริง) — id ที่ไม่อยู่ในผล หน้าเว็บถือว่า "ยังไม่รู้" แล้วขอใหม่รอบหลัง
+    const media: Record<string, MediaObj | null> = {};
+    ids.forEach((id) => { media[id] = toMediaObj(crs[id]); });
+    return { ok: true, media };
+  }
+
   const year = /^\d{4}$/.test(String(p.year || '')) ? String(p.year) : String(new Date().getFullYear());
 
   // ---- ไม่ระบุเพจ → รายชื่อเพจให้เลือก (เฉพาะที่เคยมีค่าแอดใน 60 วัน — ตัดเพจร้าง dropdown สั้นลง) ----

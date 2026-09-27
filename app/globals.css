@@ -1299,6 +1299,15 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 .ca-thumb.broken img, .ca-media-img.broken img { display: none; }
 .ca-thumb.broken .ca-ph, .ca-media-img.broken .ca-ph { display: flex; }
 .ca-media-img.broken .ca-ph { font-size: 40px; }
+/* รูปกำลังมา (หน้าเว็บขอรูปเฉพาะแอดที่โชว์อยู่) — วิบวับแบบ skeleton แทนไอคอนรูปแตก ไม่ให้ดูเหมือนแอดไม่มีรูป */
+.ca-thumb.ca-loading, .ca-media-img.ca-loading { background: var(--skel); }
+.ca-thumb.ca-loading .ca-ph, .ca-media-img.ca-loading .ca-ph { display: none; }
+.ca-thumb.ca-loading::after, .ca-media-img.ca-loading::after {
+  content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent 0, var(--skel-shine) 50%, transparent 100%);
+  animation: skel-shimmer 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .ca-thumb.ca-loading::after, .ca-media-img.ca-loading::after { animation: none; } }
 /* ป้าย ▶️ บอกว่าครีเอทีฟเป็นวิดีโอ */
 .ca-play {
   position: absolute; right: 4px; bottom: 4px;
