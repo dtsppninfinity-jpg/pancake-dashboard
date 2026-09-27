@@ -986,7 +986,10 @@ export function bindDownloadMenu(
   // ปิดเมื่อแตะที่อื่น / กด Esc (capture — ไม่ให้ Esc ไปปิดหน้าต่างข้างหลังด้วย)
   // ปุ่มหลุดจากหน้าแล้ว (view วาดใหม่ระหว่างเมนูเปิด) → ถอดตัวดักทิ้งเงียบๆ ไม่กิน Esc ของหน้าต่างอื่น
   const detached = () => {
-    if (btn.isConnected) return false;
+    // offsetParent = null → ปุ่มถูกซ่อน (สลับไปหน้าอื่นด้วยปุ่มย้อนกลับขณะเมนูเปิดอยู่)
+    if (btn.isConnected && btn.offsetParent !== null) return false;
+    pop.hidden = true;
+    btn.setAttribute('aria-expanded', 'false');
     document.removeEventListener('pointerdown', onOutside, true);
     document.removeEventListener('keydown', onKey, true);
     return true;

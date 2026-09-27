@@ -868,7 +868,7 @@ function unitTableHtml_(units: any[], showAttain: boolean): string {
   const totRoas = totSpendExact > 0 ? Math.round((totRev / totSpendExact) * 100) / 100 : null;
   // แท็บ "ทั้งหมด" ยอดขายในตารางรวม LINE ด้วย → คนละนิยามกับกล่อง "ROAS รวม" ด้านบน (คิดเฉพาะยอด Facebook)
   const roasTotTip = 'ROAS รวมทั้งตาราง = ยอดขายรวมในตาราง ÷ ค่าแอดรวม' +
-    (showAttain ? ' • แท็บทั้งหมดนับยอด LINE ด้วย จึงต่างจากกล่อง "ROAS รวม" ด้านบนที่คิดเฉพาะยอด Facebook' : '');
+    (!state.channel ? ' • แท็บทั้งหมดนับยอด LINE ด้วย จึงต่างจากกล่อง "ROAS รวม" ด้านบนที่คิดเฉพาะยอด Facebook' : '');
   const totAttain = showAttain && totTarget > 0 ? Math.round((totGoalRev / totTarget) * 1000) / 10 : null;
   const totalRow = '<tr class="tbl-total">' +
     '<td>รวม</td>' +  // คำเดียวพอ: แถวนี้มีพื้นและตัวหนาของตัวเองแล้ว ("รวมทั้งตาราง" ขึ้น 2 บรรทัดในคอลัมน์ที่ตรึงบนมือถือ)

@@ -1644,7 +1644,7 @@ export async function apiSales(params: any) {
       orders: list.length,
       value: Math.round(value),
       // สัดส่วนต่อ "ใบทั้งหมดในช่วง" (ใบที่ยังอยู่ + ใบที่ยกเลิก) — ไม่ใช่ต่อยอดขาย
-      rate: (okOrders + list.length) ? Math.round((list.length / (okOrders + list.length)) * 1000) / 10 : null,
+      rate: (okOrders + list.length) ? Math.round((list.length / (okOrders + list.length)) * 10000) / 100 : null,
       byStatus: toList(byStatus).sort((a, b) => b.orders - a.orders),
       byPerson: toList(byPerson).sort((a, b) => b.orders - a.orders).slice(0, 50),
       byMonth: toList(byMonth).sort((a, b) => (a.name < b.name ? -1 : 1)),

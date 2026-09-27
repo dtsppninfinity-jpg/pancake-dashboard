@@ -1203,9 +1203,13 @@ function renderGrid(container: HTMLElement): void {
   const working = fold ? list.filter(function (a) { const s = statusOf(a); return s !== 'offline' && s !== 'disabled'; }) : list;
   const offline = fold ? list.filter(function (a) { return statusOf(a) === 'offline'; }) : [];
   const disabled = fold ? list.filter(function (a) { return statusOf(a) === 'disabled'; }) : [];
-  // B3: เกินครึ่งติดเรื่องเดียวกัน = ไม่ทาส้มทุกแถว — นับจากทุกคนที่ใช้งานได้ในรายการ (ตามตัวกรอง)
-  // ห้ามนับจากแถวที่ "เห็นอยู่" — ไม่งั้นกางกลุ่มออฟไลน์แล้วคนเดิมเปลี่ยนจากเทาเป็นส้ม ทั้งที่ข้อมูลเขาไม่ได้เปลี่ยน
-  const shown = list.filter(function (a) { return a.enabled !== false; });
+  // B3: เกินครึ่งติดเรื่องเดียวกัน = ไม่ทาส้มทุกแถว — ฐานคือ "คนที่ทำงานอยู่" (ไม่ออฟไลน์/ไม่ระงับ) ในข้อมูลทั้งหมด
+  // ห้ามขึ้นกับแถวที่เห็น/ตัวกรอง: เดิมกางกลุ่มออฟไลน์หรือค้นชื่อแล้วคนเดิมเปลี่ยนเทา↔ส้ม ทั้งที่ข้อมูลเขาไม่ได้เปลี่ยน
+  // ห้ามนับคนออฟไลน์ด้วย: เขาไม่มีวันเต็มเพดาน/เกิน SLA ฐานจะใหญ่จนกติกาไม่เคยทำงาน (ส้มเกือบทุกแถว)
+  const shown = ((lastData && lastData.admins) || []).filter(function (a) {
+    const s = statusOf(a);
+    return a.enabled !== false && s !== 'offline' && s !== 'disabled';
+  });
   const half = function (n: number): boolean { return n * 2 <= shown.length; };
   capColorOn = half(shown.filter(function (a) { return capOf(a).key === 'full'; }).length);
   slaColorOn = half(shown.filter(function (a) { return (Number(a.overSla) || 0) > 0; }).length);

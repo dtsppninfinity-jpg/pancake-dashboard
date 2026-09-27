@@ -170,7 +170,7 @@ export async function apiReport(params: any) {
     });
     return {
       month: m, label: TH_MONTHS[m - 1],
-      target: Math.round(tSum), actual: Math.round(aSum),
+      target: Math.round(tSum), actual: Math.round(aSum), actualTgt: Math.round(aTgt),
       attain: tSum > 0 ? Math.round((aTgt / tSum) * 1000) / 10 : null,
       hitUnits: hit, judgedUnits: judged,
       missingUnits: missN, missingTarget: Math.round(missT),

@@ -504,8 +504,14 @@ function render(container: HTMLElement, d: PerfData | null): void {
 
 /** วาดใหม่แล้วคืนโฟกัสให้ปุ่ม/ช่องที่เพิ่งใช้ — ไม่งั้นโฟกัสตกไปที่ body และหน้าเด้งขึ้นบนสุด */
 function rerender(container: HTMLElement, focusSel: string, caret?: number): void {
+  // ตำแหน่งเลื่อนแนวนอนของตาราง — วาดใหม่แล้วตารางเป็นก้อนใหม่ที่เริ่มซ้ายสุด ต้องคืนให้
+  // (เลื่อนไปดูคอลัมน์ขวาแล้วกด "ดู" → เดิมเด้งกลับซ้าย ปุ่ม "ปิด" ที่เพิ่งกดหลุดออกนอกจอ)
+  const oldSc = container.querySelector('.up-scroll') as HTMLElement | null;
+  const left = oldSc ? oldSc.scrollLeft : 0;
   render(container, lastData);
   bind(container);
+  const sc = container.querySelector('.up-scroll') as HTMLElement | null;
+  if (sc && left) sc.scrollLeft = left;
   const el = container.querySelector(focusSel) as HTMLInputElement | null;
   if (!el) return;
   el.focus({ preventScroll: true });

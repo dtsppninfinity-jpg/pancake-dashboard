@@ -24,6 +24,8 @@ interface UnitRow {
 }
 interface YearRow {
   month: number; label: string; target: number; actual: number;
+  /** ยอดจริงเฉพาะยูนิตที่มีเป้า = ตัวตั้งของ %บรรลุ (actual รวมยูนิต "ไม่ตั้งเป้า" ด้วย) — API เก่าไม่มี */
+  actualTgt?: number;
   attain: number | null; hitUnits: number; judgedUnits: number; closed: boolean;
   missingUnits?: number; missingTarget?: number;
 }
@@ -197,11 +199,13 @@ function unitTableHtml_(d: ReportData): string {
 }
 
 function yearTableHtml_(d: ReportData): string {
-  let cT = 0, cA = 0, cN = 0;
+  // cAT = ยอดของยูนิตที่มีเป้า (ตัวตั้ง %บรรลุรวม) · cA = ยอดจริงรวมที่แสดงในแถวรวม
+  let cT = 0, cA = 0, cAT = 0, cN = 0;
   const body = d.yearSummary.map((y) => {
     const pace = y.closed ? null : paceOf_(d.year, y.month, d);
-    const kind = attainKind(y.actual, y.target, pace !== null ? { pace } : undefined);
-    if (y.closed) { cT += y.target; cA += y.actual; cN++; }
+    const aT = y.actualTgt === undefined ? y.actual : y.actualTgt;
+    const kind = attainKind(aT, y.target, pace !== null ? { pace } : undefined);
+    if (y.closed) { cT += y.target; cA += y.actual; cAT += aT; cN++; }
     const miss = y.missingUnits || 0;
     // สรุป: เดือนที่จบแล้วไม่ถึงเป้า = ป้ายเทา (ประวัติ) — สี %บรรลุ ข้างๆ บอกระดับอยู่แล้ว (B3 งบสีแดง)
     const verdict = !y.closed ? statusPill('muted', 'ยังไม่จบเดือน')
@@ -222,14 +226,14 @@ function yearTableHtml_(d: ReportData): string {
   }).join('');
   const closed = d.yearSummary.filter((y) => y.closed && y.attain !== null);
   const okMonths = closed.filter((y) => (y.attain || 0) >= 100).length;
-  const cAttain = cT > 0 ? Math.round((cA / cT) * 1000) / 10 : null;
+  const cAttain = cT > 0 ? Math.round((cAT / cT) * 1000) / 10 : null;
   const first = d.yearSummary.find((y) => y.closed);
   const lastClosed = d.yearSummary.filter((y) => y.closed).pop();
   // แถวรวมเฉพาะเดือนที่จบแล้ว — เดือนที่ยังวิ่งอยู่มีเป้าเต็มเดือนแต่ยอดยังไม่ครบ ถ้ารวมด้วย %บรรลุจะต่ำเกินจริง
   const totalRow = cN
     ? '<tr class="tbl-total"><td>รวม ' + esc(first && lastClosed && first !== lastClosed ? first.label + '–' + lastClosed.label : (first ? first.label : '')) + '</td>' +
       '<td class="num">' + THB(cT) + '</td><td class="num">' + THB(cA) + '</td>' +
-      '<td class="num">' + (cAttain === null ? dash() : '<span class="' + (kindClass(attainKind(cA, cT)) || 'v-plain') + '">' + pct1(cAttain) + '</span>') + '</td>' +
+      '<td class="num">' + (cAttain === null ? dash() : '<span class="' + (kindClass(attainKind(cAT, cT)) || 'v-plain') + '">' + pct1(cAttain) + '</span>') + '</td>' +
       '<td></td><td></td><td></td></tr>'
     : '';
   return '<div class="card">' +

@@ -171,7 +171,7 @@
   --green-ink: #065f46;                      /* 5.92:1 บน green-soft ทับ surface-2 (--green ได้ 4.23) */
   --amber-ink: #7a4500;                      /* 5.99:1 (--amber ได้ 4.25) */
   --blue-ink: #1d4ed8;                       /* 5.35:1 (--blue ได้ 4.13) */
-  --red-ink: var(--red);                     /* 4.63:1 ผ่านอยู่แล้ว */
+  --red-ink: #9f1239;                        /* 5.31:1 บนกล่องช่องทางที่เลือก (--red ได้ 4.02) · 6.17 บน red-soft */
   --red-soft: rgba(194, 24, 62, 0.10);
   --blue: #2563eb;
   --blue-soft: rgba(37, 99, 235, 0.10);
@@ -357,10 +357,10 @@ body.nav-locked { overflow: hidden; }
 /* เกรด A-D */
 .grade { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 21px;
   padding: 0 var(--sp-2); border-radius: 6px; font-weight: 700; font-size: var(--fs-2); vertical-align: middle; }
-.grade.g-a { background: var(--green-soft); color: var(--green); }
-.grade.g-b { background: var(--blue-soft); color: var(--blue); }
-.grade.g-c { background: var(--amber-soft); color: var(--amber); }
-.grade.g-d { background: var(--red-soft); color: var(--red); }
+.grade.g-a { background: var(--green-soft); color: var(--green-ink); }
+.grade.g-b { background: var(--blue-soft); color: var(--blue-ink); }
+.grade.g-c { background: var(--amber-soft); color: var(--amber-ink); }
+.grade.g-d { background: var(--red-soft); color: var(--red-ink); }
 /* แถบสูตรน้ำหนัก — เรียงแนวตั้งเป็นค่าเริ่มต้น เส้นคั่นจึงเป็นเส้นบน (เส้นซ้ายไม่มีความหมายตอนเรียงลง) */
 .wt-strip { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); margin-top: var(--sp-3); }
 .wt-group { border-top: 1px dashed var(--border); padding-top: var(--sp-3); }
@@ -1505,7 +1505,7 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
 :root[data-theme="light"] .sp-row { border-bottom-color: var(--border); }
 
 /* ---------- ชื่อเล่นเป็นตัวหลัก + ชื่อเต็มเป็นตัวรอง ---------- */
-.rank-fullname { font-weight: 500; font-size: var(--fs-1); color: var(--text-3); }
+.rank-fullname { font-weight: 500; font-size: var(--fs-1); color: var(--text-3); white-space: nowrap; }
 .top3-card .nm-full { font-size: var(--fs-1); color: var(--text-3); margin-top: 1px; }
 .admin-fullname { font-weight: 500; font-size: var(--fs-1); color: var(--text-3); margin-left: var(--sp-2); }
 
@@ -2731,7 +2731,8 @@ table.tbl.tbl-cards td > .btn-mini { flex: 1; }
   transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s;
 }
 .back-top.show { opacity: 1; visibility: visible; transform: none; transition-delay: 0s; }
-body:has(#toast-stack > .toast) .back-top.show { transform: translateY(-68px); }
+/* มีข้อความเด้งอยู่ = ซ่อนปุ่มกลับขึ้นบนชั่วคราว (มุมเดียวกัน ข้อความ 2 ใบสูงเกินกว่าจะยกหลบได้) — ข้อความหายใน 3-8 วินาที */
+body:has(#toast-stack > .toast) .back-top.show { opacity: 0; visibility: hidden; }
 .back-top:hover { border-color: var(--primary); color: var(--primary-ink); }
 @media (min-width: 900px) { .back-top { right: var(--sp-6); bottom: calc(var(--sp-6) + env(safe-area-inset-bottom)); } }
 @media (prefers-reduced-motion: reduce) { .back-top { transition: none; } }
@@ -3172,7 +3173,7 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
 /* ลูกศรเทียบช่วงก่อนในบรรทัดรอง — ชิปเดิมมีระยะซ้ายไว้วางต่อท้ายตัวเลข อยู่ต้นบรรทัดไม่ต้องเว้น */
 #view-sales .sr-gboxes .sb-sub .sr-trend { margin-left: 0; }
 #sr-daily { margin-top: var(--gap-section); }
-.db-share-rate { font-size: var(--fs-section); white-space: nowrap; }
+.db-share-rate { font-size: var(--fs-section); white-space: nowrap; margin-right: auto; }
 /* KPI สายบังคับบัญชา: ตำแหน่ง "หัวหน้าฝ่าย / รองหัวหน้า" ใต้ชื่อต้องไม่แตกเป็น 2 บรรทัด */
 @media (min-width: 900px) { #view-kpi th.kpi-col-person { min-width: 120px; } }
 
@@ -3995,7 +3996,8 @@ table.tbl.ca-media-tbl.tbl-scroll-x tr:hover td:first-child {
 .pf-drill.v-bad { color: var(--red); }
 /* มือถือ: ช่องตารางเตี้ย ปุ่มตัวเลขต้องมีพื้นที่แตะพอ — ขยายพื้นที่กดด้วย ::after ไม่ดันความสูงแถว */
 .pf-drill::after { content: ''; position: absolute; inset: -12px -8px; }
-@media (min-width: 900px) { .pf-drill::after { inset: -6px -4px; } }
+.pf-drill { min-width: 28px; }   /* ตัวเลขสั้น ("63K") + ขอบกด 16px ต้องได้ ≥44px */
+@media (min-width: 900px) { .pf-drill::after { inset: -6px -4px; } .pf-drill { min-width: 0; } }
 
 /* อายุสินค้า "≥268 วัน" ห้ามแตกเป็น 2 บรรทัด (มือถือ "≥268 / วัน") — ป้ายหยุดขายขึ้นบรรทัดใหม่ได้ */
 .pf-age-n, .pf-stop { white-space: nowrap; }
@@ -4317,7 +4319,7 @@ span.us-field-err[hidden], span.um-field-err[hidden] { display: none; }
   width: 24px; height: 24px; margin: -4px -4px -4px 0; padding: 0;
   background: none; border: 0; border-radius: 50%; color: inherit; opacity: .6;
 }
-#view-umap .u-member button.x::after { content: ''; position: absolute; inset: -10px; }   /* 44×44 */
+#view-umap .u-member button.x::after { content: ''; position: absolute; inset: -8px -10px; }   /* 44×40 — แนวตั้งเผื่อไม่ให้ทับชิปแถวถัดไป */
 #view-umap .u-member button.x:hover { opacity: 1; color: var(--red); background: var(--red-soft); }
 @media (min-width: 900px) { #view-umap .u-member button.x::after { inset: -2px; } }
 
