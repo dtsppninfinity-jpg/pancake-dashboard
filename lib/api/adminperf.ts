@@ -216,7 +216,11 @@ async function loadAdSpend_(fromDate: string, toDate: string): Promise<{ byAd: R
 
 /* ---------------- API ---------------- */
 
-export async function apiAdminPerf(params: any) {
+/**
+ * opts.skipHourly — ใช้ภายใน (apiMe) เท่านั้น ไม่รับจาก client: ข้ามการอ่าน chat_hourly
+ * ซึ่งป้อนแค่ newCustomers/teamHourly ระดับทีม — ฟิลด์ที่หน้า "ผลงานของฉัน" ไม่ได้ใช้ (แถวรายคนไม่แตะ)
+ */
+export async function apiAdminPerf(params: any, opts?: { skipHourly?: boolean }) {
   const r = resolveRange_(params);
   const channel = (params && params.channel) || '';
 
@@ -271,7 +275,7 @@ export async function apiAdminPerf(params: any) {
     // ไม่ catch: ตาราง chat_hourly มีแน่นอน — error จริง (503/timeout) ต้องดังให้หน้าเว็บโชว์ retry
     // ไม่ใช่แสดง "0" เนียนๆ เหมือนเป็นข้อมูลจริง
     // หั่นตามวัน — ตารางนี้แถวเยอะสุดในกลุ่มแชท (~1,200/วัน → 35 วัน = 43k แถว เคยทำ 500 ทั้งหน้า)
-    fetchAllDateSliced<any>((f, t) =>
+    opts && opts.skipHourly ? Promise.resolve([] as any[]) : fetchAllDateSliced<any>((f, t) =>
       db.from('chat_hourly')
         .select('date,hour,platform,new_customer_count,customer_inbox_count')
         .gte('date', f).lte('date', t),

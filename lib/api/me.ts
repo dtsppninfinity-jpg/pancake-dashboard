@@ -39,7 +39,7 @@ export async function apiMe(params: any) {
     from: params && params.from,
     to: params && params.to,
     channel: (params && params.channel) || '',
-  });
+  }, { skipHourly: true });   // สถิติแชทรายชั่วโมงทั้งทีม — หน้านี้ไม่ได้ใช้
 
   const rows: any[] = Array.isArray(perf.rows) ? perf.rows : [];
   // จัดอันดับด้วยยอดขาย (เกณฑ์เดียวกับหน้า Ranking โหมด "ยอดขายดีที่สุด")
