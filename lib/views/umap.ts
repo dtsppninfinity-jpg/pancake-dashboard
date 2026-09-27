@@ -3,7 +3,7 @@
    หน้าอ้างอิงกันลืม สไตล์ "เกมจับคู่": คลิกเลือกแอดมินฝั่งซ้าย
    แล้วคลิกการ์ดยูนิตฝั่งขวาเพื่อจับคู่ — ข้อมูลเก็บใน DB (sync_state)
    มี API สาธารณะ /api/public/umap ให้ระบบภายนอกดึงไปใช้
-   + โหมดทดสอบความจำ (ทายคู่ U ↔ ผลิตภัณฑ์) ไว้ท่องจำกันลืม
+   (เกม "ทดสอบความจำ" เอาออกแล้ว — พีสั่ง 27 ก.ย. 69 ไม่มีใครใช้)
 
    ตรวจ UI รอบ 3 (26 ก.ย. 69)
    - F4: ลบยูนิตใช้กล่องยืนยันของเว็บ (ปุ่มแดง "ลบยูนิต Uxx") · ปุ่มบันทึกขึ้น "กำลังบันทึก…" และรอผลจริงก่อนปิด
@@ -79,7 +79,6 @@ function toolbarHtml(): string {
         '<input class="input" id="u-search" placeholder="ค้นหาแอดมิน..." aria-label="ค้นหาแอดมิน" value="' + esc(search) + '">' +
       '</div>' +
       '<button type="button" class="btn primary" id="u-add">' + icon(ICON_FOR.add) + 'เพิ่มยูนิต</button>' +
-      '<button type="button" class="btn" id="u-quiz" title="เกมทายคู่ยูนิต ↔ ผลิตภัณฑ์ ไว้ท่องจำ">' + icon('list-checks') + 'ทดสอบความจำ</button>' +
     '</div>' +
     '<div class="tb-actions">' +
       '<button type="button" class="btn" id="u-api" title="ลิงก์ให้ระบบอื่นดึงรายการจับคู่ยูนิตไปใช้">' + icon(ICON_FOR.link) + 'คัดลอกลิงก์ข้อมูล</button>' +
@@ -471,101 +470,6 @@ function openPageManager(container: HTMLElement, u: string): void {
   renderBody();
 }
 
-/* ---------------- เกมทดสอบความจำ (client-only, ไม่แตะ DB) ---------------- */
-
-function shuffle_<T>(arr: T[]): T[] {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    const t = a[i]; a[i] = a[j]; a[j] = t;
-  }
-  return a;
-}
-
-function openQuiz(): void {
-  const pool = ((lastData && lastData.units) || []).filter((x) => x.product);
-  if (pool.length < 4) { toast('ต้องมียูนิตที่มีชื่อผลิตภัณฑ์อย่างน้อย 4 ตัวถึงจะเล่นได้', 'warn'); return; }
-  const total = Math.min(10, pool.length);
-  const qs = shuffle_(pool).slice(0, total);
-  let idx = 0;
-  let score = 0;
-
-  openModal(
-    '<div class="modal-head"><h3>ทดสอบความจำยูนิต</h3>' + modalCloseBtn() + '</div>' +
-    '<div id="quiz-body"></div>'
-  );
-  const root = document.getElementById('modal-root')!;
-  const body = root.querySelector('#quiz-body') as HTMLElement | null;
-  if (!body) return;
-
-  function renderEnd(): void {
-    const pct = Math.round((score / total) * 100);
-    const verdict = pct >= 90 ? 'สุดยอด จำแม่นมาก!' :
-      pct >= 70 ? 'เก่งมาก เกือบครบแล้ว' :
-      pct >= 50 ? 'ครึ่งๆ — เล่นอีกรอบให้จำขึ้นใจ' : 'ยังจำสลับอยู่ ลองอีกรอบ!';
-    body!.innerHTML =
-      '<div class="umq-end">' +
-        '<div class="t-num umq-score">' + score + ' / ' + total + '</div>' +
-        '<div class="umq-verdict">' + verdict + '</div>' +
-      '</div>' +
-      '<div class="modal-actions">' +
-        '<button type="button" class="btn" id="quiz-close">ปิด</button>' +
-        '<button type="button" class="btn primary" id="quiz-again">' + icon('rotate-ccw') + 'เล่นอีกรอบ</button>' +
-      '</div>';
-    const c = body!.querySelector('#quiz-close');
-    if (c) c.addEventListener('click', closeModal);
-    const g = body!.querySelector('#quiz-again');
-    if (g) g.addEventListener('click', () => { closeModal(); openQuiz(); });
-  }
-
-  function renderQ(): void {
-    if (idx >= total) { renderEnd(); return; }
-    const unit = qs[idx];
-    // สลับ 2 แบบ: เห็นชื่อสินค้า→ทายรหัสยูนิต | เห็นรหัสยูนิต→ทายชื่อสินค้า
-    const askCode = Math.random() < 0.5;
-    const correct = askCode ? unit.u : unit.product;
-    // ตัวหลอกต้องไม่ซ้ำกันเอง และห้ามเป็นคำตอบที่ "ถูกจริง" อีกทาง
-    // (สินค้าชื่อเดียวกันอยู่หลายยูนิต — ถามชื่อสินค้านั้นแล้วยูนิตอื่นก็ถูกด้วย ห้ามเอามาหลอก)
-    const seen = new Set<string>([correct]);
-    const others: string[] = [];
-    for (const x of shuffle_(pool)) {
-      if (x.u === unit.u) continue;
-      if (askCode && x.product === unit.product) continue;
-      const v = askCode ? x.u : x.product;
-      if (seen.has(v)) continue;
-      seen.add(v);
-      others.push(v);
-      if (others.length >= 3) break;
-    }
-    const choices = shuffle_([correct].concat(others));
-    const question = askCode
-      ? '«<b>' + esc(unit.product) + '</b>» อยู่ยูนิตไหน?'
-      : '<b>' + esc(unit.u) + '</b> คือผลิตภัณฑ์อะไร?';
-    body!.innerHTML =
-      '<div class="umq-meta">' +
-        '<span>ข้อ ' + (idx + 1) + ' / ' + total + '</span><span>คะแนน ' + score + '</span></div>' +
-      '<div class="umq-q">' + question + '</div>' +
-      choices.map((c) => '<button type="button" class="quiz-opt" data-v="' + esc(c) + '">' + esc(c) + '</button>').join('');
-    body!.querySelectorAll<HTMLButtonElement>('.quiz-opt').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        if (body!.querySelector('.quiz-opt.correct')) return; // ตอบไปแล้ว — รอข้อถัดไป
-        const v = btn.getAttribute('data-v') || '';
-        const right = v === correct;
-        if (right) score++;
-        body!.querySelectorAll<HTMLButtonElement>('.quiz-opt').forEach((b) => {
-          if ((b.getAttribute('data-v') || '') === correct) b.classList.add('correct');
-          b.disabled = true;
-        });
-        if (!right) btn.classList.add('wrong');
-        idx++;
-        setTimeout(renderQ, right ? 550 : 1100); // ตอบผิดให้เวลาดูเฉลยนานหน่อย
-      });
-    });
-  }
-
-  renderQ();
-}
-
 /* ---------------- คัดลอกลิงก์ข้อมูล (API สาธารณะ) ---------------- */
 
 function copyApiLink(): void {
@@ -654,8 +558,6 @@ function bindEvents(container: HTMLElement): void {
 
   const add = container.querySelector('#u-add');
   if (add) add.addEventListener('click', () => openAddUnit(container));
-  const quiz = container.querySelector('#u-quiz');
-  if (quiz) quiz.addEventListener('click', openQuiz);
   const api = container.querySelector('#u-api');
   if (api) api.addEventListener('click', copyApiLink);
 }

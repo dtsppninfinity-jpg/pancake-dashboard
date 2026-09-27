@@ -1874,7 +1874,7 @@ a.btn-mini { text-decoration: none; display: inline-block; }
 :where(a[href], [role="button"], [data-coach], summary, label):where([data-tip]) { cursor: pointer; }
 :where(a[href], button, [role="button"], [data-coach], summary, label, .kpi-tab, .tree-btn, .low-row, .chip-btn,
   .hbar-row.clickable, tr.clickable, .ca-media-frame.clickable, .rank-tab, .sp-metric, .sr-needcheck,
-  .admin-pick, .u-tool-btn, .u-pages-btn, .page-pick, .u-card.droppable, .quiz-opt) :where([data-tip]) { cursor: inherit; }
+  .admin-pick, .u-tool-btn, .u-pages-btn, .page-pick, .u-card.droppable) :where([data-tip]) { cursor: inherit; }
 @media (prefers-reduced-motion: reduce) {
   .chart-tip { transition: opacity .1s linear; transform: none !important; }
   .chart-tip.is-on { transform: none !important; }
@@ -2001,15 +2001,6 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   box-shadow: 0 0 0 3px var(--primary-soft), var(--shadow);
 }
 @keyframes umap-pop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-/* ตัวเลือกในเกมทดสอบความจำ */
-.quiz-opt {
-  display: block; width: 100%; text-align: left; padding: var(--sp-3) var(--sp-3); margin-top: var(--sp-2);
-  border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2);
-  color: var(--text); font-size: var(--fs-3); cursor: pointer; transition: border-color .12s ease;
-}
-.quiz-opt:hover:not(:disabled) { border-color: var(--primary); }
-.quiz-opt.correct { background: var(--green-soft); border-color: var(--green); }
-.quiz-opt.wrong { background: var(--red-soft); border-color: var(--red); }
 @media (prefers-reduced-motion: reduce) {
   .u-member { animation: none; }
   .u-card.droppable:hover { transform: none; }
@@ -2209,7 +2200,7 @@ tr.row-off { opacity: .55; }
    เกณฑ์ WCAG 2.2 คือ 44×44px (ยอมลดเหลือ 40 ได้ถ้ามีระยะห่างรอบข้างพอ)
    ตั้งเป็นค่าเริ่มต้นแล้วค่อยหดกลับที่ ≥900 ซึ่งใช้เมาส์ ความหนาแน่นสูงกว่าได้ */
 .btn, .btn-mini, .filter-btn, .kpi-tab, .admin-pick, .input, select.input,
-.nav-item, .u-pages-btn, .page-pick, .quiz-opt, .low-row, .coach-tree .tree-btn { min-height: 44px; }
+.nav-item, .u-pages-btn, .page-pick, .low-row, .coach-tree .tree-btn { min-height: 44px; }
 .btn-mini { padding: var(--sp-2) var(--sp-3); font-size: var(--fs-3); }
 /* กากบาทลบแอดมินออกจากยูนิต — เดิม 15×20px แตะพลาดตลอด ขยายพื้นที่กดโดยไม่ขยายชิป */
 .u-member { padding: var(--sp-1) var(--sp-2); }
@@ -3021,7 +3012,7 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
 
   /* เมาส์แม่นกว่านิ้ว จอกว้างจึงกลับไปหนาแน่นได้ตามเดิม */
   .btn, .btn-mini, .filter-btn, .kpi-tab, .admin-pick, .input, select.input,
-  .nav-item, .u-pages-btn, .page-pick, .quiz-opt, .low-row, .coach-tree .tree-btn { min-height: 0; }
+  .nav-item, .u-pages-btn, .page-pick, .low-row, .coach-tree .tree-btn { min-height: 0; }
   .u-member { padding: 3px var(--sp-2); }
   .u-member .x { padding: 0 1px; margin: 0; }
   .btn-mini { padding: var(--sp-1) var(--sp-3); font-size: var(--fs-2); }
@@ -4300,7 +4291,7 @@ span.us-field-err[hidden], span.um-field-err[hidden] { display: none; }
 .pw-box.kv .pw-val { font-weight: 700; }
 
 /* ============================================================
-   จับคู่ยูนิต (#view-umap) + หน้าต่างของหน้านี้ (.umap-form / .umq-* / .umap-pm-*)
+   จับคู่ยูนิต (#view-umap) + หน้าต่างของหน้านี้ (.umap-form / .umap-pm-*)
    ============================================================ */
 
 /* แถวเครื่องมือ (C4): ค้นหา + ปุ่มสร้าง/เกม ทางซ้าย · คัดลอกลิงก์ข้อมูลขวาสุด
@@ -4325,13 +4316,6 @@ span.us-field-err[hidden], span.um-field-err[hidden] { display: none; }
 /* หน้าต่างจับคู่เพจ — เดิม style="margin-bottom:…" ในหน้า */
 .umap-pm-sub { margin-bottom: var(--sp-2); }
 .umap-pm-search { margin-bottom: var(--sp-2); }
-
-/* เกมทดสอบความจำ — เดิมประกอบด้วย style="" ทั้งก้อน (ตัวเลขคะแนน 38px หนา 800) → บทบาทตัวเลขเด่นของกลาง */
-.umq-meta { display: flex; justify-content: space-between; margin-bottom: var(--sp-3); font-size: var(--fs-label); color: var(--text-3); }
-.umq-q { margin-bottom: var(--sp-1); font-size: var(--fs-section); line-height: 1.5; }
-.umq-end { padding: var(--sp-5) var(--sp-2); text-align: center; }
-.umq-score { font-size: var(--fs-page); font-size: clamp(var(--fs-page), 9vw, 38px); }
-.umq-verdict { margin-top: var(--sp-2); font-size: var(--fs-body); color: var(--text-2); }
 
 /* ============================================================
    ผลงานของฉัน (#view-me)
