@@ -120,7 +120,9 @@ export async function apiAdminCom(params: any) {
       { pool: 4 },
     ),
     fetchAll<any>(() =>
-      db.from('ad_daily').select('date,ad_id,spend').gte('date', `${month}-01`).lte('date', `${month}-31`),
+      // วันสุดท้ายจริงของเดือน — เดิมใช้ `-31` ตายตัว เดือน 30 วัน/ก.พ. ฐานข้อมูลปฏิเสธ ("date/time field value out of range")
+      // แล้ว catch กลืนเป็นค่าแอดว่าง → ROAS ค่าคอมเป็น "—" ทั้งตารางในเดือน เม.ย./มิ.ย./ก.ย./พ.ย./ก.พ.
+      db.from('ad_daily').select('date,ad_id,spend').gte('date', `${month}-01`).lte('date', `${month}-${String(new Date(Date.UTC(y, mo, 0)).getUTCDate()).padStart(2, '0')}`),
       'date,ad_id'
     ).catch(() => [] as any[]),
   ]);

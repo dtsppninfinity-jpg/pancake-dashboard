@@ -19,7 +19,8 @@ export async function apiProfit(params: any) {
     const { data, error } = await db.from('unit_daily')
       .select('date,sales,orders,ads,profit,margin')
       .eq('u', String(p.u).toUpperCase())
-      .gte('date', p.month + '-01').lte('date', p.month + '-31')
+      // วันสุดท้ายจริงของเดือน — เดิม `-31` ตายตัว เดือน 30 วัน/ก.พ. ฐานปฏิเสธทั้งคำขอ กดดูรายวันแล้วขึ้น error
+      .gte('date', p.month + '-01').lte('date', p.month + '-' + String(new Date(Date.UTC(Number(p.month.slice(0, 4)), Number(p.month.slice(5, 7)), 0)).getUTCDate()).padStart(2, '0'))
       .order('date', { ascending: true });
     if (error) throw new Error(error.message);
     return {
