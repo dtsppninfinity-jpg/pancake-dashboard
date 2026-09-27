@@ -200,15 +200,26 @@ export async function apiDashboard(
   // เดิมรอทีละตัว 3 ต่อ · ลำดับแถวของแต่ละก้อนเหมือนเดิม (order ของแต่ละคิวรีไม่เปลี่ยน)
   const cutoff = convCutoff_();
   const cutoffIso = new Date(cutoff).toISOString();
+  // บทสนทนาแยก 2 คิวรีขนาน (เรียง id เหมือนเดิมทั้งคู่):
+  //   ทุกแถว = คอลัมน์ที่ใช้นับ (donut/ประเภท/เพจ/แท็ก) — ~11k แถว/24 ชม. เดิมลากข้อความล่าสุด+ชื่อลูกค้ามาด้วยทุกแถว
+  //   เฉพาะแถวรอตอบ (~5%) = คอลัมน์ที่ใช้ทำรายการ "ต้องตอบ" — .eq('waiting', true) ตรงกับ toBool_ เป๊ะ (คอลัมน์ boolean)
   const convRowsP = fetchAll<any>(() =>
     db
       .from('conversations')
-      .select('id,page_id,page_name,platform,type,customer_name,snippet,updated_at,waiting,last_sent_by,tags')
+      .select('page_name,platform,type,updated_at,waiting,last_sent_by,tags')
       .gte('updated_at', cutoffIso)
+  );
+  const convWaitP = fetchAll<any>(() =>
+    db
+      .from('conversations')
+      .select('id,page_id,page_name,platform,type,customer_name,snippet,updated_at')
+      .gte('updated_at', cutoffIso)
+      .eq('waiting', true)
   );
   const engP = loadEngagementRange_(range, channel, commentMode);
   // คิวรีที่ await ก่อนล้ม → อีกตัวยังวิ่งต่อ แต่ต้องไม่กลายเป็น unhandled rejection
   convRowsP.catch(() => {});
+  convWaitP.catch(() => {});
   const chatRows = await fetchAll<any>(() =>
     db
       .from('chat_hourly')
@@ -289,12 +300,14 @@ export async function apiDashboard(
   //    เลือก '30 วันล่าสุด' แล้วกรอง updated_at ย้อนหลังจะได้ "แชทที่ยังค้างอยู่ตอนนี้" ปนกับของเก่า
   //    ซึ่งอ่านผิดเป็น "แชทที่ค้างเมื่อ 30 วันก่อน" — หน้าเว็บจึงติดป้ายกำกับว่าเป็นค่าตอนนี้แทน
   const convRows = await convRowsP;
-  const convs = convRows.filter((c: any) => {
+  const convWaitRows = await convWaitP;
+  const convFilter_ = (c: any) => {
     if (!convInWindow_(c, cutoff)) return false;
     if (commentMode) return String(c.type || '').toUpperCase() === 'COMMENT';
     if (channel && platformChannel_(c.platform) !== channel) return false;
     return true;
-  });
+  };
+  const convs = convRows.filter(convFilter_);
 
   const donut = { replied: 0, waiting: 0, ai: 0 };
   const byType: Record<string, number> = {};
@@ -319,19 +332,20 @@ export async function apiDashboard(
         t = t.trim();
         if (t) tagCount[t] = (tagCount[t] || 0) + 1;
       });
-    if (waiting) {
-      const upd = toDate_(c.updated_at);
-      attention.push({
-        id: String(c.id),
-        pageId: String(c.page_id),
-        pageName: pageName,
-        platform: String(c.platform),
-        customer: String(c.customer_name || 'ลูกค้า'),
-        snippet: String(c.snippet || ''),
-        updatedAt: upd ? fmtDateTimeBkk(upd) : '',
-        waitMins: upd ? Math.max(0, Math.round((now - upd.getTime()) / 60000)) : 0,
-      });
-    }
+  });
+  // รายการ "ต้องตอบ" — แถวรอตอบตามลำดับ id เดิม (= ลำดับเดียวกับที่เคยหยิบจากก้อนรวม)
+  convWaitRows.filter(convFilter_).forEach((c: any) => {
+    const upd = toDate_(c.updated_at);
+    attention.push({
+      id: String(c.id),
+      pageId: String(c.page_id),
+      pageName: String(c.page_name || ''),
+      platform: String(c.platform),
+      customer: String(c.customer_name || 'ลูกค้า'),
+      snippet: String(c.snippet || ''),
+      updatedAt: upd ? fmtDateTimeBkk(upd) : '',
+      waitMins: upd ? Math.max(0, Math.round((now - upd.getTime()) / 60000)) : 0,
+    });
   });
   attention.sort((a, b) => b.waitMins - a.waitMins);
 
