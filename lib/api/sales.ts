@@ -1210,6 +1210,8 @@ export async function apiSales(params: any) {
     db.from('conversations').select('id,type').eq('waiting', true).gte('updated_at', new Date(alertCutoff).toISOString())
   );
   waitingRowsP.catch(noop_);
+  // adCostP (ข้างบน) โยน error ต่อได้ — แปะ catch เปล่ากัน unhandled ระหว่างรอออเดอร์ (await จริงข้างล่างยังโยนต่อเหมือนเดิม)
+  adCostP.catch(noop_);
 
   // orders ทั้งหมดที่อาจใช้ → กรองที่ query แยก 3 ก้อนกัน payload บวม:
   //   [prevStart, start)   คอลัมน์เบา (ช่วงเปรียบเทียบ)

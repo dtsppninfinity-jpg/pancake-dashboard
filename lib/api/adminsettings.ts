@@ -48,9 +48,14 @@ export function nicknameOf(fullName: unknown, saved: unknown): string {
  */
 export async function nicknameByName(): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
-  const { data: admins } = await db.from('admins').select('user_id,name');
+  // สองตารางไม่พึ่งกัน — ดึงพร้อมกัน (เดิมรอทีละตัว) · admins ว่าง = คืนว่างเหมือนเดิม
+  const [adminsRes, st0] = await Promise.all([
+    db.from('admins').select('user_id,name'),
+    db.from('admin_settings').select('user_id,nickname'),
+  ]);
+  const admins = adminsRes.data;
   if (!admins || !admins.length) return out;
-  let st = await db.from('admin_settings').select('user_id,nickname');
+  let st = st0;
   // คอลัมน์ nickname มาจาก migration 2026-07-27 — ฐานที่ยังไม่รันจะ error ตรงนี้ ให้ถอยไปใช้ค่าเดา
   if (st.error && String(st.error.message || '').includes('nickname')) st = { data: [], error: null } as any;
   const saved: Record<string, string> = {};

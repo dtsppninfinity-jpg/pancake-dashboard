@@ -15,6 +15,27 @@ function num_(v: unknown): number {
   return isFinite(n) ? n : 0;
 }
 
+/* ---- จำผลอันดับทั้งทีมไว้ 60 วิ (ใช้ร่วมกันทุกคน) ----
+ * แอดมินทุกคนเปิด "ผลงานของฉัน" = คำนวณอันดับทั้งทีมชุดเดียวกัน (~2-3 MB จากฐานต่อครั้ง: บทสนทนา 24 ชม. + ออเดอร์)
+ * แล้วค่อยตัดเอาแถวของตัวเอง — N คนเปิดพร้อมกัน/รีเฟรช 5 นาที เดิมคำนวณซ้ำ N รอบ
+ * ตัวเลขที่ได้ = ผลคำนวณเมื่อไม่เกิน 60 วิก่อน (หน้าเว็บเองก็รีเฟรชทุก 5 นาทีอยู่แล้ว) · key มีวันที่ไทย (ข้ามเที่ยงคืนไม่ใช้ของเมื่อวาน)
+ * เก็บเป็น promise ให้คำขอที่มาพร้อมกันรอผลเดียวกัน · พลาด = ไม่เก็บ · ห้ามแก้ object ที่ได้ (ใช้ร่วมกัน) — โค้ดข้างล่างแค่อ่าน/slice
+ * ⚠️ ใช้เฉพาะเส้นนี้ — หน้า Ranking (apiAdminPerf ตรงๆ) ยังคำนวณสดทุกครั้ง เพราะหน้าจัดการแอดมินแก้ข้อมูลที่ต้องเห็นผลทันที */
+const PERF_TTL_MS = 60 * 1000;
+const perfMemo_: Record<string, { at: number; p: Promise<any> }> = {};
+function teamPerf_(q: { preset: string; from: unknown; to: unknown; channel: string }): Promise<any> {
+  const ymd = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 10);
+  const key = ymd + '|' + JSON.stringify(q);
+  const now = Date.now();
+  Object.keys(perfMemo_).forEach((k) => { if (now - perfMemo_[k].at >= PERF_TTL_MS) delete perfMemo_[k]; });
+  const hit = perfMemo_[key];
+  if (hit) return hit.p;
+  const p = apiAdminPerf(q, { skipHourly: true });   // สถิติแชทรายชั่วโมงทั้งทีม — หน้านี้ไม่ได้ใช้
+  perfMemo_[key] = { at: now, p };
+  p.catch(() => { if (perfMemo_[key] && perfMemo_[key].p === p) delete perfMemo_[key]; });
+  return p;
+}
+
 export async function apiMe(params: any) {
   const c = await caller();
   if (!c.username) {
@@ -34,12 +55,12 @@ export async function apiMe(params: any) {
     return { linked: false, message: 'บัญชีนี้ยังไม่ได้ผูกกับแอดมินในระบบ — ติดต่อผู้ดูแลระบบ' };
   }
 
-  const perf: any = await apiAdminPerf({
+  const perf: any = await teamPerf_({
     preset: (params && params.preset) || 'today',
     from: params && params.from,
     to: params && params.to,
     channel: (params && params.channel) || '',
-  }, { skipHourly: true });   // สถิติแชทรายชั่วโมงทั้งทีม — หน้านี้ไม่ได้ใช้
+  });
 
   const rows: any[] = Array.isArray(perf.rows) ? perf.rows : [];
   // จัดอันดับด้วยยอดขาย (เกณฑ์เดียวกับหน้า Ranking โหมด "ยอดขายดีที่สุด")
