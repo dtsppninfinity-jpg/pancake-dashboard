@@ -16,6 +16,9 @@
 //    หัวจริงเปลี่ยน (กดเรียง = ลูกศรเปลี่ยน) · ตารางถูกวาดใหม่ = ติดตามตัวใหม่ ตัวเก่าล้างทิ้ง
 //  - แตะหัวคอลัมน์ในสำเนา = ส่งคลิกไปที่ปุ่มเดียวกันในหัวจริง (ตัวเรียงผูกไว้ที่ thead จริง) · ปุ่ม ⓘ ปล่อยให้
 //    กรอบอธิบาย (infotip) จัดการเอง กรอบจะโผล่ใต้ปุ่มในสำเนาซึ่งอยู่บนจอ
+//  - สำเนาหน้าตา/ความสูงเหมือนหัวจริงทุกพิกเซล (ไม่ตัดระยะบนล่าง) → ตอนส่งต่อ สำเนาทับหัวจริงพอดี ป้ายไม่กระโดด
+//    ขอบล่างตรงเส้นขอบล่างของหัวจริง · พอหัวจริงเลื่อนต่อ สำเนาค้างโดยซ่อนระยะว่างเหนือป้าย (padding-top) ไว้ใต้แถบบน
+//    ส่วนที่เห็นจึงบางลง โดยปุ่มเรียงยังสูงเต็ม 44px · เงาใต้สำเนาขึ้นเฉพาะตอนแถวข้อมูลเริ่มเลื่อนมุดใต้มัน
 //  - ทุกอย่างทำใน requestAnimationFrame เดียว: อ่านตำแหน่งทั้งหมดก่อน แล้วค่อยเขียน (ไม่ให้ layout คำนวณซ้ำ)
 //    ตัวฟังการเลื่อนเป็น passive ทั้งหมด
 //  - ซ่อนเมื่อ: จอ ≥900 (CSS ซ่อนซ้ำอีกชั้น) · มีหน้าต่าง/แผ่นล่างเปิด · view ไม่ได้แสดงอยู่ · ตารางพ้นจอ
@@ -31,6 +34,9 @@ interface Entry {
   sc: HTMLElement | null;        // .sth-sc — กล่องเลื่อนแนวนอนของสำเนา
   dirty: boolean;                // ต้องสร้างสำเนาใหม่ (ความกว้าง/เนื้อหาหัวเปลี่ยน)
   on: boolean;                   // กำลังแสดงอยู่
+  fl: boolean;                   // ลอยแยกจากหัวจริงแล้ว (มีเงา) — ตอนทับหัวจริงพอดีไม่มีเงา
+  hh: number;                    // ความสูงสำเนาที่วัดได้จริงหลังโชว์ (0 = ยังไม่รู้ ใช้ความสูงหัวจริงแทน — CSS เดียวกัน)
+  tuck: number;                  // ระยะว่างเหนือป้ายที่ซ่อนไว้ใต้แถบบนได้ตอนสำเนาค้าง (วัดตอนสร้างสำเนา)
   x: number; y: number; w: number; more: boolean;
   setL: number;                  // scrollLeft ที่เราตั้งให้สำเนาล่าสุด (ไว้แยกกับการปัดของผู้ใช้)
   touchTs: number;               // เวลาที่นิ้ว/ล้อเมาส์แตะสำเนาล่าสุด — มีแต่ตอนนั้นที่นับว่า "ผู้ใช้ปัดสำเนา"
@@ -107,7 +113,7 @@ function track(tbl: HTMLTableElement): void {
   const thead = tbl.tHead as HTMLTableSectionElement;
   const e: Entry = {
     tbl, box, thead, view: tbl.closest('.view') as HTMLElement | null,
-    host: null, sc: null, dirty: true, on: false, x: NaN, y: NaN, w: NaN, more: false,
+    host: null, sc: null, dirty: true, on: false, fl: false, hh: 0, tuck: 0, x: NaN, y: NaN, w: NaN, more: false,
     setL: -1, touchTs: 0, userTs: 0,
     mo: new MutationObserver(function () { e.dirty = true; schedule(); }),
     onBox: schedule,
@@ -196,8 +202,8 @@ function forwardClick(e: Entry, ev: MouseEvent): void {
   }
 }
 
-/** วาดสำเนาใหม่จากหัวจริง — widths วัดมาแล้วในรอบอ่าน */
-function build(e: Entry, widths: number[], offX: number, scrollW: number): void {
+/** วาดสำเนาใหม่จากหัวจริง — widths / tuck วัดมาแล้วในรอบอ่าน */
+function build(e: Entry, widths: number[], offX: number, scrollW: number, tuck: number): void {
   if (!e.host) makeHost(e);
   const sc = e.sc as HTMLElement;
   const t = e.tbl.cloneNode(false) as HTMLTableElement;   // ได้ class + style (--pin1-w) + data-* ของจริง
@@ -235,14 +241,16 @@ function build(e: Entry, widths: number[], offX: number, scrollW: number): void 
   spacer.appendChild(t);
   sc.replaceChildren(spacer);
   e.setL = -1;       // เนื้อหาใหม่ = ตำแหน่งเลื่อนเริ่มใหม่ ต้องตั้งซ้ำ
+  e.hh = 0;          // ความสูงวัดใหม่ในเฟรมถัดไป
+  e.tuck = tuck;
   e.dirty = false;
 }
 
 interface Plan {
   e: Entry;
   show: boolean;
-  x: number; y: number; w: number; sl: number; more: boolean;
-  widths: number[] | null; offX: number; scrollW: number;
+  x: number; y: number; w: number; sl: number; more: boolean; fl: boolean;
+  widths: number[] | null; offX: number; scrollW: number; tuck: number;
 }
 
 function frame(): void {
@@ -258,48 +266,67 @@ function frame(): void {
   const topH = topbar ? topbar.getBoundingClientRect().bottom : 0;
   const plans: Plan[] = [];
   entries.forEach(function (e) {
-    const p: Plan = { e, show: false, x: 0, y: 0, w: 0, sl: 0, more: false, widths: null, offX: 0, scrollW: 0 };
+    const p: Plan = { e, show: false, x: 0, y: 0, w: 0, sl: 0, more: false, fl: false, widths: null, offX: 0, scrollW: 0, tuck: 0 };
     plans.push(p);
     if (wide || modal || !e.view || !e.view.classList.contains('active')) return;
     const hr = e.thead.getBoundingClientRect();
     if (!hr.height || hr.top >= topH) return;              // หัวจริงยังอยู่บนจอ (หรือตารางถูกซ่อน)
     const tr = e.tbl.getBoundingClientRect();
-    // ความสูงสำเนา (เตี้ยกว่าหัวจริง — CSS ตัดระยะบนล่างของ th) · ยังไม่เคยโชว์ = ประมาณจากหัวจริง
-    const hh = e.on && e.host ? e.host.offsetHeight : hr.height;
-    if (tr.bottom <= topH + Math.min(hh, 24)) return;       // ตารางเลื่อนพ้นแถบบนไปแล้ว
+    if (tr.bottom <= topH) return;                          // ตารางเลื่อนพ้นแถบบนไปทั้งตัวแล้ว
+    const rebuild = e.dirty || !e.host;
+    // ความสูงสำเนา = ความสูงหัวจริง (CSS ชุดเดียวกัน ความกว้างเท่ากัน) · โชว์อยู่แล้วใช้ค่าที่วัดจากสำเนาจริง
+    // (ห้ามใช้ offsetHeight ตอนสำเนายังซ่อน = 0 · สร้างใหม่ในเฟรมนี้ = ค่าเก่าใช้ไม่ได้ → ใช้หัวจริง แล้วเฟรมหน้าวัดซ้ำ)
+    if (e.on && e.host && !rebuild && !e.hh) e.hh = e.host.offsetHeight;
+    const hh = (!rebuild && e.hh) || hr.height;
     const br = e.box.getBoundingClientRect();
+    if (rebuild) {
+      const cells = Array.from(e.thead.rows[0].cells);
+      p.widths = cells.map(function (c) { return c.getBoundingClientRect().width; });
+      p.offX = tr.left - br.left - e.box.clientLeft + e.box.scrollLeft;
+      p.scrollW = e.box.scrollWidth;
+      // ซ่อนได้แค่ระยะว่างเหนือเนื้อหาของช่องหัว (padding-top ที่น้อยสุด) และส่วนที่เห็นต้องสูง ≥40px
+      // (หัวที่ไม่มีปุ่มเรียงเตี้ยอยู่แล้ว = ไม่ซ่อน ป้ายไม่เบียดขอบแถบบน · ปุ่มเรียงไม่โดนบังเหลือต่ำกว่า 44px)
+      let pad = Infinity;
+      cells.forEach(function (c) { pad = Math.min(pad, parseFloat(getComputedStyle(c).paddingTop) || 0); });
+      p.tuck = Math.max(0, Math.min(isFinite(pad) ? pad : 0, hr.height - 40));
+    }
+    const tuck = rebuild ? p.tuck : e.tuck;
     p.show = true;
     p.x = br.left + e.box.clientLeft;
     p.w = e.box.clientWidth;
-    p.y = Math.min(topH, tr.bottom - hh);                   // ท้ายตารางดันสำเนาขึ้นไปใต้แถบบน
+    // ช่วงส่งต่อ: สำเนาทับหัวจริงพอดี (y = หัวจริง) จนระยะว่างเหนือป้ายมุดใต้แถบบน แล้วค้างไว้ตรงนั้น
+    // ท้ายตาราง: ขอบล่างสำเนาชนท้ายตาราง ดันสำเนาขึ้นไปมุดใต้แถบบนตาม (แบบหัว sticky ปกติ)
+    p.y = Math.min(Math.max(hr.top, topH - tuck), tr.bottom - hh);
+    p.fl = Math.abs(p.y - hr.top) > 0.5;
     p.sl = e.box.scrollLeft;
     p.more = e.box.classList.contains('sx-more');
-    if (e.dirty || !e.host) {
-      const row = e.thead.rows[0];
-      p.widths = Array.from(row.cells).map(function (c) { return c.getBoundingClientRect().width; });
-      p.offX = tr.left - br.left - e.box.clientLeft + e.box.scrollLeft;
-      p.scrollW = e.box.scrollWidth;
-    }
   });
 
   // ---- รอบเขียน ----
+  let again = false;
   plans.forEach(function (p) {
     const e = p.e;
     if (!p.show) {
       if (e.on && e.host) { e.host.removeAttribute('data-on'); e.on = false; }
       return;
     }
-    if (p.widths) build(e, p.widths, p.offX, p.scrollW);
+    if (p.widths) { build(e, p.widths, p.offX, p.scrollW, p.tuck); again = true; }
     const host = e.host as HTMLElement;
     const sc = e.sc as HTMLElement;
-    if (!e.on) { host.setAttribute('data-on', '1'); e.on = true; e.setL = -1; }
+    // เพิ่งโชว์/เพิ่งสร้างใหม่: ตำแหน่งเฟรมนี้คิดจากความสูงหัวจริง — ขอเฟรมถัดไปอีกเฟรมเพื่อวัดสำเนาจริงแล้วแก้ y
+    // (ไม่รอ scroll ครั้งหน้า — ถ้านิ้วหยุดพอดีเฟรมนี้ ตำแหน่งต้องไม่ค้างผิด)
+    if (!e.on) { host.setAttribute('data-on', '1'); e.on = true; e.setL = -1; e.hh = 0; again = true; }
+    if (p.fl !== e.fl) {
+      if (p.fl) host.setAttribute('data-fl', '1'); else host.removeAttribute('data-fl');
+      e.fl = p.fl;
+    }
     if (p.x !== e.x || p.y !== e.y) {
       host.style.transform = 'translate3d(' + p.x + 'px,' + p.y + 'px,0)';
       e.x = p.x; e.y = p.y;
     }
     if (p.w !== e.w) { host.style.width = p.w + 'px'; e.w = p.w; }
-    if (p.more !== e.more) {
-      if (p.more) sc.setAttribute('data-more', '1'); else sc.removeAttribute('data-more');
+    if (p.more !== e.more) {   // ขอบขวาจาง + ลูกศร › เหมือนกล่องจริง (CSS .sth[data-more])
+      if (p.more) host.setAttribute('data-more', '1'); else host.removeAttribute('data-more');
       e.more = p.more;
     }
     // ผู้ใช้กำลังปัดบนสำเนาอยู่ → กล่องจริงตามสำเนา อย่าดึงสำเนากลับไปค่าเก่า (จะกระตุกสู้กัน)
@@ -309,6 +336,7 @@ function frame(): void {
       sc.scrollLeft = p.sl;
     }
   });
+  if (again) schedule();
 }
 
 /** ติดตามตารางกว้างตัวใหม่ๆ + ล้างตัวที่หายไป — เรียกซ้ำได้ทุกครั้งที่หน้าเปลี่ยน */

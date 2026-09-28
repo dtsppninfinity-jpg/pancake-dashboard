@@ -2330,7 +2330,7 @@ table.tbl.tbl-scroll-x.tbl-pin2 tr > td:first-child[colspan] {
 /* ลูกศร › อยู่ในกรอบที่ห่อกล่องเลื่อน (ไม่ใช่ในกล่องเลื่อน ไม่งั้นมันเลื่อนหนีไปกับตาราง)
    วางในแถบหัวตาราง — เดิมอยู่ 96px ลงไปในเนื้อตาราง ทับตัวเลข/ปุ่มของแถวบนๆ */
 .sx-frame { position: relative; min-width: 0; }
-.sx-frame::after {
+.sx-frame::after, .sth::after {
   content: '›'; position: absolute; right: var(--sp-1); top: 22px; z-index: 2;
   width: 26px; height: 26px; margin-top: -13px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center; padding-bottom: 2px;
@@ -2338,8 +2338,8 @@ table.tbl.tbl-scroll-x.tbl-pin2 tr > td:first-child[colspan] {
   font-size: var(--fs-6); font-weight: 700; line-height: 1; box-shadow: var(--shadow);
   pointer-events: none; opacity: 0; transition: opacity .18s ease;
 }
-.sx-frame.sx-more::after { opacity: 1; }
-@media (prefers-reduced-motion: reduce) { .sx-frame::after { transition: none; } }
+.sx-frame.sx-more::after, .sx-frame > .sth[data-more="1"]::after { opacity: 1; }   /* สำเนาหัวลอย: มีลูกศรเฉพาะเมื่อตารางจริงมี */
+@media (prefers-reduced-motion: reduce) { .sx-frame::after, .sth::after { transition: none; } }
 
 /* ---- แบบการ์ดต่อแถว ----
    tr เป็น flex column เพื่อให้ .tc-title ถูกดึงขึ้นหัวการ์ดด้วย order ได้
@@ -2424,16 +2424,19 @@ table.tbl.lc-cut > tbody > tr:nth-child(n+11):not(.tbl-total) { display: none; }
 .sth {
   display: none; position: fixed; top: 0; left: 0; z-index: 9;
   background: var(--surface);
-  box-shadow: 0 6px 8px -4px var(--pin-shadow);
+  transition: box-shadow .15s ease;
 }
 .sth[data-on="1"] { display: block; }
-/* สำเนาบางกว่าหัวจริง: ตัดระยะบน-ล่างของช่องหัว แต่สูงอย่างน้อย 40px (หัวที่ไม่มีปุ่มเรียงจะได้ไม่เบียดขอบแถบบน)
-   หัวที่มีปุ่มเรียงยังสูง 44px ตามเกณฑ์นิ้ว · ระยะซ้าย-ขวาคงเดิม คอลัมน์จึงตรงกับของจริง */
-.sth table.tbl th { padding-top: 0; padding-bottom: 0; height: 40px; }
+/* สำเนาสูงเท่าหัวจริงทุกพิกเซล (ไม่ตัดระยะบน-ล่าง) — ตอนส่งต่อทับหัวจริงพอดี ป้ายไม่กระโดด ขอบล่างตรงกัน
+   ส่วนที่บางลงตอนค้าง = JS ซ่อนระยะว่างเหนือป้ายไว้ใต้แถบบน (ปุ่มเรียงยังสูง 44px เต็ม)
+   เงาใต้สำเนาขึ้นเฉพาะตอนลอยแยกจากหัวจริงแล้ว (data-fl) — ตอนทับหัวจริงพอดีไม่มีเส้นซ้อน 2 ชั้น */
+.sth[data-fl="1"] { box-shadow: 0 6px 8px -4px var(--pin-shadow); }
+@media (prefers-reduced-motion: reduce) { .sth { transition: none; } }
 .sth-sc { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .sth-sc::-webkit-scrollbar { display: none; }
-/* ขวามือยังมีคอลัมน์อีก = ขอบขวาจางเหมือนกล่องจริง (.sx-scroll.sx-more) */
-.sth-sc[data-more="1"] {
+/* ขวามือยังมีคอลัมน์อีก = ขอบขวาจาง + ลูกศร › เหมือนกล่องจริง (.sx-scroll.sx-more / .sx-frame::after ด้านบน)
+   ลูกศรอยู่ที่ตัวกรอบลอย (ไม่ใช่กล่องเลื่อนข้างใน ไม่งั้นโดน mask จางไปด้วย) — ตอนส่งต่อทับลูกศรจริงพอดี ไม่หายวาบ */
+.sth[data-more="1"] > .sth-sc {
   -webkit-mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
   mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
 }

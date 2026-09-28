@@ -25,6 +25,8 @@ interface CapTarget {
   unit: string;
   /** ตัวที่ปุ่มวางต่อท้าย — ตาราง: กล่องห่อตาราง (.table-scroll) · ลิสต์ div: ตัวลิสต์เอง */
   anchor: (list: Element) => Element;
+  /** จำนวน "ทั้งหมด" บนปุ่ม ถ้าไม่เท่าจำนวนในรายการ (ไม่ใส่ = นับจากรายการ) */
+  total?: (list: Element, n: number) => number;
 }
 
 const CAP = 10;
@@ -33,6 +35,13 @@ const TARGETS: CapTarget[] = [
   {
     id: 'adminperf-rank', list: '#view-adminperf .rank-list', items: ':scope > .rank-card', unit: 'คน',
     anchor: function (el) { return el; },
+    // แท็บท็อป 3 + พับอันดับ 1-3 ไว้: ลิสต์เริ่มที่อันดับ 4 (คนบนแท่นอยู่ข้างบน) — ปุ่มต้องบอกจำนวนทั้งอันดับ
+    // ไม่งั้นตัวเลขเปลี่ยนตามแท็บ/การพับ (30 ↔ 33) ทั้งที่เป็นอันดับชุดเดียวกัน
+    total: function (el, n) {
+      if (!el.querySelector(':scope > .rk-top-toggle[aria-expanded="false"]')) return n;
+      const wrap = el.parentElement;
+      return n + (wrap ? wrap.querySelectorAll(':scope > .top3-grid > .top3-card').length : 0);
+    },
   },
   {
     id: 'kpi-year', list: '#view-kpi table.kpi-year', items: ':scope > tbody > tr:not(.tbl-total)', unit: 'คน',
@@ -71,7 +80,7 @@ function sync(list: HTMLElement, t: CapTarget, wide: boolean): void {
     anchor.insertAdjacentElement('afterend', btn);
   }
   if (btn.hidden !== !cut) btn.hidden = !cut;
-  const label = 'ดูทั้งหมด (' + fmtNum(n) + ' ' + t.unit + ')';
+  const label = 'ดูทั้งหมด (' + fmtNum(t.total ? t.total(list, n) : n) + ' ' + t.unit + ')';
   if (btn.textContent !== label) btn.textContent = label;
 }
 
