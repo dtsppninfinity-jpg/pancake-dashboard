@@ -34,6 +34,8 @@ function prefetchInit(allowed: string[], firstView: string): string {
     try { h = location.hash; if (h.charAt(0) === '#') h = h.slice(1); if (h.charAt(0) === '/') h = h.slice(1); h = decodeURIComponent(h).trim(); } catch (e) { h = ''; }
     var first = ${JSON.stringify(firstView)};
     var v = Object.prototype.hasOwnProperty.call(C, h) ? h : first;
+    // หน้าที่จะเปิด — DashboardClient เริ่มโหลดก้อนโค้ดของหน้านี้พร้อม app-core (ดู lib/ui/view-loaders.ts)
+    window.__pnView = v;
     // # ชี้หน้าแรกของสิทธิ์อยู่แล้ว (รีเฟรชหน้าแรก) = ชื่อหน้า/โครงร่างที่ server วาดถูกหน้า → ไม่ต้องซ่อนรอ app-core
     if (v === first) document.documentElement.removeAttribute('data-boot-view');
     var P = {};

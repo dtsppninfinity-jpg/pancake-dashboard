@@ -8,31 +8,19 @@
 
 import {
   serverCall, dataEpoch, failEpoch, esc, relTime, openModal, closeTopModal as closeTopModalLayer, modalCloseBtn, thaiDateShort,
-  floaterIsOpen, closeTopFloater,
+  floaterIsOpen, closeTopFloater, stateHtml,
 } from '@/lib/ui/helpers';
 import { icon, statusPill, ICON_FOR, type StatusKind } from '@/lib/ui/icons';
 import { hideChartTip } from '@/lib/ui/charts';
 import { bindInfoTips, hideInfoTip, infoTipOpen } from '@/lib/ui/infotip';
-import { dashboard } from '@/lib/views/dashboard';
-import { sales } from '@/lib/views/sales';
-import { contentads } from '@/lib/views/contentads';
-import { admins } from '@/lib/views/admins';
-import { adminperf } from '@/lib/views/adminperf';
-import { kpi } from '@/lib/views/kpi';
-import { profit } from '@/lib/views/profit';
-import { unitperf } from '@/lib/views/unitperf';
-import { report } from '@/lib/views/report';
-import { umap } from '@/lib/views/umap';
-import { me } from '@/lib/views/me';
-import { users } from '@/lib/views/users';
+// โค้ดแต่ละหน้าโหลดแยกก้อนเมื่อจะใช้ (lib/ui/view-loaders.ts) — ไม่ import ตรงที่นี่แล้ว
+import { preloadView, type ViewModule } from '@/lib/ui/view-loaders';
+import {
+  dashboardSkel, salesSkel, adminsSkel, adminperfSkel, umapSkel, contentadsSkel, unitperfSkel,
+  kpiSkel, profitSkel, reportSkel, meSkel, usersSkel,
+} from '@/lib/ui/skeletons';
 
 /* ---------------- types ---------------- */
-
-interface ViewModule {
-  load: (container: HTMLElement, force: boolean) => void | Promise<void>;
-  /** วาดใหม่จากข้อมูลที่มีอยู่ ไม่ยิง server (หมุนจอข้ามเส้น 600px — กราฟเลือกขนาดตอนวาด) */
-  redraw?: (container: HTMLElement) => void;
-}
 
 interface SyncLogEntry {
   ts: string;
@@ -174,20 +162,38 @@ interface Bootstrap {
 /* ---------------- view registry ---------------- */
 
 // แต่ละไฟล์ view export { load } — ผูกเข้า registry ตามชื่อ key เดิม (เทียบ Views.<name> ใน GAS)
-const Views: Record<string, ViewModule> = {
-  dashboard,
-  sales,
-  contentads,
-  admins,
-  adminperf,
-  kpi,
-  profit,
-  unitperf,
-  report,
-  umap,
-  me,
-  users,
+// เติมเมื่อก้อนโค้ดของหน้านั้นโหลดเสร็จ (ensureView_) — หน้าที่ยังไม่เคยโหลดไม่มีใน registry
+const Views: Record<string, ViewModule> = {};
+
+/** โครงร่างรอข้อมูลของแต่ละหน้า (ตัวเดียวกับที่ view.load() วาดเอง + page.tsx วาดหน้าแรกจาก server)
+ *  ใช้ตอนรอก้อนโค้ดของหน้าที่ยังไม่เคยเปิด — ช่องหน้าว่างเปล่าระหว่างรอดูเหมือนเว็บค้าง */
+const VIEW_SKEL: Record<string, () => string> = {
+  dashboard: dashboardSkel, sales: salesSkel, admins: adminsSkel, adminperf: adminperfSkel, umap: umapSkel,
+  contentads: contentadsSkel, unitperf: unitperfSkel, kpi: kpiSkel, profit: profitSkel, report: reportSkel,
+  me: meSkel, users: usersSkel,
 };
+
+/** โหลดก้อนโค้ดของหน้า (ครั้งเดียวต่อหน้า) แล้วผูกเข้า Views */
+function ensureView_(view: string): Promise<ViewModule> | null {
+  const p = preloadView(view);
+  return p ? p.then(function (mod) { Views[view] = mod; return mod; }) : null;
+}
+
+/** หลังหน้าแรกขึ้นแล้ว ทยอยโหลดก้อนของหน้าอื่นที่สิทธิ์นี้เปิดได้ทีละหน้า — กดเมนูแล้วไม่ต้องรอโหลดโค้ด
+ *  ทีละหน้าห่างกันเล็กน้อย ไม่ให้การแปลงโค้ดก้อนใหญ่หลายก้อนติดกันทำให้หน้าที่ใช้อยู่กระตุก */
+function preloadOtherViews_(): void {
+  const names = Array.from(document.querySelectorAll('.view[id^="view-"]'))
+    .map(function (el) { return el.id.slice(5); })
+    .filter(function (v) { return !Views[v]; });
+  let i = 0;
+  const next = function (): void {
+    if (i >= names.length) return;
+    const p = ensureView_(names[i++]);
+    const go = function (): void { setTimeout(next, 150); };
+    if (p) p.then(go, go); else go();
+  };
+  next();
+}
 
 /* ชื่อหน้า + บรรทัดใต้ชื่อบนหัวเว็บ (ตรวจ UI ข้อ D2) — ภาษาไทยสั้นภาษาเดียว เป็นภาษาพูด
    ห้ามมีศัพท์ช่าง (sync / API / POS / ชื่อระบบหลังบ้าน) — ทีมขายอ่านแล้วไม่ได้อะไร
@@ -562,6 +568,7 @@ function queueTableScan(): void {
         .map((th) => (th.textContent || '').trim());
       labelRows(tbl, labels, Number(tbl.getAttribute('data-card-title') || 0));
     });
+    // มือถือ: หัวตารางลอยใต้แถบบน (<900) + รายการยาวโชว์ 10 แรก (<600) — ต้องรันหลังจัดประเภทตารางข้างบน
   });
 }
 
@@ -923,6 +930,8 @@ const App = {
       }).catch(function () { self.renderSyncInfo(null); });
       refreshNavBadges();
     }, 1200);
+    // ก้อนโค้ดของหน้าอื่นตามหลังอีกนิด (หลังคำขอข้างบน) — ถึงตอนกดเมนูก็โหลดเสร็จแล้ว
+    setTimeout(preloadOtherViews_, 2500);
     try { localStorage.removeItem(OLD_BADGE_SEEN_KEY); } catch (e) {}
     // รีเฟรชหน้าปัจจุบันอัตโนมัติทุก 5 นาที — แบบเบื้องหลัง (force=false = render จาก cache
     // แล้วค่อยดึงใหม่) และข้ามรอบถ้าแท็บถูกซ่อนหรือผู้ใช้กำลังพิมพ์/เลือกค่าอยู่
@@ -1083,7 +1092,24 @@ const App = {
       loadedEpoch_[view] = dataEpoch();
       loadedFail_[view] = failEpoch();
       loadedWide_[view] = wideNow_();
+      return;
     }
+    // ก้อนโค้ดของหน้านี้ยังไม่มา (เปิดหน้านี้ครั้งแรก) — วาดโครงร่างรอ แล้วโหลดเสร็จค่อยเรียก load ตามปกติ
+    const p = ensureView_(view);
+    if (!p) return;
+    if (!container.firstElementChild && VIEW_SKEL[view]) container.innerHTML = VIEW_SKEL[view]();
+    const self = this;
+    p.then(function () {
+      // ระหว่างรอผู้ใช้ไปหน้าอื่นแล้ว = ยังไม่ต้องยิงข้อมูล (กลับมาหน้านี้เมื่อไหร่ switchView เรียก loadView ใหม่เอง)
+      if (self.state.view === view) self.loadView(view, force);
+    }, function () {
+      if (self.state.view !== view) return;
+      // โหลดโค้ดไม่ได้ (เน็ตหลุด / เพิ่ง deploy ใหม่ก้อนเก่าหายจาก server) — บอกให้รีเฟรชหน้า ไม่ปล่อยโครงร่างค้าง
+      container.innerHTML = stateHtml('error', {
+        title: 'เปิดหน้านี้ไม่สำเร็จ',
+        body: 'โหลดหน้าเว็บส่วนนี้ไม่ได้ — ลองรีเฟรชหน้า (อาจเพิ่งมีการอัปเดตเว็บ หรืออินเทอร์เน็ตสะดุด)',
+      });
+    });
   },
 };
 
