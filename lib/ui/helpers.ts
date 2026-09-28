@@ -4,6 +4,7 @@
 // (ยกเว้น logoMark() ที่ page.tsx ฝั่ง server เรียกด้วย — ไฟล์นี้จึงห้ามแตะ window/document ตอน import)
 
 import { icon, brandIcon } from '@/lib/ui/icons';
+import { FIRST_CALLS } from '@/lib/ui/first-calls';
 
 /* ---------------- โลโก้ PN ----------------
  * วาดตัว P กับ N เป็นรูปทรงล้วน (path) ไม่ใช้ <text> — เดิมโลโก้/ไอคอนแท็บพิมพ์ "PN" ด้วยฟอนต์ Segoe UI
@@ -74,22 +75,112 @@ export async function serverCall<T = any>(fn: string, params?: unknown): Promise
   return serverCallRaw_<T>(fn, body).catch((e) => { failEpoch_++; throw e; });
 }
 
+/* ---- กด F5 แล้วเห็นตัวเลขทันที: จำผลคำขอแรกของหน้าไว้ในแท็บนี้ (sessionStorage) ----
+ * ตอนเปิดเว็บ/รีเฟรช คำขอแรกของหน้า (ตัวที่ page.tsx ยิงล่วงหน้า) ถ้ามีผลเดิมของคำขอเดียวกันที่อายุไม่เกิน 10 นาที
+ * → คืนผลเดิมให้หน้าวาดทันที + ปุ่มรีเฟรชหมุน (app-core ฟัง pn-f5-stale) แล้วพอผลใหม่มาถึง
+ *   app-core สั่งหน้าโหลดใหม่ (pn-f5-fresh) → serverCall ครั้งนั้นได้ผลใหม่ที่รอไว้ (ไม่ยิงซ้ำ) → ตัวเลขล่าสุดแทนที่ภายใน ~1 วิ
+ * เฉพาะหน้าที่ "โชว์ของเดิมก่อนแล้วดึงใหม่เบื้องหลัง" อยู่แล้ว (F5_VIEWS) — หน้าที่มีการแก้ข้อมูล/หน้าต่างค้างไม่ใช้
+ * ผูกกับผู้ใช้ + สิทธิ์ (ออกจากระบบ/เปลี่ยนบัญชีในแท็บเดียวกันไม่เห็นของคนก่อน) · แท็บปิด = หายเอง
+ * ปิดทั้งระบบ: ตั้ง F5_MAX_AGE_MS = 0 */
+const F5_MAX_AGE_MS = 10 * 60 * 1000;
+const F5_MAX_CHARS = 1_500_000;        // ผลใหญ่กว่านี้ไม่จำ (เช่น โฆษณา 7 MB) — sessionStorage ทั้งเว็บได้ราว 5 MB
+const F5_FRESH_MS = 60 * 1000;         // ผลใหม่ที่รอให้หน้ามาหยิบ เก็บไว้ไม่เกิน 1 นาที
+const F5_PREFIX = 'pn-f5|';
+const F5_VIEWS = ['dashboard', 'sales', 'contentads', 'profit', 'unitperf', 'report', 'kpi'];
+let f5Keys_: Record<string, string> | null = null;   // fn|body → ชื่อหน้า
+const f5Fresh_: Record<string, { p: Promise<any>; at: number }> = {};
+
+function f5Keys(): Record<string, string> {
+  if (!f5Keys_) {
+    f5Keys_ = {};
+    for (const v of F5_VIEWS) {
+      (FIRST_CALLS[v] || []).forEach(([fn, p]) => { f5Keys_![fn + '|' + JSON.stringify(p)] = v; });
+    }
+  }
+  return f5Keys_;
+}
+function f5User_(): string {
+  if (typeof document === 'undefined') return '';
+  const app = document.getElementById('app');
+  const nm = document.querySelector('.me-name');
+  return ((app && app.getAttribute('data-role')) || '') + '|' + ((nm && nm.textContent) || '').trim();
+}
+function f5Read_(k: string): unknown {
+  if (!(F5_MAX_AGE_MS > 0)) return undefined;
+  try {
+    const raw = sessionStorage.getItem(F5_PREFIX + k);
+    if (!raw) return undefined;
+    const o = JSON.parse(raw);
+    if (!o || o.u !== f5User_() || !(Date.now() - Number(o.t) < F5_MAX_AGE_MS)) return undefined;
+    return o.v;
+  } catch (e) { return undefined; }
+}
+function f5Write_(k: string, text: string): void {
+  if (!(F5_MAX_AGE_MS > 0) || text.length > F5_MAX_CHARS) return;
+  const val = '{"t":' + Date.now() + ',"u":' + JSON.stringify(f5User_()) + ',"v":' + text + '}';
+  try { sessionStorage.setItem(F5_PREFIX + k, val); } catch (e) {
+    // เต็ม → ล้างของหน้าอื่นที่จำไว้แล้วลองอีกครั้ง · ยังไม่ได้ก็ไม่จำ (แค่ F5 รอบหน้าไม่เร็ว)
+    try { clearF5Cache(); sessionStorage.setItem(F5_PREFIX + k, val); } catch (e2) { /* ไม่จำ */ }
+  }
+}
+/** ล้างผลที่จำไว้ทั้งหมด (ออกจากระบบ / session หมดอายุ) */
+export function clearF5Cache(): void {
+  try {
+    const ks: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k && k.indexOf(F5_PREFIX) === 0) ks.push(k);
+    }
+    ks.forEach((k) => sessionStorage.removeItem(k));
+  } catch (e) { /* ไม่มี sessionStorage */ }
+}
+function f5Emit_(name: string, detail: unknown): void {
+  try { window.dispatchEvent(new CustomEvent(name, { detail })); } catch (e) { /* เบราว์เซอร์เก่า */ }
+}
+
+/** อ่านคำตอบ: 401 = เด้งไปล็อกอิน · ไม่ ok = error พร้อมข้อความ server · คืน [ผล, ข้อความดิบ] */
+async function readResp_(r: Response): Promise<[any, string]> {
+  if (r.status === 401) {
+    // session หมดอายุ / ยังไม่ล็อกอิน → เด้งไปหน้า login
+    if (typeof window !== 'undefined') { clearF5Cache(); window.location.href = '/login'; }
+    throw new Error('unauthorized');
+  }
+  if (!r.ok) throw new Error(await r.text());
+  const text = await r.text();
+  return [JSON.parse(text), text];
+}
+
 async function serverCallRaw_<T>(fn: string, body: string): Promise<T> {
   const send = () => fetch('/api/' + fn, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body,
   });
+  const k = fn + '|' + body;
+  const view = typeof window !== 'undefined' ? f5Keys()[k] : undefined;
+  // ผลใหม่ที่ดึงไว้ตอนโชว์ของเดิมหลัง F5 — หน้ามาขอรอบนี้ = ใช้ตัวนั้นเลย ไม่ยิงซ้ำ
+  const waiting = f5Fresh_[k];
+  if (waiting) {
+    delete f5Fresh_[k];
+    if (Date.now() - waiting.at < F5_FRESH_MS) return waiting.p;
+  }
   const pre = takePrefetch_(fn, body);
+  if (pre && view) {
+    // เปิดเว็บ/F5: มีผลเดิมของคำขอนี้ในแท็บ → คืนทันที แล้วรอผลใหม่เบื้องหลัง
+    const cached = f5Read_(k);
+    if (cached !== undefined) {
+      const freshP = pre.catch(send).then(readResp_).then(([v, text]) => { f5Write_(k, text); return v; });
+      f5Fresh_[k] = { p: freshP, at: Date.now() };
+      freshP.then(() => f5Emit_('pn-f5-fresh', { view, ok: true }), () => f5Emit_('pn-f5-fresh', { view, ok: false }));
+      f5Emit_('pn-f5-stale', { view });
+      return cached as T;
+    }
+  }
   // คำขอล่วงหน้าพลาดแบบเน็ตสะดุด (ไม่ใช่ server ตอบ error) → ยิงใหม่เองเหมือนไม่มีของล่วงหน้า
   const r = pre ? await pre.catch(send) : await send();
-  if (r.status === 401) {
-    // session หมดอายุ / ยังไม่ล็อกอิน → เด้งไปหน้า login
-    if (typeof window !== 'undefined') window.location.href = '/login';
-    throw new Error('unauthorized');
-  }
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
+  const [v, text] = await readResp_(r);
+  if (view) f5Write_(k, text);   // จำไว้ให้ F5 รอบหน้า (เฉพาะคำขอแรกของหน้าที่รองรับ)
+  return v as T;
 }
 
 /* ---------------- formatting helpers ---------------- */

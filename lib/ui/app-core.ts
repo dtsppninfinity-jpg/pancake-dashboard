@@ -8,7 +8,7 @@
 
 import {
   serverCall, dataEpoch, failEpoch, esc, relTime, openModal, closeTopModal as closeTopModalLayer, modalCloseBtn, thaiDateShort,
-  floaterIsOpen, closeTopFloater, stateHtml,
+  floaterIsOpen, closeTopFloater, stateHtml, clearF5Cache,
 } from '@/lib/ui/helpers';
 import { icon, statusPill, ICON_FOR, type StatusKind } from '@/lib/ui/icons';
 import { hideChartTip } from '@/lib/ui/charts';
@@ -897,6 +897,7 @@ const App = {
     const logout = document.getElementById('btn-logout');
     if (logout) {
       logout.addEventListener('click', function () {
+        clearF5Cache();   // ตัวเลขที่จำไว้ให้ F5 เป็นของบัญชีนี้ — ไม่ทิ้งไว้ในแท็บ
         fetch('/api/logout', { method: 'POST' })
           .then(function () { window.location.href = '/login'; })
           .catch(function () { window.location.href = '/login'; });
@@ -917,6 +918,7 @@ const App = {
     // หน้าแรก: # ในลิงก์ (รีเฟรช/ลิงก์ที่ส่งต่อกัน) ถ้าสิทธิ์นี้เปิดได้ — ไม่งั้นหน้าแรกของสิทธิ์
     // (page.tsx บอกมาทาง data-first-view · ระดับแอดมินเริ่มที่ "ผลงานของฉัน")
     // # ของหน้าที่เปิดไม่ได้ → เขียน # ใหม่เป็นหน้าแรกของเขา (replace — ไม่เพิ่มประวัติ)
+    bindF5Refresh_(self);   // ก่อนเปิดหน้าแรก — คำขอแรกอาจได้ของที่จำไว้ทันที (ดู bindF5Refresh_)
     const fromHash = hashView();
     const start = canOpenView(fromHash) ? fromHash : firstViewOf();
     this.switchView(start, { history: 'replace', initial: true });
@@ -1143,6 +1145,35 @@ function viewIsFresh_(view: string): boolean {
   const busy = Array.from(box.querySelectorAll('.skel, .skel-line, .loading, .state-error'))
     .filter(function (x) { return !x.closest('#rp-market, #rk-com'); });
   return busy.length === 0;
+}
+
+/* ---- F5 แล้วหน้าโชว์ตัวเลขที่จำไว้ก่อน (lib/ui/helpers.ts) — ปุ่มรีเฟรชหมุนจนผลใหม่มาถึงแล้ววาดใหม่ ----
+ * ผลใหม่มา: ถ้ายังอยู่หน้าเดิม และไม่มีหน้าต่าง/เมนูเปิด ไม่ได้กำลังพิมพ์ → loadView (หน้าหยิบผลใหม่ที่รอไว้ ไม่ยิงซ้ำ)
+ * ไม่ตรงเงื่อนไข = ไม่วาดทับของที่ผู้ใช้กำลังทำ — รอบรีเฟรชอัตโนมัติ 5 นาที/ปุ่มรีเฟรชจะดึงใหม่ตามปกติ
+ * ผลใหม่พลาด = หน้าขึ้นข้อความ "ยังแสดงข้อมูลเดิมอยู่" ของตัวเองตอนโหลดใหม่ (ทางเดียวกับรีเฟรชเบื้องหลังพลาด) */
+function bindF5Refresh_(app: typeof App): void {
+  let spun = false;
+  const spin = function (on: boolean): void {
+    const btn = document.getElementById('btn-refresh');
+    if (!btn) return;
+    if (on && btn.classList.contains('is-busy')) return;   // ปุ่มกำลังหมุนจากการกดเองอยู่แล้ว ไม่ยุ่ง
+    if (!on && !spun) return;
+    spun = on;
+    btn.classList.toggle('is-busy', on);
+    if (on) btn.setAttribute('aria-busy', 'true'); else btn.removeAttribute('aria-busy');
+    const ic = btn.querySelector('svg.ic');
+    if (ic) ic.classList.toggle('spin', on);
+  };
+  window.addEventListener('pn-f5-stale', function () { spin(true); });
+  window.addEventListener('pn-f5-fresh', function (e: Event) {
+    spin(false);
+    const view = String(((e as CustomEvent).detail || {}).view || '');
+    if (!view || app.state.view !== view) return;
+    if (modalOpen() || floaterIsOpen()) return;
+    const ae = document.activeElement;
+    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')) return;
+    app.loadView(view, false);
+  });
 }
 
 /** entry point — เรียกครั้งเดียวจาก DashboardClient (แทน App.init() ท้าย body ของ Index.html) */
