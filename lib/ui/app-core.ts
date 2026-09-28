@@ -302,7 +302,7 @@ function setNavOpen(open: boolean): void {
      แดง (.nav-badge)          = ยูนิตขาดทุน ≥2 วันติด (level urgent ของงาน unit-alerts) และมีไม่เกิน RED_BUDGET ยูนิต
      ส้มอ่อน (.nav-badge.soft) = เรื่องที่ควรเข้าไปดู: ยูนิตเฝ้าระวัง (ขาดทุน 1 วัน), แอดที่ควรหยุด/แก้,
                                  และยูนิตขาดทุนติดกันที่มีเยอะเกินงบแดง (เยอะขนาดนั้นคือสภาพทั่วไป ไม่ใช่ "เรื่องด่วนไม่กี่เรื่อง")
-   ตัวเลข = จำนวนจริง (เพดาน 99+) · ป้ายอยู่ตราบที่ยังมีเรื่อง — เปิดหน้านั้นแล้วป้ายต้องไม่หาย
+   ตัวเลข = จำนวนจริง (เพดาน 9+ — พีสั่ง 28 ก.ย.) · ป้ายอยู่ตราบที่ยังมีเรื่อง — เปิดหน้านั้นแล้วป้ายต้องไม่หาย
    (พีสั่ง 28 ก.ย.: รอบ 2 เคยทำให้เปิดหน้าแล้วป้ายหาย ผิด — เรื่องยังไม่ถูกแก้ ป้ายต้องยังเตือนอยู่แบบเดิม) */
 
 interface BadgeInfo {
@@ -343,7 +343,8 @@ function setNavBadge(view: string, count: number, tone?: 'urgent' | 'soft', tip?
   }
   btn.classList.add('has-badge'); // เว้นที่ด้านขวาไม่ให้เลขทับชื่อแท็บ
   b.className = 'nav-badge' + (tone === 'soft' ? ' soft' : '');
-  b.textContent = count > 99 ? '99+' : String(count);
+  // เพดาน 9+ (พีสั่ง 28 ก.ย.) — ป้ายเล็กกลมพอดีตัวเลขหลักเดียว · จำนวนจริงอยู่ในคำอธิบายปุ่ม (tip/aria-label)
+  b.textContent = count > 9 ? '9+' : String(count);
   const label = btn.querySelector('.nav-label');
   const name = ((label && label.textContent) || '').trim();
   if (tip) {
