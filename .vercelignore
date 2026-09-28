@@ -1,0 +1,13 @@
+# ไฟล์ที่ไม่อัปโหลดตอน `vercel --prod` — CLI ไม่อ่าน .gitignore ให้ (อ่านแค่ไฟล์นี้ + ค่าเริ่มต้นของ Vercel เช่น .env.local/.next/node_modules)
+# temp/ = ผลตรวจ/ภาพหน้าจอ/ข้อมูลธุรกิจที่ดึงมาดูในเครื่อง (หลายหมื่นไฟล์ — เกินเพดาน 15,000 ไฟล์ต่อ deploy จน deploy ไม่ได้)
+temp/
+.agents/
+*.xlsx
+*.log
+*.tsbuildinfo
+.env
+*-service-account*.json
+*iam.gserviceaccount*.json
+pos-pancake-dashboard-sheets-*.json
+gcp-*.json
+service-account*.json
