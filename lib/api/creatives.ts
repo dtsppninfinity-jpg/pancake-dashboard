@@ -3,6 +3,7 @@
 //   apiPageMedia {adIds} = หน้าเว็บขอเพิ่มทีละชุดเฉพาะแอดที่กำลังจะโชว์ (เปลี่ยนตัวกรอง/อันดับ, เปิดหน้าวิเคราะห์)
 // เดิม apiContentAds ดึงสื่อของ "ทุกแอดในช่วง" (~11k แอด / 7 วัน = 46% ของเวลาโหลด + 16MB) ทั้งที่จอใช้แค่ ~30
 import { db, fetchAll } from '@/lib/db';
+import { metaAdCreativesByIds } from '@/lib/meta';
 
 /**
  * error นี้แปลว่า "ยังไม่ได้สร้างตาราง" (ยังไม่รัน migration) เท่านั้นไหม
@@ -70,6 +71,79 @@ export function toMediaObj(cr: CreativeRow | undefined | null): MediaObj | null 
     link: String(cr.link_url || ''),
     title: String(cr.name || ''),
   };
+}
+
+/* ---------------- ลิงก์รูปของ Meta หมดอายุ → ขอใหม่เฉพาะตัวที่จะโชว์ (พีเลือกทาง ก. 28 ก.ย.) ----------------
+ * ลิงก์รูป/รูปย่อจาก Meta (scontent/fbcdn) มีวันหมดอายุฝังในพารามิเตอร์ oe (วินาที unix ฐาน 16) อยู่ได้ราว 4 วัน
+ * แต่งาน sync ดึงครีเอทีฟครั้งเดียวตอนแอดเกิด → แอดที่ยิงนานกว่า 4 วันรูปดับหมด (วัด 28 ก.ย.: ~2/3 ของจอแรก)
+ * ทางที่เลือก: ตอนหน้าเว็บขอรูปชุดไหน (≤60) ตัวที่หมดแล้ว/จะหมดใน 1 ชม. ขอลิงก์ใหม่จาก Meta ตอนนั้น (≤2 คำขอ)
+ * แล้วเขียนทับ "เฉพาะช่องลิงก์รูป" ในตาราง — คนถัดไปใช้ต่อได้อีก ~4 วัน · ช่องอื่น (post_id ฯลฯ) ห้ามแตะ:
+ *   งานเติมเพจให้ค่าแอด (syncAdPageFill) อาศัย post_id — ทับเป็นค่าว่างเมื่อไหร่ ค่าแอดก้อนนั้นหลุดจากตารางยูนิต
+ * เทียบทางรีเฟรชทุกแอดวันละครั้ง: ~9,700 แอด/วัน ≈ เพิ่มโควตา Meta เกือบเท่าตัว (เคยชนเพดาน 27 ส.ค.) */
+
+/** เวลาหมดอายุของลิงก์ Meta (ms) — null = ลิงก์ไม่มีวันหมดอายุ / ไม่ใช่ลิงก์แบบนั้น */
+export function urlExpiresAt(u: string | null | undefined): number | null {
+  const m = /[?&]oe=([0-9A-Fa-f]{6,10})(?:&|#|$)/.exec(String(u || ''));
+  return m ? parseInt(m[1], 16) * 1000 : null;
+}
+/** หมดแล้วหรือจะหมดใน 1 ชม. (เปิดหน้าค้างไว้แล้วรูปดับกลางทาง) */
+const EXPIRY_MARGIN_MS = 60 * 60 * 1000;
+function urlStale_(u: string | null | undefined): boolean {
+  const t = urlExpiresAt(u);
+  return t !== null && t < Date.now() + EXPIRY_MARGIN_MS;
+}
+/** รูปที่จอใช้ของแถวนี้หมดอายุไหม — 'img' = หน้าโฆษณา (image_url ก่อน, toMediaObj) · 'thumb' = สื่อรายเพจ (thumb_url ก่อน) */
+export function creativeExpired(cr: CreativeRow | undefined | null, which: 'img' | 'thumb' = 'img'): boolean {
+  if (!cr) return false;
+  const u = which === 'thumb' ? (cr.thumb_url || cr.image_url) : (cr.image_url || cr.thumb_url);
+  return !!u && urlStale_(u);
+}
+
+/** id ที่ลองขอใหม่ไปแล้วเมื่อไหร่ (ต่อโปรเซส) — ขอไม่สำเร็จ/Meta ไม่ให้ จะไม่ถามซ้ำทุกคำขอ (20 นาทีค่อยลองใหม่) */
+const refreshTried_ = new Map<string, number>();
+const RETRY_AFTER_MS = 20 * 60 * 1000;
+const REFRESH_MAX = 60;
+
+/**
+ * ขอลิงก์รูปใหม่ให้แถวที่หมดอายุใน crs (เฉพาะ ids ที่ส่งมา ≤60 ตัว) แล้วแก้ crs ในที่ + เขียนลงตาราง
+ * รอไม่เกิน budgetMs — เกินนั้นคืนของเดิม (รูปดับแบบเดิม) ปล่อยงานวิ่งต่อ ถ้าเสร็จทีหลังตารางได้ลิงก์ใหม่ คนถัดไปได้รูป
+ * ไม่มี token / Meta ปฏิเสธ / เน็ตพลาด = เงียบ คืน 0 (รูปเป็นของเสริม ห้ามทำให้คำขอพัง) · คืนจำนวนแถวที่ได้ลิงก์ใหม่
+ */
+export async function refreshExpiredCreatives(
+  crs: Record<string, CreativeRow>, ids: string[], which: 'img' | 'thumb', budgetMs = 8000,
+): Promise<number> {
+  if (!process.env.META_ACCESS_TOKEN) return 0;
+  const now = Date.now();
+  const want = ids.filter((id) => creativeExpired(crs[id], which) && !(now - (refreshTried_.get(id) || 0) < RETRY_AFTER_MS))
+    .slice(0, REFRESH_MAX);
+  if (!want.length) return 0;
+  want.forEach((id) => refreshTried_.set(id, now));
+  if (refreshTried_.size > 5000) {   // กันโตไม่หยุดในโปรเซสที่อยู่นาน
+    refreshTried_.forEach((t, id) => { if (now - t >= RETRY_AFTER_MS) refreshTried_.delete(id); });
+  }
+  const work = metaAdCreativesByIds(want, 2).then(async ({ rows }) => {
+    // เฉพาะแถวที่ได้รูปจริง · เขียนแค่ ad_id + 2 ช่องลิงก์ (upsert แบบรวม = ช่องที่ไม่ส่งไม่ถูกแตะ แถวมีอยู่แล้วทุกตัว)
+    const got = rows.filter((r) => want.indexOf(String(r.ad_id)) >= 0 && (r.image_url || r.thumb_url));
+    if (got.length) {
+      const { error } = await db.from('ad_creative')
+        .upsert(got.map((r) => ({ ad_id: String(r.ad_id), image_url: r.image_url, thumb_url: r.thumb_url })), { onConflict: 'ad_id' });
+      if (error) console.error('[creatives] save refreshed urls', error.message);
+    }
+    return got;
+  });
+  work.catch((e: any) => console.error('[creatives] refresh', (e && e.message) || e));
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const got = await Promise.race([
+    work.catch(() => null),
+    new Promise<null>((res) => { timer = setTimeout(() => res(null), budgetMs); }),
+  ]);
+  if (timer) clearTimeout(timer);
+  if (!got) return 0;
+  got.forEach((r) => {
+    const c = crs[String(r.ad_id)];
+    if (c) { c.image_url = r.image_url; c.thumb_url = r.thumb_url; }
+  });
+  return got.length;
 }
 
 /** มีครีเอทีฟที่ใช้ได้สักแถวในตารางไหม — ตัวตัดสินว่าหน้าเว็บวาดกล่องรูปย่อไหม / ขึ้นแถบ "ยังไม่มีรูปครีเอทีฟ"

@@ -2,7 +2,7 @@
 // อ่านจาก Supabase (orders + ads) แล้วรวมยอด/สร้าง alerts ตาม logic เดิมทุกตัวอักษร
 import { db, fetchAll, fetchAllSliced, fetchAllDateSliced } from '@/lib/db';
 import { EXCLUDED_STATUSES, money_, isPlaceholderOrder, fmtDateBkk, daysAgo } from '@/lib/config';
-import { loadCreatives, toMediaObj, hasAnyCreative, isMissingTable } from '@/lib/api/creatives';
+import { loadCreatives, toMediaObj, hasAnyCreative, isMissingTable, creativeExpired } from '@/lib/api/creatives';
 
 /** ค่าจาก Postgres อาจเป็น number/string/null — แปลงเป็นเลขเสมอ (NaN → 0) */
 function toNum_(v: unknown): number {
@@ -495,7 +495,10 @@ export async function apiContentAds(params?: any) {
   }
   const byId: Record<string, (typeof items)[number]> = {};
   items.forEach(function (it) { byId[it.adId] = it; });
-  if (seeded) seedIds.forEach(function (id) { if (byId[id]) byId[id].media = toMediaObj(seedCr[id]); });
+  // ลิงก์รูปหมดอายุ (~4 วัน) → ไม่เติมให้ + ไม่นับว่าเช็คแล้ว หน้าเว็บจะขอผ่าน apiPageMedia {adIds} ซึ่งขอลิงก์ใหม่จาก Meta ให้
+  // (ไม่ขอใหม่ตรงนี้ — ตัวเลขทั้งหน้าจะต้องรอ Meta ไปด้วย · ตัวเลขขึ้นก่อน รูปตามมา 1-2 วิ)
+  const seededIds = seeded ? seedIds.filter(function (id) { return !creativeExpired(seedCr[id], 'img'); }) : [];
+  seededIds.forEach(function (id) { if (byId[id]) byId[id].media = toMediaObj(seedCr[id]); });
 
   return {
     summary: {
@@ -510,7 +513,7 @@ export async function apiContentAds(params?: any) {
     // มีครีเอทีฟในระบบไหม (0/1 — หน้าเว็บใช้แค่ > 0) · 0 ทั้งที่มีแอด = ยังไม่รัน 2026-07-27-ad-creative.sql
     creativeCount: anyCreative,
     // id ที่เช็คสื่อแล้วในรอบนี้ (media ของแถวพวกนี้ null = ไม่มีรูปจริง หน้าเว็บไม่ต้องขอซ้ำ)
-    mediaSeeded: seeded ? seedIds : [],
+    mediaSeeded: seededIds,
     // ค่าแอดครอบคลุมกี่วันจากที่เลือก — น้อยกว่า days = ROAS สูงเกินจริง หน้าเว็บต้องเตือน
     adDaysCovered,
     // ข้อความสำหรับทีม (ไม่มีคำสั่งเทคนิค) · คำสั่งเติมข้อมูลแยกไว้ใน adDaysFix ให้หน้าเว็บโชว์เฉพาะผู้ดูแลระบบ (D3)

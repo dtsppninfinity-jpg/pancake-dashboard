@@ -3,7 +3,7 @@
 // สื่อ = โพสต์ (post_id จาก ad_creative) — 1 โพสต์มักมีหลายแอดยิง จึงรวมเป็นแถวเดียว
 // ตัวเลขค่าแอด/ทัก/ซื้อ มาจาก ad_daily (Meta ทับรายวัน) กรองทั้งปีของเพจที่เลือก
 import { db, fetchAll, fetchAllDateSliced } from '@/lib/db';
-import { loadCreatives, toMediaObj, type MediaObj } from '@/lib/api/creatives';
+import { loadCreatives, toMediaObj, refreshExpiredCreatives, creativeExpired, type MediaObj } from '@/lib/api/creatives';
 
 const num_ = (v: unknown): number => {
   const n = Number(v);
@@ -21,6 +21,8 @@ export async function apiPageMedia(params: any) {
     const ids = Array.from(new Set((p.adIds as unknown[]).map((x) => String(x || ''))))
       .filter((x) => /^\d{1,32}$/.test(x)).slice(0, 60);
     const crs = await loadCreatives(ids);
+    // ลิงก์รูปของ Meta หมดอายุ (~4 วัน) → ขอใหม่เฉพาะชุดนี้ก่อนตอบ (รอไม่เกิน 8 วิ) — ดู refreshExpiredCreatives
+    await refreshExpiredCreatives(crs, ids, 'img');
     // คืนครบทุก id ที่รับไว้ (null = ไม่มีรูปจริง) — id ที่ไม่อยู่ในผล หน้าเว็บถือว่า "ยังไม่รู้" แล้วขอใหม่รอบหลัง
     const media: Record<string, MediaObj | null> = {};
     ids.forEach((id) => { media[id] = toMediaObj(crs[id]); });
@@ -82,7 +84,7 @@ export async function apiPageMedia(params: any) {
 
   // รวมเป็นราย "สื่อ" (post_id — แอดที่ไม่รู้โพสต์ใช้ ad_id ตัวเอง)
   interface Media {
-    key: string; title: string; thumb: string; permalink: string; isVideo: boolean;
+    key: string; title: string; thumb: string; thumbAd: string; permalink: string; isVideo: boolean;
     adIds: Set<string>; active: boolean; lastDate: string;
     spend: number; msgs: number; purchases: number; value: number;
     byMonth: number[];
@@ -96,6 +98,7 @@ export async function apiPageMedia(params: any) {
       key,
       title: String((c && c.name) || r.name || adId).slice(0, 120),
       thumb: String((c && (c.thumb_url || c.image_url)) || ''),
+      thumbAd: adId,   // แอดที่ให้รูปย่อ — ลิงก์หมดอายุแล้วขอใหม่จากแอดตัวนี้
       permalink: String((c && c.permalink) || ''),
       isVideo: !!(c && (c.video_id || c.object_type === 'VIDEO')),
       adIds: new Set<string>(), active: false, lastDate: '',
@@ -121,6 +124,7 @@ export async function apiPageMedia(params: any) {
       key: m.key,
       title: m.title,
       thumb: m.thumb,
+      thumbAd: m.thumbAd,
       permalink: m.permalink,
       isVideo: m.isVideo,
       ads: m.adIds.size,
@@ -138,11 +142,20 @@ export async function apiPageMedia(params: any) {
     .sort((a, b) => b.spend - a.spend);
 
   const LIMIT = 120;
+  // รูปย่อลิงก์หมดอายุ (~4 วัน) → ขอใหม่ให้ 60 สื่อแรก (ค่าแอดสูงสุด = ที่เห็นก่อน) รอไม่เกิน 8 วิ — ดู refreshExpiredCreatives
+  const top = items.slice(0, 60);
+  const need = top.map((it) => it.thumbAd).filter((id) => creativeExpired(creatives[id], 'thumb'));
+  if (need.length && await refreshExpiredCreatives(creatives, need, 'thumb') > 0) {
+    top.forEach((it) => {
+      const c = creatives[it.thumbAd];
+      if (c) it.thumb = String(c.thumb_url || c.image_url || '');
+    });
+  }
   return {
     ok: true, year, pageId,
     total: items.length,
     truncated: Math.max(0, items.length - LIMIT), // ตัดท้ายแล้วบอกจำนวนที่ตัด — ไม่เงียบ
-    items: items.slice(0, LIMIT),
+    items: items.slice(0, LIMIT).map(({ thumbAd, ...rest }) => rest),   // thumbAd ใช้ในนี้เท่านั้น
     hasCreatives: Object.keys(creatives).length > 0,
   };
 }

@@ -38,6 +38,11 @@ let fetchDays = 0;
  * URL รูปในฐานไม่ถูกเปลี่ยนหลังเขียนครั้งแรก (sync ดึงเฉพาะแอดที่ยังไม่มีแถว) จึงจำตัวที่มีรูปไว้ได้ทั้ง session */
 const mediaCache: Record<string, { m: any; at: number }> = {};
 const MEDIA_NONE_TTL = 30 * 60000;
+/** ลิงก์รูปของ Meta หมดอายุ/จะหมดใน 1 ชม. (พารามิเตอร์ oe) — เปิดหน้าค้างไว้นาน รูปที่จำไว้ต้องขอใหม่ (server ขอลิงก์ใหม่ให้) */
+function mediaUrlStale_(m: any): boolean {
+  const mm = /[?&]oe=([0-9A-Fa-f]{6,10})(?:&|#|$)/.exec(String((m && m.img) || ''));
+  return !!mm && parseInt(mm[1], 16) * 1000 < Date.now() + 3600000;
+}
 const mediaWant = new Set<string>();
 const mediaInflight = new Set<string>();
 let mediaTimer = 0;
@@ -266,7 +271,7 @@ function ensureMedia_(ids: string[]): void {
     const id = String(raw || '');
     if (!/^\d+$/.test(id) || mediaInflight.has(id)) return;
     const e = mediaCache[id];
-    if (e && (e.m || now - e.at < MEDIA_NONE_TTL)) return;
+    if (e && ((e.m && !mediaUrlStale_(e.m)) || (!e.m && now - e.at < MEDIA_NONE_TTL))) return;
     mediaWant.add(id);
   });
   if (!mediaWant.size || mediaTimer) return;
