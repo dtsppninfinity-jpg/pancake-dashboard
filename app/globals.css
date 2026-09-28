@@ -2391,6 +2391,54 @@ table.tbl.tbl-cards td.us-actions .btn-mini.danger::before {
 }
 table.tbl.tbl-cards td > .btn-mini { flex: 1; }
 
+/* ---- แท็บเล็ต / มือถือแนวนอน (600-899): การ์ดวาง 2 คอลัมน์ (ตรวจมือถือ audit23 B3/B9) ----
+   เดิมการ์ดกว้าง ~700px คอลัมน์เดียว ป้ายชิดซ้ายสุด ตัวเลขชิดขวาสุด อ่านข้ามจอยาก หน้ายาวเกิน (รายงานรายปี / KPI ทั้งปี)
+   คอลัมน์กว้างอย่างน้อย 260px และไม่เกิน 2 คอลัมน์: ขั้นต่ำ = ครึ่งกล่องลบครึ่งช่องไฟ (ลบอีก 1px กันปัดเศษแล้วตกเหลือคอลัมน์เดียว)
+   ตารางที่อยู่ในกล่องแคบ (<528px) จึงยังเป็นคอลัมน์เดียวเอง ไม่บีบการ์ดจนตัวเลขล้น
+   ระยะห่างแนวตั้งยังมาจาก margin-bottom ของการ์ดเท่าเดิม (row-gap 0) — ใบสุดท้ายเว้นใต้เท่าตอนคอลัมน์เดียว
+   แถวรวม / แถวที่ไม่มีป้าย (colspan) / แถวลูกที่กางต่อจากแถวหลัก = เต็มความกว้าง ไม่ไปแทรกเป็นการ์ดครึ่งจอ
+   ≥900 กลับเป็นตาราง (กฎ ≥900 ด้านล่าง tbody: table-row-group มาทีหลังจึงชนะ) */
+@media (min-width: 600px) {
+  table.tbl.tbl-cards > tbody {
+    display: grid; column-gap: var(--sp-2); row-gap: 0;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, max(260px, calc(50% - var(--sp-1) - 1px))), 1fr));
+  }
+  table.tbl.tbl-cards > tbody > tr { min-width: 0; }
+  table.tbl.tbl-cards > tbody > tr:is(.tbl-total, .tc-plain, [data-sort-follow]) { grid-column: 1 / -1; }
+}
+
+/* ---- รายการยาวบนมือถือ (<600): 10 อันดับแรก + ปุ่ม "ดูทั้งหมด (N คน)" — lib/ui/listcap.ts ----
+   แบบเดียวกับ "ตีกลับรายคน" หน้ากำไร (.pf-ret-cut / .pf-ret-more) · ซ่อนด้วย nth-child = 10 แรกตามลำดับที่เรียงอยู่
+   JS ติด .lc-cut เฉพาะจอ <600 (matchMedia ในไฟล์นั้น) จึงไม่ต้องมีกฎคืนค่าที่ ≥600 */
+#view-adminperf .rank-list.lc-cut > .rank-card:nth-child(n+11 of .rank-card) { display: none; }
+table.tbl.lc-cut > tbody > tr:nth-child(n+11):not(.tbl-total) { display: none; }
+.list-more { width: 100%; margin-top: var(--sp-3); }
+.list-more[hidden] { display: none; }
+@media (min-width: 600px) { .list-more { display: none; } }
+
+/* ---- หัวตารางลอยใต้แถบบน (<900) — lib/ui/stickyhead.ts ----
+   ตารางกว้างที่เลื่อนแนวนอน: หัวจริงค้างได้แค่ในกล่องเลื่อน เลื่อนหน้าลงกลางตาราง + ปัดข้าง = เห็นแต่ตัวเลข (audit23 A5/B4)
+   สำเนาหัวตาราง (aria-hidden) ลอยใต้แถบบนตอนหัวจริงพ้นจอ · ตำแหน่ง/ความกว้าง/การเลื่อนข้าง JS ตั้งให้ทุกเฟรม
+   z-index 9 = ใต้แถบบน (10) ท้ายตารางดันสำเนาขึ้นไปมุดใต้แถบบนได้พอดี · ใต้ลิ้นชักเมนู (60) และหน้าต่าง (100)
+   กล่องในเลื่อนได้เฉพาะแนวนอน (ปัดบนหัวก็เลื่อนตาราง) แนวตั้งไม่มีที่ให้เลื่อน ปัดขึ้นลงจึงเลื่อนหน้าตามปกติ */
+.sth {
+  display: none; position: fixed; top: 0; left: 0; z-index: 9;
+  background: var(--surface);
+  box-shadow: 0 6px 8px -4px var(--pin-shadow);
+}
+.sth[data-on="1"] { display: block; }
+/* สำเนาบางกว่าหัวจริง: ตัดระยะบน-ล่างของช่องหัว แต่สูงอย่างน้อย 40px (หัวที่ไม่มีปุ่มเรียงจะได้ไม่เบียดขอบแถบบน)
+   หัวที่มีปุ่มเรียงยังสูง 44px ตามเกณฑ์นิ้ว · ระยะซ้าย-ขวาคงเดิม คอลัมน์จึงตรงกับของจริง */
+.sth table.tbl th { padding-top: 0; padding-bottom: 0; height: 40px; }
+.sth-sc { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.sth-sc::-webkit-scrollbar { display: none; }
+/* ขวามือยังมีคอลัมน์อีก = ขอบขวาจางเหมือนกล่องจริง (.sx-scroll.sx-more) */
+.sth-sc[data-more="1"] {
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 40px), transparent);
+}
+@media (min-width: 900px) { .sth[data-on="1"] { display: none; } }   /* จอกว้างใช้หัวค้างของจริง (.tbl-sticky) */
+
 /* ============================================================
    🧱 ชุดชิ้นส่วนกลาง (ตรวจ UI รอบ 3 — 26 ก.ย. 69)
    ของที่ทุกหน้าต้องหน้าตาเหมือนกัน รวมไว้ที่เดียว — หน้าไหนประกอบเองด้วย style="" ให้ย้ายมาใช้ชุดนี้

@@ -569,8 +569,11 @@ function queueTableScan(): void {
       labelRows(tbl, labels, Number(tbl.getAttribute('data-card-title') || 0));
     });
     // มือถือ: หัวตารางลอยใต้แถบบน (<900) + รายการยาวโชว์ 10 แรก (<600) — ต้องรันหลังจัดประเภทตารางข้างบน
+    try { scanStickyHeads(); scanListCaps(); } catch (e) { /* ของเสริม พังก็ยังใช้ตารางได้ */ }
   });
 }
+import { scanStickyHeads } from '@/lib/ui/stickyhead';
+import { scanListCaps } from '@/lib/ui/listcap';
 
 /** เฝ้าทั้งหน้า: view เขียนทับด้วย innerHTML และโมดัลโผล่ทีหลัง จึงไม่มีจุดเดียวที่ hook ได้
     ดู childList อย่างเดียว — การใส่ class/attribute ของเราเองจึงไม่วนกลับมาเรียกตัวเอง */
