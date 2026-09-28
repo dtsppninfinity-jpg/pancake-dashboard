@@ -22,6 +22,91 @@ function weekStart_(d: string): string {
   return t.toISOString().slice(0, 10);
 }
 
+/* ================= แถวออเดอร์ของส่วนซื้อซ้ำ: แคชต่อโปรเซส + เติมเฉพาะแถวที่เปลี่ยน =================
+ * เดิมทุกครั้งที่เลื่อนถึงส่วนนี้ ดึงออเดอร์ทั้งหมดตั้งแต่ 23 พ.ค. (~18 หมื่นแถว ~180 หน้า ~6-7 วิ + egress หลาย MB)
+ * ตอนนี้: ครั้งแรก (หรือครบ 15 นาที) ดึงเต็มแบบเดิม · ครั้งถัดไปดึงเฉพาะออเดอร์ที่ updated_at ขยับในชั่วโมงล่าสุด
+ * (มี index idx_orders_updated · ทุกทางที่เขียน orders คือ upsert ที่ตั้ง updated_at ตาม Pancake) แล้วแทนที่ตาม id
+ * → ออเดอร์ใหม่/เปลี่ยนสถานะเห็นทันทีเหมือนดึงเต็ม ตัวเลขไม่ค้าง · รีเฟรชเต็มทุก 15 นาทีเป็นตาข่ายกรณีแถวเปลี่ยนแบบ updated_at ไม่ขยับ
+ * ผลที่คืน = แถวชุดเดียวกับคิวรีเดิม (inserted_at ≥ 23 พ.ค. และ < ตอนนี้ · ตัดออเดอร์เปล่าแบบเดียวกับฐาน)
+ * เรียง inserted_at,id แบบเดิม → ลำดับลูกค้า/ยูนิตที่ค่าเท่ากัน และผลบวกทศนิยม เหมือนเดิมทุกตัว */
+interface MkRow { id: string; inserted_at: string; t: number; status: unknown; customer_id: unknown; page_id: unknown }
+const MK_SINCE = new Date('2026-05-23T00:00:00+07:00');
+const MK_FULL_MS = 15 * 60 * 1000;      // ดึงเต็มใหม่ทุก 15 นาที
+const MK_OVERLAP_MS = 60 * 60 * 1000;   // ดึงแถวที่ updated_at ย้อนจากค่าสูงสุดที่เคยเห็น 1 ชม. (กันแถวที่ sync เข้ามาช้า)
+let mkCache_: { rows: Map<string, MkRow>; hwm: string; fullAt: number } | null = null;
+let mkBusy_: Promise<void> | null = null;
+
+/** เงื่อนไขเดียวกับ .or('items_count.neq.0,total_price.neq.0') ของฐาน (NULL = ไม่ผ่าน) */
+const mkKeep_ = (o: any): boolean => {
+  const nz = (v: unknown) => v !== null && v !== undefined && Number(v) !== 0;
+  return nz(o.items_count) || nz(o.total_price);
+};
+const mkRow_ = (o: any): MkRow => ({
+  id: String(o.id), inserted_at: String(o.inserted_at), t: new Date(String(o.inserted_at)).getTime(),
+  status: o.status, customer_id: o.customer_id, page_id: o.page_id,
+});
+
+async function mkRefresh_(): Promise<void> {
+  const now = Date.now();
+  if (!mkCache_ || now - mkCache_.fullAt >= MK_FULL_MS) {
+    const rows = await fetchAllSliced<any>((f, t) =>
+      db.from('orders')
+        .select('id,inserted_at,updated_at,status,customer_id,page_id')
+        .or('items_count.neq.0,total_price.neq.0')
+        .gte('inserted_at', f).lt('inserted_at', t),
+      MK_SINCE, new Date(now),
+      // pool 4: เวลาหมดไปกับรอ round-trip (~180 หน้า × ~0.3 วิ) ไม่ใช่ฐานคิดหนัก — ยิงก้อนพร้อมกันมากขึ้น
+      // จำนวนคิวรีพร้อมกันจริงยังโดน MAX_INFLIGHT=12 ใน db.ts คุมอยู่ (ค่าที่วัดแล้วว่าฐานรับไหว)
+      { pool: 4 },
+    );
+    const map = new Map<string, MkRow>();
+    let hwm = '';
+    rows.forEach((o) => {
+      map.set(String(o.id), mkRow_(o));
+      const u = String(o.updated_at || '');
+      if (u > hwm) hwm = u;
+    });
+    mkCache_ = { rows: map, hwm, fullAt: now };
+    return;
+  }
+  const c = mkCache_;
+  const since = c.hwm ? new Date(new Date(c.hwm).getTime() - MK_OVERLAP_MS).toISOString() : new Date(now - MK_OVERLAP_MS).toISOString();
+  const changed = await fetchAll<any>(() =>
+    db.from('orders')
+      .select('id,inserted_at,updated_at,status,customer_id,page_id,items_count,total_price')
+      .gte('updated_at', since), 'id');
+  let hwm = c.hwm;
+  changed.forEach((o) => {
+    const id = String(o.id);
+    const at = new Date(String(o.inserted_at)).getTime();
+    if (mkKeep_(o) && isFinite(at) && at >= MK_SINCE.getTime()) c.rows.set(id, mkRow_(o));
+    else c.rows.delete(id);   // กลายเป็นออเดอร์เปล่า / ย้ายวันออกนอกช่วง = ไม่อยู่ในผลของคิวรีเดิม
+    const u = String(o.updated_at || '');
+    if (u > hwm) hwm = u;
+  });
+  c.hwm = hwm;
+}
+
+/** แถวออเดอร์ของส่วนซื้อซ้ำ ณ เวลา asOf — ชุดเดียวกับคิวรีเดิมทุกแถว เรียง inserted_at,id */
+async function marketOrders_(asOf: Date): Promise<MkRow[]> {
+  // คำขอที่มาพร้อมกันรอการดึงรอบเดียวกัน · พลาด = ทิ้งแคชทั้งก้อน (รอบหน้าดึงเต็มใหม่) แล้วโยน error ต่อแบบเดิม
+  if (!mkBusy_) {
+    mkBusy_ = mkRefresh_().catch((e) => { mkCache_ = null; throw e; }).finally(() => { mkBusy_ = null; });
+  }
+  await mkBusy_;
+  const cache = mkCache_;
+  if (!cache) throw new Error('marketOrders_: cache empty');
+  const end = asOf.getTime();
+  const out: MkRow[] = [];
+  // คิวรีเดิม fetchAllSliced(…, new Date()) = inserted_at ≤ เวลาที่ขอ (ก้อนสุดท้าย lt ตอนนี้ + 1ms)
+  cache.rows.forEach((r) => { if (r.t <= end) out.push(r); });
+  // ลำดับเดียวกับ ORDER BY inserted_at,id ของคิวรีเดิม: เวลาเท่ากันระดับมิลลิวินาที → เทียบสตริงเวลา (เศษไมโครวินาทีรูปแบบเดียวกัน)
+  // แล้วค่อย id — id เป็นตัวเลขล้วน เทียบสตริงแบบไบต์ได้ลำดับเดียวกับฐาน
+  const cmp = (x: string, y: string) => (x < y ? -1 : x > y ? 1 : 0);
+  out.sort((a, b) => (a.t - b.t) || cmp(a.inserted_at, b.inserted_at) || cmp(a.id, b.id));
+  return out;
+}
+
 export async function apiReport(params: any) {
   const p = params || {};
 
@@ -33,16 +118,7 @@ export async function apiReport(params: any) {
     // ตัดออเดอร์เปล่า (ไม่มีสินค้า + ยอด 0) ที่ฐานเลย — เท่ากับ !isPlaceholderOrder ทุกกรณีรวม NULL
     // ออเดอร์เปล่ามี ~35% ของทั้งหมด (27 ก.ย.: 97k จาก 276k แถว) เดิมดึงมาทิ้งทุกครั้งที่เปิดหน้า
     // ลำดับแถวที่เหลือเหมือนเดิม (inserted_at,id) → ลำดับยูนิตที่ %ซื้อซ้ำเท่ากันไม่เปลี่ยน
-    const orders = await fetchAllSliced<any>((f, t) =>
-      db.from('orders')
-        .select('inserted_at,status,customer_id,page_id')
-        .or('items_count.neq.0,total_price.neq.0')
-        .gte('inserted_at', f).lt('inserted_at', t),
-      new Date('2026-05-23T00:00:00+07:00'), new Date(),
-      // pool 4: เวลาหมดไปกับรอ round-trip (~180 หน้า × ~0.3 วิ) ไม่ใช่ฐานคิดหนัก — ยิงก้อนพร้อมกันมากขึ้น
-      // จำนวนคิวรีพร้อมกันจริงยังโดน MAX_INFLIGHT=12 ใน db.ts คุมอยู่ (ค่าที่วัดแล้วว่าฐานรับไหว)
-      { pool: 4 },
-    );
+    const orders = await marketOrders_(new Date());
     const pageUnit = await pageUnitP;
     // per unit per customer → รายการเวลาซื้อ
     const cust: Record<string, Record<string, number[]>> = {};
