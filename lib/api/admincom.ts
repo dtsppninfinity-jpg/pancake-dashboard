@@ -4,7 +4,7 @@
 // "Commission @Admin" กรองได้ทุกเดือน พร้อม %ปิด กับ ROAS
 //   • คงเหลือ/คอม/%ปิดลูกค้าใหม่ = ตัวเลขจากชีทตรงๆ (ทีมคิดเงื่อนไขคอมไว้แล้ว ห้ามคำนวณเอง)
 //   • ROAS = จากระบบเรา (ชีทไม่มีรายคน) — ปันค่าแอดตามสัดส่วนยอดขายในแอด วิธีเดียวกับหน้า Ranking
-import { db, fetchAll, fetchAllSliced } from '@/lib/db';
+import { db, fetchAll, fetchAllSliced, fetchAllDateSliced } from '@/lib/db';
 import { EXCLUDED_STATUSES, isPlaceholderOrder, money_ } from '@/lib/config';
 import { nicknameByName } from '@/lib/api/adminsettings';
 
@@ -119,11 +119,14 @@ export async function apiAdminCom(params: any) {
       mStart, new Date(mEnd.getTime() - 1),
       { pool: 4 },
     ),
-    fetchAll<any>(() =>
-      // วันสุดท้ายจริงของเดือน — เดิมใช้ `-31` ตายตัว เดือน 30 วัน/ก.พ. ฐานข้อมูลปฏิเสธ ("date/time field value out of range")
-      // แล้ว catch กลืนเป็นค่าแอดว่าง → ROAS ค่าคอมเป็น "—" ทั้งตารางในเดือน เม.ย./มิ.ย./ก.ย./พ.ย./ก.พ.
-      db.from('ad_daily').select('date,ad_id,spend').gte('date', `${month}-01`).lte('date', `${month}-${String(new Date(Date.UTC(y, mo, 0)).getUTCDate()).padStart(2, '0')}`),
-      'date,ad_id'
+    // วันสุดท้ายจริงของเดือน — เดิมใช้ `-31` ตายตัว เดือน 30 วัน/ก.พ. ฐานข้อมูลปฏิเสธ ("date/time field value out of range")
+    // แล้ว catch กลืนเป็นค่าแอดว่าง → ROAS ค่าคอมเป็น "—" ทั้งตารางในเดือน เม.ย./มิ.ย./ก.ย./พ.ย./ก.พ.
+    // ⚡ เดือนเต็ม ~11 หมื่นแถว: เดิม fetchAll OFFSET ยาวทั้งเดือน (~12 วิ) → หั่นก้อนละ 3 วันยิงขนาน + ตัดแถวค่าแอด 0 ที่ฐาน
+    //    (แถว 0/ว่าง บวกแล้วไม่เปลี่ยนผลรวม · ลำดับรวมยัง date,ad_id เหมือนเดิม → ผลบวกทศนิยมต่อแอดเท่าเดิมทุกหลัก)
+    fetchAllDateSliced<any>((f, t) =>
+      db.from('ad_daily').select('date,ad_id,spend').neq('spend', 0).gte('date', f).lte('date', t),
+      `${month}-01`, `${month}-${String(new Date(Date.UTC(y, mo, 0)).getUTCDate()).padStart(2, '0')}`,
+      { orderColumn: 'date,ad_id', sliceDays: 3, pool: 4 },
     ).catch(() => [] as any[]),
   ]);
 
