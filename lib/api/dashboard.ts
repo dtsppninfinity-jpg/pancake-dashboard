@@ -1,6 +1,7 @@
 // lib/api/dashboard.ts — port ของ apiDashboard จาก WebApi.gs
 // อ่านจาก Supabase (server-side) แทนการอ่านชีต — output ตรง CONTRACT.md ทุก key
 import { db, fetchAll, fetchAllDateSliced } from '@/lib/db';
+import { chatDailyRpc } from '@/lib/api/chatagg';
 import { fmtDateBkk, fmtDateTimeBkk, daysAgo, parsePancakeTime, num, TZ } from '@/lib/config';
 
 /* ---------------- utilities (port จาก WebApi.gs) ---------------- */
@@ -220,23 +221,6 @@ async function convAggRpc_(cutoffIso: string): Promise<ConvAgg | null> {
   } catch { return null; }
 }
 
-/** แชทรายวันต่อ platform จากฐาน (ถ้ารัน migration แล้ว) — ชื่อคอลัมน์เหมือนแถว chat_hourly · null = ถอยไปอ่านแถวดิบ */
-async function chatDailyRpc_(fromStr: string, toStr: string): Promise<any[] | null> {
-  try {
-    const { data, error } = await db.rpc('dash_chat_daily', { p_from: fromStr, p_to: toStr }).abortSignal(AbortSignal.timeout(20_000));
-    if (error || !Array.isArray(data)) return null;
-    // ≤ 14 วัน × ไม่กี่ platform — เกิน 1,000 แถว (เพดาน PostgREST) แปลว่าข้อมูลผิดรูป ถอยไปทางเดิมดีกว่าได้ครึ่งเดียว
-    if (data.length >= 1000) return null;
-    return (data as any[]).map((r) => ({
-      date: r.d, platform: r.platform,
-      customer_inbox_count: r.customer_inbox_count, customer_comment_count: r.customer_comment_count,
-      page_inbox_count: r.page_inbox_count, page_comment_count: r.page_comment_count,
-      new_inbox_count: r.new_inbox_count, new_customer_count: r.new_customer_count,
-      uniq_phone_number_count: r.uniq_phone_number_count,
-    }));
-  } catch { return null; }
-}
-
 const CHART_MIN_DAYS = 7;
 const CHART_MAX_DAYS = 14;
 
@@ -304,7 +288,7 @@ export async function apiDashboard(
   // ⚡ ถ้ามีฟังก์ชัน dash_chat_daily ให้ฐานรวมเป็นรายวันต่อ platform มาให้ (≤ 14 วัน × ไม่กี่ platform)
   //    ชื่อคอลัมน์เหมือนแถวดิบ ลูปข้างล่างใช้ได้ทั้งสองแบบ — ผลบวกเป็นจำนวนเต็มล้วน ลำดับไม่มีผล
   //    ไม่มี/พลาด = ถอยไปอ่านแถวรายชั่วโมงแบบเดิม
-  const chatRows = (await chatDailyRpc_(fetchStartStr, range.endStr)) || await fetchAllDateSliced<any>((f, t) =>
+  const chatRows = (await chatDailyRpc(fetchStartStr, range.endStr)) || await fetchAllDateSliced<any>((f, t) =>
     db
       .from('chat_hourly')
       .select(

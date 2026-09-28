@@ -2,6 +2,7 @@
 // server-side เท่านั้น: import { db, fetchAll } จาก @/lib/db
 // เปลี่ยนแค่แหล่งอ่าน (readTable_ → fetchAll) + กรองช่วงเวลาใน query เพื่อเลี่ยง 1000-row cap
 import { db, fetchAll, fetchAllSliced, fetchAllDateSliced, dbStats, type FetchCancel } from '@/lib/db';
+import { chatDailyRpc } from '@/lib/api/chatagg';
 import { getPageUnitMap, getUnitNotes, getUnitPages } from './umap';
 import { nicknameByName } from './adminsettings';
 import {
@@ -1237,13 +1238,15 @@ export async function apiSales(params: any) {
   const nickByP = nicknameByName().catch(() => ({} as Record<string, string>));
   const todayStr = fmtDateBkk(new Date());
   const chatSince = fmtDateBkk(r.start) < todayStr ? fmtDateBkk(r.start) : todayStr;
-  const chatRowsP = fetchAllDateSliced<Row>((f, t) =>
+  // ⚡ ฐานรวมรายวันต่อ platform มาให้ (dash_chat_daily) — ลูปข้างล่างบวก new_inbox/new_customer ต่อวัน ใช้ได้เหมือนแถวดิบ
+  //    ยังไม่ได้รัน migration / พลาด = อ่านแถวรายชั่วโมงแบบเดิม
+  const chatRowsP = chatDailyRpc(chatSince, todayStr).then((agg) => agg || fetchAllDateSliced<Row>((f, t) =>
     db
       .from('chat_hourly')
       .select('date,platform,new_inbox_count,new_customer_count')
       .gte('date', f).lte('date', t),
     chatSince, todayStr, { cancel }
-  );
+  ));
   chatRowsP.catch(noop_);
   const pageRowsP = fetchAll<Row>(() => db.from('pages').select('page_id,name,platform'), 'page_id', true, { cancel });
   pageRowsP.catch(noop_);
