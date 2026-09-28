@@ -178,6 +178,65 @@ async function loadEngagementRange_(
  * และช่วงสั้น (วันนี้/เมื่อวาน) ก็ยังอยากเห็นเทรนด์สัปดาห์เหมือนเดิม → บีบอยู่ระหว่าง 7-14 วัน
  * ช่วงที่ยาวกว่านั้น KPI ยังรวมทั้งช่วง แต่กราฟโชว์แค่ท้ายช่วง (weekNote บอกผู้ใช้ตรงๆ)
  */
+/* ---------------- บทสนทนา 24 ชม. แบบนับกลุ่ม ----------------
+ * groups เรียงตาม id แรกของกลุ่ม · tags เรียงตามจุดที่แท็กดิบโผล่ครั้งแรก (id, ลำดับในช่อง) — ดู dash_conv_24h ในไฟล์ migration
+ * waiting/ai เป็น boolean แล้ว (toBool_ / last_sent_by === 'ai' แบบลูปเดิม) */
+interface ConvGroup { page_name: unknown; platform: unknown; type: unknown; waiting: boolean; ai: boolean; n: number }
+interface ConvTag { tag: unknown; platform: unknown; type: unknown; n: number }
+interface ConvAgg { groups: ConvGroup[]; tags: ConvTag[] }
+
+/** แถวดิบ (เรียง id แล้ว กรองช่วงเวลาแล้ว) → กลุ่มแบบเดียวกับที่ฐานคืน — ทางถอยเมื่อยังไม่ได้รัน migration */
+function convAggFromRows_(rows: any[]): ConvAgg {
+  const groups: ConvGroup[] = [];
+  const gIdx: Record<string, number> = {};
+  const tags: ConvTag[] = [];
+  const tIdx: Record<string, number> = {};
+  const k_ = (v: unknown) => (v === null || v === undefined ? '\u0000' : '\u0001' + String(v));
+  rows.forEach((c: any) => {
+    const waiting = toBool_(c.waiting);
+    const ai = String(c.last_sent_by) === 'ai';
+    const gk = [k_(c.page_name), k_(c.platform), k_(c.type), waiting ? 1 : 0, ai ? 1 : 0].join('\u0002');
+    if (gIdx[gk] === undefined) { gIdx[gk] = groups.length; groups.push({ page_name: c.page_name, platform: c.platform, type: c.type, waiting, ai, n: 0 }); }
+    groups[gIdx[gk]].n++;
+    String(c.tags || '').split(',').forEach((t: string) => {
+      const tk = [k_(t), k_(c.platform), k_(c.type)].join('\u0002');
+      if (tIdx[tk] === undefined) { tIdx[tk] = tags.length; tags.push({ tag: t, platform: c.platform, type: c.type, n: 0 }); }
+      tags[tIdx[tk]].n++;
+    });
+  });
+  return { groups, tags };
+}
+
+/** ฟังก์ชันรวมยอดในฐาน (ถ้ารัน migration แล้ว) — null = ยังไม่มี/พลาด ให้ผู้เรียกถอยไปอ่านแถวดิบ */
+async function convAggRpc_(cutoffIso: string): Promise<ConvAgg | null> {
+  try {
+    const { data, error } = await db.rpc('dash_conv_24h', { p_cutoff: cutoffIso }).abortSignal(AbortSignal.timeout(20_000));
+    if (error || !data || !Array.isArray((data as any).groups) || !Array.isArray((data as any).tags)) return null;
+    const d = data as any;
+    return {
+      groups: d.groups.map((g: any) => ({ page_name: g.page_name, platform: g.platform, type: g.type, waiting: g.waiting === true, ai: g.ai === true, n: Number(g.n) || 0 })),
+      tags: d.tags.map((t: any) => ({ tag: t.tag, platform: t.platform, type: t.type, n: Number(t.n) || 0 })),
+    };
+  } catch { return null; }
+}
+
+/** แชทรายวันต่อ platform จากฐาน (ถ้ารัน migration แล้ว) — ชื่อคอลัมน์เหมือนแถว chat_hourly · null = ถอยไปอ่านแถวดิบ */
+async function chatDailyRpc_(fromStr: string, toStr: string): Promise<any[] | null> {
+  try {
+    const { data, error } = await db.rpc('dash_chat_daily', { p_from: fromStr, p_to: toStr }).abortSignal(AbortSignal.timeout(20_000));
+    if (error || !Array.isArray(data)) return null;
+    // ≤ 14 วัน × ไม่กี่ platform — เกิน 1,000 แถว (เพดาน PostgREST) แปลว่าข้อมูลผิดรูป ถอยไปทางเดิมดีกว่าได้ครึ่งเดียว
+    if (data.length >= 1000) return null;
+    return (data as any[]).map((r) => ({
+      date: r.d, platform: r.platform,
+      customer_inbox_count: r.customer_inbox_count, customer_comment_count: r.customer_comment_count,
+      page_inbox_count: r.page_inbox_count, page_comment_count: r.page_comment_count,
+      new_inbox_count: r.new_inbox_count, new_customer_count: r.new_customer_count,
+      uniq_phone_number_count: r.uniq_phone_number_count,
+    }));
+  } catch { return null; }
+}
+
 const CHART_MIN_DAYS = 7;
 const CHART_MAX_DAYS = 14;
 
@@ -203,12 +262,14 @@ export async function apiDashboard(
   // บทสนทนาแยก 2 คิวรีขนาน (เรียง id เหมือนเดิมทั้งคู่):
   //   ทุกแถว = คอลัมน์ที่ใช้นับ (donut/ประเภท/เพจ/แท็ก) — ~11k แถว/24 ชม. เดิมลากข้อความล่าสุด+ชื่อลูกค้ามาด้วยทุกแถว
   //   เฉพาะแถวรอตอบ (~5%) = คอลัมน์ที่ใช้ทำรายการ "ต้องตอบ" — .eq('waiting', true) ตรงกับ toBool_ เป๊ะ (คอลัมน์ boolean)
-  const convRowsP = fetchAll<any>(() =>
+  // ⚡ ถ้ามีฟังก์ชัน dash_conv_24h (db/migrations/2026-09-28-dashboard-aggregates.sql) ให้ฐานนับกลุ่มมาให้
+  //    ไม่มี/พลาด = ถอยไปอ่านแถวดิบแบบเดิม (convAggFromRows_) — ผลลัพธ์ชุดเดียวกันทุกตัว
+  const convAggP: Promise<ConvAgg> = convAggRpc_(cutoffIso).then((agg) => agg || fetchAll<any>(() =>
     db
       .from('conversations')
       .select('page_name,platform,type,updated_at,waiting,last_sent_by,tags')
       .gte('updated_at', cutoffIso)
-  );
+  ).then((rows) => convAggFromRows_(rows.filter((c: any) => convInWindow_(c, cutoff)))));
   const convWaitP = fetchAll<any>(() =>
     db
       .from('conversations')
@@ -218,7 +279,7 @@ export async function apiDashboard(
   );
   const engP = loadEngagementRange_(range, channel, commentMode);
   // คิวรีที่ await ก่อนล้ม → อีกตัวยังวิ่งต่อ แต่ต้องไม่กลายเป็น unhandled rejection
-  convRowsP.catch(() => {});
+  convAggP.catch(() => {});
   convWaitP.catch(() => {});
   // แชทรายชั่วโมงแยก 2 คิวรีขนาน (~1,200 แถว/วัน × 7-14 วัน):
   //   ตัวเลข = ทุกแถว ไม่ลากชื่อเพจภาษาไทยมาด้วย (เดิมลากทุกแถว ~1 MB ต่อการเปิด/รีเฟรช 5 นาที) · หั่นตามวันกัน OFFSET ลึก
@@ -240,7 +301,10 @@ export async function apiDashboard(
     'key'
   );
   commentRowsP.catch(() => {});
-  const chatRows = await fetchAllDateSliced<any>((f, t) =>
+  // ⚡ ถ้ามีฟังก์ชัน dash_chat_daily ให้ฐานรวมเป็นรายวันต่อ platform มาให้ (≤ 14 วัน × ไม่กี่ platform)
+  //    ชื่อคอลัมน์เหมือนแถวดิบ ลูปข้างล่างใช้ได้ทั้งสองแบบ — ผลบวกเป็นจำนวนเต็มล้วน ลำดับไม่มีผล
+  //    ไม่มี/พลาด = ถอยไปอ่านแถวรายชั่วโมงแบบเดิม
+  const chatRows = (await chatDailyRpc_(fetchStartStr, range.endStr)) || await fetchAllDateSliced<any>((f, t) =>
     db
       .from('chat_hourly')
       .select(
@@ -317,15 +381,15 @@ export async function apiDashboard(
   //    conversations เก็บ "สถานะล่าสุด" ของแต่ละบทสนทนา (1 แถว/บทสนทนา ทับของเดิม) ไม่ใช่ประวัติรายวัน
   //    เลือก '30 วันล่าสุด' แล้วกรอง updated_at ย้อนหลังจะได้ "แชทที่ยังค้างอยู่ตอนนี้" ปนกับของเก่า
   //    ซึ่งอ่านผิดเป็น "แชทที่ค้างเมื่อ 30 วันก่อน" — หน้าเว็บจึงติดป้ายกำกับว่าเป็นค่าตอนนี้แทน
-  const convRows = await convRowsP;
+  const convAgg = await convAggP;
   const convWaitRows = await convWaitP;
-  const convFilter_ = (c: any) => {
-    if (!convInWindow_(c, cutoff)) return false;
+  // ตัวกรองมุมมอง (ช่องทาง / มุมคอมเมนต์) ขึ้นกับ platform + type เท่านั้น → ใช้ได้ทั้งกับแถวดิบและกลุ่มที่นับมาแล้ว
+  const convViewOk_ = (c: { platform: unknown; type: unknown }) => {
     if (commentMode) return String(c.type || '').toUpperCase() === 'COMMENT';
     if (channel && platformChannel_(c.platform) !== channel) return false;
     return true;
   };
-  const convs = convRows.filter(convFilter_);
+  const convFilter_ = (c: any) => convInWindow_(c, cutoff) && convViewOk_(c);
 
   const donut = { replied: 0, waiting: 0, ai: 0 };
   const byType: Record<string, number> = {};
@@ -333,25 +397,26 @@ export async function apiDashboard(
   const tagCount: Record<string, number> = {};
   const attention: any[] = [];
   const now = Date.now();
-  convs.forEach((c: any) => {
-    const waiting = toBool_(c.waiting);
-    const lastBy = String(c.last_sent_by);
+  // กลุ่มเรียงตาม id แรกของกลุ่ม = ลำดับที่แถวแรกของแต่ละเพจ/ประเภทเคยโผล่ → key ใน byPage/byType เกิดลำดับเดิม
+  // (ค่าเท่ากันตอนเรียงจำนวน "เจอก่อนชนะ" เหมือนเดิม) และ platform ของเพจ = ของแถวแรกที่เจอ แบบเดิม
+  convAgg.groups.forEach((g) => {
+    if (!convViewOk_(g)) return;
     // จำนวนรอตอบนับจากก้อน "แชทรอตอบ" ข้างล่าง (ก้อนเดียวกับรายการต้องตอบ) — สองคิวรีอ่านคนละจังหวะ
     // ถ้านับจากก้อนนี้ sync ที่ลงระหว่างนั้นทำให้เลขการ์ดกับรายการขัดกันได้ · ไม่มี sync คั่น = ผลเท่าเดิมทุกตัว
-    if (waiting) { /* นับข้างล่าง */ }
-    else if (lastBy === 'ai') donut.ai++;
-    else donut.replied++;
-    const type = String(c.type || 'INBOX');
-    byType[type] = (byType[type] || 0) + 1;
-    const pageName = String(c.page_name || '');
-    if (!byPage[pageName]) byPage[pageName] = { count: 0, platform: String(c.platform) };
-    byPage[pageName].count++;
-    String(c.tags || '')
-      .split(',')
-      .forEach((t: string) => {
-        t = t.trim();
-        if (t) tagCount[t] = (tagCount[t] || 0) + 1;
-      });
+    if (g.waiting) { /* นับข้างล่าง */ }
+    else if (g.ai) donut.ai += g.n;
+    else donut.replied += g.n;
+    const type = String(g.type || 'INBOX');
+    byType[type] = (byType[type] || 0) + g.n;
+    const pageName = String(g.page_name || '');
+    if (!byPage[pageName]) byPage[pageName] = { count: 0, platform: String(g.platform) };
+    byPage[pageName].count += g.n;
+  });
+  // แท็กเรียงตามจุดที่เจอครั้งแรก (id, ลำดับในช่องแท็ก) — ตัดช่องว่างฝั่งเว็บแบบเดิม (แท็กดิบต่างกันแต่ตัดแล้วเหมือนกัน = รวมกัน)
+  convAgg.tags.forEach((tg) => {
+    if (!convViewOk_(tg)) return;
+    const t = String(tg.tag || '').trim();
+    if (t) tagCount[t] = (tagCount[t] || 0) + tg.n;
   });
   // รายการ "ต้องตอบ" — แถวรอตอบตามลำดับ id เดิม (= ลำดับเดียวกับที่เคยหยิบจากก้อนรวม)
   convWaitRows.filter(convFilter_).forEach((c: any) => {
