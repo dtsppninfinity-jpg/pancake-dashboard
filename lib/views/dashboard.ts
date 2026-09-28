@@ -11,7 +11,7 @@ import {
   serverCall, esc, fmtNum, pct1, avatarHtml, infoTip, stateHtml,
   showError, toast, tagColor, rangeControlsHtml, bindRangeControls, RangeState,
 } from '@/lib/ui/helpers';
-import { svgWeekBars, bindChartTips, hideChartTip } from '@/lib/ui/charts';
+import { svgWeekBars, chartKey, bindChartTips, hideChartTip } from '@/lib/ui/charts';
 import { dashboardSkel, dashboardBodySkel } from '@/lib/ui/skeletons';
 import { icon, brandIcon, statusPill, ICON_FOR, type StatusKind } from '@/lib/ui/icons';
 
@@ -311,16 +311,16 @@ function weekCardHtml(data: DashData): string {
     ? svgWeekBars(week)
     : stateHtml('nodata', { body: 'ลองเลือกช่วงวันที่อื่น' });
   // กราฟยึดวันท้ายของช่วงที่เลือก แต่กว้าง 7-14 วันเสมอ (server เป็นคนตัดสิน + ส่ง weekLabel มา)
-  const note = data.weekNote ? ' • ' + esc(data.weekNote) : '';
-  // กราฟเหลือชุดเดียว (ข้อความที่ลูกค้าส่ง) — เพจส่งเป็นอัตราส่วนใต้แต่ละวัน (lib/ui/charts.ts svgWeekBars)
-  // จึงไม่มีช่องสีคำอธิบาย 2 สีแบบเดิมอีกแล้ว
+  const note = data.weekNote ? '<span>' + esc(data.weekNote) + '</span>' : '';
+  // แท่งคู่ต่อวัน: ลูกค้าส่ง (ฟ้า) + เพจส่ง (ม่วง) — สีจุดในคำอธิบาย = สีแท่งเสมอ (lib/ui/charts.ts svgWeekBars)
   return '<div class="card db-week">' +
     '<div class="card-head"><h3 class="card-title">ปริมาณข้อความ ' + esc(data.weekLabel || '7 วันล่าสุด') +
       infoTip('ตัวเลขเป็นจำนวน "ข้อความ" ไม่ใช่จำนวนบทสนทนา • เพจส่งสคริปต์ขายทีละหลายข้อความ ' +
         '(รวมบอต/บรอดแคสต์) จึงมากกว่าลูกค้าหลายเท่าเป็นปกติ ไม่ใช่ข้อมูลผิด • ' +
-        'เพจ 10.5:1 = เพจส่ง 10.5 ข้อความ ต่อลูกค้า 1 ข้อความ', 'ปริมาณข้อความ') +
+        'แตะแท่งเพื่อดูตัวเลขของวันนั้น + สัดส่วนเพจ:ลูกค้า', 'ปริมาณข้อความ') +
     '</h3></div>' +
-    '<div class="card-sub">แท่ง = ข้อความที่ลูกค้าส่ง · ใต้วัน = เพจส่งกี่ข้อความต่อ 1 ข้อความลูกค้า' + note + '</div>' +
+    '<div class="card-sub db-week-key">' + chartKey('bar', 'ลูกค้าส่ง', 'var(--blue)') +
+      chartKey('bar', 'เพจส่ง (รวมบอต/บรอดแคสต์)', 'var(--primary)') + note + '</div>' +
     body + '</div>';
 }
 

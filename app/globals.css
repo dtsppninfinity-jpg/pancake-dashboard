@@ -3327,6 +3327,8 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
 .db-s-ai { --seg: var(--primary); }
 .db-s-wait { --seg: var(--amber-bar); }
 /* ช่องว่าง 2px ระหว่างช่วง — สีเขียวกับม่วงติดกันตรงๆ แยกขอบไม่ออกบนจอสว่างจ้า */
+/* คำอธิบายสีแท่งคู่ของกราฟปริมาณข้อความ (ลูกค้าส่ง / เพจส่ง) + หมายเหตุช่วงวัน */
+.db-week-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-4); }
 .db-share-bar {
   display: flex; gap: 2px; height: 12px; border-radius: 99px; overflow: hidden; background: var(--track);
 }

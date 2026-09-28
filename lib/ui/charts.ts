@@ -156,70 +156,74 @@ function crossLayer(yTop: number, yBottom: number): string {
 }
 
 /**
- * กราฟแท่ง 7-14 วัน "ลูกค้าส่ง" (หน้าภาพรวมแชท) — data = [{label, total, replied}]
- * total = ข้อความลูกค้าส่ง = แท่งหลักบนสเกลของตัวเอง · replied = ข้อความเพจส่ง → บรรทัดเล็กใต้วัน "เพจ 10.5:1"
+ * กราฟแท่งคู่ 7-14 วัน (หน้าภาพรวมแชท) — data = [{label, total, replied}]
+ * total = ข้อความลูกค้าส่ง (แท่งซ้าย สี --blue) · replied = ข้อความเพจส่ง รวมบอต/บรอดแคสต์ (แท่งขวา สี --primary)
  *
- * ทำไมไม่วาดแท่งคู่แบบเดิม: เพจส่งสคริปต์ขายทีละหลายบับเบิล (รวมบอต/บรอดแคสต์) จึงสูงกว่าลูกค้า 5-15 เท่าเป็นปกติ
- * พอสองชุดอยู่สเกลเดียวกัน แท่งลูกค้าเหลือเป็นตอเตี้ยๆ อ่านไม่ออกว่าวันไหนลูกค้าทักมากน้อย
- * (และห้ามใช้แกนตั้ง 2 สเกล — คนอ่านเทียบความสูงข้ามสเกลผิดเสมอ) เลยแยกเพจส่งออกมาเป็นอัตราส่วนตัวเลข
- * ⚠️ ทั้งสองค่าเป็น "จำนวนข้อความ" ไม่ใช่บทสนทนา — อัตราส่วนเรียก "% การตอบ" ไม่ได้ (เคยโชว์ 828%)
+ * พีสั่ง 28 ก.ย.: เอาแท่ง "เพจส่ง" กลับมาแบบเดิม (รอบ 2 เคยย้ายไปอยู่ในทูลทิป + อัตราส่วนใต้วัน แล้วทีมหาไม่เจอ)
+ * สองชุดอยู่สเกลเดียวกัน (ห้ามแกนตั้ง 2 สเกล — คนอ่านเทียบความสูงข้ามสเกลผิดเสมอ)
+ * แท่งลูกค้าจึงเตี้ยกว่าเพจ 5-15 เท่าเป็นปกติ — ตัวเลขบนแท่งบอกค่าจริงแทน
+ * ⚠️ ทั้งสองค่าเป็น "จำนวนข้อความ" ไม่ใช่บทสนทนา — อัตราส่วนเรียก "% การตอบ" ไม่ได้ (เคยโชว์ 828%) ทูลทิปโชว์เป็น "เพจ:ลูกค้า x:1"
  *
- * ป้ายตัวเลขบนแท่ง: เฉพาะแท่งสูงสุดกับวันล่าสุด (ที่เหลือดูจากแกน/ทูลทิป) — ตัวเลขทุกแท่งทำให้ตาไม่รู้จะดูตรงไหน
+ * ป้ายตัวเลขบนแท่ง: ช่องกว้างพอ (จอคอม 7 วัน) = ทุกแท่ง · แคบ (มือถือ / 14 วัน) = เฉพาะวันล่าสุด ที่เหลือแตะดูในทูลทิป
+ * ป้ายสองแท่งในวันเดียวกันชนกันได้เมื่อสูงใกล้กัน → ยกป้ายของแท่งที่สูงกว่าขึ้นจนพ้นกัน
  * ลายเซ็นเดิม svgWeekBars(week) ยังใช้ได้เหมือนเดิม — opts เป็นของเสริม
  */
 export function svgWeekBars(data: WeekBar[], opts?: WeekBarsOpts): string {
   const unit = (opts && opts.unit) || 'ข้อความ';
   const n = Math.max(1, data.length);
   const W = vbWidth(560, 330);
-  const vals = data.map(function (d) { return Number(d.total) || 0; });
-  const ticks = niceTicks(Math.max.apply(null, vals.concat([0])), 4, true);
+  const cust = data.map(function (d) { return Number(d.total) || 0; });
+  const page = data.map(function (d) { return Number(d.replied) || 0; });
+  const ticks = niceTicks(Math.max.apply(null, cust.concat(page, [0])), 4, true);
   const top = ticks[ticks.length - 1] || 1;
   const tickLabels = ticks.map(axisNum);
-  const padL = axisPad(tickLabels, 28), padR = 6, padT = 26;
-  const cellW = (W - padL - padR) / n;
-  // บรรทัดอัตราส่วนใต้วัน: ช่องกว้างพอ = "เพจ 10.5:1" · แคบ = "10.5:1" · แคบมาก (14 วันบนมือถือ) = ไม่วาด ดูในทูลทิป
-  const ratioMode: 'long' | 'short' | 'none' = cellW >= 62 ? 'long' : cellW >= 36 ? 'short' : 'none';
-  const padB = ratioMode === 'none' ? 26 : 42;
-  const H = 180 + padB;
+  const padL = axisPad(tickLabels, 28), padR = 6, padT = 30, padB = 26;
+  const H = 206;
   const baseY = H - padB;
   const innerH = baseY - padT;
-  const yOf = (v: number) => baseY - (v / top) * innerH;
-  const barW = Math.max(8, Math.min(34, cellW * 0.56));
+  const cellW = (W - padL - padR) / n;
+  const gap = 3;                                   // ช่องระหว่างแท่งคู่ในวันเดียว
+  const barW = Math.max(6, Math.min(22, (cellW * 0.74 - gap) / 2));
   const rad = Math.min(4, barW / 2);
   // ป้ายวันแน่นเกิน (14 วันบนจอแคบ) → เว้นทีละวัน แต่วันล่าสุดต้องมีเสมอ
   const labelEvery = Math.max(1, Math.ceil(28 / cellW));
-  let maxIdx = -1;
-  vals.forEach(function (v, i) { if (v > 0 && (maxIdx < 0 || v > vals[maxIdx])) maxIdx = i; });
+  const allNums = cellW >= 60;
+  /** ความกว้างป้ายตัวเลขโดยประมาณ (ตัวเลข 11px ตัวหนา ~6.4 หน่วยต่อตัวอักษร) */
+  const textW = (t: string) => t.length * 6.4;
 
   const parts = ['<svg class="chart-svg ch-week" viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="' +
-    esc('กราฟ' + unit + 'ที่ลูกค้าส่งรายวัน ' + data.length + ' วัน') + '">'];
+    esc('กราฟ' + unit + 'รายวัน ' + data.length + ' วัน แท่งซ้าย = ลูกค้าส่ง แท่งขวา = เพจส่ง') + '">'];
   parts.push(unitLabel(unit));
-  parts.push(gridY(ticks, tickLabels, yOf, padL, W - padR));
+  parts.push(gridY(ticks, tickLabels, function (v) { return baseY - (v / top) * innerH; }, padL, W - padR));
   data.forEach(function (d, i) {
     const cx = padL + i * cellW + cellW / 2;
-    const x = r1(cx - barW / 2);
-    const tot = vals[i];
-    const rep = Number(d.replied) || 0;
-    const h = r1((tot / top) * innerH);
-    parts.push('<path d="' + topRoundRect(x, r1(baseY - h), r1(barW), h, rad) + '" style="fill:var(--primary)"/>');
+    const xC = r1(cx - gap / 2 - barW);          // ลูกค้าส่ง (ซ้าย)
+    const xP = r1(cx + gap / 2);                 // เพจส่ง (ขวา)
+    const tot = cust[i], rep = page[i];
+    const hC = r1((tot / top) * innerH);
+    const hP = r1((rep / top) * innerH);
+    parts.push('<path d="' + topRoundRect(xC, r1(baseY - hC), r1(barW), hC, rad) + '" style="fill:var(--blue)"/>');
+    parts.push('<path d="' + topRoundRect(xP, r1(baseY - hP), r1(barW), hP, rad) + '" style="fill:var(--primary)"/>');
     const last = i === data.length - 1;
-    // 7 วัน (มุมมองปกติ) ช่องกว้างพอ → ตัวเลขทุกแท่งแบบเดิม ทีมอ่านได้ทันทีไม่ต้องแตะทีละแท่ง
-    // ช่วงยาวกว่านั้นตัวเลขจะชนกัน → เหลือแท่งสูงสุดกับวันล่าสุด
-    if (tot > 0 && (data.length <= 7 || i === maxIdx || last)) {
-      parts.push('<text x="' + r1(cx) + '" y="' + r1(baseY - h - 6) + '" text-anchor="middle" font-size="11" font-weight="700" style="fill:var(--text)">' +
-        esc(valueLabel(tot)) + '</text>');
+    if (allNums || last) {
+      const tC = tot > 0 ? valueLabel(tot) : '', tP = rep > 0 ? valueLabel(rep) : '';
+      let yC = baseY - hC - 5, yP = baseY - hP - 5;
+      // ป้ายสองอันทับกันแนวนอน + สูงใกล้กัน → ยกป้ายของแท่งที่สูงกว่าขึ้นให้พ้น 12 หน่วย
+      if (tC && tP && (textW(tC) + textW(tP)) / 2 > barW + gap && Math.abs(yC - yP) < 12) {
+        if (yP <= yC) yP = yC - 12; else yC = yP - 12;
+      }
+      // ป้ายลูกค้ากว้างกว่าแท่ง — ถ้าแท่งเพจข้างๆ สูงกว่า เลื่อนป้ายไปทางซ้ายไม่ให้ทับขอบแท่งเพจ
+      const xTC = hP > hC ? Math.min(xC + barW / 2, xP - 2 - textW(tC) / 2) : xC + barW / 2;
+      if (tC) parts.push('<text x="' + r1(xTC) + '" y="' + r1(yC) + '" text-anchor="middle" font-size="11" font-weight="700" style="fill:var(--text-2)">' + esc(tC) + '</text>');
+      if (tP) parts.push('<text x="' + r1(xP + barW / 2) + '" y="' + r1(yP) + '" text-anchor="middle" font-size="11" font-weight="700" style="fill:var(--text)">' + esc(tP) + '</text>');
     }
     if (i % labelEvery === 0 || last) {
-      parts.push('<text x="' + r1(cx) + '" y="' + (baseY + 16) + '" text-anchor="middle" font-size="11" style="fill:var(--text-2)">' + esc(d.label) + '</text>');
+      parts.push('<text x="' + r1(cx) + '" y="' + (baseY + 17) + '" text-anchor="middle" font-size="11" style="fill:var(--text-2)">' + esc(d.label) + '</text>');
     }
     const ratio = tot > 0 ? rep / tot : null;
     const ratioTxt = ratio === null ? '' : (ratio >= 100 ? String(Math.round(ratio)) : ratio.toFixed(1)) + ':1';
-    if (ratioMode !== 'none' && (i % labelEvery === 0 || last)) {
-      parts.push('<text x="' + r1(cx) + '" y="' + (baseY + 32) + '" text-anchor="middle" font-size="11" style="fill:var(--text-3)">' +
-        esc(ratio === null ? '—' : (ratioMode === 'long' ? 'เพจ ' : '') + ratioTxt) + '</text>');
-    }
-    // เป้า hover ให้ทูลทิปการ์ดลอย (bindChartTips) — เลือกแท่งที่ใกล้เมาส์ที่สุดตามแกนนอน
-    parts.push('<circle class="ch-hit" cx="' + r1(cx) + '" cy="' + r1(Math.min(baseY - 10, baseY - h)) + '" r="12" fill="transparent"' +
+    // เป้า hover ให้ทูลทิปการ์ดลอย (bindChartTips) — เลือกวันที่ใกล้เมาส์ที่สุดตามแกนนอน
+    parts.push('<circle class="ch-hit" cx="' + r1(cx) + '" cy="' + r1(Math.min(baseY - 10, baseY - Math.max(hC, hP))) + '" r="12" fill="transparent"' +
       ' data-title="' + esc(d.label) + '" data-fmt="num" data-unit="' + esc(unit) + '"' +
       ' data-cur="' + tot + '" data-curlabel="ลูกค้าส่ง"' +
       ' data-prev="' + rep + '" data-prevlabel="เพจส่ง"' +
