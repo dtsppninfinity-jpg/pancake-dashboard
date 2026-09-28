@@ -334,11 +334,17 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
     // หั่นตามวัน — ช่วงนี้กิน "ช่วงที่เลือก + ช่วงเทียบ" (เลือก 35 วัน = ดึง 70 วัน ~56k แถว)
     // OFFSET ลึกช้าและโดน statement timeout ตัดจนหน้า 500 ทั้งหน้า (ดู fetchAllDateSliced)
     const curFrom = dateOf(r.start), curTo = dateOf(r.end);
-    const prevFrom = dateOf(r.prevStart), prevTo = dateOf(r.prevEnd);
+    // ช่วงเทียบของค่าแอด (รายวัน) = ทุกวันที่ช่วงเวลาเทียบแตะ [prevStart, prevEnd) รวมวันสุดท้ายที่แตะแค่บางส่วน
+    // ⚠️ บั๊กเดิม (แก้ 28 ก.ย.): เคยใช้ d < วันที่ของ prevEnd — "เมื่อวาน" และ "วันนี้ + เทียบ N วัน" ช่วงเทียบจบกลางวัน
+    //    จึงเหลือ 0 วัน → ค่าแอดช่วงเทียบ = 0 → ROAS/แนวโน้มค่าแอดเทียบเป็น "—" เสมอ · 3 วัน/7 วัน + เทียบ N วันขาดไป 1 วัน
+    //    ช่วงที่ prevEnd ตรงเที่ยงคืนพอดี (วันนี้/7 วัน/30 วัน เทียบช่วงก่อนหน้า = ค่าเริ่มต้น) ได้วันเท่าเดิมทุกตัว
+    //    ไม่ทับช่วงที่เลือก: prevEnd ≤ start (เที่ยงคืนเสมอ) → วันสุดท้ายของช่วงเทียบ < curFrom
+    const prevFrom = dateOf(r.prevStart);
+    const prevLast = r.prevEnd.getTime() > r.prevStart.getTime() ? dateOf(new Date(r.prevEnd.getTime() - 1)) : '';
     // ⚡ แยกดึง 2 ช่วงพร้อมกัน — เดิมดึง [ต้นช่วงเทียบ..ท้ายช่วงที่เลือก] ก้อนเดียวด้วยคอลัมน์เต็ม 11 ตัว
-    //    แต่ช่วงเทียบใช้แค่ spend + meta_purchase_value และใช้เฉพาะวัน [prevFrom, prevTo) (วันคั่นกลางถูกทิ้ง)
+    //    แต่ช่วงเทียบใช้แค่ spend + meta_purchase_value และใช้เฉพาะวัน [prevFrom..prevLast] (วันคั่นกลางถูกทิ้ง)
     //    → ช่วงเทียบดึง 4 คอลัมน์ (ไม่มีชื่อแอด/สถานะ/เวลา) · 30 วัน = ข้อมูลช่วงเทียบเล็กลงหลายเท่า
-    //    ลำดับแถวในแต่ละช่วงเหมือนเดิม (date,ad_id) ผลรวมทุกตัวเท่าเดิม · วันเดียวกันไม่มีทางอยู่ทั้งสองช่วง (prevTo <= curFrom)
+    //    ลำดับแถวในแต่ละช่วงเหมือนเดิม (date,ad_id) · วันเดียวกันไม่มีทางอยู่ทั้งสองช่วง (prevLast < curFrom)
     const loadAds_ = (cols: string, colsNoMeta: string, f0: string, t0: string): Promise<Row[]> => fetchAllDateSliced<Row>((f, t) =>
       db.from('ad_daily').select(cols).gte('date', f).lte('date', t), f0, t0, { orderColumn: 'date,ad_id' }
     ).catch((e2: any) => {
@@ -346,11 +352,10 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
       return fetchAllDateSliced<Row>((f, t) =>
         db.from('ad_daily').select(colsNoMeta).gte('date', f).lte('date', t), f0, t0, { orderColumn: 'date,ad_id' });
     });
-    const prevLast = prevTo > prevFrom ? fmtDateBkk(new Date(new Date(prevTo + 'T00:00:00+07:00').getTime() - 86400000)) : '';
     const [curRows, prevRows] = await Promise.all([
       loadAds_('date,ad_id,page_id,name,status,spend,pos_orders,meta_purchases,meta_purchase_value,msgs_started,updated_at',
         'date,ad_id,page_id,name,status,spend,pos_orders,msgs_started,updated_at', curFrom, curTo),
-      prevLast ? loadAds_('date,ad_id,spend,meta_purchase_value', 'date,ad_id,spend', prevFrom, prevLast)
+      prevLast && prevLast >= prevFrom && prevLast < curFrom ? loadAds_('date,ad_id,spend,meta_purchase_value', 'date,ad_id,spend', prevFrom, prevLast)
         : Promise.resolve([] as Row[]),
     ]);
     const rows = prevRows.concat(curRows);
@@ -375,7 +380,7 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
         byAd[id].orders += toNum_(a.pos_orders);
         const u = String(a.updated_at || '');
         if (u && (!syncedAt || u > syncedAt)) syncedAt = u;
-      } else if (d >= prevFrom && d < prevTo) {
+      } else if (prevLast && d >= prevFrom && d <= prevLast) {
         spendPrev += sp;
         metaValuePrev += toNum_(a.meta_purchase_value);
       }
