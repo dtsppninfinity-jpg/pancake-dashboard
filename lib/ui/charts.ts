@@ -215,7 +215,9 @@ export function svgWeekBars(data: WeekBar[], opts?: WeekBarsOpts): string {
       // ป้ายลูกค้ากว้างกว่าแท่ง — ถ้าแท่งเพจข้างๆ สูงกว่า เลื่อนป้ายไปทางซ้ายไม่ให้ทับขอบแท่งเพจ
       const xTC = hP > hC ? Math.min(xC + barW / 2, xP - 2 - textW(tC) / 2) : xC + barW / 2;
       if (tC) parts.push('<text x="' + r1(xTC) + '" y="' + r1(yC) + '" text-anchor="middle" font-size="11" font-weight="700" style="fill:var(--text-2)">' + esc(tC) + '</text>');
-      if (tP) parts.push('<text x="' + r1(xP + barW / 2) + '" y="' + r1(yP) + '" text-anchor="middle" font-size="11" font-weight="700" style="fill:var(--text)">' + esc(tP) + '</text>');
+      // วันสุดท้ายชิดขอบขวา — ป้ายกว้างกว่าแท่งจะโดนตัดท้าย ("27.9" หาย "K") → ดันเข้ามาให้พ้นขอบ
+      const xTP = Math.min(xP + barW / 2, W - 2 - textW(tP) / 2);
+      if (tP) parts.push('<text x="' + r1(xTP) + '" y="' + r1(yP) + '" text-anchor="middle" font-size="11" font-weight="700" style="fill:var(--text)">' + esc(tP) + '</text>');
     }
     if (i % labelEvery === 0 || last) {
       parts.push('<text x="' + r1(cx) + '" y="' + (baseY + 17) + '" text-anchor="middle" font-size="11" style="fill:var(--text-2)">' + esc(d.label) + '</text>');

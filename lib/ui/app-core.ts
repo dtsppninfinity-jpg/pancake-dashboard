@@ -8,7 +8,7 @@
 
 import {
   serverCall, dataEpoch, failEpoch, esc, relTime, openModal, closeTopModal as closeTopModalLayer, modalCloseBtn, thaiDateShort,
-  floaterIsOpen, closeTopFloater, stateHtml, clearF5Cache,
+  floaterIsOpen, closeTopFloater, stateHtml, clearF5Cache, isLatestCall,
 } from '@/lib/ui/helpers';
 import { icon, statusPill, ICON_FOR, type StatusKind } from '@/lib/ui/icons';
 import { hideChartTip } from '@/lib/ui/charts';
@@ -1147,32 +1147,50 @@ function viewIsFresh_(view: string): boolean {
   return busy.length === 0;
 }
 
-/* ---- F5 แล้วหน้าโชว์ตัวเลขที่จำไว้ก่อน (lib/ui/helpers.ts) — ปุ่มรีเฟรชหมุนจนผลใหม่มาถึงแล้ววาดใหม่ ----
- * ผลใหม่มา: ถ้ายังอยู่หน้าเดิม และไม่มีหน้าต่าง/เมนูเปิด ไม่ได้กำลังพิมพ์ → loadView (หน้าหยิบผลใหม่ที่รอไว้ ไม่ยิงซ้ำ)
- * ไม่ตรงเงื่อนไข = ไม่วาดทับของที่ผู้ใช้กำลังทำ — รอบรีเฟรชอัตโนมัติ 5 นาที/ปุ่มรีเฟรชจะดึงใหม่ตามปกติ
- * ผลใหม่พลาด = หน้าขึ้นข้อความ "ยังแสดงข้อมูลเดิมอยู่" ของตัวเองตอนโหลดใหม่ (ทางเดียวกับรีเฟรชเบื้องหลังพลาด) */
+/* ---- F5 แล้วหน้าโชว์ตัวเลขที่จำไว้ก่อน (lib/ui/helpers.ts) — ไอคอนรีเฟรชหมุนจนผลใหม่มาถึงแล้ววาดใหม่ ----
+ * ผลใหม่มา (สำเร็จหรือพลาด):
+ *   - ผู้ใช้เปลี่ยนตัวกรองไปแล้ว (คำขอนี้ไม่ใช่ล่าสุด) หรือไปหน้าอื่นแล้ว → ไม่วาด (ห้ามเอาผลตัวกรองเก่าวาดทับ)
+ *     แต่ลบสถานะ "เพิ่งโหลด" ของหน้านั้น กลับมาเมื่อไหร่ดึงใหม่ (ไม่ค้างตัวเลขที่จำไว้ด้วยกติกา 90 วิ)
+ *   - มีหน้าต่าง/เมนูเปิด หรือกำลังพิมพ์ → รอจนว่างแล้วค่อยวาด (ลองทุก 1.5 วิ ไม่เกิน 1 นาที)
+ *   - ไม่งั้น loadView → หน้าหยิบผลใหม่ที่รอไว้ (ไม่ยิงซ้ำ) · ผลใหม่พลาด = หน้าขึ้น "ยังแสดงข้อมูลเดิมอยู่" ของตัวเอง
+ * ไอคอนหมุนแต่ปุ่มยังกดได้ (ไม่ใช้ is-busy ของ refreshWithSpinner) · หมุนนานสุด 20 วิ */
 function bindF5Refresh_(app: typeof App): void {
   let spun = false;
+  let spinTimer: ReturnType<typeof setTimeout> | null = null;
   const spin = function (on: boolean): void {
     const btn = document.getElementById('btn-refresh');
     if (!btn) return;
-    if (on && btn.classList.contains('is-busy')) return;   // ปุ่มกำลังหมุนจากการกดเองอยู่แล้ว ไม่ยุ่ง
     if (!on && !spun) return;
     spun = on;
-    btn.classList.toggle('is-busy', on);
+    if (spinTimer) { clearTimeout(spinTimer); spinTimer = null; }
+    if (on) spinTimer = setTimeout(function () { spin(false); }, 20000);
+    // ผู้ใช้กดรีเฟรชเองอยู่ (is-busy) = refreshWithSpinner คุมไอคอนเอง ไม่ยุ่ง
+    if (btn.classList.contains('is-busy')) return;
     if (on) btn.setAttribute('aria-busy', 'true'); else btn.removeAttribute('aria-busy');
     const ic = btn.querySelector('svg.ic');
     if (ic) ic.classList.toggle('spin', on);
   };
+  const busy_ = function (): boolean {
+    if (modalOpen() || floaterIsOpen()) return true;
+    const ae = document.activeElement;
+    return !!ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA');
+  };
   window.addEventListener('pn-f5-stale', function () { spin(true); });
   window.addEventListener('pn-f5-fresh', function (e: Event) {
     spin(false);
-    const view = String(((e as CustomEvent).detail || {}).view || '');
-    if (!view || app.state.view !== view) return;
-    if (modalOpen() || floaterIsOpen()) return;
-    const ae = document.activeElement;
-    if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')) return;
-    app.loadView(view, false);
+    const d = ((e as CustomEvent).detail || {}) as { view?: string; key?: string };
+    const view = String(d.view || '');
+    if (!view) return;
+    let tries = 0;
+    const attempt = function (): void {
+      if (app.state.view !== view || !isLatestCall(String(d.key || ''))) { loadedAt_[view] = 0; return; }
+      if (busy_()) {
+        if (++tries <= 40) setTimeout(attempt, 1500); else loadedAt_[view] = 0;
+        return;
+      }
+      app.loadView(view, false);
+    };
+    attempt();
   });
 }
 

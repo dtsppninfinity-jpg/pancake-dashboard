@@ -66,6 +66,7 @@ function isReadOnlyCall_(fn: string, params: any, body: string): boolean {
 /** แทน google.script.run เดิม → เรียก route /api/<fn> ด้วย fetch POST */
 export async function serverCall<T = any>(fn: string, params?: unknown): Promise<T> {
   const body = JSON.stringify(params || {});
+  lastBody_[fn] = body;
   if (!isReadOnlyCall_(fn, params, body)) {
     // นับทั้งตอนเริ่มและตอนจบ — หน้าที่โหลดระหว่างกำลังบันทึกก็ต้องถือว่าเก่า
     dataEpoch_++;
@@ -79,14 +80,25 @@ export async function serverCall<T = any>(fn: string, params?: unknown): Promise
  * ตอนเปิดเว็บ/รีเฟรช คำขอแรกของหน้า (ตัวที่ page.tsx ยิงล่วงหน้า) ถ้ามีผลเดิมของคำขอเดียวกันที่อายุไม่เกิน 10 นาที
  * → คืนผลเดิมให้หน้าวาดทันที + ปุ่มรีเฟรชหมุน (app-core ฟัง pn-f5-stale) แล้วพอผลใหม่มาถึง
  *   app-core สั่งหน้าโหลดใหม่ (pn-f5-fresh) → serverCall ครั้งนั้นได้ผลใหม่ที่รอไว้ (ไม่ยิงซ้ำ) → ตัวเลขล่าสุดแทนที่ภายใน ~1 วิ
- * เฉพาะหน้าที่ "โชว์ของเดิมก่อนแล้วดึงใหม่เบื้องหลัง" อยู่แล้ว (F5_VIEWS) — หน้าที่มีการแก้ข้อมูล/หน้าต่างค้างไม่ใช้
- * ผูกกับผู้ใช้ + สิทธิ์ (ออกจากระบบ/เปลี่ยนบัญชีในแท็บเดียวกันไม่เห็นของคนก่อน) · แท็บปิด = หายเอง
- * ปิดทั้งระบบ: ตั้ง F5_MAX_AGE_MS = 0 */
+ * เฉพาะหน้าที่ "โชว์ของเดิมก่อนแล้วดึงใหม่เบื้องหลัง" อยู่แล้ว และคำขอถัดไปใช้ตัวกรองเดิม (F5_VIEWS)
+ *   ไม่ใส่: รายงาน/KPI/ผลงานยูนิต — จำ "เดือน" จากผลที่ได้ → ผลเก่าข้ามเดือนจะพาไปเดือนที่แล้ว และคำขอถัดไปคนละ key (ยิงซ้ำ)
+ *   ไม่ใส่: หน้าที่มีการแก้ข้อมูล/หน้าต่างค้าง (แอดมิน/U Map/บัญชี/ผลงานของฉัน)
+ * ผูกกับผู้ใช้ + สิทธิ์ (ออกจากระบบ/เปลี่ยนบัญชีในแท็บเดียวกันไม่เห็นของคนก่อน) + รุ่นเว็บ (deploy ใหม่ = ไม่ใช้ของรุ่นเก่า
+ * ที่รูปข้อมูลอาจต่างกัน) · แท็บปิด = หายเอง · ปิดทั้งระบบ: ตั้ง F5_MAX_AGE_MS = 0 */
 const F5_MAX_AGE_MS = 10 * 60 * 1000;
 const F5_MAX_CHARS = 1_500_000;        // ผลใหญ่กว่านี้ไม่จำ (เช่น โฆษณา 7 MB) — sessionStorage ทั้งเว็บได้ราว 5 MB
 const F5_FRESH_MS = 60 * 1000;         // ผลใหม่ที่รอให้หน้ามาหยิบ เก็บไว้ไม่เกิน 1 นาที
 const F5_PREFIX = 'pn-f5|';
-const F5_VIEWS = ['dashboard', 'sales', 'contentads', 'profit', 'unitperf', 'report', 'kpi'];
+// รุ่นเว็บ — ตั้งตอน build (next.config.mjs env PN_BUILD_ID) · ของที่จำไว้จากรุ่นอื่นไม่ใช้
+const F5_BUILD = String(process.env.PN_BUILD_ID || '');
+const F5_VIEWS = ['dashboard', 'sales', 'contentads', 'profit'];
+/** body ล่าสุดที่แต่ละ API ถูกขอ — ผลใหม่หลัง F5 วาดทับเฉพาะเมื่อหน้ายังขอด้วยตัวกรองเดิม (ดู isLatestCall) */
+const lastBody_: Record<string, string> = {};
+/** คำขอ fn|body นี้ยังเป็นคำขอล่าสุดของ fn ไหม — ผู้ใช้เปลี่ยนตัวกรองไปแล้ว = ไม่ใช่ (ห้ามวาดผลของตัวกรองเก่าทับ) */
+export function isLatestCall(key: string): boolean {
+  const i = key.indexOf('|');
+  return i > 0 && lastBody_[key.slice(0, i)] === key.slice(i + 1);
+}
 let f5Keys_: Record<string, string> | null = null;   // fn|body → ชื่อหน้า
 const f5Fresh_: Record<string, { p: Promise<any>; at: number }> = {};
 
@@ -111,13 +123,13 @@ function f5Read_(k: string): unknown {
     const raw = sessionStorage.getItem(F5_PREFIX + k);
     if (!raw) return undefined;
     const o = JSON.parse(raw);
-    if (!o || o.u !== f5User_() || !(Date.now() - Number(o.t) < F5_MAX_AGE_MS)) return undefined;
+    if (!o || o.u !== f5User_() || o.b !== F5_BUILD || !(Date.now() - Number(o.t) < F5_MAX_AGE_MS)) return undefined;
     return o.v;
   } catch (e) { return undefined; }
 }
 function f5Write_(k: string, text: string): void {
   if (!(F5_MAX_AGE_MS > 0) || text.length > F5_MAX_CHARS) return;
-  const val = '{"t":' + Date.now() + ',"u":' + JSON.stringify(f5User_()) + ',"v":' + text + '}';
+  const val = '{"t":' + Date.now() + ',"u":' + JSON.stringify(f5User_()) + ',"b":' + JSON.stringify(F5_BUILD) + ',"v":' + text + '}';
   try { sessionStorage.setItem(F5_PREFIX + k, val); } catch (e) {
     // เต็ม → ล้างของหน้าอื่นที่จำไว้แล้วลองอีกครั้ง · ยังไม่ได้ก็ไม่จำ (แค่ F5 รอบหน้าไม่เร็ว)
     try { clearF5Cache(); sessionStorage.setItem(F5_PREFIX + k, val); } catch (e2) { /* ไม่จำ */ }
@@ -171,8 +183,8 @@ async function serverCallRaw_<T>(fn: string, body: string): Promise<T> {
     if (cached !== undefined) {
       const freshP = pre.catch(send).then(readResp_).then(([v, text]) => { f5Write_(k, text); return v; });
       f5Fresh_[k] = { p: freshP, at: Date.now() };
-      freshP.then(() => f5Emit_('pn-f5-fresh', { view, ok: true }), () => f5Emit_('pn-f5-fresh', { view, ok: false }));
-      f5Emit_('pn-f5-stale', { view });
+      freshP.then(() => f5Emit_('pn-f5-fresh', { view, key: k, ok: true }), () => f5Emit_('pn-f5-fresh', { view, key: k, ok: false }));
+      f5Emit_('pn-f5-stale', { view, key: k });
       return cached as T;
     }
   }

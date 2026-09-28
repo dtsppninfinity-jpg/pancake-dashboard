@@ -1,7 +1,7 @@
 // lib/api/dashboard.ts — port ของ apiDashboard จาก WebApi.gs
 // อ่านจาก Supabase (server-side) แทนการอ่านชีต — output ตรง CONTRACT.md ทุก key
 import { db, fetchAll, fetchAllDateSliced } from '@/lib/db';
-import { chatDailyRpc } from '@/lib/api/chatagg';
+import { chatDailyRpc, rpcMissingUntil, noteRpcMissing } from '@/lib/api/chatagg';
 import { fmtDateBkk, fmtDateTimeBkk, daysAgo, parsePancakeTime, num, TZ } from '@/lib/config';
 
 /* ---------------- utilities (port จาก WebApi.gs) ---------------- */
@@ -210,9 +210,11 @@ function convAggFromRows_(rows: any[]): ConvAgg {
 
 /** ฟังก์ชันรวมยอดในฐาน (ถ้ารัน migration แล้ว) — null = ยังไม่มี/พลาด ให้ผู้เรียกถอยไปอ่านแถวดิบ */
 async function convAggRpc_(cutoffIso: string): Promise<ConvAgg | null> {
+  if (Date.now() < rpcMissingUntil.conv) return null;
   try {
     const { data, error } = await db.rpc('dash_conv_24h', { p_cutoff: cutoffIso }).abortSignal(AbortSignal.timeout(20_000));
-    if (error || !data || !Array.isArray((data as any).groups) || !Array.isArray((data as any).tags)) return null;
+    if (error) { noteRpcMissing(error, 'conv'); return null; }
+    if (!data || !Array.isArray((data as any).groups) || !Array.isArray((data as any).tags)) return null;
     const d = data as any;
     return {
       groups: d.groups.map((g: any) => ({ page_name: g.page_name, platform: g.platform, type: g.type, waiting: g.waiting === true, ai: g.ai === true, n: Number(g.n) || 0 })),
