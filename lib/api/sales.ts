@@ -1,7 +1,7 @@
 // lib/api/sales.ts — พอร์ตจาก WebApi.gs::apiSales (อ่านจาก Sheet → อ่านจาก Postgres)
 // server-side เท่านั้น: import { db, fetchAll } จาก @/lib/db
 // เปลี่ยนแค่แหล่งอ่าน (readTable_ → fetchAll) + กรองช่วงเวลาใน query เพื่อเลี่ยง 1000-row cap
-import { db, fetchAll, fetchAllSliced, fetchAllDateSliced, dbStats } from '@/lib/db';
+import { db, fetchAll, fetchAllSliced, fetchAllDateSliced, dbStats, type FetchCancel } from '@/lib/db';
 import { getPageUnitMap, getUnitNotes, getUnitPages } from './umap';
 import { nicknameByName } from './adminsettings';
 import {
@@ -219,7 +219,7 @@ const TODAY_COLS = LIGHT_COLS + ',page_id,account_name,' + DETAIL_COLS;
  * อ่านออเดอร์จาก Postgres แปลงชนิดข้อมูลให้พร้อมใช้ (แถวละ object)
  * untilIso = null → ไม่จำกัดขอบบน (ถึงปัจจุบัน)
  */
-async function loadOrders_(sinceIso: string, untilIso: string | null, cols: string): Promise<Row[]> {
+async function loadOrders_(sinceIso: string, untilIso: string | null, cols: string, cancel?: FetchCancel): Promise<Row[]> {
   // หั่นช่วงเป็นก้อนดึงขนาน — ช่วงยาวๆ OFFSET ลึกช้าและชน statement timeout (ดู fetchAllSliced)
   const rows = await fetchAllSliced<Row>(
     // ตัดออเดอร์เปล่าที่ฐานด้วย (เท่ากับ !isPlaceholderOrder ทุกกรณีรวม NULL — ตัวกรองใน JS ข้างล่างยังอยู่เป็นตาข่ายกันพลาด)
@@ -227,6 +227,7 @@ async function loadOrders_(sinceIso: string, untilIso: string | null, cols: stri
     (f, t) => db.from('orders').select(cols).or('items_count.neq.0,total_price.neq.0').gte('inserted_at', f).lt('inserted_at', t),
     new Date(sinceIso),
     untilIso ? new Date(new Date(untilIso).getTime() - 1) : new Date(), // -1ms: ก้อนใช้ [from,to) อยู่แล้ว คงความหมาย lt เดิม
+    { cancel },
   );
   return rows
     .map((o) => {
@@ -276,14 +277,14 @@ const emptyEng_ = (): Engagement => ({
  * (ไม่ใช่ total ที่รวม inbox เดิมของลูกค้าเก่าด้วย)
  * คืน null เมื่อยังไม่ได้รัน migration → หน้าเว็บโชว์ "—" ไม่ใช่ 0
  */
-async function loadEngagement_(r: Range): Promise<Engagement | null> {
+async function loadEngagement_(r: Range, cancel?: FetchCancel): Promise<Engagement | null> {
   try {
     const rows = await fetchAll<Row>(() =>
       db.from('chat_engagement_daily')
         .select('key,date,platform,total,comment,new_inbox,order_count,old_order_count')
         .gte('date', fmtDateBkk(r.start))
         .lte('date', fmtDateBkk(r.end)),
-      'key'
+      'key', true, { cancel }
     );
     const e = emptyEng_();
     rows.forEach((row) => {
@@ -327,7 +328,7 @@ interface AdCost {
  * คืน null เมื่อตารางยังไม่ถูกสร้าง — หน้าเว็บต้องโชว์ "-" ไม่ใช่ 0
  * (0 จะอ่านเหมือน "วัดแล้วได้ศูนย์" ซึ่งไม่จริง)
  */
-async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
+async function loadAdCost_(r: Range, compare: boolean, sharedCurP?: Promise<Row[] | null>, cancel?: FetchCancel): Promise<AdCost | null> {
   const dateOf = (d: Date) => fmtDateBkk(d);
   try {
     // meta_purchases/value อาจยังไม่มีคอลัมน์ (ยังไม่รัน migration 2026-07-24) → ลองแบบเต็มก่อน
@@ -346,15 +347,17 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
     //    → ช่วงเทียบดึง 4 คอลัมน์ (ไม่มีชื่อแอด/สถานะ/เวลา) · 30 วัน = ข้อมูลช่วงเทียบเล็กลงหลายเท่า
     //    ลำดับแถวในแต่ละช่วงเหมือนเดิม (date,ad_id) · วันเดียวกันไม่มีทางอยู่ทั้งสองช่วง (prevLast < curFrom)
     const loadAds_ = (cols: string, colsNoMeta: string, f0: string, t0: string): Promise<Row[]> => fetchAllDateSliced<Row>((f, t) =>
-      db.from('ad_daily').select(cols).gte('date', f).lte('date', t), f0, t0, { orderColumn: 'date,ad_id' }
+      db.from('ad_daily').select(cols).gte('date', f).lte('date', t), f0, t0, { orderColumn: 'date,ad_id', cancel }
     ).catch((e2: any) => {
       if (!String((e2 && e2.message) || '').includes('meta_purchase')) throw e2;
       return fetchAllDateSliced<Row>((f, t) =>
-        db.from('ad_daily').select(colsNoMeta).gte('date', f).lte('date', t), f0, t0, { orderColumn: 'date,ad_id' });
+        db.from('ad_daily').select(colsNoMeta).gte('date', f).lte('date', t), f0, t0, { orderColumn: 'date,ad_id', cancel });
     });
+    // ช่วงที่เลือก: ใช้แถวที่อ่านร่วมกับต้นทุนรายยูนิต (loadAdDailyCur_) — อ่านไม่สำเร็จ (null) = ถอยไปอ่านเองแบบเดิม
+    const loadCur_ = () => loadAds_('date,ad_id,page_id,name,status,spend,pos_orders,meta_purchases,meta_purchase_value,msgs_started,updated_at',
+      'date,ad_id,page_id,name,status,spend,pos_orders,msgs_started,updated_at', curFrom, curTo);
     const [curRows, prevRows] = await Promise.all([
-      loadAds_('date,ad_id,page_id,name,status,spend,pos_orders,meta_purchases,meta_purchase_value,msgs_started,updated_at',
-        'date,ad_id,page_id,name,status,spend,pos_orders,msgs_started,updated_at', curFrom, curTo),
+      sharedCurP ? sharedCurP.then((rows) => rows || loadCur_()) : loadCur_(),
       prevLast && prevLast >= prevFrom && prevLast < curFrom ? loadAds_('date,ad_id,spend,meta_purchase_value', 'date,ad_id,spend', prevFrom, prevLast)
         : Promise.resolve([] as Row[]),
     ]);
@@ -420,11 +423,11 @@ async function loadAdCost_(r: Range, compare: boolean): Promise<AdCost | null> {
  * ที่มาของข้อมูลคือชีทที่ทีมกรอกมือ ไม่ใช่ Pancake (Pancake ไม่มีใบตีกลับเลยสักใบ)
  * คืน null เมื่อยังไม่ได้รัน migration returns → หน้าเว็บซ่อนการ์ดนี้แทนที่จะโชว์ 0 ที่ไม่จริง
  */
-async function loadReturns_(r: Range) {
+async function loadReturns_(r: Range, cancel?: FetchCancel) {
   const from = fmtDateBkk(r.start), to = fmtDateBkk(r.end);
   const rows = await fetchAll<Row>(() =>
     db.from('returns').select('key,month,staff,is_crm,price,qty,product,return_date')
-      .gte('return_date', from).lte('return_date', to), 'key');
+      .gte('return_date', from).lte('return_date', to), 'key', true, { cancel });
 
   const byMonth: Record<string, { orders: number; value: number }> = {};
   const byStaff: Record<string, { orders: number; value: number }> = {};
@@ -495,21 +498,39 @@ type UnitCostByChannel = Record<string, Record<string, UnitCost>>;
 /** แถวดิบของค่าแอด/คนทักรายเพจ — null = ดึงไม่ได้ (ยังไม่มีตาราง ฯลฯ) ให้ส่วนนั้นเป็น 0 แบบเดิม
  *  ดึงสองก้อนพร้อมกัน และไม่ต้องรอแผนที่เพจ→ยูนิต (เดิมรอ pages + U Map เสร็จก่อนค่อยเริ่ม แล้วยังดึงทีละก้อน) */
 interface UnitCostRaw { ads: Row[] | null; eng: Row[] | null }
-function loadUnitCostRaw_(r: Range): Promise<UnitCostRaw> {
+function loadUnitCostRaw_(r: Range, sharedAdsP?: Promise<Row[] | null>, cancel?: FetchCancel): Promise<UnitCostRaw> {
   const from = fmtDateBkk(r.start), to = fmtDateBkk(r.end);
   // คอลัมน์ meta_first_replies/meta_comments เพิ่ม 2026-09-18 (ฐาน %ปิด ของทีมแอด)
   // ถ้ายังไม่ได้รัน migration PostgREST จะฟ้องทั้งคำขอ → ถอยไปอ่านชุดเดิม ดีกว่าทิ้งค่าแอดทั้งก้อน
   const AD_COLS = 'ad_id,date,page_id,spend,msgs_started,first_replies';
   const loadAds_ = (cols: string) => fetchAllDateSliced<Row>((f, t) =>
-    db.from('ad_daily').select(cols).gte('date', f).lte('date', t), from, to, { orderColumn: 'date,ad_id' });
-  const adsP: Promise<Row[] | null> = loadAds_(AD_COLS + ',meta_first_replies,meta_comments')
+    db.from('ad_daily').select(cols).gte('date', f).lte('date', t), from, to, { orderColumn: 'date,ad_id', cancel });
+  const ownAds_ = (): Promise<Row[] | null> => loadAds_(AD_COLS + ',meta_first_replies,meta_comments')
     .catch(() => loadAds_(AD_COLS))
     .catch(() => null);   // ยังไม่มีตาราง ad_daily — ปล่อยค่าเป็น 0 แล้วให้ฝั่ง UI โชว์ "—"
+  // ใช้แถวที่อ่านร่วมกับค่าแอดรวม (loadAdDailyCur_) — อ่านไม่สำเร็จ (null) = ถอยไปอ่านเองแบบเดิม
+  const adsP: Promise<Row[] | null> = sharedAdsP ? sharedAdsP.then((rows) => rows || ownAds_()) : ownAds_();
   const engP: Promise<Row[] | null> = fetchAll<Row>(() =>
     db.from('chat_engagement_daily').select('key,date,page_id,new_inbox,comment,order_count,old_order_count')
-      .gte('date', from).lte('date', to), 'key')
+      .gte('date', from).lte('date', to), 'key', true, { cancel })
     .catch(() => null);   // ยังไม่มีตาราง chat_engagement_daily
   return Promise.all([adsP, engP]).then(([ads, eng]) => ({ ads, eng }));
+}
+
+/**
+ * ⚡ ad_daily ของช่วงที่เลือก อ่านครั้งเดียวใช้ 2 ที่: ค่าแอดรวม (loadAdCost_) + ต้นทุนรายยูนิต (loadUnitCostRaw_)
+ * เดิมสองตัวอ่านช่วงวันเดียวกันแยกกันคนละรอบ — ตอนนี้อ่านรอบเดียวด้วยคอลัมน์รวมของทั้งคู่
+ * ช่วงวัน/การหั่นก้อน/ลำดับแถว (date,ad_id) เหมือนที่ทั้งสองตัวเคยอ่านเองทุกอย่าง → ผลรวมทุกตัวเท่าเดิม
+ * พลาด (เช่น ยังไม่ได้รัน migration คอลัมน์ใด) = null แล้วแต่ละตัวถอยไปอ่านเองตามทางเดิม (มีทางถอยของตัวเองครบ)
+ */
+function loadAdDailyCur_(r: Range, cancel?: FetchCancel): Promise<Row[] | null> {
+  const from = fmtDateBkk(r.start), to = fmtDateBkk(r.end);
+  return fetchAllDateSliced<Row>((f, t) =>
+    db.from('ad_daily')
+      .select('date,ad_id,page_id,name,status,spend,pos_orders,meta_purchases,meta_purchase_value,msgs_started,updated_at,' +
+        'first_replies,meta_first_replies,meta_comments')
+      .gte('date', f).lte('date', t), from, to, { orderColumn: 'date,ad_id', cancel })
+    .catch(() => null);
 }
 
 async function loadUnitCost_(
@@ -1196,9 +1217,13 @@ export async function apiSales(params: any) {
 
   // ⚡ ตัวโหลดอิสระ (ไม่พึ่งผล orders) ยิงตั้งแต่ตอนนี้ — เดิมรอกันเป็นทอดๆ ท้ายฟังก์ชัน
   // ช่วงยาว 35 วันเวลารวมทะลุ 100s จน 504 (semaphore ใน lib/db คุมไม่ให้ถล่มฐานเอง)
-  const engP = loadEngagement_(r).then((v) => { mark_('eng'); return v; });
-  const returnsP = loadReturns_(r).catch(() => null).then((v) => { mark_('returns'); return v; });
-  const adCostP = loadAdCost_(r, compare).then((v) => { mark_('adCost'); return v; });
+  // ⚡ ออเดอร์ (ด้านล่าง) ดึงไม่สำเร็จ = ทั้งหน้า error อยู่ดี → ตั้ง cancelled ให้ตัวโหลดที่ส่ง cancel ไปเลิกหน้าที่เหลือ
+  //    ไม่ถือคิว semaphore (12 ช่องทั้งโปรเซส) ให้คำขออื่นรอเปล่า · ทางปกติไม่มีอะไรเปลี่ยน
+  const cancel: FetchCancel = { cancelled: false };
+  const engP = loadEngagement_(r, cancel).then((v) => { mark_('eng'); return v; });
+  const returnsP = loadReturns_(r, cancel).catch(() => null).then((v) => { mark_('returns'); return v; });
+  const adDailyCurP = loadAdDailyCur_(r, cancel);
+  const adCostP = loadAdCost_(r, compare, adDailyCurP, cancel).then((v) => { mark_('adCost'); return v; });
   // ตารางรายวัน — รวมยอดฝั่ง Postgres (ดู loadDailyByPage_) ยิงคู่ขนานไปเลย ไม่ต้องรอออเดอร์
   const dailyRawP = loadDailyByPage_(r).then((v) => { mark_('dailyRaw' + (v.rows ? '' : '-missing')); return v; });
   // ⚡ ชุดที่ 2 — ตัวโหลดที่ไม่พึ่งออเดอร์และไม่พึ่งกันเอง เดิม await ทีละตัวหลังออเดอร์เสร็จ (ต่อกัน ~10 รอบ)
@@ -1217,19 +1242,20 @@ export async function apiSales(params: any) {
       .from('chat_hourly')
       .select('date,platform,new_inbox_count,new_customer_count')
       .gte('date', f).lte('date', t),
-    chatSince, todayStr
+    chatSince, todayStr, { cancel }
   );
   chatRowsP.catch(noop_);
-  const pageRowsP = fetchAll<Row>(() => db.from('pages').select('page_id,name,platform'), 'page_id');
+  const pageRowsP = fetchAll<Row>(() => db.from('pages').select('page_id,name,platform'), 'page_id', true, { cancel });
   pageRowsP.catch(noop_);
   const pageUnitP = getPageUnitMap().catch(() => ({} as Record<string, { u: string; product: string }>));
-  const unitCostRawP = loadUnitCostRaw_(r);
+  const unitCostRawP = loadUnitCostRaw_(r, adDailyCurP, cancel);
   const lossAlertRowP = db.from('sync_state').select('value').eq('key', 'unit_loss_alerts').maybeSingle()
     .then((x) => x, () => null);
   // แชทค้างรอตอบ (24 ชม.) — cutoff คิดตอนนี้แทนท้ายฟังก์ชัน (ต่างกันไม่กี่วินาที)
   const alertCutoff = convCutoff_();
   const waitingRowsP = fetchAll<Row>(() =>
-    db.from('conversations').select('id,type').eq('waiting', true).gte('updated_at', new Date(alertCutoff).toISOString())
+    db.from('conversations').select('id,type').eq('waiting', true).gte('updated_at', new Date(alertCutoff).toISOString()),
+    'id', true, { cancel }
   );
   waitingRowsP.catch(noop_);
   // ---- ลูกค้าเก่า (RPC สแกนออเดอร์ย้อน 95 วัน) — เริ่มพร้อมตัวอื่นตั้งแต่ต้น ----
@@ -1260,13 +1286,13 @@ export async function apiSales(params: any) {
   const needTodayChunk = r.end.getTime() < todayStartForFetch.getTime();
   const [prevRows, curRows, todayChunk] = await Promise.all([
     r.prevStart.getTime() < r.start.getTime()
-      ? loadOrders_(r.prevStart.toISOString(), startIso, LIGHT_COLS)
+      ? loadOrders_(r.prevStart.toISOString(), startIso, LIGHT_COLS, cancel)
       : Promise.resolve([] as Row[]),
-    loadOrders_(startIso, endExclusiveIso, FULL_COLS),
+    loadOrders_(startIso, endExclusiveIso, FULL_COLS, cancel),
     needTodayChunk
-      ? loadOrders_(todayStartForFetch.toISOString(), null, TODAY_COLS)
+      ? loadOrders_(todayStartForFetch.toISOString(), null, TODAY_COLS, cancel)
       : Promise.resolve([] as Row[]),
-  ]);
+  ]).catch((e) => { cancel.cancelled = true; throw e; });
   const orders = prevRows.concat(curRows, todayChunk);
   mark_(`orders prev=${prevRows.length} cur=${curRows.length}`);
 

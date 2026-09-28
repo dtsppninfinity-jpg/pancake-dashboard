@@ -35,8 +35,21 @@ export function dbStats(): string {
   return `inflight=${inflight_} waiting=${waiters_.length}`;
 }
 
-export async function fetchAll<T = any>(build: () => any, orderColumn = 'id', ascending = true): Promise<T[]> {
+/**
+ * ตัวยกเลิกของคำขอหนึ่ง — ผู้เรียกตั้ง cancelled = true เมื่อผลของงานนี้ไม่มีใครใช้แล้ว (เช่น apiSales ดึงออเดอร์ไม่สำเร็จ
+ * ทั้งหน้าจะ error อยู่ดี) หน้าที่ยังไม่เริ่ม/ยังรอคิว semaphore จะเลิกทันที ไม่ถือ slot ให้คำขออื่นในโปรเซสเดียวกันรอ
+ * หน้าที่กำลังวิ่งอยู่ปล่อยให้จบเอง (ไม่ abort กลางทาง) · ไม่ส่ง = ทำงานแบบเดิมทุกอย่าง
+ */
+export interface FetchCancel { cancelled: boolean }
+const cancelled_ = (c?: FetchCancel): void => {
+  if (c && c.cancelled) throw new Error('fetchAll: cancelled');
+};
+
+export async function fetchAll<T = any>(
+  build: () => any, orderColumn = 'id', ascending = true, opts: { cancel?: FetchCancel } = {},
+): Promise<T[]> {
   const PAGE = 1000;
+  const cancel = opts.cancel;
   const CONC = 6; // จำนวนหน้าที่ยิงพร้อมกันหลังหน้าแรกเต็ม
   // รับหลายคอลัมน์คั่นด้วยคอมมาได้ (เช่น 'date,ad_id') — ตารางที่ primary key เป็นคู่คอลัมน์
   // ต้องเรียงครบทุกคอลัมน์ ไม่งั้นลำดับยังไม่ unique และ pagination ก็ยังข้ามแถวได้อยู่ดี
@@ -47,9 +60,11 @@ export async function fetchAll<T = any>(build: () => any, orderColumn = 'id', as
     // retry 2 ครั้ง — ตอนคิวรีหลายตัววิ่งพร้อมกัน ฐานอาจตัดตัวที่ช้า (statement timeout)
     // หรือเน็ตสะดุด ซึ่งรอบถัดไปมักผ่าน (โหลดคลายแล้ว) — พังทั้งหน้าเพราะหน้าเดียวพลาดไม่คุ้ม
     for (let attempt = 0; ; attempt++) {
+      cancelled_(cancel);
       await acquire_();
       let res: { data: any; error: any };
       try {
+        cancelled_(cancel);   // ถูกยกเลิกระหว่างรอคิว → ปล่อย slot ทันที (finally ข้างล่าง)
         let q = build();
         for (const c of cols) q = q.order(c, { ascending });
         // ⏱ abort 25s — supabase-js ไม่มี timeout ฝั่ง client: connection ที่ตายเงียบจะค้างนิรันดร์
@@ -57,6 +72,7 @@ export async function fetchAll<T = any>(build: () => any, orderColumn = 'id', as
         // ฝั่ง DB statement timeout ~8s อยู่แล้ว — อะไรที่เกิน 25s คือศพแน่นอน ตัดทิ้งแล้ว retry
         res = await q.abortSignal(AbortSignal.timeout(25_000)).range(from, from + PAGE - 1);
       } catch (e: any) {
+        if (cancel && cancel.cancelled) throw e;
         res = { data: null, error: { message: String((e && e.message) || e || 'aborted') } };
       } finally {
         release_();
@@ -103,7 +119,7 @@ export async function fetchAllSliced<T = any>(
   build: (fromIso: string, toIso: string) => any,
   start: Date,
   end: Date,
-  opts: { sliceDays?: number; pool?: number; orderColumn?: string } = {},
+  opts: { sliceDays?: number; pool?: number; orderColumn?: string; cancel?: FetchCancel } = {},
 ): Promise<T[]> {
   const sliceMs = (opts.sliceDays || 4) * 86400000;
   // pool 2 ก็พอ — ยิงเยอะกว่านี้คิวรีแย่ง CPU กันเองบนฐาน แล้วแต่ละตัวช้าจนชน statement timeout (~8s)
@@ -119,7 +135,7 @@ export async function fetchAllSliced<T = any>(
   const out: T[] = [];
   for (let i = 0; i < slices.length; i += pool) {
     const parts = await Promise.all(
-      slices.slice(i, i + pool).map((s) => fetchAll<T>(() => build(s.f, s.t), orderCols, true)),
+      slices.slice(i, i + pool).map((s) => fetchAll<T>(() => build(s.f, s.t), orderCols, true, { cancel: opts.cancel })),
     );
     for (const p of parts) out.push(...p);
   }
@@ -135,7 +151,7 @@ export async function fetchAllDateSliced<T = any>(
   build: (fromDate: string, toDate: string) => any,
   fromDate: string,
   toDate: string,
-  opts: { sliceDays?: number; pool?: number; orderColumn?: string } = {},
+  opts: { sliceDays?: number; pool?: number; orderColumn?: string; cancel?: FetchCancel } = {},
 ): Promise<T[]> {
   const days = opts.sliceDays || 7;
   const pool = opts.pool || 2;
@@ -152,7 +168,7 @@ export async function fetchAllDateSliced<T = any>(
   const out: T[] = [];
   for (let i = 0; i < slices.length; i += pool) {
     const parts = await Promise.all(
-      slices.slice(i, i + pool).map((s) => fetchAll<T>(() => build(s.f, s.t), opts.orderColumn || 'key', true)),
+      slices.slice(i, i + pool).map((s) => fetchAll<T>(() => build(s.f, s.t), opts.orderColumn || 'key', true, { cancel: opts.cancel })),
     );
     for (const p of parts) out.push(...p);
   }
