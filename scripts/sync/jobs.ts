@@ -1081,11 +1081,11 @@ export async function syncMetaAdsRange(since: string, until: string): Promise<Jo
     try { cached = JSON.parse((await getState(ACCOUNTS_KEY)) || 'null'); } catch { cached = null; }
     const ageMs = (cached && cached.ts) ? Date.now() - new Date(cached.ts).getTime() : Number.POSITIVE_INFINITY;
     if (!cached || !Array.isArray(cached.accounts) || !cached.accounts.length || !(ageMs < ACCOUNTS_CACHE_MAX_MS)) {
-      return jobResult(`ข้าม: ขอรายชื่อบัญชี Meta ไม่สำเร็จ (${emsg.slice(0, 110)}) — ไม่มีรายชื่อแคชที่ยังสด`,
+      return jobResult(`ข้าม: ขอรายชื่อบัญชี Meta ไม่สำเร็จ (${emsg.slice(0, 200)}) — ไม่มีรายชื่อแคชที่ยังสด`,
         { skipped: 'metaListAdAccounts ติด rate limit และแคชหมดอายุ/ไม่มี' });
     }
     accounts = cached.accounts as any;
-    cacheNote = ` | ⚠️ ใช้รายชื่อบัญชีจากแคชอายุ ${Math.round(ageMs / 60000)} นาที (${emsg.slice(0, 70)})`;
+    cacheNote = ` | ⚠️ ใช้รายชื่อบัญชีจากแคชอายุ ${Math.round(ageMs / 60000)} นาที (${emsg.slice(0, 160)})`;
     console.warn('⚠️ metaListAdAccounts ล้ม — ใช้รายชื่อแคช ' + accounts.length + ' บัญชี: ' + emsg);
     // ให้ตัวเฝ้าระวังเห็นด้วย ไม่ใช่เห็นแค่ console ของ GitHub Actions
     await setState('meta_ad_accounts_fallback_at', new Date().toISOString()).catch(() => {});
@@ -1249,23 +1249,34 @@ export async function syncAdPageFill(days = 45): Promise<string> {
 const CREATIVE_CAP = 4000;
 
 /**
- * ad_id ไม่ซ้ำที่มีใน ad_daily ตั้งแต่ N วันก่อน (วนเอง — PostgREST คืนสูงสุด 1000 แถว/ครั้ง)
- * ต้อง order ด้วย (ad_id, date) = pk เต็ม — เรียงด้วย ad_id เฉยๆ ไม่ unique แล้วแถวจะข้ามเงียบๆ ตอนแบ่งหน้า
+ * ad_id ไม่ซ้ำที่มีใน ad_daily ตั้งแต่ N วันก่อน ถึง "พรุ่งนี้" (บัญชี Meta ที่ตั้งโซนเวลาเร็วกว่าไทยลงวันถัดไปได้)
+ *
+ * อ่านทีละวัน (eq date) แล้วต่อหน้าด้วย ad_id ตัวสุดท้ายของหน้าก่อน (keyset) = ลำดับเดียวกับ pk (date, ad_id)
+ * Postgres เดินดัชนี pk เฉพาะช่วงวันนั้นตรงๆ ไม่ต้องเรียงใหม่ ไม่ต้องไล่ข้ามแถวแบบ OFFSET
+ * ภายในวันเดียว ad_id ไม่ซ้ำ (pk) จึงต่อหน้าด้วย ad_id อย่างเดียวได้โดยไม่ข้ามแถว
+ *
+ * เดิม .gte(date).order(ad_id, date) + OFFSET → Postgres เลือกเดินดัชนี ad_id ทั้งตาราง (ย้อนถึง พ.ค.)
+ * แล้วค่อยกรองวันที่ หน้ายิ่งลึกยิ่งช้า (วัด 29 ก.ย.: 14 วัน = 51 หน้า 23.5 วิ หน้าช้าสุด 6.9 วิ)
+ * จนโดน statement timeout — งาน ad-creatives ล้ม 22 ครั้งใน 26-29 ก.ย. รูปแอดใหม่ขึ้นช้าไปหลายชั่วโมง
  */
 async function adIdsFromDaily_(days: number): Promise<string[]> {
-  const from = fmtDateBkk(daysAgo(Math.max(0, days - 1)));
   const set: Record<string, 1> = {};
-  let offset = 0;
-  for (;;) {
-    const { data, error } = await supabase.from('ad_daily').select('ad_id,date')
-      .gte('date', from)
-      .order('ad_id', { ascending: true }).order('date', { ascending: true })
-      .range(offset, offset + 999);
-    if (error) throw new Error(`อ่าน ad_daily ไม่ได้: ${error.message}`);
-    const batch = data || [];
-    batch.forEach((r: any) => { const id = String(r.ad_id || ''); if (id) set[id] = 1; });
-    if (batch.length < 1000) break;
-    offset += 1000;
+  // คิดรายชื่อวันครั้งเดียวก่อนวน — daysAgo() อ่านนาฬิกาทุกครั้ง ถ้ารอบนี้คร่อมเที่ยงคืนจะข้าม "วันนี้" ไปทั้งวัน
+  const base = daysAgo(0).getTime();
+  const dates: string[] = [];
+  for (let k = Math.max(0, days - 1); k >= -1; k--) dates.push(fmtDateBkk(new Date(base - k * 86400000)));
+  for (const date of dates) {
+    let after: string | null = null;
+    for (;;) {
+      let q = supabase.from('ad_daily').select('ad_id').eq('date', date);
+      if (after !== null) q = q.gt('ad_id', after);
+      const { data, error } = await q.order('ad_id', { ascending: true }).limit(1000);
+      if (error) throw new Error(`อ่าน ad_daily ไม่ได้ (${date}): ${error.message}`);
+      const batch = data || [];
+      batch.forEach((r: any) => { const id = String(r.ad_id || ''); if (id) set[id] = 1; });
+      if (batch.length < 1000) break;
+      after = String(batch[batch.length - 1].ad_id);
+    }
   }
   return Object.keys(set);
 }

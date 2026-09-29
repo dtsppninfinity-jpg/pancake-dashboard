@@ -16,21 +16,70 @@ function metaToken(): string {
   return process.env.META_ACCESS_TOKEN || '';
 }
 
+/** แปลง header เป็น JSON — ไม่มี/อ่านไม่ออก = null */
+function headerJson_(h: Headers, name: string): any {
+  const v = h.get(name);
+  if (!v) return null;
+  try { return JSON.parse(v); } catch { return null; }
+}
+
+/**
+ * รหัสย่อย + เกจโควตา ณ ตอนที่ Meta ปฏิเสธ — ต่อท้าย "meta <code>:" ในข้อความ error
+ *
+ * ทำไม: code 4 ตัวเดียวแยกไม่ออกว่า "โควตาแอปเราหมด" หรือ "Meta ทั้งระบบโหลดเกิน"
+ * (4/1504022 ใช้ทั้งสองกรณี, 4/1504039 = เพดานแอปของเราจริง) ต้องดูรหัสย่อยคู่กับเกจ
+ * แอป/บัญชี ถ้าเกจยังต่ำแต่โดนปฏิเสธ = ฝั่ง Meta ไม่ใช่เราใช้เกิน (เจอ 28 ก.ย. 2569 ตอบไม่ได้เพราะไม่ได้เก็บ)
+ * เกจ: แอป/บัญชี = x-fb-ads-insights-throttle · BUC = x-business-use-case-usage (ครั้ง/cpu/เวลา %)
+ */
+function metaErrorDetail_(err: any, h: Headers): string {
+  // ข้อมูลประกอบต้อง "เพิ่ม" อย่างเดียว — header หน้าตาแปลกแล้วพังตรงนี้ จะกลบ error จริงของ Meta
+  // จนตัวจับ rate-limit มองไม่เห็น แล้ว creativesBatch_ แตกครึ่งเขียนแถวเปล่าทับ (ดูคอมเมนต์ที่นั่น)
+  try { return metaErrorDetailRaw_(err, h); } catch { return ''; }
+}
+
+function metaErrorDetailRaw_(err: any, h: Headers): string {
+  const parts: string[] = [];
+  if (err.error_subcode) parts.push(`รหัสย่อย ${err.error_subcode}`);
+  const th = headerJson_(h, 'x-fb-ads-insights-throttle');
+  if (th) parts.push(`แอป ${th.app_id_util_pct ?? '?'}% บัญชี ${th.acc_id_util_pct ?? '?'}%`);
+  const buc = headerJson_(h, 'x-business-use-case-usage');
+  if (buc && typeof buc === 'object') {
+    let cc = 0, cpu = 0, tt = 0, wait = 0, seen = false;
+    Object.keys(buc).forEach((k) => (Array.isArray(buc[k]) ? buc[k] : []).forEach((u: any) => {
+      seen = true;
+      cc = Math.max(cc, Number(u.call_count) || 0);
+      cpu = Math.max(cpu, Number(u.total_cputime) || 0);
+      tt = Math.max(tt, Number(u.total_time) || 0);
+      wait = Math.max(wait, Number(u.estimated_time_to_regain_access) || 0);
+    }));
+    if (seen) parts.push(`BUC ครั้ง ${cc}% cpu ${cpu}% เวลา ${tt}%` + (wait ? ` รอ ${wait} นาที` : ''));
+  }
+  const app = headerJson_(h, 'x-app-usage');
+  if (app) {
+    const m = Math.max(Number(app.call_count) || 0, Number(app.total_cputime) || 0, Number(app.total_time) || 0);
+    if (m) parts.push(`แอป(platform) ${m}%`);
+  }
+  return parts.length ? `[${parts.join(' · ')}] ` : '';
+}
+
 /** GET Graph API + retry เมื่อโดน rate-limit (code 4/17/32/613/80000-80004) */
 async function metaGet(path: string, params: Record<string, string>, tries = 3): Promise<any> {
   const qs = new URLSearchParams({ access_token: metaToken(), ...params }).toString();
   let lastErr = '';
   for (let i = 0; i < tries; i++) {
     let j: any;
+    let headers: Headers;
     try {
       const res = await fetch(`${BASE}/${path}?${qs}`);
+      headers = res.headers;
       j = await res.json();
     } catch (e: any) { lastErr = e.message; await sleep(2000 * (i + 1)); continue; }
     if (j && j.error) {
       const code = Number(j.error.code);
       const rateLimited = [4, 17, 32, 613, 80000, 80001, 80002, 80003, 80004].indexOf(code) >= 0;
       if (rateLimited && i < tries - 1) { await sleep(5000 * (i + 1)); continue; }
-      throw new Error(`meta ${code}: ${j.error.message}`);
+      // รายละเอียดวางต่อจาก "meta <code>: " — ตัวจับ rate-limit ใน jobs.ts / creativesBatch_ อ่านแค่ส่วนหน้านี้
+      throw new Error(`meta ${code}: ${metaErrorDetail_(j.error, headers)}${j.error.message}`);
     }
     return j;
   }
@@ -251,7 +300,8 @@ async function creativesBatch_(ids: string[]): Promise<MetaAdCreative[] | null> 
     // กู้ได้ทางเดียวคือ npx tsx scripts/setup/backfill-ad-creatives.ts <วัน> force
     if (/meta (4|17|32|102|190|463|467|613|8000[0-4]):/.test(m)
       || /too many calls|request limit|rate limit|session has expired|access token/i.test(m)
-      || /fetch failed|ETIMEDOUT|ECONNRESET|socket|network|50[234]/i.test(m)) throw e;
+      // \b กันเลข 502/503/504 ที่ซ่อนอยู่กลาง ad_id ของ #803 หรือรหัสย่อยอย่าง 1504022 ถูกนับเป็นเน็ตสะดุด
+      || /fetch failed|ETIMEDOUT|ECONNRESET|socket|network|\b50[234]\b/i.test(m)) throw e;
     return null;   // เหลือเฉพาะ #100/#803/แอดถูกลบ ที่ควรแตกครึ่งหาตัวต้นเหตุ
   }
 }
