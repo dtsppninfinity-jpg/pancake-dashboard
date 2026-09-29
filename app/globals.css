@@ -3315,6 +3315,9 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
    ต้องทาพื้นแถวรวมทับให้เป็นสีเดียวกันทั้งแถว ไม่งั้นช่อง "รวมทั้งตาราง" เป็นก้อนขาวแปลกตา */
 #view-sales table.tbl.sr-unit-tbl tr.tbl-total > td { background-color: var(--surface-2); }
 #view-sales table.tbl.sr-unit-tbl tr.tbl-total .sr-prog { justify-content: flex-end; }
+/* ช่อง "คนทัก/ปิดได้": เลขหลัง / จางลงหนึ่งระดับให้เห็นว่าเลขหลักคือคนทัก · ไม่ตัดบรรทัดกลางคู่ตัวเลข */
+#view-sales table.tbl.sr-unit-tbl td.num:has(> .sr-closed) { white-space: nowrap; }
+#view-sales table.tbl.sr-unit-tbl .sr-closed { color: var(--text-2); }
 
 @media (min-width: 900px) {
   /* หัวตารางค้าง (.tbl-sticky) ต้องปลด overflow ของกล่องห่อตาราง ซึ่งทำได้เฉพาะตอนตารางพอดีการ์ด

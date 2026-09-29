@@ -36,7 +36,10 @@ import {
 import { svgHourlyLine, miniBars, hbarRows, chartKey, bindChartTips, hideChartTip } from '@/lib/ui/charts';
 import { salesSkel } from '@/lib/ui/skeletons';
 import { icon, brandIcon, statusPill, statIcon, ICON_FOR, type StatKey, type StatusKind } from '@/lib/ui/icons';
-import { attainKind, closeRateKind, pctKind, kindClass, type ColorKind } from '@/lib/ui/color-rules';
+import {
+  attainKind, closeRateKind, pctKind, kindClass, salesRoasKind, costPerChatKind,
+  SALES_ROAS_GOOD, SALES_ROAS_WARN, COST_PER_CHAT_GOOD, COST_PER_CHAT_WARN, type ColorKind,
+} from '@/lib/ui/color-rules';
 import { makeSortable, sortTh } from '@/lib/ui/table-sort';
 
 declare global {
@@ -230,11 +233,10 @@ function boxHtml_(si: StatKey, label: string, valueHtml: string, tip?: TipSpec, 
   '</div>';
 }
 
-/** ROAS ต่ำกว่า 1 = ยอดขายน้อยกว่าค่าแอด (ขาดทุนแน่นอนแม้ยังไม่หักต้นทุนสินค้า) → แดง
- *  ไม่มีสีเขียว: หน้านี้ไม่รู้จุดคุ้มทุนของแต่ละยูนิต (อยู่หน้าผลงานรายยูนิต) ROAS 1.5 อาจยังขาดทุนก็ได้
- *  จึงไม่ติดป้าย "ดี" ให้ — กติกาสีกลาง: เขียว = ดีเท่านั้น (ตรวจ UI ข้อ E3) */
+/** สี ROAS ทุกจุดของหน้านี้ (กล่องบน + ตารางยูนิต + แถวรวม) = เกณฑ์ทีมขาย มากกว่า 3 เขียว · 2.5–3 ส้ม · ต่ำกว่า 2.5 แดง
+ *  (ทีมขายกำหนด 29 ก.ย. 69 แทนเกณฑ์เดิม "แดงเมื่อต่ำกว่า 1" — ตัวเลขอยู่ที่ color-rules.ts ที่เดียว) */
 function roasCls_(v: number | null | undefined): string {
-  return v !== null && v !== undefined && isFinite(Number(v)) && Number(v) < 1 ? 'v-bad' : '';
+  return kindClass(salesRoasKind(v));
 }
 
 /** ค่าดิบสำหรับ data-sort ของตาราง — ไม่มีข้อมูล = '' (ตัวเรียงกลางวางไว้ท้ายเสมอ) */
@@ -586,7 +588,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         ' • ROAS ใหม่ = ยอดขายเฉพาะเพจที่ยิงแอด ÷ ค่าแอด' +
         ' • ROAS รวม = ยอดขาย Facebook ทั้งหมด ÷ ค่าแอด' +
         ' • ROAS จาก Meta = ยอดซื้อที่ Meta นับ ÷ ค่าแอด' +
-        ' • ตัวเลข ROAS สีแดง = ต่ำกว่า 1 (ยอดขายน้อยกว่าค่าแอด)' +
+        ' • สี ROAS: เขียว มากกว่า ' + SALES_ROAS_GOOD + ' · ส้ม ' + SALES_ROAS_WARN + '–' + SALES_ROAS_GOOD + ' · แดง ต่ำกว่า ' + SALES_ROAS_WARN + ' (เกณฑ์ทีมขาย)' +
         ' • ชี้หรือแตะที่กล่องเพื่อดูตัวเลขที่ใช้คิด', 'โฆษณา') + '</h3>' +
       '<div class="stat-boxes sr-gboxes">' + adBoxes + '</div>' +
     '</section>' +
@@ -813,7 +815,10 @@ function unitLegend_(d: SalesData, showAttain: boolean): string {
   return '<div class="color-legend">' +
     '<span class="lg lg-good">ถึงเกณฑ์</span><span class="lg lg-warn">ใกล้เกณฑ์</span><span class="lg lg-bad">ต่ำกว่าเกณฑ์</span>' +
     '<span>%ปิด: เกณฑ์ ' + closeT + '% (ใกล้ = ' + closeWarn + '% ขึ้นไป) · เปอร์บิล' + (showAttain ? ' และ %บรรลุ' : '') +
-      ': เทียบเป้า (ใกล้ = 80–99%) · ROAS แดง = ต่ำกว่า 1' +
+      ': เทียบเป้า (ใกล้ = 80–99%) · ROAS: เขียว มากกว่า ' + SALES_ROAS_GOOD + ' · ส้ม ' + SALES_ROAS_WARN + '–' + SALES_ROAS_GOOD +
+      ' · แดง ต่ำกว่า ' + SALES_ROAS_WARN +
+      (state.channel === 'line' ? '' : ' · ค่าทัก: เขียว ไม่เกิน ฿' + COST_PER_CHAT_GOOD + ' · ส้ม เกิน ฿' + COST_PER_CHAT_GOOD + ' ถึง ฿' + COST_PER_CHAT_WARN +
+        ' · แดง เกิน ฿' + COST_PER_CHAT_WARN) +
       (showAttain && d.unitGoal && d.unitGoal.rangeEndsToday ? ' · %บรรลุ รวมวันนี้ที่ยังไม่จบวัน' : '') + '</span>' +
   '</div>';
 }
@@ -839,10 +844,12 @@ function unitTableHtml_(units: any[], showAttain: boolean): string {
       '<td class="num" data-sort="' + sv_(u.share) + '">' + (u.share === null || u.share === undefined ? dash() : pct1(u.share)) + '</td>' +
       '<td class="num" data-sort="' + (u.spend ? sv_(u.spend) : '') + '">' + (u.spend ? THB(u.spend) : dash()) + '</td>' +
       '<td class="num ' + roasCls_(u.roas) + '" data-sort="' + sv_(u.roas) + '">' + (u.roas === null || u.roas === undefined ? dash() : roasFmt(u.roas)) + '</td>' +
-      '<td class="num" data-sort="' + sv_(u.costPerMsg) + '" title="' + esc(costTip_(u)) + '">' +
+      '<td class="num ' + kindClass(costPerChatKind(u.costPerMsg)) + '" data-sort="' + sv_(u.costPerMsg) + '" title="' + esc(costTip_(u)) + '">' +
         (u.costPerMsg === null || u.costPerMsg === undefined ? dash() : thb2_(u.costPerMsg)) + '</td>' +
+      // "คนทัก/ปิดได้" = ตัวหาร/ตัวตั้งของ %ปิด ในช่องเดียว (ทีมขายขอ 29 ก.ย. 69) — เรียงตามคนทักเหมือนเดิม
       '<td class="num" data-sort="' + sv_(u.closeBase) + '" title="' + esc(baseTip_(u)) + '">' +
-        (u.closeBase === null || u.closeBase === undefined ? dash() : fmtNum(u.closeBase)) + '</td>' +
+        (u.closeBase === null || u.closeBase === undefined ? dash()
+          : fmtNum(u.closeBase) + '<span class="sr-closed">/' + fmtNum(u.closeOrders || 0) + '</span>') + '</td>' +
       '<td class="num ' + kindClass(closeK) + '" data-sort="' + sv_(u.closeRate) + '" title="' + esc(closeTip_(u)) + '">' +
         (u.closeRate === null || u.closeRate === undefined ? dash() : pct2(u.closeRate)) + '</td>' +
       '<td class="num ' + kindClass(pbK) + '" data-sort="' + sv_(pb) + '" title="' + esc(perBillTip_(u)) + '">' +
@@ -892,7 +899,7 @@ function unitTableHtml_(units: any[], showAttain: boolean): string {
       sortTh('ค่าแอด', 'spend', { num: true }) +
       sortTh('ROAS', 'roas', { num: true }) +
       sortTh('ค่าทัก', 'cost', { num: true }) +
-      sortTh('คนทัก', 'base', { num: true, tip: baseHeadTip_() }) +
+      sortTh('คนทัก/ปิดได้', 'base', { num: true, tip: baseHeadTip_() }) +
       sortTh('%ปิด', 'close', { num: true, tip: closeHeadTip_() }) +
       sortTh('เปอร์บิล', 'pb', { num: true, tip: PERBILL_TIP }) +
       sortTh('เป้า', 'target', { num: true, tip: TARGET_TIP }) +
@@ -1417,7 +1424,8 @@ function closeHeadTip_(): string {
 /** หัวคอลัมน์ "คนทัก" — ตัวหารของทั้ง ค่าทัก และ %ปิด (พีสั่งให้ขึ้นตาราง 26 ก.ย. 69) */
 function baseHeadTip_(): string {
   return 'คนทัก = ' + srcParts_() + ' ' + baseScope_() + ' จาก ' + srcName_() +
-    ' — เป็นตัวหารของทั้งค่าทัก (ค่าแอด ÷ คนทัก) และ %ปิด (ออเดอร์ ÷ คนทัก)' + adsCardNote_();
+    ' — เป็นตัวหารของทั้งค่าทัก (ค่าแอด ÷ คนทัก) และ %ปิด (ออเดอร์ ÷ คนทัก)' +
+    ' • ปิดได้ (เลขหลัง /) = ออเดอร์ของยูนิต = ตัวตั้งของ %ปิด • กดหัวคอลัมน์เรียงตามคนทัก' + adsCardNote_();
 }
 
 /** tooltip ช่องคนทัก — แยกให้เห็นว่ามาจากทักกี่ คอมเมนต์กี่ และอีกแหล่งได้เท่าไหร่ */
@@ -1430,6 +1438,7 @@ function baseTip_(u: any): string {
     ' = ' + fmtNum(u.closeBase) + ' (' + srcName_() + ' ' + baseScope_() + ')'];
   const alt = closeSrc_ === 'meta' ? u.closePancakeBase : (u.closeMetaInq || 0) + (u.closeMetaComment || 0);
   if (alt !== null && alt !== undefined) parts.push('ฝั่ง ' + srcOtherName_() + ' ได้ ' + fmtNum(alt));
+  parts.push('ปิดได้ ' + fmtNum(u.closeOrders || 0) + ' = ออเดอร์ของยูนิตในช่วงนี้');
   return parts.join(' • ');
 }
 const TARGET_TIP = 'เป้าของช่วงวันที่ที่เลือก = เป้ารายเดือนในชีท KPI แท็บ เป้ายอดขาย ÷ จำนวนวันในเดือน × จำนวนวันที่เลือก' +

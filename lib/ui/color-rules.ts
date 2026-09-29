@@ -80,6 +80,35 @@ export function roasKind(roas: number | null | undefined, breakeven: number | nu
   return 'bad';
 }
 
+/** เกณฑ์ ROAS หน้ายอดขาย (ทีมขายกำหนด 29 ก.ย. 69 — แบบเดียวกับเว็บสรุปแอดของทีม)
+ *  มากกว่า 3 = เขียว (3.00 พอดี = ส้ม) · 2.5–3 = ส้ม · ต่ำกว่า 2.5 = แดง */
+export const SALES_ROAS_GOOD = 3;
+export const SALES_ROAS_WARN = 2.5;
+
+/** ค่าทัก (บาทต่อคนทัก) — ทีมขายกำหนด 29 ก.ย. 69: ไม่เกิน ฿60 = เขียว · เกิน 60 ถึง 70 = ส้ม · เกิน ฿70 = แดง */
+export const COST_PER_CHAT_GOOD = 60;
+export const COST_PER_CHAT_WARN = 70;
+
+/** ตัดสินจากค่าที่ "โชว์บนจอ" (ปัด 2 ตำแหน่ง) — จอเขียน 3.00x ต้องได้สีของ 3.00 ไม่ใช่ของ 3.004 */
+const r2 = (v: number): number => Math.round(v * 100) / 100;
+
+/** ROAS หน้ายอดขาย (ไม่อิงจุดคุ้มทุน — ใช้เกณฑ์ทีมขายด้านบน) */
+export function salesRoasKind(roas: number | null | undefined): ColorKind {
+  const v = num(roas);
+  if (v === null) return 'none';
+  const r = r2(v);
+  return r > SALES_ROAS_GOOD ? 'good' : r >= SALES_ROAS_WARN ? 'warn' : 'bad';
+}
+
+/** ค่าทัก (บาท) → ยิ่งต่ำยิ่งดี · ฿0 = ไม่มีค่าแอด (ยังไม่ได้ยิง) ไม่ใช่ "ถูกมาก" จึงไม่ระบายสี */
+export function costPerChatKind(cost: number | null | undefined): ColorKind {
+  const v = num(cost);
+  if (v === null) return 'none';
+  const c = r2(v);
+  if (c <= 0) return 'none';
+  return c <= COST_PER_CHAT_GOOD ? 'good' : c <= COST_PER_CHAT_WARN ? 'warn' : 'bad';
+}
+
 /** %ปิด (หน่วยเปอร์เซ็นต์ เช่น 38.5) → ถึงเป้า = good · ตั้งแต่ 33% (เส้นเสี่ยงของชีท KPI) = warn · ต่ำกว่า = bad */
 export function closeRateKind(rate: number | null | undefined, target: number = CLOSE_TARGET): ColorKind {
   const r = num(rate);
