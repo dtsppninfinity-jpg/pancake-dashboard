@@ -597,9 +597,9 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     retBox;
   const adBoxes =
     adSpendBox_(d) +
+    roasVatBox_(d) +   // ชิดกล่องค่าแอด (ทีมขายสั่ง 8 ต.ค. 69) — ทุกขนาดจออยู่แถวเดียวกับค่าแอด
     roasPosBox_(d, 'new') +
     roasPosBox_(d, 'all') +
-    roasVatBox_(d) +   // ต่อจาก ROAS รวม (ตัวตั้งเดียวกัน) — มือถือกับจอ ≥1200 อยู่แถวเดียวกัน · 600–1199 ขึ้นต้นแถวที่ 2
     roasMetaBox_(d) +
     adCloseBox_(d);
   html += '<div class="sr-groups">' +
