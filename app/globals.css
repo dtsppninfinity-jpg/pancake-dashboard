@@ -3273,6 +3273,18 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
   #view-sales .sr-gboxes > .stat-box:nth-child(n),
   #view-sales .sr-gboxes > .stat-box:last-child:nth-child(odd) { grid-column: auto; }
 }
+/* กลุ่มโฆษณามี 6 กล่อง (เพิ่ม ROAS รวม VAT 8 ต.ค. 69): มือถือ 3 แถว × 2 · 600–1199 สองแถว × 3 · ≥1200 แถวเดียว 6 กล่อง */
+@media (min-width: 600px) {
+  #view-sales .sr-gboxes.sr-gb6 > .stat-box:nth-child(n) { grid-column: span 2; }
+}
+@media (min-width: 1200px) {
+  #view-sales .sr-gboxes.sr-gb6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  #view-sales .sr-gboxes.sr-gb6 > .stat-box:nth-child(n) { grid-column: auto; }
+}
+/* บรรทัดรองของกล่องค่าแอด: "รวม VAT ฿…" + ลูกศรเทียบช่วงก่อน วางต่อกัน แคบแล้วขึ้นบรรทัดใหม่ได้ */
+#view-sales .sr-gboxes .sb-sub:has(> .sr-vat) { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-2); }
+/* ไม่ตรึงทั้งบรรทัด: จอ 1200 กล่องแคบ ~107px + ค่าแอด 30 วันหลักสิบล้าน → ให้ตัดบรรทัดหลังคำว่า VAT ได้ (ตัวเลขไม่มีช่องว่าง ไม่ขาดกลาง) */
+#view-sales .sr-gboxes .sr-vat { font-variant-numeric: tabular-nums; }
 /* ไอคอนหมวดนำหน้าชื่อกล่อง — ป้ายยาว (เช่น "ลูกค้าเก่า (95 วัน)") ขึ้น 2 บรรทัดได้ ไอคอนต้องค้างบรรทัดแรก */
 #view-sales .sr-gboxes .sb-label { display: flex; align-items: flex-start; gap: 5px; }
 #view-sales .sr-gboxes .sb-label > .si { flex: none; margin-top: 2px; }
@@ -3329,6 +3341,11 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
 @media (min-width: 1200px) {
   #view-sales :is(.table-scroll, .sx-scroll):has(> table.sr-unit-tbl.tbl-sticky) { overflow: visible; }
   #view-sales table.tbl.sr-unit-tbl.tbl-sticky thead th { position: sticky; box-shadow: inset 0 -1px 0 var(--border); }
+  /* ช่อง "คนทัก/ปิดได้" (29 ก.ย. 69) ทำให้ตารางกว้างขึ้น ~36px — จอ 1200 + ช่วงยาว (ตัวเลขหลักหมื่น/สิบล้าน) ตารางเกินการ์ด
+     และเพราะช่วงนี้ปลด overflow ให้หัวค้าง ทั้งหน้าจึงเลื่อนแนวนอนได้ 28px (วัด 8 ต.ค. ช่วง 30 วัน)
+     ลดระยะซ้าย-ขวาในช่องเหลือ 8px (11 คอลัมน์ = คืนมา 88px) — จอกว้างกว่านี้ตารางยืดเต็มการ์ดอยู่แล้ว ไม่เห็นความต่าง */
+  #view-sales table.tbl.sr-unit-tbl th,
+  #view-sales table.tbl.sr-unit-tbl td { padding-left: var(--sp-2); padding-right: var(--sp-2); }
 }
 
 /* ---------- หน้าต่างของหน้ายอดขาย (อยู่ใน #modal-root) — แทน style="" ที่เคยใส่ทีละจุด ---------- */

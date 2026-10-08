@@ -97,6 +97,8 @@ interface SalesData {
     adRevenueMeta?: number; adCloseRate?: number | null;
     adPurchases?: number; adMsgs?: number;
     roasNew?: number | null; roasAll?: number | null; adPagesRev?: number;
+    // ค่าแอดรวม VAT (lib/config.ts AD_VAT_RATE) — roasAllVat = ยอดขาย Facebook ÷ ค่าแอดรวม VAT
+    vatRate?: number; spendVat?: number; roasAllVat?: number | null;
   } | null;
   salesBreak?: { total: number; fb: number; line: number };
   noUnitAds?: {
@@ -271,12 +273,38 @@ function adSpendBox_(d: SalesData): string {
   const when = a.syncedAt ? ' • อัปเดตล่าสุด ' + relTime(a.syncedAt) : '';
   // ลูกศรเทียบช่วงก่อนเป็นสีเทาเสมอ — ค่าแอดขึ้นหรือลงไม่ได้แปลว่าดีหรือแย่
   const cmp = a.trend === null || a.trend === undefined ? '' : trendChip(a.trend, true);
+  // ยอดรวม VAT = เงินที่จ่าย Meta จริง (ทีมขายขอ 8 ต.ค. 69) — ตัวใหญ่ยังเป็นยอดก่อน VAT ตรงกับ Ads Manager
+  const hasVat = a.spendVat !== undefined && a.spendVat !== null && a.vatRate;
+  const vatLine = hasVat ? '<span class="sr-vat">รวม VAT ' + THB(a.spendVat) + '</span>' : '';
   return boxHtml_('adSpend', 'ค่าแอด', THB(a.spend), {
-    title: 'ค่าแอด', formula: 'ค่าแอด = ผลรวมค่าใช้จ่ายทุกแอด (บาทจริง)',
+    title: 'ค่าแอด', formula: 'ค่าแอด = ผลรวมค่าใช้จ่ายทุกแอด (บาทจริง ก่อน VAT ตรงกับ Ads Manager)',
     body: 'แอดที่กำลังยิง ' + fmtNum(a.activeAds || 0) + ' ตัว' + when +
+      (hasVat ? ' • รวม VAT ' + vatPct_(a) + ' = ' + THB(a.spendVat) + ' (เงินที่จ่าย Meta จริง)' : '') +
       ' • ไม่ได้แยก Facebook/LINE จึงไม่เปลี่ยนตามช่องทางที่กรอง',
     src: 'Meta (รายงานโฆษณา)',
-  }, cmp);
+  }, vatLine + cmp);
+}
+
+/** "7%" จากอัตราที่ API ส่งมา — ตัวเลขอยู่ที่ lib/config.ts AD_VAT_RATE ที่เดียว */
+function vatPct_(a: NonNullable<SalesData['adCost']>): string {
+  return Math.round((a.vatRate || 0) * 1000) / 10 + '%';
+}
+
+/** ROAS รวม VAT = ยอดขาย Facebook ทั้งหมด ÷ ค่าแอดรวม VAT — ตัวตั้งเดียวกับ "ROAS รวม" (ทีมขายขอ 8 ต.ค. 69) */
+function roasVatBox_(d: SalesData): string {
+  const a = d.adCost;
+  // ไม่ใส่วงเล็บ: "ROAS รวม (VAT)" ขึ้น 2 บรรทัดที่จอ 1200–1235 (กล่องแคบ ~107px) ตัวเลขเลยต่ำกว่ากล่องข้างๆ
+  const label = 'ROAS รวม VAT';
+  if (!a) return boxHtml_('roas', label, dash(), NOT_READY_TIP);
+  const v = a.roasAllVat;
+  if (v === null || v === undefined) return boxHtml_('roas', label, dash(), NO_SPEND_TIP);
+  return boxHtml_('roas', label, roasFmt(v), {
+    title: 'ROAS รวม VAT', formula: 'ROAS รวม VAT = ยอดขายทั้งหมดของ Facebook ÷ ค่าแอดรวม VAT ' + vatPct_(a),
+    body: 'ยอดขายเพจ Facebook ทุกเพจ (ยืนยันแล้ว) ' + THB((d.salesBreak && d.salesBreak.fb) || 0) +
+      ' ÷ ค่าแอดรวม VAT ' + THB(a.spendVat || 0) + ' (ค่าแอด ' + THB(a.spend) + ' + VAT ' + vatPct_(a) + ')' +
+      ' • ตัวตั้งเดียวกับ ROAS รวม ต่างกันแค่หารด้วยเงินที่จ่าย Meta จริง',
+    src: 'ออเดอร์จริงใน Pancake (ยืนยันแล้ว) + ค่าแอดจาก Meta',
+  }, '', roasCls_(v));
 }
 
 function roasMetaBox_(d: SalesData): string {
@@ -571,6 +599,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     adSpendBox_(d) +
     roasPosBox_(d, 'new') +
     roasPosBox_(d, 'all') +
+    roasVatBox_(d) +   // ต่อจาก ROAS รวม (ตัวตั้งเดียวกัน) — มือถือกับจอ ≥1200 อยู่แถวเดียวกัน · 600–1199 ขึ้นต้นแถวที่ 2
     roasMetaBox_(d) +
     adCloseBox_(d);
   html += '<div class="sr-groups">' +
@@ -587,10 +616,11 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         'ค่าแอดและ ROAS เป็นของเพจ Facebook เสมอ (แอดทั้งหมดอยู่บน Facebook) ไม่เปลี่ยนตามช่องทางที่เลือก' +
         ' • ROAS ใหม่ = ยอดขายเฉพาะเพจที่ยิงแอด ÷ ค่าแอด' +
         ' • ROAS รวม = ยอดขาย Facebook ทั้งหมด ÷ ค่าแอด' +
+        ' • ROAS รวม VAT = ยอดขาย Facebook ทั้งหมด ÷ ค่าแอดรวม VAT (เงินที่จ่าย Meta จริง)' +
         ' • ROAS จาก Meta = ยอดซื้อที่ Meta นับ ÷ ค่าแอด' +
         ' • สี ROAS: เขียว มากกว่า ' + SALES_ROAS_GOOD + ' · ส้ม ' + SALES_ROAS_WARN + '–' + SALES_ROAS_GOOD + ' · แดง ต่ำกว่า ' + SALES_ROAS_WARN + ' (เกณฑ์ทีมขาย)' +
         ' • ชี้หรือแตะที่กล่องเพื่อดูตัวเลขที่ใช้คิด', 'โฆษณา') + '</h3>' +
-      '<div class="stat-boxes sr-gboxes">' + adBoxes + '</div>' +
+      '<div class="stat-boxes sr-gboxes sr-gb6">' + adBoxes + '</div>' +
     '</section>' +
   '</div>';
 

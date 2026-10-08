@@ -18,6 +18,7 @@ import {
   startOfDayBkk,
   daysAgo,
   UNIT_CLOSE_TARGET,
+  AD_VAT_RATE,
 } from '@/lib/config';
 
 type Row = Record<string, any>;
@@ -1977,6 +1978,12 @@ export async function apiSales(params: any) {
       roasNew: adCost.spend > 0 ? Math.round((adPagesRev / adCost.spend) * 100) / 100 : null,
       roasAll: adCost.spend > 0 ? Math.round((fbRev / adCost.spend) * 100) / 100 : null,
       adPagesRev: Math.round(adPagesRev),
+      // ---- ค่าแอดรวม VAT (ทีมขายขอ 8 ต.ค. 69) — เงินที่จ่าย Meta จริง ----
+      // roasAllVat ตัวตั้งเดียวกับ roasAll (ยอดขาย Facebook ทั้งหมด) แค่หารด้วยค่าแอดรวม VAT
+      // คิดจากค่าแอดไม่ปัด ไม่ใช่ roasAll ÷ 1.07 (roasAll ปัดแล้ว หารต่อจะคลาดหลักสุดท้ายได้)
+      vatRate: AD_VAT_RATE,
+      spendVat: Math.round(adCost.spend * (1 + AD_VAT_RATE)),
+      roasAllVat: adCost.spend > 0 ? Math.round((fbRev / (adCost.spend * (1 + AD_VAT_RATE))) * 100) / 100 : null,
     } : null,
     // ยอดขายแยกช่องทาง (ไม่ขึ้นกับ channel filter — โชว์ครบเสมอ)
     salesBreak: {
