@@ -17,7 +17,7 @@ import {
 } from '@/lib/ui/helpers';
 import { icon, ICON_FOR } from '@/lib/ui/icons';
 import {
-  pctKind, closeRateKind, roasKind, profitKind, kindClass, closeRateLegend, LEGEND,
+  pctKind, closeRateKind, roasKind, profitKind, kindClass, tintVal, closeRateLegend, LEGEND,
 } from '@/lib/ui/color-rules';
 import { makeSortable, sortTh } from '@/lib/ui/table-sort';
 import { unitperfSkel } from '@/lib/ui/skeletons';
@@ -221,7 +221,7 @@ function rowHtml(u: UnitRow, rank: number, d: PerfData, sev: SevInfo): string {
         ' (ยอดเฉลี่ยของ ' + d.daysDone + ' วันที่จบแล้ว × ' + d.daysInMonth + ' วัน)'
       : d.isCurrentMonth ? 'วันแรกของเดือน ยังไม่มีวันที่จบแล้วให้คาดการณ์'
         : 'ยอดจริงทั้งเดือนเทียบเป้า') + '">' +
-      '<div class="up-big ' + kindClass(pk) + '">' + (p === null ? dash() : pct1(p)) + '</div>' +
+      '<div class="up-big">' + (p === null ? dash() : tintVal(pct1(p), pk)) + '</div>' +
       '<div class="up-sub">' + esc(projSub) + '</div></td>' +
 
     '<td class="r num" data-sort="' + sv(u.closeRate) + '" title="' + esc('ออเดอร์ ' + fmtNum(u.orders) + ' ÷ รวมคนทัก ' + fmtNum(u.base) +
@@ -303,7 +303,7 @@ function footHtml(list: UnitRow[]): string {
       '<span class="up-money num"><b>' + THBk(sum.revenue) + '</b><span> / ' + THBk(sum.target) + '</span></span>' +
       '<span class="num up-attain">' + (attain === null ? dash() : pct1(attain)) + '</span></div>' +
       '<div class="up-sub">' + fmtNum(sum.orders) + ' ออเดอร์</div></td>' +
-    '<td class="r num"><div class="up-big ' + kindClass(pctKind(projAttain)) + '">' + (projAttain === null ? dash() : pct1(projAttain)) + '</div>' +
+    '<td class="r num"><div class="up-big">' + (projAttain === null ? dash() : tintVal(pct1(projAttain), pctKind(projAttain))) + '</div>' +
       '<div class="up-sub">' + THBk(sum.projected) + '</div></td>' +
     '<td></td><td></td>' +
     '<td class="r num">' + THBk(sum.spend) + '</td>' +

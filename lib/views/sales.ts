@@ -37,7 +37,7 @@ import { svgHourlyLine, miniBars, hbarRows, chartKey, bindChartTips, hideChartTi
 import { salesSkel } from '@/lib/ui/skeletons';
 import { icon, brandIcon, statusPill, statIcon, ICON_FOR, type StatKey, type StatusKind } from '@/lib/ui/icons';
 import {
-  attainKind, closeRateKind, pctKind, kindClass, salesRoasKind, costPerChatKind,
+  attainKind, closeRateKind, pctKind, kindClass, tintVal, salesRoasKind, costPerChatKind,
   SALES_ROAS_GOOD, SALES_ROAS_WARN, COST_PER_CHAT_GOOD, COST_PER_CHAT_WARN, type ColorKind,
 } from '@/lib/ui/color-rules';
 import { makeSortable, sortTh } from '@/lib/ui/table-sort';
@@ -225,12 +225,12 @@ function chBoxHtml(key: string, ch: any, tip?: TipSpec): string {
  * กล่องตัวเลขรอง 1 กล่อง ในกลุ่ม "ลูกค้าและแชท" / "โฆษณา" — ใช้กล่องตัวเลขกลาง (.stat-box.dense)
  * si = ไอคอนหมวดนำหน้าชื่อกล่อง (STAT ใน lib/ui/icons.ts) — สมัยอีโมจิทุกกล่องมีรูป พีขอให้คงไว้
  * สูตร/ที่มาอยู่ในกรอบลอย (data-tip) ของทั้งกล่อง — ชี้เมาส์หรือแตะที่กล่องเพื่ออ่าน
- * valCls = สีตัวเลขจากกติกาสีกลาง (v-bad ฯลฯ) · ไม่ส่ง = สีปกติ (ตัวเลขที่ไม่ได้ตัดสินอะไร)
+ * valCls = สีตัวเลขจากกติกาสีกลาง (v-bad ฯลฯ) ใส่ที่ span ครอบตัวเลข (พื้นจางๆ ต้องหดเท่าตัวเลข) · ไม่ส่ง = สีปกติ (ตัวเลขที่ไม่ได้ตัดสินอะไร)
  */
 function boxHtml_(si: StatKey, label: string, valueHtml: string, tip?: TipSpec, subHtml?: string, valCls?: string): string {
   return '<div class="stat-box dense"' + tipAttrs(tip) + '>' +
     '<div class="sb-label">' + statIcon(si) + '<span>' + label + '</span></div>' +
-    '<div class="sb-value' + (valCls ? ' ' + valCls : '') + '">' + valueHtml + '</div>' +
+    '<div class="sb-value">' + (valCls ? '<span class="' + valCls + '">' + valueHtml + '</span>' : valueHtml) + '</div>' +
     (subHtml ? '<div class="sb-sub">' + subHtml + '</div>' : '') +
   '</div>';
 }
@@ -644,7 +644,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         '<span class="badge live-now">LIVE วันนี้</span>' +
       '</div>' +
       '<div class="card-sub">ตัวเลขจริงของ<b>วันนี้</b>แบบเรียลไทม์ — <b>ไม่ขึ้นกับตัวกรองวันที่ด้านบน</b></div>' +
-      '<div class="sr-live-big sr-green">' + THB(today.revenue || 0) + '</div>' +
+      '<div class="sr-live-big"><span class="sr-green">' + THB(today.revenue || 0) + '</span></div>' +
       '<div class="sr-live-sub">' + fmtNum(today.orders || 0) + ' ออเดอร์วันนี้</div>' +
       miniBars(todayHourly) +
       '<div class="sr-today-row"><span>' + chLabelHtml_('facebook') + '</span><b>' + THB(today.fb || 0) + '</b></div>' +
@@ -873,17 +873,17 @@ function unitTableHtml_(units: any[], showAttain: boolean): string {
       '<td class="num" data-sort="' + sv_(u.revenue) + '">' + THB(u.revenue) + '</td>' +
       '<td class="num" data-sort="' + sv_(u.share) + '">' + (u.share === null || u.share === undefined ? dash() : pct1(u.share)) + '</td>' +
       '<td class="num" data-sort="' + (u.spend ? sv_(u.spend) : '') + '">' + (u.spend ? THB(u.spend) : dash()) + '</td>' +
-      '<td class="num ' + roasCls_(u.roas) + '" data-sort="' + sv_(u.roas) + '">' + (u.roas === null || u.roas === undefined ? dash() : roasFmt(u.roas)) + '</td>' +
-      '<td class="num ' + kindClass(costPerChatKind(u.costPerMsg)) + '" data-sort="' + sv_(u.costPerMsg) + '" title="' + esc(costTip_(u)) + '">' +
-        (u.costPerMsg === null || u.costPerMsg === undefined ? dash() : thb2_(u.costPerMsg)) + '</td>' +
+      '<td class="num" data-sort="' + sv_(u.roas) + '">' + (u.roas === null || u.roas === undefined ? dash() : tintVal(roasFmt(u.roas), salesRoasKind(u.roas))) + '</td>' +
+      '<td class="num" data-sort="' + sv_(u.costPerMsg) + '" title="' + esc(costTip_(u)) + '">' +
+        (u.costPerMsg === null || u.costPerMsg === undefined ? dash() : tintVal(thb2_(u.costPerMsg), costPerChatKind(u.costPerMsg))) + '</td>' +
       // "คนทัก/ปิดได้" = ตัวหาร/ตัวตั้งของ %ปิด ในช่องเดียว (ทีมขายขอ 29 ก.ย. 69) — เรียงตามคนทักเหมือนเดิม
       '<td class="num" data-sort="' + sv_(u.closeBase) + '" title="' + esc(baseTip_(u)) + '">' +
         (u.closeBase === null || u.closeBase === undefined ? dash()
           : fmtNum(u.closeBase) + '<span class="sr-closed">/' + fmtNum(u.closeOrders || 0) + '</span>') + '</td>' +
-      '<td class="num ' + kindClass(closeK) + '" data-sort="' + sv_(u.closeRate) + '" title="' + esc(closeTip_(u)) + '">' +
-        (u.closeRate === null || u.closeRate === undefined ? dash() : pct2(u.closeRate)) + '</td>' +
-      '<td class="num ' + kindClass(pbK) + '" data-sort="' + sv_(pb) + '" title="' + esc(perBillTip_(u)) + '">' +
-        (pb === null ? dash() : THB(pb)) + '</td>' +
+      '<td class="num" data-sort="' + sv_(u.closeRate) + '" title="' + esc(closeTip_(u)) + '">' +
+        (u.closeRate === null || u.closeRate === undefined ? dash() : tintVal(pct2(u.closeRate), closeK)) + '</td>' +
+      '<td class="num" data-sort="' + sv_(pb) + '" title="' + esc(perBillTip_(u)) + '">' +
+        (pb === null ? dash() : tintVal(THB(pb), pbK)) + '</td>' +
       '<td class="num" data-sort="' + sv_(u.target) + '" title="' + esc(targetTip_(u)) + '">' + (u.target ? THB(u.target) : dash()) + '</td>' +
       '<td class="num" data-sort="' + sv_(u.attain) + '" title="' + esc(targetTip_(u)) + '">' + attainBarHtml_(u) + '</td>' +
       '</tr>';
@@ -913,8 +913,8 @@ function unitTableHtml_(units: any[], showAttain: boolean): string {
     '<td></td>' +
     // ค่าแอดรวมจากค่าไม่ปัด แล้วปัดครั้งเดียว — รวมค่าที่ปัดรายยูนิตแล้วคลาดจากกล่อง "ค่าแอด" ด้านบนหลักบาท
     '<td class="num">' + (totSpendExact ? THB(totSpendExact) : dash()) + '</td>' +
-    '<td class="num ' + roasCls_(totRoas) + '" title="' + esc(roasTotTip) + '">' +
-      (totRoas === null ? dash() : roasFmt(totRoas)) + '</td>' +
+    '<td class="num" title="' + esc(roasTotTip) + '">' +
+      (totRoas === null ? dash() : tintVal(roasFmt(totRoas), salesRoasKind(totRoas))) + '</td>' +
     '<td></td><td></td><td></td><td></td>' +
     '<td class="num">' + (showAttain && totTarget > 0 ? THB(totTarget) : '') + '</td>' +
     '<td class="num" title="%บรรลุรวม = ยอดขายรวม (เฉพาะวันที่มีเป้า) ÷ เป้ารวม">' +
@@ -1676,7 +1676,7 @@ function lossAlertHtml_(a: any): string {
       '<div>' +
         'วันนี้ยังไม่นับเพราะค่าแอดยังเดินอยู่ • ' +
         '<b>กำไรสุทธิ = ตัวเลขแถว "รวม" คอลัมน์กำไรสุทธิ แท็บสรุปยอดขาย ชีท สร. ของเดือนนี้</b> ' +
-        '(<b class="v-good">เขียว = กำไร</b> <b class="v-bad">แดง = ขาดทุน</b> — เปิดชีทเทียบได้เลขเดียวกัน) • ' +
+        '(<b class="v-good">เขียว = กำไร</b> • <b class="v-bad">แดง = ขาดทุน</b> — เปิดชีทเทียบได้เลขเดียวกัน) • ' +
         '"ขาดทุนติดกัน" = จำนวนวันขาดทุนติดต่อกันล่าสุด (ป้ายแดง = 2 วันขึ้นไป แก้ด่วน, ป้ายส้ม = 1 วัน เฝ้าระวัง) • ' +
         'ยูนิตที่ไม่มีในชีทใช้ ROAS &lt; จุดคุ้มทุนแทนโดยประมาณ' +
       '</div>' +
@@ -1751,7 +1751,8 @@ function attainBarHtml_(u: any): string {
     ' aria-valuenow="' + Math.round(w) + '" aria-valuetext="' + esc(pct1(u.attain)) + '" aria-label="ถึงเป้า">' +
     // ความกว้างแถบเป็นค่าจากข้อมูล (ไม่ใช่การจัดหน้า) จึงยังต้องอยู่ใน style=""
     '<span class="sr-prog-track"><i style="width:' + w + '%"></i></span>' +
-    '<b>' + pct1(u.attain) + '</b></div>';
+    // พื้นจางของตัวเลขสีอยู่ที่ span — <b> กว้างขั้นต่ำ 3.6em ให้แถบทุกแถวยาวเท่ากัน ถ้าทาที่ <b> พื้นจะกว้างเกินตัวเลข
+    '<b><span>' + pct1(u.attain) + '</span></b></div>';
 }
 
 /**

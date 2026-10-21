@@ -148,6 +148,15 @@ export function colorVal(valueHtml: string, kind: ColorKind): string {
 }
 
 /**
+ * แบบ colorVal แต่ kind 'none' คืนค่าเดิมไม่ครอบ (ไม่หนา) — ใช้แทนการใส่คลาสสีที่ td/div
+ * เพราะพื้นจางๆ ใต้ตัวเลขสี (globals.css) ทาเฉพาะ span/b ถ้าคลาสอยู่ที่ td/div พื้นจะเต็มช่อง
+ */
+export function tintVal(valueHtml: string, kind: ColorKind): string {
+  const c = kindClass(kind);
+  return c ? '<span class="' + c + '">' + valueHtml + '</span>' : valueHtml;
+}
+
+/**
  * ระดับสีพื้นจางๆ ของช่องตาราง (heat map — ตรวจ UI ข้อ G2 ตารางกำไรยูนิต × เดือน)
  * scale = ค่าสัมบูรณ์ที่ใหญ่สุดของตาราง (หรือค่าอ้างอิงที่เลือกเอง) แบ่ง 3 ขั้นเท่าๆ กัน
  * บวก → heat-p1..p3 · ลบ → heat-n1..n3 · ศูนย์/ไม่มีข้อมูล → '' (ช่องว่างต้องไม่ถูกระบายเหมือนขาดทุน)

@@ -12,7 +12,7 @@ import {
   toast, infoTip, stateHtml, downloadMenuHtml, bindDownloadMenu,
 } from '@/lib/ui/helpers';
 import { icon, statusPill, rankBadge, ICON_FOR } from '@/lib/ui/icons';
-import { kindClass, legendHtml, type ColorKind } from '@/lib/ui/color-rules';
+import { kindClass, tintVal, legendHtml, type ColorKind } from '@/lib/ui/color-rules';
 import { makeSortable, sortTh } from '@/lib/ui/table-sort';
 import { svgScoreLine, bindChartTips } from '@/lib/ui/charts';
 import { kpiSkel } from '@/lib/ui/skeletons';
@@ -133,8 +133,8 @@ function trendHtml(cur: number | null | undefined, prev: number | null | undefin
   const d = Math.round((c - p) * 10) / 10;
   // ขึ้น = ดี (เขียว) · ลง = แดง — ตัวเลขแนวโน้มไม่หนา (ไม่แย่งสายตาจากคะแนน)
   // nowrap: ลูกศรกับตัวเลขต้องอยู่บรรทัดเดียวกัน (ตารางสายบังคับบัญชาเคยแยก "▼" / "16.4")
-  if (d > 0) return '<span class="tx-good nowrap">▲ +' + d.toFixed(1) + '</span>';
-  if (d < 0) return '<span class="tx-bad nowrap">▼ ' + Math.abs(d).toFixed(1) + '</span>'; // ลูกศรบอกทิศแล้ว ไม่ต้องติดลบซ้ำ
+  if (d > 0) return '<span class="kpi-trend tx-good nowrap">▲ +' + d.toFixed(1) + '</span>';
+  if (d < 0) return '<span class="kpi-trend tx-bad nowrap">▼ ' + Math.abs(d).toFixed(1) + '</span>'; // ลูกศรบอกทิศแล้ว ไม่ต้องติดลบซ้ำ
   return '<span class="tx-muted nowrap">• 0</span>';
 }
 
@@ -219,7 +219,7 @@ function summaryCards_(d: KpiData): string {
       '<div class="kpi-big">' + fmtNum(d.persons.length) + '</div>' +
       '<div class="card-sub">แอดมิน (มีคะแนนเดือนนี้)</div></div></div>' +
     '<div class="card kpi-card"><div class="kpi-ico">' + icon(ICON_FOR.ok, { size: 22 }) + '</div><div>' +
-      '<div class="kpi-big ' + kindClass(passKind) + '">' + passPct + '%</div>' +
+      '<div class="kpi-big">' + tintVal(passPct + '%', passKind) + '</div>' +
       '<div class="card-sub">ผ่าน KPI ' + fmtNum(passN) + '/' + fmtNum(d.persons.length) + ' คน <span class="nowrap">(เกรด B ขึ้นไป)</span></div></div></div>' +
   '</div>';
 }

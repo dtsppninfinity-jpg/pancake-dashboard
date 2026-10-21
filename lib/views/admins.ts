@@ -1293,7 +1293,8 @@ function sumBox(label: string, valHtml: string, ic: string, opts?: { cls?: strin
   const o = opts || {};
   return '<div class="stat-box">' +
     '<div class="sb-label">' + ic + '<span>' + esc(label) + '</span>' + (o.tip ? infoTip(o.tip, label) : '') + '</div>' +
-    '<div class="sb-value ' + (o.cls || 'v-plain') + '">' + valHtml + '</div>' +
+    // สีอยู่ที่ span ครอบตัวเลข — พื้นจางๆ ของตัวเลขสีต้องหดเท่าตัวเลข ไม่ใช่เต็มกล่อง
+    '<div class="sb-value v-plain">' + (o.cls && o.cls !== 'v-plain' ? '<span class="' + o.cls + '">' + valHtml + '</span>' : valHtml) + '</div>' +
     (o.sub ? '<div class="sb-sub">' + o.sub + '</div>' : '') +
   '</div>';
 }

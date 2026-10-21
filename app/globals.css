@@ -341,7 +341,7 @@ html.modal-locked body { overflow: hidden; }
 /* มี badge เมื่อไหร่ เว้นที่ขวาให้ชื่อแท็บไม่วิ่งไปใต้เลข */
 .nav-item.has-badge { padding-right: var(--sp-7); }
 /* ป้ายหมายเหตุยูนิต (เช่น "รอรีแบรนด์") — โทนเหลืองอำพันให้ต่างจาก chip รหัสยูนิต */
-.chip.chip-note { background: var(--amber-soft); color: var(--amber); font-weight: 700; }
+.chip.chip-note { background: var(--amber-soft); color: var(--amber-ink); font-weight: 700; }
 
 /* ---------- หน้า KPI ทีมขาย (รื้อ UI 2026-08-01 — เลย์เอาต์แบบเว็บตัวอย่างของทีม) ---------- */
 .kpi-cards { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--sp-3); margin-top: var(--sp-3); }
@@ -601,9 +601,9 @@ h4 { font-size: var(--fs-body); font-weight: 700; line-height: 1.4; }
   display: inline-block; padding: var(--sp-1) var(--sp-3); border-radius: 99px;
   font-size: var(--fs-2); font-weight: 700; white-space: nowrap;
 }
-.badge.ai { background: var(--green-soft); color: var(--green); }
-.badge.admin { background: var(--amber-soft); color: var(--amber); }
-.badge.urgent { background: var(--red-soft); color: var(--red); }
+.badge.ai { background: var(--green-soft); color: var(--green-ink); }
+.badge.admin { background: var(--amber-soft); color: var(--amber-ink); }
+.badge.urgent { background: var(--red-soft); color: var(--red-ink); }
 .badge.info { background: var(--blue-soft); color: var(--blue); }
 .badge.neutral { background: var(--track); color: var(--text-2); }
 .badge.brand { background: var(--primary-soft); color: var(--primary-ink); }
@@ -975,9 +975,9 @@ tr.up-detail td { background: var(--surface-2); }
   font-size: var(--fs-2); font-weight: 600; background: var(--surface); color: var(--text-2);
 }
 .up-sig::before { content: ''; width: 6px; height: 6px; flex: none; border-radius: 50%; background: currentColor; }
-.up-sig.urgent { background: var(--red-soft); color: var(--red); }
-.up-sig.watch { background: var(--amber-soft); color: var(--amber); }
-.up-sig.ok { background: var(--green-soft); color: var(--green); }
+.up-sig.urgent { background: var(--red-soft); color: var(--red-ink); }
+.up-sig.watch { background: var(--amber-soft); color: var(--amber-ink); }
+.up-sig.ok { background: var(--green-soft); color: var(--green-ink); }
 .up-facts { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-5); margin-top: var(--sp-3); font-size: var(--fs-2); color: var(--text-3); }
 .up-facts b { color: var(--text); font-variant-numeric: tabular-nums; }
 .up-daily {
@@ -1088,7 +1088,7 @@ table.tbl.ds-tbl tbody tr:hover td {
 @keyframes live-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.72); } }
 @media (prefers-reduced-motion: reduce) { .badge.live-now::before { animation: none; } }
 .sr-trend { display: inline-block; padding: var(--sp-1) var(--sp-2); border-radius: 99px; font-size: var(--fs-1); font-weight: 700; margin-left: var(--sp-2); }
-.sr-trend.up { background: var(--green-soft); color: var(--green); }
+.sr-trend.up { background: var(--green-soft); color: var(--green-ink); }
 .sr-trend.down { background: var(--red-soft); color: var(--red-ink); }
 .sr-trend.flat { background: var(--track); color: var(--text-2); }   /* --text-3 บนราง = 4.03:1 */
 .sr-chan-banner {
@@ -1489,9 +1489,9 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
   display: inline-block; padding: var(--sp-1) var(--sp-2); border-radius: 99px;
   font-size: var(--fs-2); font-weight: 700; white-space: nowrap;
 }
-.score-badge.good { background: var(--green-soft); color: var(--green); }
-.score-badge.mid  { background: var(--amber-soft); color: var(--amber); }
-.score-badge.low  { background: var(--red-soft); color: var(--red); }
+.score-badge.good { background: var(--green-soft); color: var(--green-ink); }
+.score-badge.mid  { background: var(--amber-soft); color: var(--amber-ink); }
+.score-badge.low  { background: var(--red-soft); color: var(--red-ink); }
 .score-badge.na   { background: var(--track); color: var(--text-3); }
 .top3-card .score-badge { margin: var(--sp-1) 0 var(--sp-1); }
 
@@ -1544,9 +1544,9 @@ table.tbl th.num, table.tbl td.num { text-align: right; font-variant-numeric: ta
   font-size: var(--fs-1); padding: 1px var(--sp-2); border-radius: 99px;
   background: var(--track); color: var(--text-3); white-space: nowrap;
 }
-.kpi-chip.good { background: var(--green-soft); color: var(--green); }
-.kpi-chip.mid { background: var(--amber-soft); color: var(--amber); }
-.kpi-chip.low { background: var(--red-soft); color: var(--red); }
+.kpi-chip.good { background: var(--green-soft); color: var(--green-ink); }
+.kpi-chip.mid { background: var(--amber-soft); color: var(--amber-ink); }
+.kpi-chip.low { background: var(--red-soft); color: var(--red-ink); }
 
 /* ---------- ไฟบอกสถานะอัปเดตอัตโนมัติ ---------- */
 .live-chip { display: inline-flex; align-items: center; gap: var(--sp-2); }
@@ -1816,8 +1816,8 @@ a.btn-mini { text-decoration: none; display: inline-block; }
   font-size: var(--fs-1); font-weight: 700; line-height: 1; white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.chart-tip .ct-pill.up   { background: var(--green-soft); color: var(--green); }
-.chart-tip .ct-pill.down { background: var(--red-soft);   color: var(--red);   }
+.chart-tip .ct-pill.up   { background: var(--green-soft); color: var(--green-ink); }
+.chart-tip .ct-pill.down { background: var(--red-soft);   color: var(--red-ink);   }
 .chart-tip .ct-pill.flat { background: var(--track);      color: var(--text-3);}
 .chart-tip .ct-cmp {
   min-width: 0; font-size: var(--fs-1); color: var(--text-3); line-height: 1.3;
@@ -2860,6 +2860,37 @@ table.tbl tbody tr:hover td:is(.heat-p1, .heat-p2, .heat-p3, .heat-n1, .heat-n2,
 .v-warn { color: var(--amber); }
 .v-bad { color: var(--red); }
 .v-plain { color: var(--text); }
+/* ตัวเลขสีมีพื้นจางๆ (พีขอ 21 ต.ค. 69 — โหมดสว่างตัวเลขสีอ่านยาก) · ตัวเลขสีปกติไม่มีพื้น · ชื่อคน/ข้อความสีไม่มีพื้น
+   - inline-block สูงเท่าบรรทัด: พื้นของ inline ธรรมดาสูงตามกล่องฟอนต์ไทย (~1.5 เท่าตัวอักษร)
+     ตัวเลขใหญ่ในกล่องสรุปพื้นเลยทับบรรทัดล่าง
+   - ในตาราง ขอบซ้ายขวาติดลบเท่า padding → คอลัมน์กว้างเท่าเดิม (ตารางยูนิตหน้ายอดขายพอดีจอ 1200 แบบเฉียดๆ)
+   - ทาเฉพาะ span/b: คลาสสีบน div/td จะทาพื้นเต็มกล่อง → ที่เดิมใส่คลาสสีที่ td/div ให้ครอบตัวเลขด้วย span (tintVal)
+   - ไม่ใส่ในตาราง heat map (รายวันหน้ายอดขาย .ds-v/.ds-d, กำไรรายเดือน .pf-drill): ช่องมีพื้นสีของตัวเองอยู่แล้ว
+   - ตัวอักษรใช้ --*-ink (เข้มกว่าเล็กน้อย วัดคอนทราสต์บนพื้น soft แล้ว) */
+:is(span, b).v-good, .sr-prog.good b > span, .kpi-bar.good .kpi-bar-txt b, .pgs-item.ok b, span.sr-green, .kpi-trend.tx-good {
+  color: var(--green-ink); background: var(--green-soft);
+}
+:is(span, b).v-warn, .sr-prog.mid b > span, .kpi-bar.mid .kpi-bar-txt b, .pgs-item.warn b, .page-stats .cell.warn b {
+  color: var(--amber-ink); background: var(--amber-soft);
+}
+:is(span, b).v-bad, .sr-prog.low b > span, .kpi-bar.low .kpi-bar-txt b, .pgs-item.bad b, .page-stats .cell.danger b,
+b.sr-red, .b5-val > span, .kpi-trend.tx-bad {
+  color: var(--red-ink); background: var(--red-soft);
+}
+:is(span, b):is(.v-good, .v-warn, .v-bad), .sr-prog:is(.good, .mid, .low) b > span, .kpi-bar:is(.good, .mid, .low) .kpi-bar-txt b,
+.pgs-item:is(.ok, .warn, .bad) b, .page-stats .cell:is(.warn, .danger) b, span.sr-green, b.sr-red, .b5-val > span,
+.kpi-trend:is(.tx-good, .tx-bad) {
+  display: inline-block; padding: 0 .3em; border-radius: .25em; white-space: nowrap;
+}
+/* เฉพาะชิปที่เป็น "ค่าของช่อง" — ชิปกลางประโยค (เช่น "ขาดทุนรวม ฿x" ในช่อง) ขอบติดลบจะกินช่องว่างจนชนคำข้างหน้า */
+td > :is(span, b):is(.v-good, .v-warn, .v-bad), td > .kpi-trend:is(.tx-good, .tx-bad), td .up-big > span,
+td .sr-prog:is(.good, .mid, .low) b > span, td .loss-v > :is(span, b):is(.v-good, .v-warn, .v-bad) {
+  margin-inline: -.3em;
+}
+.pgs-item:is(.ok, .warn, .bad) b { align-self: flex-start; }   /* ลูก flex คอลัมน์ยืดเต็มการ์ด → หดเท่าตัวเลข */
+.sr-today-row b.sr-red { align-self: flex-start; margin-right: -.3em; }  /* แถว flex ยืดลูกเต็มความสูงแถว · ขวาตรงกับเลขแถวอื่น */
+.page-stats .cell:is(.warn, .danger) b { display: block; width: fit-content; margin-inline: auto; }  /* ป้ายคำต้องอยู่บรรทัดล่างเหมือนช่องอื่น */
+.chip > .kpi-trend { background: none; padding: 0; }   /* แนวโน้มในชิปกรอบอยู่แล้ว ไม่ซ้อนพื้นอีกชั้น */
 /* บรรทัดอธิบายสีใต้หัวตาราง เช่น "เขียว = ถึงเป้า · ส้ม = 80-99% · แดง = ต่ำกว่า 80%" */
 .color-legend {
   display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-3);
@@ -3785,7 +3816,8 @@ table.tbl.ca-media-tbl.tbl-scroll-x tr:hover td:first-child {
 #view-admins .adm-n { white-space: nowrap; font-variant-numeric: tabular-nums; }
 #view-admins .adm-nums .adm-k { color: var(--text-3); font-weight: 500; margin-right: var(--sp-1); }
 #view-admins .adm-v { font-weight: 600; color: var(--text); }
-#view-admins .adm-v.v-warn { color: var(--amber); }
+#view-admins .adm-v.v-warn { color: var(--amber-ink); }
+@media (min-width: 900px) { #view-admins .adm-v.v-warn { margin-right: -.3em; } }   /* มุมมองแถว: ขวาตรงกับเลขไม่มีสี */
 /* ยอดขายวันนี้ มือถือ = ป้ายเล็กบน ตัวเลขล่าง ชิดขวา */
 #view-admins .adm-rev { grid-area: rev; display: flex; flex-direction: column; align-items: flex-end; align-self: start; }
 #view-admins .adm-rev .adm-k { font-size: var(--fs-1); color: var(--text-3); font-weight: 500; }
@@ -4326,12 +4358,12 @@ tr.kpi-child.is-collapsed { display: none; }
 
 /* ป้ายจำนวนเรื่องในตาราง + ป้ายสัญญาณในแถวที่กาง: พื้นเทา + จุดสีตามระดับ
    พื้นแดงอ่อนเฉพาะกลุ่มหนักสุด — เดิมทุกแถวเป็นป้ายแดง 20 แถว */
-#view-unitperf .up-sig.tier-top { background: var(--red-soft); color: var(--red); }
+#view-unitperf .up-sig.tier-top { background: var(--red-soft); color: var(--red-ink); }
 #view-unitperf .up-sig.tier-urgent,
 #view-unitperf .up-sig.tier-watch { background: var(--surface-2); color: var(--text-2); }
 #view-unitperf .up-sig.tier-urgent::before { background: var(--amber-bar); }
 #view-unitperf .up-sig.tier-watch::before { background: transparent; box-shadow: inset 0 0 0 2px var(--amber-bar); }
-#view-unitperf .up-sig.tier-ok { background: var(--green-soft); color: var(--green); }
+#view-unitperf .up-sig.tier-ok { background: var(--green-soft); color: var(--green-ink); }
 #view-unitperf .up-detail .up-sig.tier-urgent,
 #view-unitperf .up-detail .up-sig.tier-watch { background: var(--surface); }
 

@@ -13,7 +13,7 @@ import {
   serverCall, esc, fmtNum, THB, pct1, pct2, roasFmt, dash, showError, toast, stateHtml,
   rangeControlsHtml, bindRangeControls, type RangeState,
 } from '@/lib/ui/helpers';
-import { attainKind, kindClass, legendHtml, LEGEND } from '@/lib/ui/color-rules';
+import { attainKind, tintVal, legendHtml, LEGEND } from '@/lib/ui/color-rules';
 import { meSkel } from '@/lib/ui/skeletons';
 
 interface MeRow {
@@ -79,7 +79,7 @@ function progressRow(label: string, value: number, target: number, fmt: (n: numb
     '<div class="me-prog-head"><span>' + esc(label) + '</span>' +
       '<b>' + fmt(value) + ' <span class="me-prog-target">/ ' + fmt(target) + '</span></b></div>' +
     '<div class="me-bar"><i class="me-bar-fill ' + tone + '" style="width:' + Math.min(100, Math.max(0, pct)).toFixed(1) + '%"></i></div>' +
-    '<div class="me-prog-pct ' + kindClass(kind) + '">' + pct1(pct) + ' ของเป้า</div>' +
+    '<div class="me-prog-pct">' + tintVal(pct1(pct), kind) + ' ของเป้า</div>' +
     '</div>';
 }
 

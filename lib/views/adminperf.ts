@@ -700,7 +700,8 @@ function statBox(label: string, valHtml: string, ic: string, opts?: { cls?: stri
   return '<div class="stat-box">' +
     '<div class="sb-label">' + ic + '<span>' + esc(label).replace(/\(([^)]*)\)/g, '<span class="nowrap">($1)</span>') + '</span>' +
       (o.tip ? infoTip(o.tip, label) : '') + '</div>' +
-    '<div class="sb-value ' + (o.cls || 'v-plain') + '">' + valHtml + '</div>' +
+    // สีอยู่ที่ span ครอบตัวเลข — พื้นจางๆ ของตัวเลขสีต้องหดเท่าตัวเลข ไม่ใช่เต็มกล่อง
+    '<div class="sb-value v-plain">' + (o.cls && o.cls !== 'v-plain' ? '<span class="' + o.cls + '">' + valHtml + '</span>' : valHtml) + '</div>' +
     (o.sub ? '<div class="sb-sub">' + o.sub + '</div>' : '') +
   '</div>';
 }
@@ -754,7 +755,8 @@ function kpiStripHtml(data: PerfData | null): string {
           ' รายการ (แยกออกตามที่ทีมขอ)',
       }) +
       statBox('รอตอบมากสุดตอนนี้', bN > 0 ? esc(nickOf(b as PerfRow).slice(0, 10)) : dash(), ic('inbox', 'chat'), {
-        cls: bN > 0 ? 'v-warn' : 'v-plain',
+        // ชื่อคน ไม่ใช่ตัวเลข → สีตัวอักษรอย่างเดียว (พื้นจางๆ ใช้กับตัวเลขสีเท่านั้น)
+        cls: bN > 0 ? 'tx-warn' : 'v-plain',
         sub: bN > 0 ? esc(fmtNum(bN) + ' แชท') : '',
       }) +
       // overSlaTotal เป็นยอดรวมทั้งทีม (ตาม filter ช่องทาง) — ไม่ตามตัวกรองกลุ่มสินค้า จึงติดป้ายให้ชัด
@@ -771,9 +773,9 @@ function kpiStripHtml(data: PerfData | null): string {
     statBox('ตอบเฉลี่ย', avgResp === null ? dash() : esc(avgResp + ' น.'), ic('clock', 'chat'), {
       tip: 'ค่าเฉลี่ยของเวลาตอบเฉลี่ยรายคน (นาที) เฉพาะคนที่มีข้อมูลในช่วงนี้',
     }) +
-    // ชื่อคนตอบเร็วสุด = ผลงานดี → เขียว (สีเขียวใช้กับ "ดี" เท่านั้น)
+    // ชื่อคนตอบเร็วสุด = ผลงานดี → เขียว (สีเขียวใช้กับ "ดี" เท่านั้น) · ชื่อคนไม่ใช่ตัวเลข จึงไม่มีพื้นจาง (tx-good)
     statBox('ตอบเร็วสุด', f ? esc(nickOf(f).slice(0, 10)) : dash(), ic('zap', 'chat'), {
-      cls: f ? 'v-good' : 'v-plain',
+      cls: f ? 'tx-good' : 'v-plain',
       sub: f ? esc(respLong(f)) : '',
       tip: 'นับเฉพาะคนที่ตอบอย่างน้อย 20 ข้อความในช่วงนี้ (กันคนตอบ 2 ข้อความแล้วชนะ)',
     }) +
@@ -1201,7 +1203,7 @@ function b5CardHtml(r: PerfRow, lowNo: number, pos: number, total: number): stri
       '<div class="b5-units">' + unitChipsHtml(r) + '</div>' +
       '<div class="b5-stats">' + stats + '</div>' +
     '</div>' +
-    '<div class="b5-val">' + esc(modeValue(r)) + '</div>' +
+    '<div class="b5-val"><span>' + esc(modeValue(r)) + '</span></div>' +
     '</div>';
 }
 
