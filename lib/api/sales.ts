@@ -1255,6 +1255,8 @@ export async function apiSales(params: any) {
   const unitCostRawP = loadUnitCostRaw_(r, adDailyCurP, cancel);
   const lossAlertRowP = db.from('sync_state').select('value').eq('key', 'unit_loss_alerts').maybeSingle()
     .then((x) => x, () => null);
+  const metaLagRowP = db.from('sync_state').select('value').eq('key', 'meta_spend_lag').maybeSingle()
+    .then((x) => x, () => null);
   // แชทค้างรอตอบ (24 ชม.) — cutoff คิดตอนนี้แทนท้ายฟังก์ชัน (ต่างกันไม่กี่วินาที)
   const alertCutoff = convCutoff_();
   const waitingRowsP = fetchAll<Row>(() =>
@@ -1777,6 +1779,34 @@ export async function apiSales(params: any) {
     } catch { return null; }
   })();
 
+  /* ---- ป้ายเตือน "Meta ส่งค่าแอดวันนี้ช้า" (พีขอ 22 ต.ค. 69 คู่กับตัวกันอัตโนมัติ) ----
+   * งาน meta-ads-recent เขียนสถานะทุกรอบ (scripts/sync/jobs.ts keepLaggedSpend_) — ป้ายจึงหายเองเมื่อ Meta ส่งครบ
+   * ขึ้นเฉพาะเมื่อ: วันที่ตัวกันทำงานอยู่ในช่วงที่เลือก · สถานะไม่เก่ากว่า 45 นาที (งานหยุดเดิน = ไม่รู้ ห้ามเตือนค้าง)
+   * · เติมจาก Pancake รวมตั้งแต่ ฿1,000 (ต่ำกว่านั้นคือ Meta กับ Pancake ตัดยอดคนละจังหวะตามปกติ)
+   */
+  const metaLag = await (async () => {
+    try {
+      const from = fmtDateBkk(r.start), to = fmtDateBkk(r.end);
+      const row = await metaLagRowP;
+      const v = row && row.data && row.data.value;
+      if (!v) return null;
+      const j = JSON.parse(String(v));
+      const age = Date.now() - new Date(j.ts).getTime();
+      if (!(age >= 0 && age < 45 * 60000)) return null;
+      // วันที่ตัวกันทำงาน (วันนี้ / เมื่อวานช่วงตี 0-6) ที่อยู่ในช่วงที่เลือก
+      const dates = Object.keys(j.days || {}).filter((d) => d >= from && d <= to && Number(j.days[d].amount) > 0).sort();
+      const amount = dates.reduce((t, d) => t + (Number(j.days[d].amount) || 0), 0);
+      if (amount < 1000) return null;
+      const acc = new Set<string>(), byName: Record<string, number> = {};
+      dates.forEach((d) => {
+        (j.days[d].accIds || []).forEach((id: unknown) => acc.add(String(id)));
+        (j.days[d].top || []).forEach((x: any) => { const k = String(x.name || x.id || ''); byName[k] = (byName[k] || 0) + (Number(x.amount) || 0); });
+      });
+      const top = Object.entries(byName).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([name, amt]) => ({ name, amount: amt }));
+      return { amount, accounts: acc.size, dates, today: todayStr, ts: String(j.ts), top };
+    } catch { return null; }
+  })();
+
   // ---- ลูกค้าเก่า (เคยซื้อภายใน 95 วันก่อนช่วงที่เลือก) — นับฝั่ง Postgres ผ่าน RPC ----
   // RPC ยังไม่ถูกสร้าง (migration ไม่ได้รัน) → คืน null ให้หน้าเว็บแสดง "—" ไม่ใช่เลขปลอม
   let returning: { total: number; returning: number; pct: number | null } | null = null;
@@ -2023,5 +2053,6 @@ export async function apiSales(params: any) {
       .sort((a, b) => b.count - a.count),
     alerts: alerts.slice(0, 3),
     noUnitAds,
+    metaLag,
   };
 }

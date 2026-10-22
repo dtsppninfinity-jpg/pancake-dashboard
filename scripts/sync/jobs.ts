@@ -1055,6 +1055,69 @@ export const syncAdStatsYesterday = () => syncAdStatsForDate(fmtDateBkk(daysAgo(
 /** ยิงกี่บัญชีพร้อมกัน — 125 บัญชีแบบทีละตัวใช้ ~3.5 นาที ซึ่งดันรอบ fast (15 นาที) จนเกือบชน */
 const META_POOL = 4;
 
+/** ส่วนต่างที่ "คงค่าเดิม" ไว้ตั้งแต่เท่านี้ขึ้นไปถึงจะเขียนลงข้อความงาน — ต่ำกว่านี้คือ Meta กับ Pancake
+ *  ตัดยอดคนละจังหวะตามปกติ (หลักสิบบาท) ไม่ใช่ Meta ส่งช้า เขียนทุกรอบจะกลบสัญญาณจริง */
+const SPEND_GUARD_NOTE_MIN = 1000;
+
+/**
+ * กันค่าแอดของวันหนึ่ง (วันนี้ / เมื่อวานช่วงตี 0-6) ไม่ให้ลดลงเพราะ Meta รายงานช้า (พีเลือก 22 ต.ค. 69)
+ *
+ * เกิดจริงคืน 21 ต.ค.: Meta ส่งค่าแอดของวันนั้นมาแค่ ~59% จนถึง 23:37 (คืนปกติ ~93% ตอนสี่ทุ่ม)
+ * ROAS ทั้งเว็บพองเกินจริง (UN7 15.97x — บัญชีหลักใช้จริงไปแล้ว ฿15k แต่ Meta ยังไม่ส่ง)
+ * ทั้งที่ค่าที่ Pancake เขียนไว้รอบชั่วโมงเห็นครบกว่ามาก (฿307k vs ฿219k)
+ *
+ * วิธี: บัญชีที่ "Meta ส่งมาต่ำกว่าค่าในตารางชัดเจน" (ยอดทั้งบัญชีของวันนั้นต่ำกว่าเกิน 3% และเกิน ฿500
+ * = หน้าตาของ Meta ส่งช้า) แถวของวันนั้นในบัญชีนั้นใช้ค่าที่สูงกว่าระหว่าง Meta รอบนี้ กับค่าที่อยู่ในตารางแล้ว
+ * (Pancake รอบชั่วโมง / Meta รอบก่อน) — บัญชีที่ไม่ได้ช้า Meta ทับตรงๆ เหมือนเดิม
+ * เกณฑ์รายบัญชีกันค่าสูงผิดของแอดเดียว (เช่น Pancake เขียนพลาดแล้วเพจนั้นดึงไม่สำเร็จทั้งวัน) ค้างทั้งวัน
+ * ปลอดภัยเพราะค่าแอดในวันสะสมขึ้นอย่างเดียว และ Pancake ไม่เคยสูงกว่ายอดสุดท้ายของ Meta
+ * (วัด 20-21 ต.ค.: 2,746 แอด สูงกว่าแค่ 1 แอด ฿3) · พอ Meta ส่งครบ ยอด Meta ไม่ต่ำกว่าแล้วจึงกลับมาใช้ของ Meta
+ * วันที่กันเลือกที่ syncMetaAdsRange — นอกนั้น Meta ทับตรงๆ เพื่อรับยอดปรับย้อนหลัง (ยอดสุดท้ายต้องเป็นของ Meta)
+ * แก้ rows ในที่ · คืนจำนวนแอด/บัญชี/บาทที่คงค่าเดิมไว้ + ยอดรายบัญชี (ให้ป้ายเตือนหน้ายอดขายบอกได้ว่าบัญชีไหน)
+ */
+const SPEND_LAG_RATIO = 0.97;
+const SPEND_LAG_MIN = 500;
+export function keepLaggedSpend_(
+  rows: Array<{ date: string; ad_id: string; account_id: string; spend: number }>,
+  stored: Record<string, number>, date: string,
+): { ads: number; accounts: number; amount: number; byAccount: Record<string, number> } {
+  const metaSum: Record<string, number> = {}, storedSum: Record<string, number> = {};
+  for (const r of rows) {
+    if (r.date !== date) continue;
+    metaSum[r.account_id] = (metaSum[r.account_id] || 0) + (Number(r.spend) || 0);
+    storedSum[r.account_id] = (storedSum[r.account_id] || 0) + (stored[String(r.ad_id)] || 0);
+  }
+  const lagging = new Set(Object.keys(metaSum).filter((a) =>
+    metaSum[a] < storedSum[a] * SPEND_LAG_RATIO && storedSum[a] - metaSum[a] > SPEND_LAG_MIN));
+  let ads = 0, amount = 0;
+  const byAccount: Record<string, number> = {};
+  for (const r of rows) {
+    if (r.date !== date || !lagging.has(r.account_id)) continue;
+    const s = stored[String(r.ad_id)] || 0;
+    if (s > r.spend) {
+      amount += s - r.spend; ads++;
+      byAccount[r.account_id] = (byAccount[r.account_id] || 0) + s - r.spend;
+      r.spend = s;
+    }
+  }
+  return { ads, accounts: Object.keys(byAccount).length, amount, byAccount };
+}
+
+/** ค่าแอดที่มีอยู่แล้วของวันหนึ่ง (เฉพาะแถวที่ > 0) — keyset ตาม ad_id ไม่ใช้ OFFSET ลึก */
+async function storedSpendOf_(date: string): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  let after = '';
+  for (;;) {
+    const { data, error } = await supabase.from('ad_daily').select('ad_id,spend')
+      .eq('date', date).gt('spend', 0).gt('ad_id', after).order('ad_id').limit(1000);
+    if (error) throw new Error(error.message);
+    (data || []).forEach((r: any) => { out[String(r.ad_id)] = Number(r.spend) || 0; });
+    if (!data || data.length < 1000) break;
+    after = String(data[data.length - 1].ad_id);
+  }
+  return out;
+}
+
 /**
  * ดึง spend/impressions/clicks/purchases/value ระดับแอด จาก Meta ของ "ทุกบัญชีที่ยิงจริง"
  * แล้วทับลง ad_daily (merge — คงค่า page_id/name ที่ Pancake ใส่) → ค่าแอดตรงจอ Meta เป๊ะ
@@ -1123,6 +1186,37 @@ export async function syncMetaAdsRange(since: string, until: string): Promise<Jo
     } catch (e: any) { errors.push(`${acc.account_id}: ${e.message}`); }
     await sleep(120);
   });
+  // กันค่าแอดลดเพราะ Meta ส่งช้า (ดู keepLaggedSpend_) — วันนี้เสมอ + "เมื่อวาน" ช่วงเที่ยงคืนถึงตี 6
+  // คืนที่ Meta ช้าข้ามเที่ยงคืน (21 ต.ค. กลับมาครบ 23:37 เฉียดมาก) รอบแรกของวันใหม่จะทับค่าเมื่อวานด้วยตัวเลขที่ยังขาด
+  // หลังตี 6 ปล่อย Meta ทับเมื่อวานตรงๆ เพื่อรับยอดปรับย้อนหลัง · อ่านค่าเดิมไม่ได้ก็แค่ข้ามตัวกัน ไม่ทำงานล้ม
+  const today = fmtDateBkk(new Date());
+  const bkkHour = new Date(Date.now() + 7 * 3600000).getUTCHours();
+  const guardDates = [today].concat(bkkHour < 6 ? [fmtDateBkk(daysAgo(1))] : [])
+    .filter((d) => rows.some((r) => r.date === d));
+  let guardNote = '';
+  if (guardDates.length) {
+    const nameOf: Record<string, string> = {};
+    active.forEach((a) => { nameOf[String(a.account_id)] = String(a.name || ''); });
+    try {
+      const days: Record<string, unknown> = {};
+      for (const d of guardDates) {
+        const g = keepLaggedSpend_(rows, await storedSpendOf_(d), d);
+        if (g.amount >= SPEND_GUARD_NOTE_MIN) {
+          guardNote += ` | ⚠️ Meta ส่งค่าแอด ${d} ช้า ${g.accounts} บัญชี — คงค่าเดิม ${g.ads} แอด +฿${g.amount.toFixed(0)}`;
+        }
+        const ranked = Object.entries(g.byAccount).sort((a, b) => b[1] - a[1]);
+        days[d] = {
+          amount: Math.round(g.amount), ads: g.ads, accIds: ranked.map(([id]) => id),
+          top: ranked.slice(0, 5).map(([id, amt]) => ({ id, name: nameOf[id] || '', amount: Math.round(amt) })),
+        };
+      }
+      // สถานะให้หน้ายอดขายขึ้นป้ายเตือน (lib/api/sales.ts อ่าน 'meta_spend_lag') — เขียนทุกรอบ ป้ายจึงหายเองเมื่อ Meta ส่งครบ
+      await setState('meta_spend_lag', JSON.stringify({ ts: now, days })).catch(() => { /* ป้ายเตือนไม่ควรทำให้รอบ sync ล้ม */ });
+    } catch (e: any) {
+      // ไม่เขียนสถานะทับ: ป้ายเดิม (ถ้ามี) ค้างจนอายุเกิน 45 นาทีแล้วหายเอง — รอบที่ตัวกันไม่ได้ทำงานห้ามลบป้ายทิ้ง
+      guardNote = ` | ข้ามตัวกันค่าแอดลด (อ่านค่าเดิมไม่ได้: ${String((e && e.message) || e).slice(0, 120)})`;
+    }
+  }
   // ยังไม่ได้รัน migration 2026-09-18-ad-daily-meta-actions.sql → ยังไม่มีคอลัมน์ meta_first_replies/
   // meta_comments ห้ามให้ค่าแอดทั้งงานล้มเพราะเรื่องนี้ — ตัด 2 คอลัมน์ออก ลองใหม่ แล้วบอกไว้ในข้อความงาน
   let needMigration = false;
@@ -1144,9 +1238,11 @@ export async function syncMetaAdsRange(since: string, until: string): Promise<Jo
   // (ช่วงวันเดียว since===until ค่าทุกตัวเท่าของเดิมเป๊ะ = ไม่รีเซ็ต baseline)
   const perDate: Record<string, number> = {};
   rows.forEach((r) => { perDate[r.date] = (perDate[r.date] || 0) + 1; });
+  // spend ในข้อความ = ยอดดิบที่ Meta ส่งมา (ก่อนตัวกัน) — ใช้ดูย้อนหลังว่า Meta ช้าแค่ไหน
   let msg = `meta ads ${range}: ${rows.length} แถว จาก ${active.length}/${accounts.length} บัญชี | spend ฿${spend.toFixed(2)}` + cacheNote +
     (needMigration ? ' | ⚠️ ยังไม่ได้รัน migration 2026-09-18-ad-daily-meta-actions.sql — ยังไม่ได้เก็บ ทัก/คอมเมนต์ ของ Meta' : '');
   if (errors.length) msg += ` | ผิดพลาด ${errors.length} บัญชี: ${errors.slice(0, 2).join('; ')}`;
+  msg += guardNote;   // ท้ายสุด: job stat ตัดข้อความที่ 300 ตัวอักษร ส่วน "ผิดพลาด N บัญชี" สำคัญกว่าต้องไม่โดนตัด
   return jobResult(msg, {
     subject: 'บัญชี', unitsTotal: active.length, unitsFailed: errors.length,
     unitsOk: active.length - errors.length,

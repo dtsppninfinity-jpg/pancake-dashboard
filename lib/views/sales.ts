@@ -105,6 +105,11 @@ interface SalesData {
     pages: Array<{ pageId: string; name: string; inPancake: boolean; spend: number; base: number }>;
     spend: number; base: number; linkable: number;
   } | null;
+  // Meta ส่งค่าแอดช้า → ระบบเติมจาก Pancake ไปแล้วเท่าไหร่ (null = ปกติ / ช่วงที่เลือกไม่มีวันที่ช้า)
+  metaLag?: {
+    amount: number; accounts: number; dates: string[]; today: string; ts: string;
+    top: Array<{ name: string; amount: number }>;
+  } | null;
 }
 
 let lastData: SalesData | null = null;
@@ -602,6 +607,7 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
     roasPosBox_(d, 'all') +
     roasMetaBox_(d) +
     adCloseBox_(d);
+  html += metaLagBanner_(d);
   html += '<div class="sr-groups">' +
     '<section class="sr-group">' +
       '<h3 class="sr-group-title">ลูกค้าและแชท' + infoTip(
@@ -723,6 +729,9 @@ function render(container: HTMLElement, dArg?: SalesData | null): void {
         '<div class="card-sub">' + esc(rangeLabel) + ' • ' + chLabelHtml_(state.channel) +
           (closeSrc_ !== 'meta' && state.channel !== 'line'
             ? ' • <span class="tx-warn">' + icon(ICON_FOR.alert, { size: 14 }) + '</span> ช่วงนี้คนทักใช้ตัวเลข Pancake (Meta ยังไม่ครบ)'
+            : '') +
+          (d.metaLag && state.channel !== 'line'
+            ? ' • <span class="tx-warn">' + icon(ICON_FOR.alert, { size: 14 }) + '</span> Meta ส่งค่าแอด' + esc(lagDays_(d.metaLag)) + 'ช้า ROAS อาจสูงกว่าจริง'
             : '') +
           (state.channel && d.unitGoal ? ' • เป้าดูได้ที่แท็บ “ทั้งหมด”' : '') +
           ' • คลิกยูนิตเพื่อดูรายเพจ</div>' +
@@ -1409,6 +1418,50 @@ function noUnitAdsBanner_(d: SalesData): string {
               : '') +
           '</div>' +
         '</details>' +
+      '</div>' +
+    '</div>' +
+  '</div>';
+}
+
+/** "ของวันนี้" / "ของเมื่อวาน" / "ของวันที่ 21 ต.ค. 69 " ตามวันที่ Meta ช้า
+ *  ภาษาไทยไม่เว้นวรรคระหว่างคำ — เว้นท้ายเฉพาะเมื่อลงท้ายด้วยวันที่ (ตัวเลข/จุด ติดคำถัดไปอ่านยาก) */
+function lagDays_(g: NonNullable<SalesData['metaLag']>): string {
+  const t = Date.parse(g.today + 'T00:00:00Z');
+  const yest = isNaN(t) ? '' : new Date(t - 86400000).toISOString().slice(0, 10);
+  const named = (x: string) => x === g.today || x === yest;
+  const last = g.dates[g.dates.length - 1] || '';
+  return 'ของ' + g.dates.map(function (x) { return x === g.today ? 'วันนี้' : x === yest ? 'เมื่อวาน' : 'วันที่ ' + dateTh(x); }).join(' และ') +
+    (named(last) ? '' : ' ');
+}
+
+/**
+ * แถบเตือน "Meta ส่งค่าแอดช้า" — วางเหนือกล่องตัวเลข (พีขอ 22 ต.ค. 69 คู่กับตัวกันอัตโนมัติในงาน sync)
+ *
+ * ทำไมต้องมี: คืน 21 ต.ค. Meta ส่งค่าแอดของวันนั้นมาแค่ ~59% ถึง 23:37 → ROAS พองทั้งเว็บ (UN7 15.97x)
+ * ทีมเห็นตัวเลขแปลกแต่ไม่รู้ว่าเพราะอะไร · ตัวกันเติมค่าแอดจาก Pancake ให้แล้ว แต่บัญชีที่ Pancake
+ * มองไม่เห็นยังรอ Meta อยู่ ตัวเลขจึงยังไม่ใช่ตัวสุดท้าย — ต้องบอกคนดู
+ * ส้ม (เฝ้าดู) ไม่ใช่แดง: ไม่มีอะไรให้ทีมแก้ รอแล้วหายเอง · ป้ายหายเองเมื่อ Meta ส่งครบ (API คัดให้แล้ว)
+ * แสดงทุกแท็บ (กล่องค่าแอด/ROAS ด้านบนเป็นของเพจ Facebook เสมอ) แต่หมายเหตุในตารางยูนิตซ่อนในแท็บ LINE
+ */
+function metaLagBanner_(d: SalesData): string {
+  const g = d.metaLag;
+  if (!g) return '';
+  const t = new Date(g.ts);
+  const hhmm = isNaN(t.getTime()) ? '' : t.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok' });
+  const more = g.accounts - g.top.length;
+  return '<div class="alert-list sr-metalag">' +
+    '<div class="alert-row lv-orange">' +
+      '<div class="alert-icon">' + icon(ICON_FOR.wait, { size: 18 }) + '</div>' +
+      '<div class="alert-body">' +
+        '<div class="alert-title">Meta ส่งค่าแอด' + esc(lagDays_(g)) + 'มาช้า — ROAS อาจสูงกว่าจริง</div>' +
+        '<div class="alert-reason">ระบบใช้ตัวเลขของ Pancake เติมค่าแอดที่ Meta ยังส่งไม่ครบให้แล้ว <b>' + THB(g.amount) + '</b>' +
+          ' (' + fmtNum(g.accounts) + ' บัญชี' +
+          (g.top.length
+            ? ': ' + g.top.map(function (x) { return esc(x.name) + ' ' + THB(x.amount); }).join(', ') +
+              (more > 0 ? ' และอีก ' + fmtNum(more) + ' บัญชี' : '')
+            : '') +
+          ') แต่บัญชีที่ Pancake มองไม่เห็นยังต้องรอ Meta' +
+          ' • ป้ายนี้หายเองเมื่อ Meta ส่งครบ' + (hhmm ? ' • ตรวจล่าสุด ' + esc(hhmm) + ' น.' : '') + '</div>' +
       '</div>' +
     '</div>' +
   '</div>';

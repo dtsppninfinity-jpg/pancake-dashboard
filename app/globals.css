@@ -3341,6 +3341,7 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
 
 /* ---------- แถบเตือน "เพจยิงแอดแต่ยังไม่จับเข้ายูนิต" เหนือตารางยูนิต ---------- */
 #view-sales .sr-nounit { margin: 0 0 var(--sp-3); }
+#view-sales .sr-metalag { margin-top: var(--sp-4); }   /* ล่างไม่ต้อง: .sr-groups มี margin-top ของตัวเองแล้ว */
 #view-sales .sr-nounit-grp { margin-top: var(--sp-2); }
 #view-sales .sr-nounit-grp ul { margin: var(--sp-1) 0 0 18px; }
 /* ปุ่มแบบข้อความใต้ข้อความแจ้งเตือน ("ดูรายละเอียด →", "ไปหน้าจับคู่ยูนิต →") */
