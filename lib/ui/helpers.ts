@@ -53,7 +53,7 @@ let failEpoch_ = 0;
 export function failEpoch(): number { return failEpoch_; }
 const READ_ONLY_FNS: Record<string, 1> = {
   apiDashboard: 1, apiSales: 1, apiContentAds: 1, apiUnitPerf: 1, apiReport: 1, apiAdminPerf: 1, apiKpi: 1,
-  apiProfit: 1, apiAdmins: 1, apiBootstrap: 1, apiNavBadges: 1, apiPageMedia: 1, apiMe: 1,
+  apiProfit: 1, apiAdmins: 1, apiBootstrap: 1, apiNavBadges: 1, apiPageMedia: 1, apiMe: 1, apiRoasCard: 1,
 };
 function isReadOnlyCall_(fn: string, params: any, body: string): boolean {
   if (READ_ONLY_FNS[fn]) return true;

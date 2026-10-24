@@ -1913,6 +1913,127 @@ function weeklyBlock_(weekly: any[]): string {
     '<div class="hbar-wide sr-mb">' + hbarRows(items) + '</div>';
 }
 
+/* ---------------- การ์ด PN ROAS ในหน้าต่างยูนิต (พีสั่ง 22 ต.ค. 69) ----------------
+ * 11 ค่าชุดเดียวกับการ์ด PN ROAS ที่บอทส่งในไลน์ — ระบบ pn-infinity คิดให้ (apiRoasCard → lib/pnroas.ts)
+ * ฝั่งนี้ไม่คิดสูตรเอง โชว์ตามที่ได้มา: null = "—" (ไม่ใช่ 0) · ผ่านเกณฑ์ ROAS อีกฝั่งตัดสิน (≥ 2.5 ก่อนปัด)
+ * กติกาต่างจากตัวเลขอื่นในหน้านี้ (ทุกช่องทาง · บิลยืนยันแล้ว) จึงบอกไว้ใต้หัวข้อ กันคนเทียบแล้วงง
+ * ตาราง: แถว = 11 ค่า เรียงตามการ์ดในไลน์ · คอลัมน์ = รวมยูนิต / แอดมิน (ยอดมากก่อน) / ไม่ระบุคน
+ * ถามครั้งเดียวต่อช่วงวันที่ แล้วใช้ซ้ำ 5 นาที (เปิดยูนิตอื่นในช่วงเดียวกันไม่ถามใหม่) */
+const RC_TTL_MS = 5 * 60 * 1000;
+const rcCache_: Record<string, { at: number; p: Promise<any> }> = {};
+
+const RC_ROWS: Array<{ key: string; label: string; fmt: (v: number) => string }> = [
+  { key: 'roas', label: 'ROAS (เกณฑ์ 2.5)', fmt: function (v) { return v.toFixed(1) + 'x'; } },
+  { key: 'sales', label: 'ยอดขายรวม', fmt: THB },
+  { key: 'spend', label: 'งบที่ใช้ไป', fmt: THB },
+  { key: 'adPct', label: '%ค่า ADS', fmt: function (v) { return fmtNum(v) + '%'; } },
+  { key: 'orders', label: 'ออเดอร์ใหม่', fmt: fmtNum },
+  { key: 'perBill', label: 'เปอร์บิลรวม', fmt: THB },
+  { key: 'newChats', label: 'คนทักใหม่', fmt: fmtNum },
+  { key: 'contacts', label: 'รวมคนเข้า', fmt: fmtNum },
+  { key: 'tags', label: 'คนเข้า (แท็ก)', fmt: fmtNum },
+  { key: 'costPerChat', label: 'ต้นทุนทัก', fmt: thb2_ },
+  { key: 'closePct', label: '%ปิด', fmt: function (v) { return fmtNum(v) + '%'; } },
+];
+
+function rcCell_(key: string, fmt: (v: number) => string, f: any): string {
+  const v = f ? f[key] : null;
+  if (v === null || v === undefined || !isFinite(Number(v))) return '<span class="tx-muted" title="ไม่ทราบค่า">—</span>';
+  const txt = fmt(Number(v));
+  // ผ่าน/ไม่ผ่าน เขียนเป็นคำใต้ตัวเลขด้วย ไม่พึ่งสีอย่างเดียว (เหมือนหน้าเว็บของการ์ด)
+  if (key !== 'roas' || f.roasPass === null || f.roasPass === undefined) return txt;
+  return tintVal(txt, f.roasPass ? 'good' : 'bad') + '<span class="rc-pass">' + (f.roasPass ? 'ผ่าน' : 'ไม่ผ่าน') + '</span>';
+}
+
+function rcTableHtml_(u: any, code: string): string {
+  const cols = [{ name: 'รวม ' + code, f: u.total, cls: 'rc-total' }]
+    .concat((u.admins || []).map(function (a: any) { return { name: a.name || 'ไม่ทราบชื่อ', f: a, cls: '' }; }))
+    .concat([{ name: 'ไม่ระบุคน', f: u.others, cls: 'rc-others' }]);
+  const head = '<tr><th>ตัวเลข</th>' + cols.map(function (c) {
+    return '<th class="num ' + c.cls + '">' + esc(c.name) + '</th>';
+  }).join('') + '</tr>';
+  const body = RC_ROWS.map(function (r) {
+    return '<tr><td>' + r.label + '</td>' + cols.map(function (c) {
+      return '<td class="num ' + c.cls + '">' + rcCell_(r.key, r.fmt, c.f) + '</td>';
+    }).join('') + '</tr>';
+  }).join('');
+  return '<div class="table-scroll"><table class="tbl rc-tbl" data-cards="off"><thead>' + head +
+    '</thead><tbody>' + body + '</tbody></table></div>';
+}
+
+/** "09:00 น." (วันนี้) / "21 ต.ค. 69 23:40 น." (วันอื่น) — เวลาไทย */
+function rcAsOf_(iso: unknown): string {
+  const t = Date.parse(String(iso || ''));
+  if (!isFinite(t)) return '';
+  const b = new Date(t + 7 * 3600 * 1000).toISOString();
+  const today = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
+  return (b.slice(0, 10) === today ? '' : dateTh(b.slice(0, 10)) + ' ') + b.slice(11, 16) + ' น.';
+}
+
+function rcBodyHtml_(d: any, code: string): string {
+  if (d.notYet) return '<div class="rc-state">ช่วงวันที่ที่เลือกยังไม่ถึง — ยังไม่มีตัวเลขการ์ด ROAS</div>';
+  if (d.tooLong) {
+    return '<div class="rc-state">การ์ด ROAS ดูได้ทีละไม่เกิน ' + fmtNum(d.maxDays) + ' วัน — เลือกช่วงวันที่ให้สั้นลง</div>';
+  }
+  if (d.error) {
+    return '<div class="rc-state"><span>อ่านตัวเลขการ์ด ROAS ไม่สำเร็จ — ' + esc(d.error) + '</span>' +
+      '<button type="button" class="btn-mini" data-rc-retry>ลองใหม่</button></div>';
+  }
+  const u = d.units && d.units[code];
+  if (!u) return '<div class="rc-state">ยูนิตนี้ยังไม่มีในระบบการ์ด ROAS</div>';
+  // วันที่จริงที่การ์ดครอบ — เปิดหน้าไว้ข้ามเที่ยงคืน หัวหน้าต่างยังเขียน "วันนี้" ของเมื่อวาน แต่การ์ดเป็นวันใหม่แล้ว
+  const span = d.from ? dateTh(d.from) + (d.to && d.to !== d.from ? ' – ' + dateTh(d.to) : '') : '';
+  const meta = [
+    span,
+    rcAsOf_(d.spendAsOf) ? 'งบ ณ ' + rcAsOf_(d.spendAsOf) : '',
+    rcAsOf_(d.chatsAsOf) ? 'คนทัก ณ ' + rcAsOf_(d.chatsAsOf) : '',
+  ].filter(Boolean).map(function (s) { return '<span class="sr-nowrap">' + esc(s) + '</span>'; }).join(' • ');
+  return '<div class="sr-note rc-note">ตัวเลขชุดเดียวกับการ์ดในไลน์ — นับทุกช่องทาง เฉพาะบิลยืนยันแล้ว ' +
+      'จึงอาจไม่เท่ากับตัวเลขด้านบน' + (meta ? '<br>' + meta : '') + '</div>' +
+    rcTableHtml_(u, code);
+}
+
+/** ช่องว่างในหน้าต่างยูนิต — ยูนิตที่ยังไม่จัดกลุ่มไม่มีรหัส จึงไม่มีการ์ด */
+function roasCardSlot_(unit: any): string {
+  if (!unit.mapped || !unit.u) return '';
+  return '<div class="rc-wrap" data-rc-slot=""><h4 class="sr-h4">การ์ด PN ROAS</h4>' +
+    '<div class="rc-body"><div class="rc-state">กำลังโหลดตัวเลขการ์ด ROAS…</div></div></div>';
+}
+
+function loadRoasCard_(unit: any, force?: boolean): void {
+  const code = String(unit.u || '').trim().toUpperCase();
+  const slot = document.querySelector('#modal-root [data-rc-slot]') as HTMLElement | null;
+  if (!slot || !code) return;
+  const params = { preset: state.preset, from: state.from, to: state.to };
+  // วันที่ไทยของวันนี้อยู่ในกุญแจด้วย — "วันนี้" ที่จำไว้ก่อนเที่ยงคืนห้ามเอามาใช้หลังเที่ยงคืน
+  const key = JSON.stringify(params) + '|' + new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10);
+  const tag = code + '|' + key;
+  slot.setAttribute('data-rc-slot', tag);
+  let c = rcCache_[key];
+  if (force || !c || Date.now() - c.at > RC_TTL_MS) {
+    const p = serverCall<any>('apiRoasCard', params);
+    c = rcCache_[key] = { at: Date.now(), p: p };
+  }
+  const entry = c;
+  const forget = function () { if (rcCache_[key] === entry) delete rcCache_[key]; };   // พลาดแล้วไม่จำ — ลองใหม่ต้องถามจริง
+  const paint = function (d: any) {
+    if (d && d.error) forget();   // ก่อนเช็คหน้าต่าง — ปิดหน้าต่างไปแล้ว ความพลาดก็ต้องไม่ค้างในที่จำ
+    // ผู้ใช้ปิดหน้าต่าง/เปิดยูนิตอื่นไปแล้ว = ไม่วาดทับ
+    const cur = document.querySelector('#modal-root [data-rc-slot]') as HTMLElement | null;
+    if (!cur || cur.getAttribute('data-rc-slot') !== tag) return;
+    if (!d || d.configured === false) { cur.remove(); return; }
+    const body = cur.querySelector('.rc-body') as HTMLElement;
+    body.innerHTML = rcBodyHtml_(d, code);
+    const retry = body.querySelector('[data-rc-retry]');
+    if (retry) retry.addEventListener('click', function () {
+      body.innerHTML = '<div class="rc-state">กำลังโหลดตัวเลขการ์ด ROAS…</div>';
+      loadRoasCard_(unit, true);
+    });
+  };
+  // คำขอพัง (เครือข่าย/เซิร์ฟเวอร์เราหมดเวลา) — ข้อความดิบเป็นภาษาเทคนิค ใช้ข้อความคงที่แทน
+  entry.p.then(paint, function () { paint({ error: 'เชื่อมต่อไม่ได้ ลองใหม่อีกครั้ง' }); });
+}
+
 /** ยูนิต (สินค้า) → เพจในยูนิตนั้นขายได้เท่าไร (คลิกเพจเจาะดูสินค้าต่อได้) */
 function openUnitDrill(unitKey: string, chKey: string): void {
   const top = topOf(chKey);
@@ -1957,6 +2078,7 @@ function openUnitDrill(unitKey: string, chKey: string): void {
       'เลือกช่วงยาวขึ้นตัวเลขจะสูงขึ้นตามจริง</div>') +
     (unit.mapped ? '' : '<div class="hint-box sr-mb">เพจกลุ่มนี้ยังไม่ถูกจับคู่กับยูนิต — ' +
       'ไปจับคู่ได้ที่หน้า <b>จับคู่ยูนิต</b> เพื่อให้รวมยอดถูกกลุ่ม</div>') +
+    roasCardSlot_(unit) +
     weeklyBlock_(unit.weekly || []) +
     '<h4 class="sr-h4">เพจในยูนิตนี้ (คลิกเพจเพื่อดูสินค้าที่ขายได้)</h4>' +
     (pages.length
@@ -1965,6 +2087,7 @@ function openUnitDrill(unitKey: string, chKey: string): void {
       : stateHtml('nodata', { title: 'ไม่มีเพจในยูนิตนี้', body: '' }))
   );
   bindDrillRows(document.getElementById('modal-root'), chKey);
+  loadRoasCard_(unit);
 }
 
 /** สินค้า → ขายได้จากเพจไหนบ้าง (คลิกเพจเจาะต่อได้) */

@@ -23,7 +23,7 @@ import {
 
 type Row = Record<string, any>;
 
-interface Range {
+export interface Range {
   start: Date;
   end: Date;
   prevStart: Date;
@@ -115,7 +115,7 @@ function convCutoff_(): number {
  * preset: today | yesterday | 3d | 7d | 30d | month | custom (from/to = 'yyyy-MM-dd')
  * ⚠️ ต้องมีครบทุก key ใน RANGE_PRESETS (lib/ui/helpers.ts) — key ที่ไม่มี case จะตกไป default = วันนี้ เงียบๆ
  */
-function resolveRange_(params: any): Range {
+export function resolveRange_(params: any): Range {
   const p = params || {};
   const preset = p.preset || 'today';
   const now = new Date();

@@ -3391,6 +3391,30 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
 .sr-be-inp { width: 90px; }
 .sr-note-inp { width: 160px; }
 
+/* ---- การ์ด PN ROAS ในหน้าต่างยูนิต (rc-*, lib/views/sales.ts) — แถว = 11 ค่า · คอลัมน์ = รวมยูนิต/แอดมิน/ไม่ระบุคน
+   แอดมินเยอะ = ตารางกว้างกว่าหน้าต่าง → คอลัมน์ชื่อค่าตรึงซ้ายทุกขนาดจอ (ต้องมีพื้นทึบ ไม่งั้นตัวเลขที่เลื่อนผ่านซ้อนกัน)
+   ไม่ใช้ .tbl-scroll-x เพราะกฎ ≥900px ของมันปลดคอลัมน์แรกออกจาก sticky */
+table.tbl.rc-tbl { min-width: max-content; }
+table.tbl.rc-tbl th, table.tbl.rc-tbl td { white-space: nowrap; }
+table.tbl.rc-tbl th:first-child,
+table.tbl.rc-tbl td:first-child {
+  position: sticky; left: 0; z-index: 1; background: var(--surface);
+  box-shadow: 1px 0 0 var(--border), 6px 0 8px -4px var(--pin-shadow);
+}
+table.tbl.rc-tbl thead th:first-child { z-index: 2; }
+table.tbl.rc-tbl tr:hover td:first-child {
+  background-color: var(--surface);
+  background-image: linear-gradient(var(--row-hover), var(--row-hover));
+}
+table.tbl.rc-tbl .rc-total { font-weight: 700; }
+table.tbl.rc-tbl th.rc-others { color: var(--text-2); font-weight: 500; }
+.rc-pass { display: block; font-size: var(--fs-1); font-weight: 500; color: var(--text-3); }
+.rc-note { margin: 0 0 var(--sp-2); }
+.rc-state {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);
+  font-size: var(--fs-2); color: var(--text-3); padding: var(--sp-2) 0;
+}
+
 /* การ์ดยูนิตขาดทุนเคยชนติดกับแถบ "กำลังดูเฉพาะ Facebook" ด้านล่าง (ไม่มีช่องไฟ) — เว้นระยะส่วนมาตรฐาน */
 #view-sales .loss-card { margin-bottom: var(--gap-section); }
 
