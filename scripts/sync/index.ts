@@ -129,6 +129,12 @@ async function runHourly(): Promise<boolean> {
 async function runDaily(): Promise<boolean> {
   // ต้องมาก่อนงานอื่น — เพจใหม่ที่เพิ่งเข้าตารางจะได้ถูกดึงสถิติในรอบเดียวกันเลย
   const h = await runJob('pages', jobs.syncPages);
+  // งานอ่านชีท (รวม ~1 นาที) ไว้หน้าแถว — รอบรายวันวิ่งต่อท้ายรอบ 15 นาทีที่ GitHub ตัดที่ 30 นาที
+  // เคยอยู่ท้ายแถวแล้วไม่ถูกรันเลย 5 ต.ค.–5 พ.ย. 69 (กำไรค้าง 31 วัน ตีกลับค้าง 23 วัน)
+  // ตีกลับจากชีทของทีม — ทีมกรอกมือรายวัน วันละครั้งพอ (ไม่ต้องถี่กว่านี้)
+  const j = await runJob('returns', jobs.syncReturns);
+  // กำไรจริง + ค่าคอม จากชีทสรุปรายสินค้า (ต้องมาก่อน unit-alerts ที่ใช้กำไรตัดสิน)
+  const k = await runJob('product-sheets', jobs.syncProductSheets);
   const a = await runJob('chat-yesterday', jobs.syncChatYesterday);
   const b = await runJob('admin-chat-2d', () => jobs.syncAdminChatBackfill(2));
   // Meta ปรับยอด spend ย้อนหลังได้อีก 1-2 วัน — เก็บซ้ำของเมื่อวานให้ตรง (Pancake ก่อน → Meta ทับ)
@@ -140,10 +146,6 @@ async function runDaily(): Promise<boolean> {
   const g = await runJob('ad-creatives', () => jobs.syncAdCreatives(14));
   // ต้องหลัง ad-creatives — งานนี้อาศัย post_id ของครีเอทีฟเติมเพจให้แถวที่ Pancake ผูกไม่ได้
   const i = await runJob('ad-page-fill', () => jobs.syncAdPageFill(45));
-  // ตีกลับจากชีทของทีม — ทีมกรอกมือรายวัน วันละครั้งพอ (ไม่ต้องถี่กว่านี้)
-  const j = await runJob('returns', jobs.syncReturns);
-  // กำไรจริง + ค่าคอม จากชีทสรุปรายสินค้า (ต้องมาก่อน unit-alerts ที่ใช้กำไรตัดสิน)
-  const k = await runJob('product-sheets', jobs.syncProductSheets);
   const c = await runJob('prune', jobs.prune);
   return a && b && c && d && e && f && g && h && i && j && k;
 }

@@ -28,8 +28,9 @@ function safeUrl(url: string): string {
 /**
  * fetch พร้อม retry: 429/5xx → รอแล้วลองใหม่สูงสุด 3 ครั้ง
  * Pancake ตอบ 200 พร้อม {success:false} เมื่อ token/สิทธิ์มีปัญหา — นับเป็น error
+ * retry5xx=false = 5xx โยนทันที (endpoint ที่ 500 เป็นคำตอบตายตัว ลองซ้ำก็ได้ 500 เหมือนเดิม) · 429 ยังรอแล้วลองใหม่
  */
-export async function fetchJson(url: string, options: RequestInit = {}): Promise<any> {
+export async function fetchJson(url: string, options: RequestInit = {}, retry5xx = true): Promise<any> {
   let lastErr = '';
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await sleep(1500 * attempt);
@@ -42,6 +43,7 @@ export async function fetchJson(url: string, options: RequestInit = {}): Promise
     }
     const code = resp.status;
     const body = await resp.text();
+    if (code >= 500 && !retry5xx) throw new Error(`HTTP ${code} — ${body.slice(0, 100)} — ${safeUrl(url)}`);
     if (code === 429 || code >= 500) { lastErr = 'HTTP ' + code; continue; }
     if (code >= 400) throw new Error(`HTTP ${code} — ${body.slice(0, 300)} — ${safeUrl(url)}`);
     let parsed: any;
@@ -156,10 +158,12 @@ export async function pagesGenerateToken(pageId: string): Promise<string> {
 
 /* ---------------- Pages API (ระดับเพจ — ใช้ page_access_token) ---------------- */
 
-function pagePublicGet(version: 1 | 2, pageId: string, token: string, path: string, params: Params = {}): Promise<any> {
+function pagePublicGet(
+  version: 1 | 2, pageId: string, token: string, path: string, params: Params = {}, retry5xx = true,
+): Promise<any> {
   if (!token) throw new Error(`ไม่มี page_access_token ของเพจ ${pageId}`);
   const base = version === 2 ? PUBLIC_V2 : PUBLIC_V1;
-  return fetchJson(`${base}/pages/${pageId}${path}${qs({ ...params, page_access_token: token })}`);
+  return fetchJson(`${base}/pages/${pageId}${path}${qs({ ...params, page_access_token: token })}`, {}, retry5xx);
 }
 
 /** สถิติแชทของเพจรายชั่วโมง */
@@ -188,13 +192,15 @@ export async function pageAdStats(pageId: string, token: string, since: Date, un
  * ⚠️ เพจที่ไม่มีทราฟฟิกเลยบางเพจ Pancake ตอบ HTTP 500 "Server internal error"
  *    (ตรวจแล้ว 2026-07-23: 15 เพจ ทุกเพจคือเพจที่ statistics/pages ก็คืน 0 bucket เหมือนกัน)
  *    ผู้เรียกต้อง try/catch รายเพจ ห้ามให้ล้มทั้ง job
+ *    ถามครั้งเดียว ไม่ลองซ้ำ: 500 ของ endpoint นี้ตายตัว (ลองซ้ำ 3 ครั้ง × 90+ เพจ = ~8 นาทีต่อรอบ 15 นาที
+ *    จนงานรายวันโดน GitHub ตัดที่ 30 นาทีทุกวัน — กำไร/ตีกลับค้าง 5–13 ต.ค. ถึง 5 พ.ย. 69)
  */
 export async function pageCustomerEngagements(
   pageId: string, token: string, since: Date, until: Date,
 ): Promise<Record<string, number>> {
   const res = await pagePublicGet(1, pageId, token, '/statistics/customer_engagements', {
     date_range: pagesDateRange(since, until),
-  });
+  }, false);
   const series = res?.data?.series ?? [];
   const out: Record<string, number> = {};
   for (const s of series) {
