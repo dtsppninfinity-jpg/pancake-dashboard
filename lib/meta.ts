@@ -9,7 +9,9 @@
 
 import { sleep } from './config';
 
-const V = 'v21.0';
+// แอปของ token ใหม่ (15 ต.ค. 69) เริ่มที่ v26 — เรียกรุ่นเก่ากว่า Meta ก็ยกเป็น v26 ให้อยู่ดี (header facebook-api-version)
+// ตั้งตรงกับที่ได้จริง จะได้อ่านเอกสารถูกรุ่น · v26 เลิกรองรับ /?ids= แล้ว (ดู creativesBatch_)
+const V = 'v26.0';
 const BASE = `https://graph.facebook.com/${V}`;
 
 function metaToken(): string {
@@ -82,6 +84,44 @@ async function metaGet(path: string, params: Record<string, string>, tries = 3):
       throw new Error(`meta ${code}: ${metaErrorDetail_(j.error, headers)}${j.error.message}`);
     }
     return j;
+  }
+  throw new Error(lastErr || 'meta fetch ล้มเหลว');
+}
+
+/**
+ * GET หลาย node ในคำขอเดียวผ่าน Graph Batch API (POST / batch=[...] ได้ไม่เกิน 50 รายการ)
+ * แทน /?ids=a,b,c ที่ Meta เลิกรองรับตั้งแต่ v26 ("The ids query parameter is deprecated in v26.0+")
+ * ผลเรียงตาม relUrls: { code, body } · null = รายการนั้น Meta ทำไม่ทันในก้อน (ถือว่า "ยังไม่รู้")
+ * error ระดับทั้งก้อน (token ตาย / rate-limit) จัดการแบบเดียวกับ metaGet
+ */
+async function metaBatchGet(relUrls: string[], tries = 3): Promise<Array<{ code: number; body: any } | null>> {
+  const body = new URLSearchParams({
+    access_token: metaToken(),
+    include_headers: 'false',
+    batch: JSON.stringify(relUrls.map((u) => ({ method: 'GET', relative_url: u }))),
+  });
+  let lastErr = '';
+  for (let i = 0; i < tries; i++) {
+    let j: any;
+    let headers: Headers;
+    try {
+      const res = await fetch(`${BASE}/`, { method: 'POST', body });
+      headers = res.headers;
+      j = await res.json();
+    } catch (e: any) { lastErr = e.message; await sleep(2000 * (i + 1)); continue; }
+    if (j && j.error) {
+      const code = Number(j.error.code);
+      const rateLimited = [4, 17, 32, 613, 80000, 80001, 80002, 80003, 80004].indexOf(code) >= 0;
+      if (rateLimited && i < tries - 1) { await sleep(5000 * (i + 1)); continue; }
+      throw new Error(`meta ${code}: ${metaErrorDetail_(j.error, headers)}${j.error.message}`);
+    }
+    if (!Array.isArray(j)) throw new Error('meta batch: คำตอบไม่ใช่รายการ');
+    return j.map((it: any) => {
+      if (!it) return null;
+      let b: any = null;
+      try { b = JSON.parse(it.body); } catch { /* body อ่านไม่ออก = ไม่มีข้อมูล */ }
+      return { code: Number(it.code), body: b };
+    });
   }
   throw new Error(lastErr || 'meta fetch ล้มเหลว');
 }
@@ -280,38 +320,42 @@ export async function metaAccountAdCreatives(accountId: string): Promise<MetaAdC
   return out;
 }
 
-/** ยิง /?ids=a,b,c ชุดเดียว — คืน null เมื่อ Meta ปฏิเสธทั้งก้อน (ให้ตัวเรียกไปแตกครึ่งเอง) */
-async function creativesBatch_(ids: string[]): Promise<MetaAdCreative[] | null> {
-  try {
-    const r = await metaGet('', { ids: ids.join(','), fields: AD_FIELDS });
-    const out: MetaAdCreative[] = [];
-    Object.keys(r || {}).forEach((k) => {
-      const row = creativeFromAd_(r[k]);
-      if (row) out.push(row);
-    });
-    return out;
-  } catch (e: any) {
-    const m = String((e && e.message) || e);
-    // rate-limit / token ตาย / เน็ตสะดุด = "ยังไม่รู้" ไม่ใช่ "แอดนี้ไม่มีจริง"
-    // ถ้าคืน null ตรงนี้ solve() จะแตกครึ่งจนเหลือตัวเดียว = 2n-1 คำขอ (chunk 50 = 99 คำขอ
-    // × บันไดหน่วง 5s+10s ≈ 25 นาที) แล้ว syncAdCreatives เขียน "แถวเปล่า" post_id='' ทับ
-    // ad_creative ซึ่ง existingCreativeIds_ จะนับว่า "มีแล้ว" ตลอดกาล → syncAdPageFill
-    // เติมเพจให้ไม่ได้อีกเลย = ค่าแอดก้อนนั้นหายจากตารางรายยูนิตถาวร
-    // กู้ได้ทางเดียวคือ npx tsx scripts/setup/backfill-ad-creatives.ts <วัน> force
-    if (/meta (4|17|32|102|190|463|467|613|8000[0-4]):/.test(m)
-      || /too many calls|request limit|rate limit|session has expired|access token/i.test(m)
-      // \b กันเลข 502/503/504 ที่ซ่อนอยู่กลาง ad_id ของ #803 หรือรหัสย่อยอย่าง 1504022 ถูกนับเป็นเน็ตสะดุด
-      || /fetch failed|ETIMEDOUT|ECONNRESET|socket|network|\b50[234]\b/i.test(m)) throw e;
-    return null;   // เหลือเฉพาะ #100/#803/แอดถูกลบ ที่ควรแตกครึ่งหาตัวต้นเหตุ
-  }
+/**
+ * ครีเอทีฟของแอดชุดเดียว (≤ 50) ผ่าน Graph Batch API — แต่ละแอดได้ผลของตัวเอง
+ * rows = ได้ · missing = Meta บอกชัดว่า "ไม่มีแอดนี้" (#100 subcode 33 / #803) → ตัวเรียกเขียนแถวเปล่ากันถามซ้ำ
+ * ที่เหลือทุกแบบ (rate-limit รายตัว / 5xx / error ชั่วคราว / Meta ทำไม่ทันในก้อน / error ที่ไม่รู้จัก)
+ * = "ยังไม่รู้" ข้ามไว้ ไม่อยู่ทั้งสองฝั่ง → รอบหน้าถามใหม่เอง (ไม่ throw — ตัวเดียวพังห้ามลากทั้งงานค้าง)
+ * error ทั้งก้อน (token ตาย / โควตาหมด) metaBatchGet throw ให้เอง
+ *
+ * ทำไมเข้มเรื่อง missing: แถวเปล่า post_id='' ถูก existingCreativeIds_ นับว่า "มีแล้ว" ตลอดกาล
+ * → syncAdPageFill เติมเพจให้ไม่ได้อีกเลย = ค่าแอดก้อนนั้นหายจากตารางรายยูนิตถาวร
+ * ⚠️ 15 ต.ค.–5 พ.ย. 69 ตัวนี้ใช้ /?ids= ซึ่ง v26 ตอบ #100 "ids deprecated" ทุกตัว → ทุกแอดใหม่กลายเป็น missing
+ * แถวเปล่า ~2 หมื่นตัว ค่าแอด ~8%/วันผูกยูนิตไม่ได้ (ROAS รายยูนิตสูงเกินจริง) จนทีมขายทักมา
+ * กู้แถวเปล่า: npx tsx scripts/setup/backfill-ad-creatives.ts <วัน> empty
+ */
+async function creativesBatch_(ids: string[]): Promise<{ rows: MetaAdCreative[]; missing: string[] }> {
+  const res = await metaBatchGet(ids.map((id) => id + '?fields=' + AD_FIELDS));
+  const rows: MetaAdCreative[] = [];
+  const missing: string[] = [];
+  res.forEach((it, i) => {
+    if (!it) return;
+    const err = it.body && it.body.error;
+    if (it.code === 200 && !err) {
+      const row = creativeFromAd_(it.body);
+      if (row) rows.push(row);
+      return;
+    }
+    const code = err ? Number(err.code) : 0;
+    const sub = err ? Number(err.error_subcode) : 0;
+    if (!err || err.is_transient) return;
+    if ((code === 100 && sub === 33) || code === 803) missing.push(ids[i]);
+  });
+  return { rows, missing };
 }
 
 /**
- * ครีเอทีฟของ ad_id ที่ระบุ (batch ทีละ 50 ผ่าน /?ids=) — เติมเฉพาะแอดที่เรามีในตารางจริง
+ * ครีเอทีฟของ ad_id ที่ระบุ (ก้อนละ 50 ผ่าน Graph Batch API) — เติมเฉพาะแอดที่เรามีในตารางจริง
  * เร็วกว่ากวาดทุกบัญชีมาก (ad_daily สะสม ~28k ad_id แต่รอบหนึ่งเติมแค่ตัวใหม่)
- *
- * ⚠️ ถ้ามี ad_id สักตัวที่ token เข้าไม่ถึง/ถูกลบ Meta จะ error ทั้งก้อน → แตกครึ่งลงไปเรื่อยๆ
- * จนเหลือตัวเดียวแล้วค่อยข้ามเฉพาะตัวนั้น (missing) แทนที่จะทิ้งทั้ง 50 ตัว
  */
 export async function metaAdCreativesByIds(
   adIds: string[], pool = 3
@@ -320,18 +364,8 @@ export async function metaAdCreativesByIds(
   const chunks: string[][] = [];
   for (let i = 0; i < adIds.length; i += CHUNK) chunks.push(adIds.slice(i, i + CHUNK));
 
-  const solve = async (ids: string[]): Promise<{ rows: MetaAdCreative[]; missing: string[] }> => {
-    const r = await creativesBatch_(ids);
-    if (r) return { rows: r, missing: [] };
-    if (ids.length === 1) return { rows: [], missing: ids };
-    const mid = Math.floor(ids.length / 2);
-    const a = await solve(ids.slice(0, mid));
-    const b = await solve(ids.slice(mid));
-    return { rows: a.rows.concat(b.rows), missing: a.missing.concat(b.missing) };
-  };
-
   const parts = await metaPool(chunks, pool, async (c) => {
-    const r = await solve(c);
+    const r = await creativesBatch_(c);
     await sleep(60);
     return r;
   });

@@ -1,13 +1,15 @@
 // Backfill สื่อ/ครีเอทีฟของแอด (รูป/คลิป/ลิงก์โพสต์) จาก Meta ลงตาราง ad_creative
 //
-// ใช้: npx tsx scripts/setup/backfill-ad-creatives.ts [วัน] [force|all]
+// ใช้: npx tsx scripts/setup/backfill-ad-creatives.ts [วัน] [force|all|empty]
 //   วัน   = ย้อนหลังกี่วันของ ad_daily ที่จะเติมครีเอทีฟให้ (default 30)
 //   force = ดึงใหม่ทับของเดิมด้วย (ปกติดึงเฉพาะแอดที่ยังไม่มีในตาราง)
 //   all   = กวาดทุกแอดในทุกบัญชีผ่าน /act_{id}/ads (ไม่อิง ad_daily — ช้ามาก 25k+ แอด)
+//   empty = ถามใหม่เฉพาะแอดที่ค้างเป็นแถวเปล่าซึ่งเขียนไว้ใน [วัน] ล่าสุด (กู้หลังเหตุ v26 15 ต.ค.–5 พ.ย. 69)
+//           แล้วต่อด้วย npx tsx scripts/setup/fill-ad-pages.ts <วัน> ให้ค่าแอดกลับเข้ายูนิต
 //
 // ⚠️ ต้องรัน db/migrations/2026-07-27-ad-creative.sql ใน Supabase ก่อน ไม่งั้นสคริปต์จะบอกให้ไปรัน
 import '../../lib/env';
-import { syncAdCreatives, syncAdCreativesAllAccounts } from '../sync/jobs';
+import { syncAdCreatives, syncAdCreativesAllAccounts, syncAdCreativesRetryEmpty } from '../sync/jobs';
 
 async function main() {
   const mode = String(process.argv[3] || '').toLowerCase();
@@ -16,6 +18,10 @@ async function main() {
   if (mode === 'all') {
     console.log('▶ backfill ครีเอทีฟ: กวาดทุกบัญชี (/act_{id}/ads)');
     msg = await syncAdCreativesAllAccounts();
+  } else if (mode === 'empty') {
+    const days = Math.max(1, Math.min(95, Math.round(Number(process.argv[2]) || 30)));
+    console.log(`▶ ถามครีเอทีฟใหม่เฉพาะแถวเปล่าที่เขียนไว้ใน ${days} วันล่าสุด`);
+    msg = await syncAdCreativesRetryEmpty(days);
   } else {
     const days = Math.max(1, Math.min(95, Math.round(Number(process.argv[2]) || 30)));
     console.log(`▶ backfill ครีเอทีฟของแอดใน ad_daily ย้อนหลัง ${days} วัน` +

@@ -1437,28 +1437,71 @@ export async function syncAdCreatives(days = 14, refresh = false): Promise<JobRe
   const now = new Date().toISOString();
   const { rows, missing } = await metaAdCreativesByIds(capped);
   const payload: any[] = rows.map((r) => ({ ...r, updated_at: now }));
+  // "ไม่มีแอดนี้" มากผิดปกติ = น่าจะเป็นปัญหาฝั่ง token/Meta ไม่ใช่แอดถูกลบจริง (15 ต.ค.–5 พ.ย. 69 ทุกตัว
+  // กลายเป็นแถวเปล่าจนค่าแอดผูกยูนิตไม่ได้ 3 สัปดาห์) → ไม่เขียนแถวเปล่า ให้รอบหน้าถามใหม่ + ป้ายแดงฟ้อง
+  const suspicious = capped.length >= 30 && missing.length * 3 > capped.length;
   // แถวเปล่าของแอดที่ดึงไม่ได้ — มีไว้เป็น "เครื่องหมายว่าเคยลองแล้ว" ไม่ให้รอบหน้าถามซ้ำ
-  missing.forEach((id) => payload.push({
-    ad_id: id, account_id: '', name: '', thumb_url: '', image_url: '', video_id: '',
-    object_type: '', post_id: '', permalink: '', ig_permalink: '', cta: '', link_url: '',
-    updated_at: now,
-  }));
+  if (!suspicious) missing.forEach((id) => payload.push(emptyCreative_(id, now)));
   const n = await upsertRows('ad_creative', payload, 'ad_id');
 
   const withMedia = rows.filter((r) => r.image_url || r.thumb_url).length;
   const withPost = rows.filter((r) => r.permalink || r.ig_permalink).length;
+  const unknown = capped.length - rows.length - missing.length;
   let msg = `ad creatives: ขอ ${capped.length} แอด → ได้ ${rows.length} (upsert ${n}) | ` +
     `มีรูป ${withMedia} | มีลิงก์โพสต์ ${withPost}`;
-  if (missing.length) msg += ` | ดึงไม่ได้ ${missing.length}`;
+  if (missing.length) msg += ` | ดึงไม่ได้ ${missing.length}` + (suspicious ? ' (มากผิดปกติ — ไม่เขียนแถวเปล่า)' : '');
+  if (unknown) msg += ` | ยังไม่รู้ ${unknown} ไว้ถามรอบหน้า`;
   if (want.length > capped.length) msg += ` | เหลือ ${want.length - capped.length} ไว้รอบหน้า`;
   return jobResult(msg, {
     subject: 'แอด',
     // รอบชั่วโมงมีแอดใหม่แค่ 2-30 ตัว — ดึงไม่ได้ 1 จาก 2 = 50% > COVERAGE_FAIL_RATIO 1/3
     // แล้วหน้าเว็บจะปักป้ายแดงทุกชั่วโมงทั้งที่ปกติ จึงรายงานสัดส่วนเฉพาะเมื่อกลุ่มตัวอย่างใหญ่พอ
-    // (แนวเดียวกับพื้น 50 แถวของเกณฑ์ "แถวหายเกินครึ่ง")
-    ...(capped.length >= 30 ? { unitsTotal: capped.length, unitsFailed: missing.length } : {}),
+    // (แนวเดียวกับพื้น 50 แถวของเกณฑ์ "แถวหายเกินครึ่ง") · นับ "ยังไม่รู้" เป็นพลาดด้วย — ไม่งั้นรอบที่ได้ 0 ดูปกติ
+    ...(capped.length >= 30 ? { unitsTotal: capped.length, unitsFailed: capped.length - rows.length } : {}),
     unitsOk: rows.length, rowsWritten: n,
   });
+}
+
+function emptyCreative_(id: string, now: string) {
+  return {
+    ad_id: id, account_id: '', name: '', thumb_url: '', image_url: '', video_id: '',
+    object_type: '', post_id: '', permalink: '', ig_permalink: '', cta: '', link_url: '',
+    updated_at: now,
+  };
+}
+
+/**
+ * ถามใหม่เฉพาะแอดที่ค้างเป็น "แถวเปล่า" (account_id='' และ post_id='') ซึ่งเขียนไว้ตั้งแต่ `days` วันก่อน
+ * ได้ = เขียนทับด้วยของจริง · ยังไม่ได้ = ปล่อยแถวเปล่าเดิมไว้ (ไม่เขียนซ้ำ)
+ * ใช้กู้หลังเหตุ 15 ต.ค.–5 พ.ย. 69 (v26 เลิก /?ids=) — จากนั้นรัน fill-ad-pages ให้ค่าแอดกลับเข้ายูนิต
+ * (โหมด force เดิมกู้ไม่ได้: ขอทุกแอดในช่วงแล้วตัดที่ 4,000 ตัวแรกเหมือนเดิมทุกครั้ง)
+ */
+export async function syncAdCreativesRetryEmpty(days: number): Promise<string> {
+  const since = daysAgo(days).toISOString();
+  const ids: string[] = [];
+  let after = '';
+  for (;;) {
+    const { data, error } = await supabase.from('ad_creative').select('ad_id')
+      .eq('account_id', '').eq('post_id', '').gte('updated_at', since)
+      .gt('ad_id', after).order('ad_id', { ascending: true }).limit(1000);
+    if (error) throw new Error(`อ่าน ad_creative ล้มเหลว: ${error.message}`);
+    (data || []).forEach((r: any) => ids.push(String(r.ad_id)));
+    if (!data || data.length < 1000) break;
+    after = ids[ids.length - 1];
+  }
+  if (!ids.length) return `ad creatives (กู้แถวเปล่า): ไม่มีแถวเปล่าใน ${days} วัน`;
+  let got = 0;
+  let written = 0;
+  let gone = 0;
+  for (let i = 0; i < ids.length; i += CREATIVE_CAP) {
+    const now = new Date().toISOString();
+    const { rows, missing } = await metaAdCreativesByIds(ids.slice(i, i + CREATIVE_CAP));
+    got += rows.length;
+    gone += missing.length;
+    if (rows.length) written += await upsertRows('ad_creative', rows.map((r) => ({ ...r, updated_at: now })), 'ad_id');
+  }
+  return `ad creatives (กู้แถวเปล่า ${days} วัน): แถวเปล่า ${ids.length} → ได้ของจริง ${got} (upsert ${written}) | ` +
+    `Meta บอกว่าไม่มีแล้ว ${gone} | ยังไม่รู้ ${ids.length - got - gone}`;
 }
 
 /**

@@ -10,7 +10,7 @@
 import '../../lib/env';
 import { createHash } from 'crypto';
 
-const V = 'v21.0';
+const V = 'v26.0';   // แอปของ token ใหม่เริ่มที่ v26 (ดู lib/meta.ts)
 const BASE = `https://graph.facebook.com/${V}`;
 
 const fmtTime = (sec: number) =>
