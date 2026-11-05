@@ -1816,24 +1816,57 @@ async function deleteOlder(table: string, col: string, cutoff: string): Promise<
   return count || 0;
 }
 
-export async function prune(): Promise<string> {
+/**
+ * ลบแถวที่เก่ากว่า cutoff ทีละช่วงเวลา (ไล่จากแถวเก่าสุด ช่วงละ stepMs) — ใช้กับคอลัมน์ timestamptz
+ * DELETE ก้อนเดียวหลายหมื่นแถวโดน statement timeout: 5 ต.ค. 69 conversations ค้างลบ 4 วัน (~2.4 หมื่นแถว)
+ * งานล้มทั้งก้อน แล้วไม่มีรอบไหนลบได้อีก จนค้าง 2.2 แสนแถว (62% ของตาราง)
+ * เลย deadline = หยุดไว้ก่อน (done=false) รอบหน้าทำต่อ — ไม่ให้งานรายวันกินเวลาจนโดน GitHub ตัดที่ 30 นาที
+ */
+async function deleteOlderChunked(
+  table: string, col: string, cutoffIso: string, deadline: number, stepMs = 6 * 3600 * 1000,
+): Promise<{ n: number; done: boolean }> {
+  const cutMs = Date.parse(cutoffIso);
+  let n = 0;
+  for (;;) {
+    const { data, error } = await supabase.from(table).select(col).lt(col, cutoffIso)
+      .order(col, { ascending: true }).limit(1);
+    if (error) throw new Error(`prune ${table}: ${error.message}`);
+    if (!data || !data.length) return { n, done: true };
+    if (Date.now() > deadline) return { n, done: false };
+    const oldest = Date.parse(String((data[0] as any)[col]));
+    n += await deleteOlder(table, col, new Date(Math.min(oldest + stepMs, cutMs)).toISOString());
+  }
+}
+
+/** budgetMs = เวลาสูงสุดที่ยอมให้ลบทีละช่วง (รวมทุกตาราง) — งานรายวันใช้ค่าตั้งต้น · ล้างของค้างด้วยมือส่งค่ายาวกว่าได้ */
+export async function prune(budgetMs = 4 * 60 * 1000): Promise<string> {
+  const deadline = Date.now() + budgetMs;
   const cutIso = (d: number) => daysAgo(d).toISOString();
   const cutDate = (d: number) => fmtDateBkk(daysAgo(d));
   let removed = 0;
-  removed += await deleteOlder('orders', 'inserted_at', cutIso(RETENTION_DAYS.ORDERS));
-  removed += await deleteOlder('chat_hourly', 'date', cutDate(RETENTION_DAYS.CHAT_HOURLY));
-  removed += await deleteOlder('conversations', 'updated_at', cutIso(RETENTION_DAYS.CONVERSATIONS));
-  removed += await deleteOlder('admin_chat_daily', 'date', cutDate(RETENTION_DAYS.ADMIN_CHAT_DAILY));
+  const left: string[] = [];
+  const errors: string[] = [];
+  // ตารางหนึ่งล้ม ตารางอื่นยังต้องได้ล้าง (เดิม conversations ล้มแล้ว sync_log ไม่เคยถูกลบอีกเลย)
+  const run = async (fn: () => Promise<number>, optional = false) => {
+    try { removed += await fn(); }
+    catch (e: any) { if (!optional) errors.push(String((e && e.message) || e)); }
+  };
+  const chunked = (table: string, col: string, cut: string) => async () => {
+    const r = await deleteOlderChunked(table, col, cut, deadline);
+    if (!r.done) left.push(table);
+    return r.n;
+  };
+  await run(chunked('conversations', 'updated_at', cutIso(RETENTION_DAYS.CONVERSATIONS)));
+  await run(chunked('sync_log', 'ts', cutIso(RETENTION_DAYS.SYNC_LOG)));
+  await run(chunked('orders', 'inserted_at', cutIso(RETENTION_DAYS.ORDERS)));
+  await run(() => deleteOlder('chat_hourly', 'date', cutDate(RETENTION_DAYS.CHAT_HOURLY)));
+  await run(() => deleteOlder('admin_chat_daily', 'date', cutDate(RETENTION_DAYS.ADMIN_CHAT_DAILY)));
   // ตารางใหม่ อาจยังไม่ถูกสร้าง — ข้ามได้โดยไม่ให้งาน prune ทั้งก้อนล้ม
-  try {
-    removed += await deleteOlder('admin_online_log', 'changed_at', cutIso(RETENTION_DAYS.ADMIN_ONLINE_LOG));
-  } catch { /* ยังไม่มีตาราง admin_online_log */ }
-  try {
-    removed += await deleteOlder('ad_daily', 'date', cutDate(RETENTION_DAYS.AD_DAILY));
-  } catch { /* ยังไม่มีตาราง ad_daily */ }
-  try {
-    removed += await deleteOlder('chat_engagement_daily', 'date', cutDate(RETENTION_DAYS.CHAT_ENGAGEMENT));
-  } catch { /* ยังไม่มีตาราง chat_engagement_daily */ }
-  removed += await deleteOlder('sync_log', 'ts', cutIso(RETENTION_DAYS.SYNC_LOG));
-  return `ลบข้อมูลเก่า ${removed} แถว`;
+  await run(chunked('admin_online_log', 'changed_at', cutIso(RETENTION_DAYS.ADMIN_ONLINE_LOG)), true);
+  await run(() => deleteOlder('ad_daily', 'date', cutDate(RETENTION_DAYS.AD_DAILY)), true);
+  await run(() => deleteOlder('chat_engagement_daily', 'date', cutDate(RETENTION_DAYS.CHAT_ENGAGEMENT)), true);
+  let msg = `ลบข้อมูลเก่า ${removed} แถว`;
+  if (left.length) msg += ` | หมดเวลารอบนี้ ยังเหลือ: ${left.join(', ')} (รอบหน้าทำต่อ)`;
+  if (errors.length) throw new Error(msg + ' | ล้ม: ' + errors.join(' ; '));
+  return msg;
 }
