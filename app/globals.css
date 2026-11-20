@@ -3282,6 +3282,26 @@ table.tbl td, .t-num, .stat-value, .sr-card .big, .sr-chbox .v, .tile b, .pgs-it
   #view-sales .sr-channels > .sr-chbox:nth-child(3):last-child { grid-column: auto; }
 }
 
+/* ---------- ยอดเงินกีบในกล่องช่องทาง (ยูนิตที่ขายผ่านร้าน POS ลาว · พีขอ 20 พ.ย. 69) ----------
+   แยกช่องจากยอดบาทเสมอ (ไม่ได้บวกรวม) · กล่องแคบ (มือถือ 2 คอลัมน์) ซ้อนใต้ยอดบาทมีเส้นคั่น
+   · กล่องกว้างตั้งแต่ 300px (ใช้ container ของ .sr-chbox) วางข้างกันมีเส้นคั่นแนวตั้ง
+   · ฝั่งยอดบาทเป็น container ของตัวเอง — ตัวเลขใหญ่ย่อตามความกว้างคอลัมน์ ไม่ใช่ทั้งกล่อง (กันล้นทับช่องกีบ) */
+/* ปุ่มจัดเนื้อหากลางแนวตั้งเป็นค่าเริ่มต้น — กล่อง Facebook สูงขึ้นเมื่อมียอดกีบ กล่องข้างๆ จะลอยกลาง ดูเหมือนเว้นบนผิดๆ
+   → ชิดบนทุกกล่อง (ตอนสูงเท่ากันหน้าตาเหมือนเดิมทุกอย่าง) */
+#view-sales .sr-channels > .sr-chbox { display: flex; flex-direction: column; justify-content: flex-start; }
+.sr-chbox-fx { margin-top: var(--sp-2); padding-top: var(--sp-2); border-top: 1px solid var(--border); }
+.sr-chbox .sr-chbox-fx .v { font-size: clamp(var(--fs-5), 9cqi, var(--fs-7)); }
+@container (min-width: 300px) {
+  .sr-chbox-in { display: flex; gap: var(--sp-4); align-items: stretch; }
+  .sr-chbox-main { flex: 1 1 auto; min-width: 0; container-type: inline-size; }
+  .sr-chbox-fx {
+    flex: 0 0 auto; margin-top: 0; padding-top: 0; border-top: 0;
+    padding-left: var(--sp-4); border-left: 1px solid var(--border);
+  }
+}
+/* ตารางยูนิต: บรรทัด "≈ ฿" ใต้ยอดกีบ */
+.sr-fx-sub { display: block; font-size: var(--fs-2); color: var(--text-3); font-weight: 400; }
+
 /* ---------- กล่องตัวเลขรอง 2 กลุ่มมีหัวข้อ "ลูกค้าและแชท" / "โฆษณา" (ตรวจ UI ข้อ B2) ----------
    กลุ่มละ 5 กล่อง — จัดให้เต็มแถวทุกขนาดจอ ไม่เหลือช่องโหว่ท้ายแถว:
    มือถือ 2 คอลัมน์ (กล่องที่ 5 กว้างเต็มแถว) · 600–1199 แถวบน 3 + แถวล่าง 2 · ≥1200 แถวเดียว 5 กล่อง */

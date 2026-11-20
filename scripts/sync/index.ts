@@ -75,6 +75,8 @@ async function runInvariants(): Promise<void> {
 
 async function runFast(): Promise<void> {
   await runJob('orders', jobs.syncOrders);
+  // ร้าน POS ลาว (เงินกีบ) — ไม่ตั้งกุญแจ = ข้ามเอง · ยอดลาวสดตามรอบนี้ (15 นาที) ไม่ได้อยู่ในรอบ 1 นาที
+  await runJob('orders-laos', jobs.syncOrdersLaos);
   await runJob('chat-today', jobs.syncChatToday);
   await runJob('conversations', jobs.syncConversations);
   await runJob('online-status', jobs.syncOnlineStatus);

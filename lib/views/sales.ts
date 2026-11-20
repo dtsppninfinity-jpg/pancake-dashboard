@@ -110,6 +110,8 @@ interface SalesData {
     amount: number; accounts: number; dates: string[]; today: string; ts: string;
     top: Array<{ name: string; amount: number }>;
   } | null;
+  // อัตรากีบต่อบาทล่าสุดที่ใช้แปลงยอดยูนิตลาว (null = ช่วงนี้ไม่มีออเดอร์ร้านลาว / ยังไม่มีอัตรา)
+  laosFx?: { rate: number; date: string; source: string } | null;
 }
 
 let lastData: SalesData | null = null;
@@ -217,13 +219,37 @@ function trendChip(v: any, neutral = false): string {
 function chBoxHtml(key: string, ch: any, tip?: TipSpec): string {
   ch = ch || {};
   const on = state.channel === key;
-  return '<button type="button" class="sr-chbox' + (on ? ' active' : '') +
-    '" data-ch="' + key + '" aria-pressed="' + (on ? 'true' : 'false') + '"' + tipAttrs(tip) + '>' +
-    '<div class="t">' + chLabelHtml_(key) + '</div>' +
+  const main = '<div class="t">' + chLabelHtml_(key) + '</div>' +
     '<div class="v">' + THB(ch.revenue || 0) + '</div>' +
     '<div class="s">' + fmtNum(ch.orders || 0) + ' ออเดอร์ • ' +
-      fmtNum(ch.customers || 0) + ' ลูกค้า' + trendChip(ch.trend) + '</div>' +
+      fmtNum(ch.customers || 0) + ' ลูกค้า' + trendChip(ch.trend) + '</div>';
+  // ยอดเงินกีบ (ยูนิตที่ขายผ่านร้าน POS ลาว) — แยกช่อง ไม่บวกเข้ายอดบาทด้านซ้าย (พีขอ 20 พ.ย. 69)
+  const lak = ch.lak && ch.lak.orders ? ch.lak : null;
+  const fx = lak
+    ? '<div class="sr-chbox-fx" title="ยอดขายของยูนิตที่ขายเป็นเงินกีบ (ร้าน POS ลาว) — แยกจากยอดบาท ไม่ได้บวกรวม">' +
+        '<div class="t">ยอดเงินกีบ</div>' +
+        '<div class="v">' + LAK_(lak.revenue) + '</div>' +
+        '<div class="s">' + fmtNum(lak.orders) + ' ออเดอร์</div>' +
+      '</div>'
+    : '';
+  return '<button type="button" class="sr-chbox' + (on ? ' active' : '') + (fx ? ' has-fx' : '') +
+    '" data-ch="' + key + '" aria-pressed="' + (on ? 'true' : 'false') + '"' + tipAttrs(tip) + '>' +
+    (fx ? '<div class="sr-chbox-in"><div class="sr-chbox-main">' + main + '</div>' + fx + '</div>' : main) +
     '</button>';
+}
+
+/** เงินกีบ ₭1,010,000 (รูปแบบเดียวกับ THB) — ใช้กับยูนิตร้าน POS ลาวเท่านั้น */
+function LAK_(n: unknown): string {
+  const v = Math.round(Number(n) || 0);
+  return (v < 0 ? '-' : '') + '₭' + Math.abs(v).toLocaleString('th-TH');
+}
+
+/** ที่มาของการแปลงกีบ→บาท (tooltip ยูนิตลาว) */
+function laosFxNote_(): string {
+  const fx = lastData && lastData.laosFx;
+  return fx
+    ? 'แปลงกีบเป็นบาทด้วยอัตรารายวันของวันที่สั่ง (ล่าสุด 1 บาท = ' + fmtNum(fx.rate) + ' กีบ วันที่ ' + dateTh(fx.date) + ')'
+    : 'ยังไม่มีอัตราแลกเปลี่ยน — ROAS และหลังหักค่าแอดจึงยังคิดไม่ได้';
 }
 
 /**
@@ -872,14 +898,23 @@ function unitTableHtml_(units: any[], showAttain: boolean): string {
     const label = (u.mapped
       ? esc(u.product || u.u) + (u.u ? ' <span class="chip">' + esc(u.u) + '</span>' : '')
       : UNMAPPED_HTML) + noteChip_(u.note);
-    const pb = perBill_(u.revenue, u.orders);
+    // ยูนิตลาว: orders รวมใบกีบแล้ว → เปอร์บิลบาทต้องหารเฉพาะใบบาท · ขายกีบล้วน = เปอร์บิลเป็นกีบ (ไม่ระบายสี เกณฑ์เป็นบาท)
+    const lak = u.lak || null;
+    const lakOnly = !!lak && !(Number(u.revenue) > 0);
+    const pb = lakOnly ? null : perBill_(u.revenue, lak ? u.orders - lak.orders : u.orders);
+    const pbLak = lakOnly ? perBill_(lak.revenue, lak.orders) : null;
     const closeK: ColorKind = u.closeTarget ? closeRateKind(u.closeRate, u.closeTarget) : 'none';
     const pbK: ColorKind = u.perBillTarget && pb !== null ? attainKind(pb, u.perBillTarget) : 'none';
     return '<tr class="clickable' + (u.mapped ? '' : ' sr-unmapped') + '" data-drill-unit="' + esc(u.key) + '"' +
       (u.mapped ? '' : ' data-sort-fixed') +
       ' title="คลิกดูรายเพจ + ยอดรายสัปดาห์ของยูนิตนี้">' +
       '<td data-sort="' + esc(u.mapped ? String(u.product || u.u || '') : '') + '">' + label + '</td>' +
-      '<td class="num" data-sort="' + sv_(u.revenue) + '">' + THB(u.revenue) + '</td>' +
+      (lak
+        // เรียงตามยอดที่แปลงเป็นบาท ให้อยู่ถูกที่เมื่อเทียบกับยูนิตอื่น
+        ? '<td class="num" data-sort="' + sv_((Number(u.revenue) || 0) + (Number(lak.thb) || 0)) + '" title="' + esc(laosFxNote_()) + '">' +
+            (lakOnly ? '' : THB(u.revenue) + '<br>') + LAK_(lak.revenue) +
+            (lak.thb === null ? '' : '<span class="sr-fx-sub">≈ ' + THB(lak.thb) + '</span>') + '</td>'
+        : '<td class="num" data-sort="' + sv_(u.revenue) + '">' + THB(u.revenue) + '</td>') +
       '<td class="num" data-sort="' + sv_(u.share) + '">' + (u.share === null || u.share === undefined ? dash() : pct1(u.share)) + '</td>' +
       '<td class="num" data-sort="' + (u.spend ? sv_(u.spend) : '') + '">' + (u.spend ? THB(u.spend) : dash()) + '</td>' +
       '<td class="num" data-sort="' + sv_(u.roas) + '">' + (u.roas === null || u.roas === undefined ? dash() : tintVal(roasFmt(u.roas), salesRoasKind(u.roas))) + '</td>' +
@@ -891,8 +926,11 @@ function unitTableHtml_(units: any[], showAttain: boolean): string {
           : fmtNum(u.closeBase) + '<span class="sr-closed">/' + fmtNum(u.closeOrders || 0) + '</span>') + '</td>' +
       '<td class="num" data-sort="' + sv_(u.closeRate) + '" title="' + esc(closeTip_(u)) + '">' +
         (u.closeRate === null || u.closeRate === undefined ? dash() : tintVal(pct2(u.closeRate), closeK)) + '</td>' +
-      '<td class="num" data-sort="' + sv_(pb) + '" title="' + esc(perBillTip_(u)) + '">' +
-        (pb === null ? dash() : tintVal(THB(pb), pbK)) + '</td>' +
+      (pbLak !== null
+        ? '<td class="num" data-sort="' + sv_(lak.thb && lak.orders ? lak.thb / lak.orders : null) + '" title="เปอร์บิลเงินกีบ = ยอดกีบ ÷ ออเดอร์ร้านลาว (ไม่ระบายสี — เกณฑ์ราคาเซ็ตเป็นบาท)">' +
+            LAK_(pbLak) + '</td>'
+        : '<td class="num" data-sort="' + sv_(pb) + '" title="' + esc(perBillTip_(u)) + '">' +
+            (pb === null ? dash() : tintVal(THB(pb), pbK)) + '</td>') +
       '<td class="num" data-sort="' + sv_(u.target) + '" title="' + esc(targetTip_(u)) + '">' + (u.target ? THB(u.target) : dash()) + '</td>' +
       '<td class="num" data-sort="' + sv_(u.attain) + '" title="' + esc(targetTip_(u)) + '">' + attainBarHtml_(u) + '</td>' +
       '</tr>';
@@ -913,8 +951,10 @@ function unitTableHtml_(units: any[], showAttain: boolean): string {
   });
   const totRoas = totSpendExact > 0 ? Math.round((totRev / totSpendExact) * 100) / 100 : null;
   // แท็บ "ทั้งหมด" ยอดขายในตารางรวม LINE ด้วย → คนละนิยามกับกล่อง "ROAS รวม" ด้านบน (คิดเฉพาะยอด Facebook)
+  const hasLak = units.some(function (u: any) { return !!u.lak; });
   const roasTotTip = 'ROAS รวมทั้งตาราง = ยอดขายรวมในตาราง ÷ ค่าแอดรวม' +
-    (!state.channel ? ' • แท็บทั้งหมดนับยอด LINE ด้วย จึงต่างจากกล่อง "ROAS รวม" ด้านบนที่คิดเฉพาะยอด Facebook' : '');
+    (!state.channel ? ' • แท็บทั้งหมดนับยอด LINE ด้วย จึงต่างจากกล่อง "ROAS รวม" ด้านบนที่คิดเฉพาะยอด Facebook' : '') +
+    (hasLak ? ' • ยอดขายรวมเป็นบาทล้วน ไม่รวมยอดเงินกีบของยูนิตลาว แต่ค่าแอดของยูนิตนั้นรวมอยู่' : '');
   const totAttain = showAttain && totTarget > 0 ? Math.round((totGoalRev / totTarget) * 1000) / 10 : null;
   const totalRow = '<tr class="tbl-total">' +
     '<td>รวม</td>' +  // คำเดียวพอ: แถวนี้มีพื้นและตัวหนาของตัวเองแล้ว ("รวมทั้งตาราง" ขึ้น 2 บรรทัดในคอลัมน์ที่ตรึงบนมือถือ)
@@ -2042,25 +2082,44 @@ function openUnitDrill(unitKey: string, chKey: string): void {
   const pages = unit.pages || [];
   const title = (unit.mapped ? (esc(unit.product || unit.u) + (unit.u ? ' <span class="chip">' + esc(unit.u) + '</span>' : '')) : 'ยังไม่จัดกลุ่ม') + noteChip_(unit.note);
   const rows = pages.map(function (p: any, i: number) {
+    // เพจร้านลาว (เงินกีบ) ไม่มีรายการสินค้าในระบบ — แถวกดไม่ได้
+    if (p.cur === 'LAK') {
+      return '<tr title="ยอดเงินกีบจากร้าน POS ลาว">' +
+        '<td>' + (i + 1) + '</td><td>' + esc(p.name) + '</td><td class="num">' + LAK_(p.revenue) +
+        '</td><td class="num">' + fmtNum(p.orders) + '</td></tr>';
+    }
     return '<tr class="clickable" data-drill-page="' + esc(p.name) + '" title="คลิกดูสินค้าของเพจนี้">' +
       '<td>' + (i + 1) + '</td><td>' + esc(p.name) + '</td><td class="num">' + THB(p.revenue) +
       '</td><td class="num">' + fmtNum(p.orders) + '</td></tr>';
   }).join('');
+  // ยูนิตลาว: ยอดเป็นกีบ (+ ≈ บาท) · เปอร์บิลบาทหารเฉพาะใบบาท · หลังหักค่าแอดเป็นบาทที่แปลงแล้ว (ใส่ ≈ กำกับ)
+  const lak = unit.lak || null;
+  const lakOnly = !!lak && !(Number(unit.revenue) > 0);
+  const thbOrders = lak ? unit.orders - lak.orders : unit.orders;
+  const revChip = lak
+    ? '<span class="chip" title="' + esc(laosFxNote_()) + '">' + statIcon('revenue') + '<span class="mini-lbl">ยอดขาย</span>' +
+        (lakOnly ? '' : THB(unit.revenue) + ' + ') + LAK_(lak.revenue) +
+        (lak.thb === null ? '' : ' (≈ ' + THB(lak.thb) + ')') + '</span>'
+    : '<span class="chip">' + statIcon('revenue') + '<span class="mini-lbl">ยอดขาย</span>' + THB(unit.revenue) + '</span>';
+  const pbVal = lakOnly ? perBill_(lak.revenue, lak.orders) : perBill_(unit.revenue, thbOrders);
+  const pbChip = pbVal === null ? ''
+    : '<span class="chip" title="' + PERBILL_TIP + '">' + statIcon('perBill') + '<span class="mini-lbl">เปอร์บิล</span>' +
+      (lakOnly ? LAK_(pbVal) : THB(pbVal)) + '</span>';
   openModal(
     '<div class="modal-head"><h3>' + title + '</h3>' + modalCloseBtn() + '</div>' +
     '<div class="card-sub sr-msub">' + esc((lastData && lastData.rangeLabel) || '') +
       ' • ' + chLabelHtml_(chKey) + '</div>' +
     '<div class="pill-grid">' +
-      '<span class="chip">' + statIcon('revenue') + '<span class="mini-lbl">ยอดขาย</span>' + THB(unit.revenue) + '</span>' +
+      revChip +
       '<span class="chip">' + statIcon('orders') + fmtNum(unit.orders) + ' ออเดอร์</span>' +
-      (perBill_(unit.revenue, unit.orders) === null ? ''
-        : '<span class="chip" title="' + PERBILL_TIP + '">' + statIcon('perBill') + '<span class="mini-lbl">เปอร์บิล</span>' +
-          THB(perBill_(unit.revenue, unit.orders)) + '</span>') +
+      pbChip +
       '<span class="chip">' + statIcon('pages') + fmtNum(pages.length) + ' เพจ</span>' +
       (unit.share === null ? '' : '<span class="chip">' + statIcon('share') + '<span class="mini-lbl">สัดส่วน</span>' + pct1(unit.share) + '</span>') +
       (unit.spend ? '<span class="chip">' + statIcon('adSpend') + '<span class="mini-lbl">ค่าแอด</span>' + THB(unit.spend) + '</span>' : '') +
-      (unit.roas === null ? '' : '<span class="chip">' + statIcon('roas') + '<span class="mini-lbl">ROAS</span>' + roasFmt(unit.roas) + '</span>') +
-      (unit.afterAds === null ? '' : '<span class="chip">' + statIcon('afterAds') + '<span class="mini-lbl">หลังหักค่าแอด</span>' + THB(unit.afterAds) + '</span>') +
+      (unit.roas === null ? '' : '<span class="chip"' + (lak ? ' title="' + esc(laosFxNote_()) + '"' : '') + '>' +
+        statIcon('roas') + '<span class="mini-lbl">ROAS</span>' + roasFmt(unit.roas) + '</span>') +
+      (unit.afterAds === null ? '' : '<span class="chip"' + (lak ? ' title="' + esc(laosFxNote_()) + '"' : '') + '>' +
+        statIcon('afterAds') + '<span class="mini-lbl">หลังหักค่าแอด</span>' + (lak ? '≈ ' : '') + THB(unit.afterAds) + '</span>') +
       (unit.costPerMsg === null ? '' : '<span class="chip">' + statIcon('costPerMsg') + '<span class="mini-lbl">ค่าทัก</span>' + thb2_(unit.costPerMsg) + '</span>') +
       // ตัวเดียวกับตัวหารของ %ปิด/ค่าทัก ข้างๆ (เดิมโชว์ reached = รวมเพจ LINE → U4 327 แต่ตัวหาร 315)
       (unit.closeBase ? '<span class="chip" title="' + esc(baseTip_(unit)) + '">' + statIcon('inquiries') + '<span class="mini-lbl">รวมคนทัก</span>' +

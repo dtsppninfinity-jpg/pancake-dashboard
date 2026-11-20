@@ -19,6 +19,8 @@ import {
   daysAgo,
   UNIT_CLOSE_TARGET,
   AD_VAT_RATE,
+  LAK_MONEY_SCALE,
+  FX_LAK_STATE_KEY,
 } from '@/lib/config';
 
 type Row = Record<string, any>;
@@ -251,6 +253,102 @@ async function loadOrders_(sinceIso: string, untilIso: string | null, cols: stri
     // ตัด "ออเดอร์เปล่า" ที่ Pancake สร้างให้ทุกแชทจากแอด (43% ของตาราง) ทิ้งตั้งแต่ต้นทาง
     // — ไม่ใช่ออเดอร์จริง ไม่มีสินค้า ไม่มีเงิน ถ้านับรวมจะทำให้ทุกตัวเลขนับหัวเพี้ยน
     .filter((o) => o._at && !o._placeholder);
+}
+
+/* ---------------- ร้านลาว (เงินกีบ) — ตาราง orders_laos แยกจาก orders ----------------
+ * ยอดกีบ "ไม่บวก" เข้ายอดบาทที่ไหนเลย (ยอดรวม/ROAS รวม/กำไร ยังเป็นบาทล้วนเหมือนเดิม)
+ * ใช้แค่ 3 จุดบนหน้านี้: แถวยูนิตในตาราง · หน้าต่างเจาะยูนิต · บรรทัดยอดกีบในกล่องช่องทาง
+ * ROAS / หลังหักค่าแอด ของยูนิตลาวต้องแปลงกีบเป็นบาทก่อน (ค่าแอด Meta จ่ายเป็นบาท)
+ * — แปลงรายออเดอร์ด้วยอัตราของ "วันที่สั่ง" (งาน orders-laos เก็บอัตรารายวันไว้ใน sync_state)
+ */
+interface LaosData {
+  orders: Row[];                                    // อยู่ในช่วงที่เลือก ไม่ถูกยกเลิก ไม่ใช่ออเดอร์เปล่า · total_price = กีบจริง
+  rateOf: (ymd: string) => number | null;           // กีบต่อ 1 บาท ของวันนั้น (ไม่มี → วันก่อนหน้าที่ใกล้สุด → วันแรกที่มี)
+  latest: { rate: number; date: string; source: string } | null;
+}
+
+/** ยอดกีบของยูนิตเดียว (ในแท็บช่องทางหนึ่ง) — thb = แปลงเป็นบาทแล้ว (null = ไม่มีอัตราให้แปลง) */
+interface LakUnit {
+  revenue: number;
+  orders: number;
+  thb: number | null;
+  pages: Record<string, { revenue: number; orders: number }>;
+}
+
+/** null = ยังไม่ได้รัน migration orders_laos / อ่านไม่ได้ → หน้าเว็บเหมือนเดิมทุกอย่าง */
+async function loadLaos_(r: Range, cancel?: FetchCancel): Promise<LaosData | null> {
+  let rows: Row[];
+  try {
+    rows = await fetchAllSliced<Row>(
+      (f, t) => db.from('orders_laos').select('inserted_at,status,total_price,items_count,customer_id,page_id,platform')
+        .gte('inserted_at', f).lt('inserted_at', t),
+      // ร้านลาวขายวันละไม่กี่ใบ — ก้อนละ 60 วันพอ (ไม่ต้องหั่น 4 วันเหมือนตาราง orders หลักหมื่นแถว)
+      r.start, r.end, { cancel, sliceDays: 60 },
+    );
+  } catch (e) {
+    return null;
+  }
+  const orders = rows
+    .map((o) => {
+      o._at = toDate_(o.inserted_at);
+      o.status = toNum_(o.status);
+      o._placeholder = isPlaceholderOrder(o);         // ต้องเช็คก่อนแปลงหน่วยเงิน (ใช้ค่าดิบ)
+      o.total_price = toNum_(o.total_price) / LAK_MONEY_SCALE;
+      o._excluded = EXCLUDED_STATUSES.indexOf(o.status) >= 0;
+      o._needCheck = NEED_CHECK_STATUSES.indexOf(o.status) >= 0;
+      return o;
+    })
+    .filter((o) => o._at && !o._placeholder && !o._excluded && inRange_(o._at, r));
+
+  let doc: any = null;
+  try {
+    const { data } = await db.from('sync_state').select('value').eq('key', FX_LAK_STATE_KEY).maybeSingle();
+    doc = data && data.value ? JSON.parse(String(data.value)) : null;
+  } catch (e) { doc = null; }
+  const rates: Record<string, number> = (doc && doc.rates) || {};
+  const days = Object.keys(rates).filter((d) => Number(rates[d]) > 0).sort();
+  const rateOf = (ymd: string): number | null => {
+    if (!days.length) return null;
+    if (rates[ymd]) return Number(rates[ymd]);
+    let pick = days[0];                                // ก่อนวันแรกที่มีอัตรา → ใช้อัตราวันแรก
+    for (const d of days) { if (d <= ymd) pick = d; else break; }
+    return Number(rates[pick]);
+  };
+  const last = days.length ? days[days.length - 1] : '';
+  return {
+    orders,
+    rateOf,
+    latest: last ? { rate: Number(rates[last]), date: last, source: String((doc && doc.source) || '') } : null,
+  };
+}
+
+/** สรุปยอดกีบรายยูนิตของแท็บช่องทางหนึ่ง — นับเฉพาะออเดอร์ยืนยันแล้ว (นิยามเดียวกับยอดบาท) */
+function laosByUnit_(
+  laos: LaosData | null,
+  chanKey: 'all' | 'facebook' | 'line',
+  pageUnit: Record<string, { u: string; product: string }>,
+  pageNames: Record<string, string>,
+  unmappedKey: string,
+): Record<string, LakUnit> {
+  const out: Record<string, LakUnit> = {};
+  if (!laos) return out;
+  laos.orders.forEach((o) => {
+    if (o._needCheck) return;
+    if (chanKey !== 'all' && orderChannel_(o) !== chanKey) return;
+    const pid = String(o.page_id || '');
+    const um = pageUnit[pid];
+    const k = um ? um.u : unmappedKey;
+    const pg = pageNames[pid] || 'ไม่ระบุเพจ';
+    const x = out[k] || (out[k] = { revenue: 0, orders: 0, thb: 0, pages: {} });
+    x.revenue += o.total_price;
+    x.orders++;
+    const rate = laos.rateOf(fmtDateBkk(o._at));
+    x.thb = rate && x.thb !== null ? x.thb + o.total_price / rate : null;
+    const p = x.pages[pg] || (x.pages[pg] = { revenue: 0, orders: 0 });
+    p.revenue += o.total_price;
+    p.orders++;
+  });
+  return out;
 }
 
 /* ---------------- สถิติลูกค้าแบบเดียวกับหน้า Pancake (chat_engagement_daily) ---------------- */
@@ -1103,12 +1201,13 @@ function unitRows_(
   unmappedKey: string,
   goal: UnitGoalInput,
   noAds = false,                       // แท็บ LINE: เพจ LINE ไม่มีค่าแอด → ค่าทักเป็น null ("—") ไม่ใช่ ฿0.00
-  useMeta = false                      // ฐาน "รวมคนทัก" = Meta หรือ Pancake (ดู closeRateOf_)
+  useMeta = false,                     // ฐาน "รวมคนทัก" = Meta หรือ Pancake (ดู closeRateOf_)
+  lak: Record<string, LakUnit> = {}    // ยอดกีบของยูนิตลาว (ดู laosByUnit_) — ไม่บวกเข้า revenue (บาท)
 ) {
   // ยูนิตที่ "ยิงแอดแต่ยังไม่มียอด" ต้องโผล่ด้วย ไม่งั้นค่าแอดที่จ่ายไปหายจากหน้าจอเงียบๆ
   // ยูนิตที่ "มีเป้าแต่ยังขายไม่ได้เลย" ก็เช่นกัน — คือยูนิตที่ห่างเป้าที่สุด ต้องเห็นเป็น 0%
   const targetKeys = goal.withTargets ? Object.keys(goal.target).filter((k) => goal.target[k] > 0) : [];
-  const keys = Array.from(new Set(Object.keys(unitAgg).concat(Object.keys(cost), targetKeys)));
+  const keys = Array.from(new Set(Object.keys(unitAgg).concat(Object.keys(cost), targetKeys, Object.keys(lak))));
   const grand = keys.reduce((s, k) => s + ((unitAgg[k] && unitAgg[k].revenue) || 0), 0);
   return keys
     .map((k) => {
@@ -1123,18 +1222,23 @@ function unitRows_(
       const spend = Math.round(c.spend);
       const rep = repeatStats_(unitCust[k] || {});
       const tgt = mapped && goal.withTargets && goal.target[k] > 0 ? goal.target[k] : 0;
-      const cl = closeRateOf_(baseCost[k], c, agg.orders, useMeta);
+      // ยูนิตลาว: ออเดอร์กีบนับรวมในจำนวนออเดอร์/%ปิด ได้ตรงๆ (นับใบ ไม่ใช่เงิน)
+      // ส่วนเงิน: ROAS / หลังหักค่าแอด ใช้ยอดกีบที่แปลงเป็นบาทแล้ว · แปลงไม่ได้ (ไม่มีอัตรา) = "—" ไม่เดา
+      const lk = lak[k];
+      const ordersAll = agg.orders + (lk ? lk.orders : 0);
+      const lkThb = lk ? lk.thb : 0;
+      const cl = closeRateOf_(baseCost[k], c, ordersAll, useMeta);
       return {
         key: k,
         u: agg.u,
         product: agg.product,
         revenue,
-        orders: agg.orders,
+        orders: ordersAll,
         mapped,
         spend,
         spendExact: Math.round(c.spend * 100) / 100,   // tooltip ค่าทัก — ค่าทักคิดจากตัวนี้ ไม่ใช่ spend ที่ปัดเป็นบาท
         // ROAS = ยอดขาย POS ÷ ค่าแอดจริงจาก Meta (ไม่ใช่ ROAS ที่ Meta ตีเองจาก pixel)
-        roas: c.spend > 0 ? Math.round((agg.revenue / c.spend) * 100) / 100 : null,
+        roas: c.spend > 0 && lkThb !== null ? Math.round(((agg.revenue + lkThb) / c.spend) * 100) / 100 : null,
         // "ค่าทัก" = ค่าแอด ÷ รวมคนทัก — ฐานเดียวกับ %ปิด ตามการ์ดทีมแอด (ต้นทุนทัก = งบ ÷ รวมคนเข้า)
         // costPerMsgMeta = ถ้าหารด้วยฐานของ Meta แทน — เก็บไว้ให้ tooltip เทียบ
         costPerMsg: !noAds && cl.base && cl.base > 0 ? Math.round((c.spend / cl.base) * 100) / 100 : null,
@@ -1145,7 +1249,7 @@ function unitRows_(
         reached: Math.round(c.reached),
         // ---- %ปิด แบบการ์ดทีมแอด — ดู closeRateOf_ ----
         closeRate: cl.rate,
-        closeOrders: agg.orders,          // ตัวตั้ง = ออเดอร์ POS ของยูนิต (ไม่หักลูกค้าเก่า)
+        closeOrders: ordersAll,           // ตัวตั้ง = ออเดอร์ POS ของยูนิต (ไม่หักลูกค้าเก่า) รวมใบร้านลาว
         closeBase: cl.base,               // ตัวหาร = รวมคนทัก ของฐานที่ใช้จริง (ดู closeBaseSrc)
         closeInq: cl.inq,
         closeComment: cl.comment,
@@ -1166,9 +1270,12 @@ function unitRows_(
         chatOrders: Math.round(c.engOrders),
         chatOldOrders: Math.round(c.engOldOrders),
         // สัดส่วนยอดของยูนิตนี้ต่อยอดรวมทั้งหมดในช่วง
-        share: grand > 0 ? Math.round((agg.revenue / grand) * 1000) / 10 : null,
+        // ยูนิตที่ขายเป็นกีบล้วน = "—" (ยอดรวมทั้งหมดเป็นบาทล้วน เทียบสัดส่วนกันไม่ได้)
+        share: lk && !agg.revenue ? null : grand > 0 ? Math.round((agg.revenue / grand) * 1000) / 10 : null,
         // กำไรขั้นต้นแบบหยาบ: ยอดขาย - ค่าแอด (ยังไม่มีต้นทุนสินค้าในระบบ ห้ามเรียกว่า "กำไร")
-        afterAds: c.spend > 0 ? revenue - spend : null,
+        afterAds: c.spend > 0 && lkThb !== null ? revenue + Math.round(lkThb) - spend : null,
+        // ยอดเงินกีบของยูนิตนี้ (ร้าน POS ลาว) — null = ยูนิตปกติ · thb = แปลงเป็นบาทด้วยอัตรารายวัน (null = ไม่มีอัตรา)
+        lak: lk ? { revenue: Math.round(lk.revenue), orders: lk.orders, thb: lkThb === null ? null : Math.round(lkThb) } : null,
         customers: rep.customers,
         repeatCustomers: rep.repeat,
         repeatRate: rep.rate,
@@ -1176,7 +1283,9 @@ function unitRows_(
         // เป้ายอดของ "ช่วงวันที่ที่เลือก" จากชีท KPI (ดู rangeTargets_) — null = ไม่มีเป้า / แท็บ Facebook, LINE
         target: tgt > 0 ? Math.round(tgt) : null,
         // %บรรลุ = ยอดของวันที่มีเป้า ÷ เป้า (ปกติทุกวันในช่วงมีเป้า = ยอดขายทั้งช่วง)
-        attain: tgt > 0 ? Math.round(((goal.revenue[k] || 0) / tgt) * 1000) / 10 : null,
+        // ยูนิตที่มียอดกีบ: เป้าในชีทเป็นบาท แต่ยอดบาทของยูนิตนี้ไม่รวมกีบ → %บรรลุจะขึ้น 0% ผิดๆ จึงเป็น "—"
+        // (แถวรวมนับเป้าเฉพาะแถวที่มี %บรรลุ จึงไม่ดึง %บรรลุรวมลงด้วย)
+        attain: tgt > 0 && !lk ? Math.round(((goal.revenue[k] || 0) / tgt) * 1000) / 10 : null,
         // ช่วงนี้มีเป้ากี่วัน เทียบกับจำนวนวันที่เลือก — น้อยกว่า = หน้าเว็บบอกว่า % นับเฉพาะวันที่มีเป้า
         targetDays: tgt > 0 ? Object.keys(goal.days[k] || {}).length : 0,
         rangeDays: goal.totalDays,
@@ -1187,12 +1296,19 @@ function unitRows_(
         weekly: Object.keys(unitWeekly[k] || {})
           .sort()
           .map((w) => ({ week: w, revenue: Math.round(unitWeekly[k][w]) })),
-        pages: Object.keys(unitPages[k] || {})
-          .map((nm) => ({ name: nm, revenue: Math.round(unitPages[k][nm].revenue), orders: unitPages[k][nm].orders }))
-          .sort((a, b) => b.revenue - a.revenue),
+        pages: (Object.keys(unitPages[k] || {})
+          .map((nm) => ({ name: nm, revenue: Math.round(unitPages[k][nm].revenue), orders: unitPages[k][nm].orders } as any))
+          .sort((a: any, b: any) => b.revenue - a.revenue))
+          // เพจร้านลาว ต่อท้าย (เงินกีบ — cur บอกหน้าเว็บให้ใส่ ₭ และไม่ให้กดเจาะสินค้า)
+          .concat(Object.keys((lk && lk.pages) || {})
+            .map((nm) => ({ name: nm, revenue: Math.round(lk!.pages[nm].revenue), orders: lk!.pages[nm].orders, cur: 'LAK' }))
+            .sort((a, b) => b.revenue - a.revenue)),
+        _sortRev: agg.revenue + (lkThb || 0),
       };
     })
-    .sort((a, b) => (a.mapped === b.mapped) ? (b.revenue - a.revenue) : (a.mapped ? -1 : 1));
+    // ยูนิตลาวเรียงตามยอดที่แปลงเป็นบาทแล้ว (ไม่งั้นตกไปท้ายตารางเพราะยอดบาท = 0)
+    .sort((a, b) => (a.mapped === b.mapped) ? (b._sortRev - a._sortRev) : (a.mapped ? -1 : 1))
+    .map(({ _sortRev, ...row }) => row);
 }
 
 /* ================================================================
@@ -1228,6 +1344,8 @@ export async function apiSales(params: any) {
   const adCostP = loadAdCost_(r, compare, adDailyCurP, cancel).then((v) => { mark_('adCost'); return v; });
   // ตารางรายวัน — รวมยอดฝั่ง Postgres (ดู loadDailyByPage_) ยิงคู่ขนานไปเลย ไม่ต้องรอออเดอร์
   const dailyRawP = loadDailyByPage_(r).then((v) => { mark_('dailyRaw' + (v.rows ? '' : '-missing')); return v; });
+  // ร้านลาว (เงินกีบ) — ตารางเล็ก ยิงคู่ขนาน · พลาด/ยังไม่มีตาราง = null (หน้าเว็บเหมือนเดิม)
+  const laosP = loadLaos_(r, cancel).catch(() => null);
   // ⚡ ชุดที่ 2 — ตัวโหลดที่ไม่พึ่งออเดอร์และไม่พึ่งกันเอง เดิม await ทีละตัวหลังออเดอร์เสร็จ (ต่อกัน ~10 รอบ)
   // ยิงตั้งแต่ตอนนี้ แล้วค่อย await ที่บรรทัดเดิมทุกตัว — คิวรี/การคำนวณ/ลำดับแถว/ทางพลาดเหมือนเดิมทุกอย่าง
   // ตัวที่ไม่มี catch ของตัวเอง ต้องแปะ catch เปล่าไว้ก่อน (ไม่งั้นพลาดระหว่างรอ = unhandled rejection)
@@ -1349,16 +1467,23 @@ export async function apiSales(params: any) {
   const sPrev = summarize(prevCh);
 
   // channel boxes (ไม่สน channel filter — โชว์ทั้ง 3 เสมอ)
-  function chanSummary(ch: string) {
+  // lak = ยอดเงินกีบของร้านลาวในช่องทางนั้น (กล่อง Facebook โชว์แยกบรรทัด) — ไม่บวกเข้า revenue
+  //       กล่อง "ทั้งหมด" ไม่ใส่ (ยอดรวมเป็นบาทล้วน) · ไม่มีออเดอร์กีบ = null
+  function chanSummary(ch: string, laos: LaosData | null) {
     const list = ch ? cur.filter((o) => orderChannel_(o) === ch) : cur;
     const listPrev = ch ? prev.filter((o) => orderChannel_(o) === ch) : prev;
     const s = summarize(list);
     const sp = summarize(listPrev);
+    const lakList = ch && laos ? laos.orders.filter((o) => orderChannel_(o) === ch) : [];
     return {
       revenue: s.revenue,
       orders: s.orders,
       customers: s.customers,
       trend: compare ? pctChange_(s.revenue, sp.revenue) : null,
+      lak: lakList.length ? {
+        revenue: Math.round(lakList.reduce((t, o) => t + (o._needCheck ? 0 : o.total_price), 0)),
+        orders: lakList.length,
+      } : null,
     };
   }
 
@@ -1547,6 +1672,9 @@ export async function apiSales(params: any) {
     linkable: noUnitAdPages.filter((x) => x.inPancake).length,
   };
 
+  const laos = await laosP;
+  mark_('laos ' + (laos ? laos.orders.length : 'off'));
+
   function topAgg(list: Row[], chanKey: 'all' | 'facebook' | 'line' = 'all') {
     const pages: Record<string, { revenue: number; orders: number }> = {};
     const products: Record<string, { qty: number; value: number; orders: number }> = {};
@@ -1639,7 +1767,8 @@ export async function apiSales(params: any) {
         (chanKey === 'line' ? unitCost.line : unitCost.facebook) || {}, UNMAPPED, goalInput(chanKey),
         chanKey === 'line',
         // แท็บ LINE ใช้ Pancake เสมอ — เพจ LINE ไม่มีแอด Meta จึงไม่มีตัวหารฝั่ง Meta ให้ใช้
-        metaBaseOk && chanKey !== 'line'),
+        metaBaseOk && chanKey !== 'line',
+        laosByUnit_(laos, chanKey, pageUnit, pageNames, UNMAPPED)),
       pageProducts,   // เพจ→รายการสินค้าที่ขายได้
       productPages,   // สินค้า→เพจที่ขายได้
     };
@@ -2026,10 +2155,12 @@ export async function apiSales(params: any) {
       orders: compare ? pctChange_(sCur.orders, sPrev.orders) : null,
     },
     channels: {
-      all: chanSummary(''),
-      facebook: chanSummary('facebook'),
-      line: chanSummary('line'),
+      all: chanSummary('', laos),
+      facebook: chanSummary('facebook', laos),
+      line: chanSummary('line', laos),
     },
+    // อัตราแลกเปลี่ยนล่าสุดที่ใช้แปลงยอดกีบ (tooltip ยูนิตลาวบอกที่มา) — null = ไม่มีร้านลาว/ยังไม่มีอัตรา
+    laosFx: laos && laos.orders.length ? laos.latest : null,
     hourly: hourlyBuckets(curCh),
     hourlyPrev: compare ? hourlyBuckets(prevCh) : null,
     today: {

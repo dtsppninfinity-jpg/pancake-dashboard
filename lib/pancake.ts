@@ -60,9 +60,21 @@ export async function fetchJson(url: string, options: RequestInit = {}, retry5xx
 
 /* ---------------- POS API ---------------- */
 
-function posGet(path: string, params: Params = {}): Promise<any> {
-  const p: Params = { ...params, api_key: cfg.posApiKey };
-  return fetchJson(`${POS_BASE}/shops/${cfg.posShopId}${path}${qs(p)}`);
+/** ร้าน POS ที่จะเรียก — ไม่ส่ง = ร้านหลัก (POS_API_KEY/POS_SHOP_ID) */
+export interface PosShop { apiKey: string; shopId: string }
+
+function posGet(path: string, params: Params = {}, shop?: PosShop): Promise<any> {
+  const p: Params = { ...params, api_key: shop ? shop.apiKey : cfg.posApiKey };
+  return fetchJson(`${POS_BASE}/shops/${shop ? shop.shopId : cfg.posShopId}${path}${qs(p)}`);
+}
+
+/** ร้านที่กุญแจนี้เปิดได้ (id / ชื่อ / สกุลเงิน) — ใช้หาเลขร้านลาวจากกุญแจ ไม่ต้องให้ทีมส่งเลขร้านมาอีกตัว */
+export async function posListShops(apiKey: string): Promise<Array<{ id: string; name: string; currency: string }>> {
+  const res = await fetchJson(`${POS_BASE}/shops${qs({ api_key: apiKey })}`);
+  const list = (res && (res.shops || res.data)) || [];
+  return (Array.isArray(list) ? list : []).map((s: any) => ({
+    id: String(s.id), name: String(s.name || ''), currency: String(s.currency || ''),
+  }));
 }
 
 /**
@@ -71,7 +83,7 @@ function posGet(path: string, params: Params = {}): Promise<any> {
  *    ต้อง throw ให้ sync_log ขึ้นแดง ดีกว่าปล่อยให้ยอดขายขาดหายแบบไม่มีใครรู้
  *    (เคยเกิดมาแล้ว: ออเดอร์ 1-4 ก.ค. 2026 หายทั้ง 4 วัน ~10,000 ใบ เพราะเพดานเงียบแบบนี้)
  */
-export async function posFetchOrders(since: Date, until: Date, maxPages = 120): Promise<any[]> {
+export async function posFetchOrders(since: Date, until: Date, maxPages = 120, shop?: PosShop): Promise<any[]> {
   const all: any[] = [];
   let totalPages = 1;
   for (let page = 1; page <= totalPages && page <= maxPages; page++) {
@@ -81,7 +93,7 @@ export async function posFetchOrders(since: Date, until: Date, maxPages = 120): 
       endDateTime: unixSec(until),
       page_number: page,
       page_size: 100,
-    });
+    }, shop);
     const data = res?.data ?? [];
     all.push(...data);
     totalPages = res?.total_pages ?? 1;

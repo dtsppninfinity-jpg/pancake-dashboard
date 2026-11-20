@@ -1,12 +1,12 @@
 // scripts/sync/jobs.ts — งาน sync ทั้งหมด (port จาก Sync*.gs + Setup.gs trigger entry points)
 import {
   requireCredentials, daysAgo, startOfDayBkk, fmtDateBkk, parsePancakeTime, num, sleep, RETENTION_DAYS,
-  EXCLUDED_STATUSES, NEED_CHECK_STATUSES, isPlaceholderOrder, money_,
+  EXCLUDED_STATUSES, NEED_CHECK_STATUSES, isPlaceholderOrder, money_, cfg, FX_LAK_STATE_KEY,
 } from '../../lib/config';
 import {
   posFetchOrders, posFetchUsers, posFetchAds, posFetchCampaigns,
   pageChatStats, pageConversations, pageUserStats, pageUsers, pageAdStats, pageCustomerEngagements,
-  pagesListPages, pagesGenerateToken,
+  pagesListPages, pagesGenerateToken, posListShops, type PosShop,
 } from '../../lib/pancake';
 import { mapOrder, mapChatHour, mapConversation, mapAd, mapAdDaily, mapEngagementDaily } from '../../lib/mappers';
 import {
@@ -902,6 +902,119 @@ export async function syncOrdersBackfill(days = 30): Promise<string> {
       `(${failed.join(', ')}) — รันซ้ำเฉพาะช่วงนั้น ข้อมูลยังไม่ครบ`);
   }
   return `backfill ออเดอร์ ${days} วัน: ${count} รายการ`;
+}
+
+/* ---------------- ORDERS: ร้านลาว (เงินกีบ) ---------------- */
+
+/**
+ * อัตรา "กีบต่อ 1 บาท" จากแหล่งฟรีที่ไม่ต้องใช้กุญแจ (อัปเดตวันละครั้ง) — ตัวแรกล่มใช้ตัวที่สอง
+ * ใช้แปลงยอดกีบเป็นบาทเฉพาะตอนคิด ROAS / หลังหักค่าแอด ของยูนิตลาว (ค่าแอด Meta จ่ายเป็นบาท)
+ * ไม่ส่งข้อมูลอะไรของเราออกไป — เป็นคำขอ GET เปล่าๆ
+ */
+async function fetchLakPerThb(): Promise<{ rate: number; source: string } | null> {
+  const sources: Array<{ name: string; url: string; pick: (j: any) => number }> = [
+    { name: 'open.er-api.com', url: 'https://open.er-api.com/v6/latest/THB',
+      pick: (j) => (j && j.result === 'success' && j.rates ? Number(j.rates.LAK) : NaN) },
+    { name: 'fawazahmed0/currency-api', url: 'https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/thb.json',
+      pick: (j) => (j && j.thb ? Number(j.thb.lak) : NaN) },
+  ];
+  for (const s of sources) {
+    try {
+      const res = await fetch(s.url, { signal: AbortSignal.timeout(15000) });
+      if (!res.ok) continue;
+      const rate = s.pick(await res.json());
+      // กันแหล่งส่งค่าเพี้ยน: ปี 2569 1 บาท ≈ 600-700 กีบ — นอกช่วงกว้างๆ นี้ไม่บันทึก
+      if (rate > 200 && rate < 3000) return { rate, source: s.name };
+    } catch { /* ลองแหล่งถัดไป */ }
+  }
+  return null;
+}
+
+/** เติมอัตราของ "วันนี้" ลง sync_state ถ้ายังไม่มี (วันละ 1 คำขอ) — วันที่ดึงไม่ได้ หน้าเว็บใช้อัตราวันก่อนหน้า */
+async function refreshLakRate(): Promise<string> {
+  const today = fmtDateBkk(new Date());
+  let doc: any = {};
+  try { doc = JSON.parse((await getState(FX_LAK_STATE_KEY)) || '{}'); } catch { doc = {}; }
+  const rates: Record<string, number> = (doc && doc.rates) || {};
+  if (rates[today]) return `อัตรา ${rates[today]} กีบ/บาท`;
+  const got = await fetchLakPerThb();
+  if (!got) return 'อัตราแลกเปลี่ยนวันนี้ดึงไม่ได้ (หน้าเว็บใช้อัตราวันก่อนหน้า)';
+  rates[today] = Math.round(got.rate * 100) / 100;
+  const trimmed: Record<string, number> = {};
+  Object.keys(rates).sort().slice(-400).forEach((d) => { trimmed[d] = rates[d]; });   // พอสำหรับเลือกช่วงรายปี
+  await setState(FX_LAK_STATE_KEY, JSON.stringify({ rates: trimmed, source: got.source, fetchedAt: new Date().toISOString() }));
+  return `อัตราใหม่ ${rates[today]} กีบ/บาท (${got.source})`;
+}
+
+let laosShopCache: { id: string; currency: string } | null = null;
+
+/** เลขร้านลาว: ใช้ POS_LAOS_SHOP_ID ถ้าตั้งไว้ ไม่งั้นถามจากกุญแจเอง (เลือกร้านที่สกุลเงิน LAK) */
+async function laosShop(): Promise<PosShop & { currency: string }> {
+  if (!laosShopCache) {
+    if (cfg.posLaosShopId) {
+      laosShopCache = { id: cfg.posLaosShopId, currency: '' };   // สกุลเงินยึดจากออเดอร์ (order_currency)
+    } else {
+      const shops = await posListShops(cfg.posLaosApiKey);
+      const pick = shops.find((s) => s.currency.toUpperCase() === 'LAK') || (shops.length === 1 ? shops[0] : null);
+      if (!pick) {
+        throw new Error(`หาร้านลาวจากกุญแจ POS_LAOS_API_KEY ไม่เจอ (กุญแจเปิดได้ ${shops.length} ร้าน ไม่มีร้านเงินกีบ) — ตั้ง POS_LAOS_SHOP_ID ให้ชัด`);
+      }
+      laosShopCache = { id: pick.id, currency: pick.currency };
+    }
+  }
+  return { apiKey: cfg.posLaosApiKey, shopId: laosShopCache.id, currency: laosShopCache.currency };
+}
+
+/**
+ * ออเดอร์ร้าน POS ลาว → ตาราง orders_laos (แยกจาก orders โดยตั้งใจ — ดูหัวไฟล์ migration)
+ * ไม่ตั้ง POS_LAOS_API_KEY = ข้าม (ไม่ใช่ error) · รอบแรกที่ตารางว่างย้อน 60 วัน รอบปกติย้อน 48 ชม.เหมือนร้านไทย
+ * ยอดลาวอัปเดตตามรอบ 15 นาทีนี้เท่านั้น (ไม่ได้อยู่ในรอบสด 1 นาทีบน Vercel)
+ */
+const LAOS_CURSOR_KEY = 'orders_laos_cursor';   // เวลาที่ดึงสำเร็จล่าสุด (ISO) — ไว้เก็บตกช่วงที่งานล่มนานเกิน 48 ชม.
+
+export async function syncOrdersLaos(): Promise<string> {
+  if (!cfg.posLaosApiKey) return 'ข้าม: ยังไม่ได้ตั้ง POS_LAOS_API_KEY (ยูนิตลาวยังโชว์ ฿0)';
+  const shop = await laosShop();
+  // ใส่กุญแจผิดเป็นของร้านไทย = ยอดบาทจะถูกนับซ้ำเป็นกีบ → หยุดดังๆ (ด่านที่ 2 = สกุลเงินรายออเดอร์ ด้านล่าง)
+  if (cfg.posShopId && shop.shopId === cfg.posShopId) {
+    throw new Error('POS_LAOS_API_KEY ชี้ไปร้านไทย (ร้านเดียวกับ POS_SHOP_ID) — ต้องเป็นกุญแจของร้านลาว');
+  }
+  const { error } = await supabase.from('orders_laos').select('id', { count: 'exact', head: true });
+  if (error) {
+    throw new Error('อ่านตาราง orders_laos ไม่ได้ — รัน db/migrations/2026-11-20-orders-laos.sql ก่อน (' + error.message + ')');
+  }
+  // ช่วงที่ดึง: ย้อน 48 ชม.เหมือนร้านไทย แต่ถ้างานล่มนานกว่านั้น ย้อนถึงรอบที่สำเร็จล่าสุด (เผื่อ 1 ชม.)
+  // ยังไม่เคยสำเร็จ = รอบแรก ย้อน 60 วัน (ร้านลาวขายวันละไม่กี่ใบ) — เพดาน 60 วันเสมอ
+  const cursorIso = await getState(LAOS_CURSOR_KEY);
+  const cursorMs = cursorIso ? new Date(cursorIso).getTime() : NaN;
+  const firstRun = !(cursorMs > 0);
+  const maxBackMs = Date.now() - 60 * 864e5;
+  const sinceMs = firstRun ? maxBackMs : Math.max(maxBackMs, Math.min(Date.now() - 48 * 3600e3, cursorMs - 3600e3));
+  const since = new Date(sinceMs);
+  const until = new Date(Date.now() + 3600 * 1000);
+  const startedAt = new Date().toISOString();
+  const raw = await posFetchOrders(since, until, 120, shop);
+  // ด่านกันกุญแจผิดร้าน: ออเดอร์ที่ระบุสกุลเงินมาและไม่ใช่กีบ = ไม่ใช่ร้านลาว → ไม่บันทึกสักใบ
+  const wrongCur = raw.filter((o) => o.order_currency && String(o.order_currency).toUpperCase() !== 'LAK');
+  if (wrongCur.length) {
+    throw new Error(`ร้านของ POS_LAOS_API_KEY ส่งออเดอร์สกุล ${String(wrongCur[0].order_currency)} มา ${wrongCur.length} ใบ ` +
+      '— ไม่ใช่ร้านเงินกีบ ไม่บันทึก (เช็คว่ากุญแจ/POS_LAOS_SHOP_ID เป็นของร้านลาว)');
+  }
+  const map = await platformByPage();
+  const rows = raw.map((o) => {
+    const m = mapOrder(o, map);
+    return {
+      id: m.id, shop_id: shop.shopId, currency: String(o.order_currency || shop.currency || ''),
+      display_id: m.display_id, status: m.status, status_name: m.status_name,
+      inserted_at: m.inserted_at, updated_at: m.updated_at, total_price: m.total_price,
+      items_count: m.items_count, product_names: m.product_names, customer_id: m.customer_id,
+      page_id: m.page_id, platform: m.platform, ad_id: m.ad_id,
+    };
+  });
+  const n = await upsertRows('orders_laos', rows, 'id');
+  await setState(LAOS_CURSOR_KEY, startedAt);
+  const fx = await refreshLakRate();
+  return `orders-laos: ${raw.length} รายการ (upsert ${n})${firstRun ? ' • รอบแรกย้อน 60 วัน' : ''} • ${fx}`;
 }
 
 /* ---------------- CHAT STATS (ChatHourly) ---------------- */

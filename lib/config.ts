@@ -96,7 +96,22 @@ export const cfg = {
   posApiKey: process.env.POS_API_KEY || '',
   posShopId: process.env.POS_SHOP_ID || '',
   accessToken: process.env.PANCAKE_ACCESS_TOKEN || '',
+  // ร้าน POS ฝั่งลาว (ขายเป็นกีบ) — ไม่บังคับ: ไม่ตั้ง = งาน orders-laos ข้ามไป ยูนิตลาวโชว์ ฿0 เหมือนเดิม
+  // POS_LAOS_SHOP_ID ไม่ต้องตั้งก็ได้ งานหาเลขร้านเองจากกุญแจ (GET /shops)
+  posLaosApiKey: process.env.POS_LAOS_API_KEY || '',
+  posLaosShopId: process.env.POS_LAOS_SHOP_ID || '',
 };
+
+/**
+ * หน่วยเงินของออเดอร์ร้านลาว (total_price ดิบ ÷ ค่านี้ = กีบจริง)
+ * ⚠️ ต่างจากร้านไทย (MONEY_SCALE = 100): Pancake เก็บกีบเป็นจำนวนเต็มตรงๆ ไม่มีหน่วยย่อย
+ * พิสูจน์กับจอ POS ร้านลาว 20 พ.ย. 69: วันนี้ 2 ใบ ค่าดิบ 505,000 + 505,000 = จอโชว์ 1,010,000 ₭ ·
+ * 7 วัน 4 ใบ (283,000 × 2 + 505,000 × 2) = จอโชว์ 1,576,000 ₭
+ */
+export const LAK_MONEY_SCALE: number = 1;
+
+/** sync_state key ของอัตราแลกเปลี่ยนรายวัน — value = JSON { rates: { 'YYYY-MM-DD': กีบต่อ 1 บาท }, source, fetchedAt } */
+export const FX_LAK_STATE_KEY = 'fx_lak_per_thb';
 
 export function requireCredentials(): void {
   const missing: string[] = [];

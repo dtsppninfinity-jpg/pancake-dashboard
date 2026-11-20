@@ -32,6 +32,10 @@ jobs:
         env:
           POS_API_KEY: ${{ secrets.POS_API_KEY }}
           POS_SHOP_ID: ${{ secrets.POS_SHOP_ID }}
+          # ร้าน POS ลาว (เงินกีบ) — ไม่ตั้ง = งาน orders-laos ข้ามเอง
+          POS_LAOS_API_KEY: ${{ secrets.POS_LAOS_API_KEY }}
+          # ไม่ต้องตั้งก็ได้ (งานหาเลขร้านเองจากกุญแจ) — ตั้งเมื่อกุญแจเปิดได้หลายร้าน
+          POS_LAOS_SHOP_ID: ${{ secrets.POS_LAOS_SHOP_ID }}
           PANCAKE_ACCESS_TOKEN: ${{ secrets.PANCAKE_ACCESS_TOKEN }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
